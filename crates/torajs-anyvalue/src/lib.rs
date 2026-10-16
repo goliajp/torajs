@@ -846,6 +846,9 @@ mod tests {
     pub unsafe extern "C" fn __torajs_dynobj_alloc() -> *mut c_void {
         core::ptr::null_mut()
     }
+    // the struct JSON walk releases the dict that holds its key list
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_dynobj_drop(_obj: *mut c_void) {}
     // B6 刀 2 — `array_from`'s construct walk makes the species
     // `store_elem` / construct `link_proto` chain test-reachable
     // (shipped binary resolves libtorajs_arr.a / libtorajs_dynobj.a

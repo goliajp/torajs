@@ -83,7 +83,7 @@ pub(super) unsafe fn write_object(sb: *mut c_void, ptr: *mut c_void, depth: u32,
             if pinned {
                 crate::payload_rc_inc(4, key as i64);
             }
-            emitted |= write_entry(sb, ptr, i, key, depth, st, emitted);
+            emitted |= write_entry(sb, (ptr, i, key), ptr, depth, st, emitted);
             if pinned {
                 __torajs_str_drop(key);
             }
@@ -101,16 +101,13 @@ pub(super) unsafe fn write_object(sb: *mut c_void, ptr: *mut c_void, depth: u32,
     }
 }
 
-/// One own enumerable entry of [`write_object`] — §25.5.2.2
-/// SerializeJSONProperty for the dynobj lane. Answers whether it
-/// contributed text (a key whose value serializes to nothing is
-/// omitted entirely, so the caller's separator state must not
-/// advance).
-unsafe fn write_entry(
+/// The entry `i` of the dict `ptr`, keyed `key` — §25.5.2.2 for the dynobj
+/// and struct expando lanes; `holder` is the object the program sees. Answers
+/// whether it wrote text: an omitted key leaves the separator state alone.
+pub(super) unsafe fn write_entry(
     sb: *mut c_void,
-    ptr: *mut c_void,
-    i: u64,
-    key: *mut c_void,
+    (ptr, i, key): (*mut c_void, u64, *mut c_void),
+    holder: *mut c_void,
     depth: u32,
     st: &St,
     emitted: bool,
@@ -124,7 +121,7 @@ unsafe fn write_entry(
         // object. The result is OWNED (len_get's box_probe_pair
         // convention); a pending throw aborts the walk and
         // propagates through the caller's throw-check.
-        let holder = crate::nanbox_encode::__torajs_anyv_box_from_pair(4, ptr as i64);
+        let holder = crate::nanbox_encode::__torajs_anyv_box_from_pair(4, holder as i64);
         let mut owned = accessor_pair_of(value).is_some();
         if let Some(pair) = accessor_pair_of(value) {
             value = __torajs_accessor_invoke_getter(pair, holder);
@@ -198,6 +195,7 @@ pub(super) unsafe fn write_struct(sb: *mut c_void, ptr: *mut c_void, depth: u32,
             return replacer::write_object_list(sb, box_void_ptr(ptr), depth, st);
         }
         __torajs_jsb_push_byte(sb, b'{');
+        let mut k_expandos = struct_expando::KeysInK::new();
         let class_tag = (ptr.cast::<u8>().add(OBJ_CLASS_TAG_OFF) as *const u32).read();
         let layout = __torajs_struct_layout_lookup(class_tag);
         let mut emitted = false;
@@ -227,14 +225,14 @@ pub(super) unsafe fn write_struct(sb: *mut c_void, ptr: *mut c_void, depth: u32,
                 for row in order.iter_mut() {
                     let i = *row & !NOT_IN_K;
                     if !scan {
-                        // 628-05 — a computed field declared before this row.
+                        // a computed field declared before this row
                         struct_expando::write_struct_expandos(
                             sb,
                             ptr,
                             depth,
                             st,
                             &mut emitted,
-                            struct_expando::before_row(i),
+                            (struct_expando::before_row(i), &mut k_expandos),
                         );
                         if __torajs_throw_check() != 0 {
                             break 'walk;
@@ -262,16 +260,15 @@ pub(super) unsafe fn write_struct(sb: *mut c_void, ptr: *mut c_void, depth: u32,
                 scan = false;
             }
         }
-        // Blade 3 (RFC 20260714-struct-dynamic-props) — the expando
-        // entries: the ones declared after the last row (628-05),
-        // then the rest in insertion order.
+        // the expando entries: the ones declared after the last row,
+        // then the rest in insertion order
         struct_expando::write_struct_expandos(
             sb,
             ptr,
             depth,
             st,
             &mut emitted,
-            struct_expando::TAIL,
+            (struct_expando::TAIL, &mut k_expandos),
         );
         struct_expando::write_struct_expandos(
             sb,
@@ -279,7 +276,7 @@ pub(super) unsafe fn write_struct(sb: *mut c_void, ptr: *mut c_void, depth: u32,
             depth,
             st,
             &mut emitted,
-            struct_expando::REST,
+            (struct_expando::REST, &mut k_expandos),
         );
         if emitted {
             push_indent(sb, depth, st);

@@ -39,11 +39,23 @@ pub(super) fn lower_obj_gated(
     // §25.5.2 cycle TypeError
     // so does a layout whose cells can enumerate in a creation order
     // other than the layout's
-    let walk_at_runtime =
-        is_error || layout_reaches_itself(ctx, sid) || ctx.obj_order_varies(&Type::Obj(sid));
+    // and so does a layout whose getter may delete a member the
+    // unfold reads after it (§25.5.2.4 fixes K, then reads each key)
+    let walk_at_runtime = is_error
+        || layout_reaches_itself(ctx, sid)
+        || ctx.obj_order_varies(&Type::Obj(sid))
+        || getter_may_delete(ctx, sid);
     super::composite::with_null_gate(ctx, &gated, "__json_obj_exotic", move |ctx| {
         lower_obj_nonnull(ctx, val_op, sid, fe_fields, gap, depth, walk_at_runtime)
     })
+}
+
+fn getter_may_delete(ctx: &LowerCtx, sid: StructId) -> bool {
+    let props = crate::ssa_lower_struct_own_props::own_props(
+        &ctx.struct_layouts[sid.0 as usize],
+        ctx.fn_sigs,
+    );
+    crate::ssa_lower_struct_own_props::getter_may_delete(ctx, &props)
 }
 
 fn layout_reaches_itself(ctx: &LowerCtx, sid: StructId) -> bool {

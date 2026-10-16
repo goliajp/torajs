@@ -1,15 +1,18 @@
-//! The struct arm's expando entries (RFC 20260714-struct-dynamic-props
-//! blade 3), carved out of `composites::write_entry` when 628-05
-//! made them a three-lane walk: a runtime-computed instance field
-//! rides its DECLARATION row (torajs-meta `classmeta::computed_fields`
+//! The struct arm's expando entries, a three-lane walk: a
+//! runtime-computed instance field rides its DECLARATION row (torajs-meta `classmeta::computed_fields`
 //! keeps the anchor; `__torajs_struct_expando_order` answers which
 //! dict entries go before row `i`, after the last row, and the rest),
 //! so `{"foo":1,"b":42,"bar":2}` comes out in definition order like
 //! `Object.keys` does.
 //!
-//! toJSON / nothing handling mirrors the dynobj walk; accessor
-//! entries can't exist here yet (the defineProperty struct arm is a
-//! recorded follow-up), so no getter dispatch.
+//! Each entry goes through the dynobj walk's `composites::write_entry`
+//! with the struct cell as the holder, so a getter `defineProperty` put
+//! in the dict runs with the instance as its receiver.
+//!
+//! §25.5.2.4 step 6 fixes K before step 8 reads a value, so an entry a
+//! getter, a toJSON hook or the replacer adds mid-walk stays out:
+//! [`KeysInK`] pins the dict's keys when the walk starts, and each lane
+//! emits only the entries whose key it holds.
 
 use core::ffi::c_void;
 
@@ -23,6 +26,94 @@ unsafe extern "C" {
         out: *mut u64,
         cap: u64,
     ) -> u64;
+    fn __torajs_dynobj_alloc() -> *mut c_void;
+    fn __torajs_dynobj_set_fresh(obj: *mut *mut c_void, key: *mut c_void, tag: u64, value: u64);
+    fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64;
+    fn __torajs_dynobj_drop(obj: *mut c_void);
+}
+
+/// The expando keys K holds: every key of the struct cell's dict when
+/// the walk starts. The first lane call takes them; every walk makes
+/// that call before it reads a value, and taking them there keeps the
+/// work out of the struct walk itself.
+///
+/// They are held as the keys of a dict of their own, in the same
+/// order, each one's value its position plus one: the dict retains
+/// each key, so a mid-walk delete cannot free it under the comparison,
+/// and finds a key by its name in one probe.
+pub(super) struct KeysInK {
+    /// Whether the first lane call took K.
+    taken: bool,
+    /// K's dict; null while untaken, or when the struct had none.
+    k: *mut c_void,
+}
+
+impl KeysInK {
+    /// K before the walk has looked at the dict.
+    pub(super) const fn new() -> Self {
+        KeysInK {
+            taken: false,
+            k: core::ptr::null_mut(),
+        }
+    }
+
+    /// Take K from `props`, the struct's dict when the walk first
+    /// looks (null when it has none then); later calls keep it.
+    /// Answers whether K holds any entry.
+    ///
+    /// # Safety
+    /// `props` is null or a live dict.
+    unsafe fn take(&mut self, props: *mut c_void) -> bool {
+        if !self.taken {
+            self.taken = true;
+            let n = unsafe { __torajs_dynobj_iter_len(props) };
+            if n != 0 {
+                self.k = unsafe { __torajs_dynobj_alloc() };
+            }
+            let mut held = 0u64;
+            for i in 0..n {
+                let key = unsafe { __torajs_dynobj_iter_key(props, i) };
+                if !key.is_null() {
+                    held += 1;
+                    let at = (held as f64).to_bits();
+                    unsafe { __torajs_dynobj_set_fresh(&mut self.k, key, ANY_F64, at) };
+                }
+            }
+        }
+        !self.k.is_null()
+    }
+
+    /// The key of K spelling `key`, the dict's entry `i` — the same
+    /// cell, or one spelling the same name (a key deleted and set again
+    /// mid-walk is still in K, §25.5.2.4 step 8 reads it then). K's
+    /// cell is the one to quote: a replacer that deletes the entry
+    /// frees the dict's own key cell. While no delete has made a hole
+    /// before entry `i`, K holds the same cell at the same index.
+    ///
+    /// # Safety
+    /// [`Self::take`] answered true; `key` is a live key cell.
+    unsafe fn pinned(&self, i: u64, key: *mut c_void) -> Option<*mut c_void> {
+        unsafe {
+            if __torajs_dynobj_iter_key(self.k, i) == key {
+                return Some(key);
+            }
+            let at = f64::from_bits(__torajs_dynobj_get_value(self.k, key)) as u64;
+            (at != 0).then(|| __torajs_dynobj_iter_key(self.k, at - 1))
+        }
+    }
+}
+
+/// The dict value tag of a number (torajs-dynobj `ANY_F64`).
+const ANY_F64: u64 = 3;
+
+impl Drop for KeysInK {
+    fn drop(&mut self) {
+        // a taken K is null when the struct had no dict, which the drop
+        // takes as nothing to release
+        if self.taken {
+            unsafe { __torajs_dynobj_drop(self.k) };
+        }
+    }
 }
 
 /// `lane` of [`write_struct_expandos`] — the entries before row `i`.
@@ -34,8 +125,9 @@ pub(super) const TAIL: i64 = -2;
 /// `lane` — every other expando, insertion order.
 pub(super) const REST: i64 = -1;
 
-/// Serialize the enumerable expando entries `lane` selects, as
-/// `"key":value` members after whatever `emitted` says came before.
+/// Serialize the enumerable expando entries `lane` selects whose key
+/// `k` holds, as `"key":value` members after whatever `emitted` says
+/// came before.
 /// A pending throw (a hook's, a replacer's) ends the walk; the caller
 /// checks it.
 ///
@@ -47,13 +139,13 @@ pub(super) unsafe fn write_struct_expandos(
     depth: u32,
     st: &St,
     emitted: &mut bool,
-    lane: i64,
+    (lane, k): (i64, &mut KeysInK),
 ) {
     unsafe {
         let props = crate::member_get_layout::struct_props(ptr)
             .cast_mut()
             .cast::<c_void>();
-        if props.is_null() || __torajs_throw_check() != 0 {
+        if !k.take(props) || __torajs_throw_check() != 0 {
             return;
         }
         let n_props = __torajs_dynobj_iter_len(props);
@@ -67,47 +159,14 @@ pub(super) unsafe fn write_struct_expandos(
             if key.is_null() {
                 continue;
             }
-            let mut value = __torajs_dynobj_iter_value(props, pi);
-            let mut owned = false;
-            if let Some(r) = crate::json_stringify_tojson::apply_tojson(value) {
-                value = r;
-                owned = true;
-                if __torajs_throw_check() != 0 {
-                    crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
-                    return;
-                }
-            }
-            // §25.5.2.2 step 3 — the holder is the STRUCT cell, not
-            // its expando props dynobj: `this` inside the replacer is
-            // the object the program sees.
-            (value, owned) =
-                replacer::apply(st, crate::nanbox::box_void_ptr(ptr), key, value, owned);
-            if __torajs_throw_check() != 0 {
-                if owned {
-                    crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
-                }
-                return;
-            }
-            if serializes_to_nothing(value) {
-                if owned {
-                    crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
-                }
+            let Some(key) = k.pinned(pi, key) else {
                 continue;
-            }
-            if *emitted {
-                __torajs_jsb_push_byte(sb, b',');
-            }
-            *emitted = true;
-            push_indent(sb, depth + 1, st);
-            __torajs_jsb_push_str_quoted(sb, key as *const u8);
-            __torajs_jsb_push_byte(sb, b':');
-            if st.has_gap() {
-                __torajs_jsb_push_byte(sb, b' ');
-            }
-            write_value(sb, value, depth + 1, st);
-            if owned {
-                crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
-            }
+            };
+            // §25.5.2.2 step 3 — the holder is the STRUCT cell, not
+            // its expando props dynobj: `this` inside a getter and the
+            // replacer is the object the program sees.
+            *emitted |=
+                super::composites::write_entry(sb, (props, pi, key), ptr, depth, st, *emitted);
             if __torajs_throw_check() != 0 {
                 return;
             }

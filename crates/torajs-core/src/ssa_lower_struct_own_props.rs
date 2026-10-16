@@ -58,11 +58,26 @@ impl OwnProp {
 /// member its live state when the walk reaches it.
 pub(crate) fn some_member_shadowed(ctx: &LowerCtx<'_>, props: &[OwnProp], recv: ExprId) -> bool {
     use crate::ssa_lower_member_obj_field::shadow_read;
-    props.iter().any(|p| {
-        matches!(p.src, PropSource::Data { ty, .. }
-            if shadow_read::applies(ctx, Some(recv), &p.key.lossy(), ty)
-                || shadow_read::mistyped_field(ctx, &p.key.lossy(), ty))
-    })
+    getter_may_delete(ctx, props)
+        || props.iter().any(|p| {
+            matches!(p.src, PropSource::Data { ty, .. }
+                if shadow_read::applies(ctx, Some(recv), &p.key.lossy(), ty)
+                    || shadow_read::mistyped_field(ctx, &p.key.lossy(), ty))
+        })
+}
+
+/// Whether a getter of `props` can delete a member a whole-object
+/// reader has yet to reach: the layout has a getter and the program
+/// can delete a property. §20.1.2.22 EnumerableOwnProperties and
+/// §25.5.2.4 SerializeJSONObject take the key list first and read
+/// each key when they reach it, so a member the getter deleted is
+/// skipped — whatever its type, an accessor included, which the shadow
+/// census (scalar data members) does not see.
+pub(crate) fn getter_may_delete(ctx: &LowerCtx<'_>, props: &[OwnProp]) -> bool {
+    ctx.ast.accessor_field_names.may_freeze_or_delete()
+        && props
+            .iter()
+            .any(|p| matches!(p.src, PropSource::Getter { .. }))
 }
 
 /// [`some_member_shadowed`] for a receiver of type `ty`; false unless
