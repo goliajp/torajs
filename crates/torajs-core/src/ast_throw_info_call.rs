@@ -13,6 +13,7 @@ use crate::ast_throw_info::Scan;
 /// and the conservative may-throw bit, plus the callback-argument
 /// closure recording.
 pub(crate) fn scan_call(sc: &mut Scan<'_>, callee: ExprId, args: &[ExprId]) {
+    let reflect_set = sc.reflect_set_call(callee, args);
     match sc.ast.get_expr(callee) {
         Expr::Ident(name) => {
             sc.record(name);
@@ -194,7 +195,7 @@ pub(crate) fn scan_call(sc: &mut Scan<'_>, callee: ExprId, args: &[ExprId]) {
         }
         _ => {}
     }
-    sc.expr(callee);
+    sc.expr(reflect_set.unwrap_or(callee));
     for a in args {
         // RC-4 replace A1_T4 — a closure literal passed as a
         // call argument is a callback the callee invokes

@@ -1,0 +1,7 @@
+caught
+caught outer reflect NaN
+caught reflect Infinity
+caught outer held NaN
+outer went on 4
+value 18 NaN NaN 5
+done

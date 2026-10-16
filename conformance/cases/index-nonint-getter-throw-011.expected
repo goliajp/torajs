@@ -1,0 +1,3 @@
+caught for-of array pattern
+caught for-of object pattern
+value 4 NaN

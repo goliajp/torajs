@@ -101,6 +101,7 @@ impl Scan<'_> {
 
     pub(crate) fn expr(&mut self, eid: ExprId) {
         let ast = self.ast;
+        self.code_write |= keyed::spells_reflect_set(ast, eid);
         match ast.get_expr(eid) {
             Expr::Elision => {}
             Expr::Call { callee, args } => {
@@ -135,9 +136,7 @@ impl Scan<'_> {
             }
             Expr::Unary { expr, .. } => {
                 // Band B, same reason as the BinOp arm above.
-                if ast.spec_throws.contains_key(&eid) {
-                    self.direct = true;
-                }
+                self.direct |= ast.spec_throws.contains_key(&eid);
                 self.expr(*expr)
             }
             Expr::Member { obj, name } => {

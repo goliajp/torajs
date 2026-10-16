@@ -40,15 +40,93 @@ impl Scan<'_> {
     /// value as it is (`xs[k] = v`, `v: any` holding an object), and a
     /// receiver that travels as `any` (a `Record` / index-signature
     /// alias, a union) reaches the same cell.
+    ///
+    /// A member store names such a property too when its name is the
+    /// string a non-integral key converts to: `o.NaN` and `o.Infinity`
+    /// are what `xs[0 / 0]` and `xs[1 / 0]` read (§7.1.12.1), and the
+    /// only two of those strings that are identifiers.
+    ///
+    /// A target that is itself a pattern (`[o.NaN] = [v]` where the
+    /// parser leaves it whole, an expression position) stores pieces
+    /// of a value nothing here types, so each member or keyed target
+    /// in it counts as if handed an object.
     pub(super) fn keyed_write_carries_code(&self, target: ExprId, value: ExprId) -> bool {
-        let Expr::Index { obj, index } = self.ast.get_expr(target) else {
-            return false;
-        };
         let plain = matches!(
             self.lane_of(value),
             Some(Type::Number | Type::String | Type::Boolean)
         );
-        !plain && may_hold_array(self.lane_of(*obj)) && self.key_may_name_property(*index)
+        match self.ast.get_expr(target) {
+            Expr::Array(_) | Expr::ObjectLit { .. } => self.pattern_names_property(target),
+            _ => !plain && self.store_names_property(target),
+        }
+    }
+
+    /// `target` is a member or keyed store that may leave a property a
+    /// non-integral read names, on a receiver that may be an array.
+    fn store_names_property(&self, target: ExprId) -> bool {
+        let (obj, names) = match self.ast.get_expr(target) {
+            Expr::Index { obj, index } => (*obj, self.key_may_name_property(*index)),
+            Expr::Member { obj, name } => (*obj, matches!(name.as_str(), "NaN" | "Infinity")),
+            _ => return false,
+        };
+        names && may_hold_array(self.lane_of(obj))
+    }
+
+    /// Some store a destructuring pattern makes (through a default, a
+    /// rest element or a nested pattern) names such a property.
+    fn pattern_names_property(&self, pat: ExprId) -> bool {
+        match self.ast.get_expr(pat) {
+            Expr::Array(elems) => elems.iter().any(|e| self.pattern_names_property(*e)),
+            Expr::ObjectLit { fields } => {
+                fields.iter().any(|(_, e)| self.pattern_names_property(*e))
+            }
+            Expr::Assign { target, .. } => self.pattern_names_property(*target),
+            Expr::Spread { expr } => self.pattern_names_property(*expr),
+            _ => self.store_names_property(pat),
+        }
+    }
+
+    /// A call through `Reflect.set` spelled as a member: judge its
+    /// store, and answer the namespace to walk in place of the callee,
+    /// which is not a value here.
+    pub(crate) fn reflect_set_call(&mut self, callee: ExprId, args: &[ExprId]) -> Option<ExprId> {
+        let Expr::Member { obj, .. } = self.ast.get_expr(callee) else {
+            return None;
+        };
+        if !spells_reflect_set(self.ast, callee) {
+            return None;
+        }
+        self.code_write |= self.reflect_set_carries_code(args);
+        Some(*obj)
+    }
+
+    /// `Reflect.set(o, k, v)` is the same store as `o[k] = v`
+    /// (§28.1.13 reaches [[Set]] with the key as given), and the
+    /// lowering writes it through the any lane, so it is judged on the
+    /// same three facts. A spread argument may land anywhere, so it
+    /// counts; a missing value is `undefined`, which ToNumber answers
+    /// without code, and a missing key names "undefined".
+    fn reflect_set_carries_code(&self, args: &[ExprId]) -> bool {
+        if args
+            .iter()
+            .any(|a| matches!(self.ast.get_expr(*a), Expr::Spread { .. }))
+        {
+            return true;
+        }
+        let [target, key, value, rest @ ..] = args else {
+            return false;
+        };
+        let plain = matches!(
+            self.lane_of(*value),
+            Some(Type::Number | Type::String | Type::Boolean)
+        );
+        // a receiver argument is where an ordinary target's [[Set]]
+        // defines the property (§10.1.9.2 OrdinarySetWithOwnDescriptor)
+        let lands_on_array = may_hold_array(self.lane_of(*target))
+            || rest
+                .first()
+                .is_some_and(|r| may_hold_array(self.lane_of(*r)));
+        !plain && self.key_may_name_property(*key) && lands_on_array
     }
 
     /// The read `obj[index]` may ask for the property its key names.
@@ -132,4 +210,20 @@ fn may_hold_array(t: Option<Type>) -> bool {
                 | Type::Object(_)
         )
     )
+}
+
+/// `Reflect.set` spelled as a property of the builtin namespace, the
+/// callee `lower_reflect_set` takes: `Reflect.set`, `Reflect?.set`,
+/// `Reflect["set"]`. Held as a value it writes wherever it is later
+/// called with whatever it is handed.
+pub(super) fn spells_reflect_set(ast: &crate::ast::Ast, eid: ExprId) -> bool {
+    let reflect = |obj: &ExprId| matches!(ast.get_expr(*obj), Expr::Ident(r) if r == "Reflect");
+    match ast.get_expr(eid) {
+        Expr::Member { obj, name } | Expr::OptChain { obj, name } => name == "set" && reflect(obj),
+        Expr::Index { obj, index } | Expr::OptIndex { obj, index } => {
+            reflect(obj)
+                && matches!(ast.get_expr(*index), Expr::String(s) if s.as_str() == Some("set"))
+        }
+        _ => false,
+    }
 }

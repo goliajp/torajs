@@ -1,0 +1,7 @@
+caught member NaN
+caught outer member NaN
+caught member Infinity
+caught outer member Infinity
+outer went on 4
+value NaN NaN 5
+done
