@@ -163,7 +163,17 @@ impl<'a> Parser<'a> {
             callee,
             args: vec![name],
         });
+        self.record_field_init_root(call);
         field_inits.push((key.clone(), call));
+    }
+
+    /// Keeps `class_field_init_roots` sorted, so a later pass can tell
+    /// a spliced initializer statement from a program's own
+    /// `this.x = …` by identity.
+    pub(super) fn record_field_init_root(&mut self, root: ExprId) {
+        let roots = &mut self.ast.class_field_init_roots;
+        let at = roots.partition_point(|r| r.0 < root.0);
+        roots.insert(at, root);
     }
 
     /// Index of the first statement in `body` that IS a `super(...)`

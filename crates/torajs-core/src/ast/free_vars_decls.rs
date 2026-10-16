@@ -93,7 +93,7 @@ pub(super) fn walk_class_decl(
         walk_expr(ast, k, bound, out);
     }
     if let Some(c) = ctor {
-        walk_ctor(ast, name, c, bound, out);
+        walk_ctor(ast, c, bound, out);
     }
     for m in methods.iter().chain(static_methods.iter()) {
         walk_fn_decl(ast, &m.params, &m.body, bound, out);
@@ -150,8 +150,8 @@ pub(super) fn walk_param_defaults(
 /// constructor's parameters and declarations do not reach them, so a
 /// name they share with the initializers is still free there. The
 /// statements are walked in body order either way.
-fn walk_ctor(ast: &Ast, class: &str, c: &ClassCtor, bound: &mut Bound<'_>, out: &mut dyn FreeSink) {
-    let fields = ctor_field_inits(ast, class, &c.body);
+fn walk_ctor(ast: &Ast, c: &ClassCtor, bound: &mut Bound<'_>, out: &mut dyn FreeSink) {
+    let fields = ctor_field_inits(ast, &c.body);
     if fields.is_empty() {
         walk_fn_decl(ast, &c.params, &c.body, bound, out);
         return;

@@ -116,8 +116,8 @@ fn collect_fn_body_except(
 /// into its body run in the class body's scope (§15.7.10), where the
 /// constructor's parameters and locals do not reach, so they are
 /// collected apart from it.
-fn collect_ctor(ast: &Ast, class: &str, c: &ClassCtor, sn: &str, out: &mut Vec<Site>) {
-    let fields = ctor_field_inits(ast, class, &c.body);
+fn collect_ctor(ast: &Ast, c: &ClassCtor, sn: &str, out: &mut Vec<Site>) {
+    let fields = ctor_field_inits(ast, &c.body);
     for s in &c.body[fields.clone()] {
         collect_stmt(ast, s, sn, out);
     }
@@ -125,49 +125,47 @@ fn collect_ctor(ast: &Ast, class: &str, c: &ClassCtor, sn: &str, out: &mut Vec<S
 }
 
 /// The span of a constructor body the parser filled with the class's
-/// instance field initializers: from just past the `super(...)`
-/// statement (or the top) to the end `ctor_field_init_end` records,
-/// or the whole body of a constructor synthesized only to hold them.
-/// Empty when that span does not read back as initializers.
-pub(in crate::ast) fn ctor_field_inits(ast: &Ast, class: &str, body: &[Stmt]) -> Range<usize> {
+/// instance field initializers: the run of them just past the
+/// `super(...)` statement (or at the top). A statement belongs to it
+/// by identity, never by shape — the initializer it assigns, or the
+/// private field install marker it is, was recorded in
+/// `class_field_init_roots` — so a program's own `this.a = k` ends the
+/// run, and a desugar that changes the statement count in front of the
+/// `super(...)` call does not move it.
+pub(in crate::ast) fn ctor_field_inits(ast: &Ast, body: &[Stmt]) -> Range<usize> {
     let start = body
         .iter()
         .position(|s| matches!(s, Stmt::Expr(e) if matches!(ast.get_expr(*e), Expr::Super { .. })))
         .map_or(0, |i| i + 1);
-    let end = if ast.field_init_synth_ctors.contains(class) {
-        body.len()
-    } else {
-        match ast.ctor_field_init_end.get(class) {
-            Some(&e) => e,
-            None => return 0..0,
+    let mut end = start;
+    while end < body.len() {
+        // the class expressions an initializer contains are declared
+        // right in front of it
+        let classes = body[end..]
+            .iter()
+            .take_while(|s| matches!(s, Stmt::ClassDecl { .. }))
+            .count();
+        match body.get(end + classes) {
+            Some(s) if is_field_init(ast, s) => end += classes + 1,
+            _ => break,
         }
-    };
-    if start > end || end > body.len() || !body[start..end].iter().all(|s| is_field_init(ast, s)) {
-        return 0..0;
     }
     start..end
 }
 
-/// `this.<f> = init` (also keyed), a private field's install marker,
-/// or a class the initializer declared in front of itself.
+/// `this.<f> = init` with `init` a recorded field initializer root, or
+/// a recorded private field install marker.
 fn is_field_init(ast: &Ast, s: &Stmt) -> bool {
     let Stmt::Expr(e) = s else {
-        return matches!(s, Stmt::ClassDecl { .. });
-    };
-    if super::super::private_brand::is_field_add(ast, *e) {
-        return true;
-    }
-    let Expr::Assign { target, .. } = ast.get_expr(*e) else {
         return false;
     };
-    let (Expr::Member { obj, .. } | Expr::Index { obj, .. }) = ast.get_expr(*target) else {
-        return false;
+    let id = match ast.get_expr(*e) {
+        Expr::Assign { value, .. } => *value,
+        _ => *e,
     };
-    match ast.get_expr(*obj) {
-        Expr::This => true,
-        Expr::As { expr, .. } => matches!(ast.get_expr(*expr), Expr::This),
-        _ => false,
-    }
+    (ast.class_field_init_roots)
+        .binary_search_by_key(&id.0, |r| r.0)
+        .is_ok()
 }
 
 type StmtCollect = fn(&Ast, &Stmt, &str, &mut Vec<Site>);
@@ -274,7 +272,7 @@ fn collect_class(ast: &Ast, s: &Stmt, sn: &str, out: &mut Vec<Site>, expr: ExprC
         expr(ast, *p, sn, out);
     }
     if let Some(c) = ctor {
-        collect_ctor(ast, name, c, sn, out);
+        collect_ctor(ast, c, sn, out);
     }
     for m in methods.iter().chain(static_methods) {
         collect_fn_body(ast, &m.params, &m.body, sn, out);

@@ -41,8 +41,8 @@ pub(super) fn split_field_scope(ast: &mut Ast, taken: &mut HashSet<String>) {
     let mut ord = 0usize;
     {
         let ast_ref = &*ast;
-        let mut visit = |class: &str, c: &ClassCtor| {
-            if let Some(p) = plan_ctor(ast_ref, class, c, taken, &mut sites) {
+        let mut visit = |c: &ClassCtor| {
+            if let Some(p) = plan_ctor(ast_ref, c, taken, &mut sites) {
                 plans.insert(ord, p);
             }
             ord += 1;
@@ -93,12 +93,11 @@ pub(super) fn split_field_scope(ast: &mut Ast, taken: &mut HashSet<String>) {
 
 fn plan_ctor(
     ast: &Ast,
-    class: &str,
     c: &ClassCtor,
     taken: &mut HashSet<String>,
     sites: &mut Vec<(ExprId, String)>,
 ) -> Option<Plan> {
-    let fields = ctor_field_inits(ast, class, &c.body);
+    let fields = ctor_field_inits(ast, &c.body);
     if fields.is_empty() {
         return None;
     }
@@ -195,13 +194,12 @@ fn apply_plan(plan: Plan, c: &mut ClassCtor) {
     }
 }
 
-/// Every constructor in a statement tree with its class's name,
-/// outside expressions, in the order [`each_ctor_mut`] repeats.
-fn each_ctor(stmts: &[Stmt], f: &mut dyn FnMut(&str, &ClassCtor)) {
+/// Every constructor in a statement tree, outside expressions, in the
+/// order [`each_ctor_mut`] repeats.
+fn each_ctor(stmts: &[Stmt], f: &mut dyn FnMut(&ClassCtor)) {
     for s in stmts {
         match s {
             Stmt::ClassDecl {
-                name,
                 ctor,
                 methods,
                 static_methods,
@@ -209,7 +207,7 @@ fn each_ctor(stmts: &[Stmt], f: &mut dyn FnMut(&str, &ClassCtor)) {
                 ..
             } => {
                 if let Some(c) = ctor {
-                    f(name, c);
+                    f(c);
                     each_ctor(&c.body, f);
                 }
                 for m in methods.iter().chain(static_methods.iter()) {

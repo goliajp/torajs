@@ -146,7 +146,6 @@ fn visit_switch(ast: &mut Ast, cases: &[SwitchCase], default: Option<&[Stmt]>) {
 /// declares does not reach them, so its body is visited without them.
 fn visit_class(ast: &mut Ast, s: &Stmt) {
     let Stmt::ClassDecl {
-        name,
         ctor,
         methods,
         static_methods,
@@ -158,7 +157,7 @@ fn visit_class(ast: &mut Ast, s: &Stmt) {
     };
     if let Some(c) = ctor {
         visit_defaults(ast, &c.params);
-        let fields = ctor_field_inits(ast, name, &c.body);
+        let fields = ctor_field_inits(ast, &c.body);
         if fields.is_empty() {
             visit_list(ast, &c.body);
         } else {

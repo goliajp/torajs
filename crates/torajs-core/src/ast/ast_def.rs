@@ -588,8 +588,8 @@ pub struct Ast {
     /// `const_lifted_fields` member admits.
     pub lifted_init_assigns: std::collections::HashSet<ExprId>,
     /// §15.7.1 — the root expression of every class field
-    /// initializer, instance and static, named and computed, recorded
-    /// where the early error is already checked.
+    /// initializer, instance and static, named and computed, and each
+    /// private field's install marker; sorted by id for lookup.
     ///
     /// The ClassDecl a later pass sees no longer shows the instance
     /// ones: the parser folds them into the constructor prefix as
