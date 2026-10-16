@@ -36,12 +36,13 @@
 
 use torajs_core::ssa::id_hash::{HashMap, HashSet};
 use torajs_core::ssa::{
-    ANY_SLOT_TAG_HEAP, Block, BlockId, FuncId, Function, IPred, Inst, InstKind, Operand,
-    THROW_ACTIVE_SYM, Terminator, Type, ValueId, visit_value_operands,
+    ANY_SLOT_TAG_HEAP, Block, BlockId, FuncId, Function, Inst, InstKind, Operand, Terminator,
+    ValueId, visit_value_operands,
 };
 
 use super::call_args::{has_stack_lane, pass_args};
 use super::operand::materialize_operand_gpr;
+use super::throw_probe::is_throw_probe;
 use super::{ModuleFacts, landing, write_u32};
 use crate::enc::{b_imm26, br_reg, mov_x_reg};
 use crate::frame::FrameLayout;
@@ -268,20 +269,6 @@ fn frame_escapes(func: &Function) -> bool {
             Terminator::Ret(Some(op)) | Terminator::CondBr { cond: op, .. } => is_slot(op),
             _ => false,
         })
-}
-
-/// `%g = global_ref @throw_active; %l = load i64, %g; %c = icmp ne %l, 0`.
-fn is_throw_probe(g: &Inst, l: &Inst, test: &Inst, c: ValueId) -> bool {
-    let (Some(gv), Some(lv)) = (g.result, l.result) else {
-        return false;
-    };
-    matches!(&g.kind, InstKind::GlobalRef(name) if name == THROW_ACTIVE_SYM)
-        && matches!(&l.kind, InstKind::Load(Type::I64, Operand::Value(p), 0) if *p == gv)
-        && matches!(
-            &test.kind,
-            InstKind::ICmp(IPred::Ne, Operand::Value(x), Operand::ConstI64(0)) if *x == lv
-        )
-        && test.result == Some(c)
 }
 
 /// Arguments, epilogue, then `B` to the callee with the call-site

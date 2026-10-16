@@ -38,6 +38,7 @@ mod ctpop_range_sum;
 mod entry;
 mod fusions;
 mod global_access;
+mod in_module;
 mod inline_sites;
 mod inst;
 mod landing;
@@ -53,19 +54,21 @@ mod store_pair;
 mod str_append;
 mod substr_drop;
 mod terminator;
+mod throw_probe;
 mod vec;
 
 #[cfg(test)]
 pub(crate) mod test_fixtures;
 
-use torajs_core::ssa::id_hash::{HashMap, HashSet};
+use torajs_core::ssa::id_hash::HashMap;
 
-use torajs_core::ssa::{FuncId, Function, Module, Type};
+use torajs_core::ssa::{Block, Function};
 
 use crate::frame::FrameLayout;
 use crate::reg::{Fpr, Gpr};
 use crate::regalloc::Assignment;
 use crate::reloc::Reloc;
+use crate::shrink_wrap::ShrinkWrap;
 use entry::{emit_param_entry_moves, emit_stack_param_loads};
 use inst::emit_inst_at;
 use terminator::{BranchFixup, BranchKind, emit_terminator};
@@ -80,6 +83,7 @@ pub use cast::{
 pub use cell::CellOps;
 pub use cmp::{emit_fcmp, emit_icmp};
 pub use ctpop_range_sum::emit_ctpop_range_sum;
+pub use in_module::ModuleFacts;
 pub use inline_sites::InlineSites;
 pub use mem::{
     emit_alloca, emit_load, emit_load_dyn, emit_load_dyn_scaled8, emit_load_u8_dyn,
@@ -149,52 +153,6 @@ pub fn compile_function_in(func: &Function, facts: &ModuleFacts) -> CompiledFunc
     )
 }
 
-/// What a function's codegen reads of the module around it.
-#[derive(Debug, Clone, Default)]
-pub struct ModuleFacts {
-    /// Per-FuncId param types, declarations (extern intrinsics)
-    /// included. [`call::emit_call`] reads `fn_sigs[callee]` to
-    /// coerce each arg's actual SSA type to the declared param type
-    /// — FCVTZS for f64→i64, SCVTF for i64→f64 at the call boundary.
-    pub(crate) fn_sigs: Vec<Vec<Type>>,
-    /// Per-FuncId return type of a function with a body (None for a
-    /// declaration); a sibling call reads it.
-    pub(crate) fn_rets: Vec<Option<Type>>,
-    /// Per-SigId return type of a fn-pointer signature; a sibling
-    /// call through a pointer reads it.
-    pub(crate) sig_rets: Vec<Type>,
-    /// The runtime's `(tag, value)`-pair arithmetic (`-` `*` `/` `%`
-    /// `**` on `any`), whose result a sibling call may prove to be an
-    /// immediate (compile/sibcall.rs).
-    pub(crate) arith_pair: Option<FuncId>,
-    /// The intrinsic calls that open inline.
-    pub(crate) inline: InlineSites,
-    /// Symbols known to sit on an 8-byte boundary: the module's data
-    /// globals of 8-byte slots and the runtime's 64-bit flags. An
-    /// access through one may carry the page offset as its scaled
-    /// immediate (compile/global_access.rs).
-    pub(crate) aligned8_syms: HashSet<String>,
-}
-
-impl ModuleFacts {
-    pub fn of(module: &Module) -> ModuleFacts {
-        let param_types =
-            |f: &Function| f.params.iter().map(|v| f.values[v.0 as usize].ty).collect();
-        ModuleFacts {
-            fn_sigs: module.funcs.iter().map(param_types).collect(),
-            fn_rets: (module.funcs.iter())
-                .map(|f| (!f.is_declaration()).then_some(f.ret))
-                .collect(),
-            sig_rets: module.signatures.iter().map(|(_, ret)| *ret).collect(),
-            arith_pair: (module.funcs.iter())
-                .position(|f| f.name == sibcall::ARITH_PAIR)
-                .map(|i| FuncId(i as u32)),
-            inline: InlineSites::of_module(module),
-            aligned8_syms: global_access::aligned8_syms(module),
-        }
-    }
-}
-
 /// Compile one SSA Function to aarch64 bytes using a pre-computed
 /// register assignment.
 pub fn compile_function_with(
@@ -243,22 +201,8 @@ fn emit_body(
     let mut block_byte_starts: HashMap<u32, u32> =
         HashMap::with_capacity_and_hasher(func.blocks.len(), Default::default());
 
-    // With a save point the prologue opens that block instead, and the
-    // blocks ahead of it run frameless (see shrink_wrap.rs).
-    let shrink = if frame.is_trivial() {
-        None
-    } else {
-        crate::shrink_wrap::plan(func, alloc)
-    };
+    let shrink = open_frame(&mut bytes, func, alloc, frame);
     let frameless = FrameLayout::leaf_no_spill();
-    if shrink.is_none() {
-        frame.emit_prologue(&mut bytes);
-        // Relocate call-crossing params out of their (caller-saved) arg
-        // registers into the callee-saved registers the allocator picked,
-        // now that the prologue has saved those registers' prior contents.
-        emit_param_entry_moves(&mut bytes, alloc);
-        emit_stack_param_loads(&mut bytes, alloc, frame);
-    }
 
     let fusions = fusions::Fusions::of(func, alloc, facts, bit_tests);
 
@@ -291,28 +235,8 @@ fn emit_body(
         let fused = fusions.cmp_of(block.id.0);
         let sib = sibcall::plan(func, block, &landing.blocks_by_id, alloc, facts);
         let body = sib.as_ref().map_or(block.insts.len(), |s| s.at);
-        let mut flags = cond_flags::CondFlags::default();
-        // never across a block start: another way in may not have run
-        // the call before
-        let mut carry = None;
-        for (ii, inst) in block.insts[..body].iter().enumerate() {
-            if fusions.emit(&mut bytes, &mut relocs, block, ii, inst, alloc)
-                || flags.emit_select(&mut bytes, inst, alloc)
-            {
-                continue;
-            }
-            let site = block_slot + ii as u32;
-            emit_inst_at(
-                &mut bytes,
-                &mut relocs,
-                func,
-                inst,
-                alloc,
-                facts,
-                site,
-                &mut carry,
-            );
-        }
+        let at = (block, body, block_slot);
+        emit_block_insts(&mut bytes, &mut relocs, func, at, alloc, facts, &fusions);
         block_slot += block.insts.len() as u32 + 1;
         if let Some(s) = &sib {
             sibcall::emit(&mut bytes, &mut relocs, s, alloc, facts, frame);
@@ -345,6 +269,57 @@ fn emit_body(
 
     let patched = terminator::patch_all(&mut bytes, &fixups, &landing, &block_byte_starts);
     patched.then_some((bytes, relocs))
+}
+
+/// Open the function's frame on entry: the prologue, then the
+/// parameters moved to their homes. With a shrink-wrap save point,
+/// returned, the prologue opens that block instead, and the blocks
+/// ahead of it run frameless (see shrink_wrap.rs).
+fn open_frame(
+    bytes: &mut Vec<u8>,
+    func: &Function,
+    alloc: &Assignment,
+    frame: &FrameLayout,
+) -> Option<ShrinkWrap> {
+    let shrink = if frame.is_trivial() {
+        None
+    } else {
+        crate::shrink_wrap::plan(func, alloc)
+    };
+    if shrink.is_none() {
+        frame.emit_prologue(bytes);
+        // Relocate call-crossing params out of their (caller-saved) arg
+        // registers into the callee-saved registers the allocator picked,
+        // now that the prologue has saved those registers' prior contents.
+        emit_param_entry_moves(bytes, alloc);
+        emit_stack_param_loads(bytes, alloc, frame);
+    }
+    shrink
+}
+
+/// The instructions of `block` ahead of `end` (a sibling call, or the
+/// terminator); `slot` numbers the first as liveness does.
+fn emit_block_insts(
+    bytes: &mut Vec<u8>,
+    relocs: &mut Vec<Reloc>,
+    func: &Function,
+    (block, end, slot): (&Block, usize, u32),
+    alloc: &Assignment,
+    facts: &ModuleFacts,
+    fusions: &fusions::Fusions,
+) {
+    let mut flags = cond_flags::CondFlags::default();
+    // never across a block start: another way in may not have run
+    // the call before
+    let mut carry = None;
+    for (ii, inst) in block.insts[..end].iter().enumerate() {
+        if !(fusions.emit(bytes, relocs, block, ii, inst, alloc)
+            || flags.emit_select(bytes, inst, alloc))
+        {
+            let site = slot + ii as u32;
+            emit_inst_at(bytes, relocs, func, inst, alloc, facts, site, &mut carry);
+        }
+    }
 }
 
 pub(crate) fn write_u32(bytes: &mut Vec<u8>, word: u32) {
