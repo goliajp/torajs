@@ -68,6 +68,25 @@ pub(super) fn derives_from(ast: &Ast, class: &str, ancestor: &str) -> bool {
     false
 }
 
+/// The literal `__new_<class>` seeds `__this` with, when the factory
+/// hands it straight to `__cm_<class>__ctor`: nothing between the two
+/// can read a seeded field.
+pub(super) fn ctor_fed_seed(ast: &Ast, class: &str, body: &[Stmt]) -> Option<ExprId> {
+    let at = body
+        .iter()
+        .position(|s| matches!(s, Stmt::LetDecl { name, .. } if name == THIS))?;
+    let (Stmt::LetDecl { init, .. }, Some(Stmt::Expr(call))) = (&body[at], body.get(at + 1)) else {
+        return None;
+    };
+    let Expr::Call { callee, .. } = ast.get_expr(*call) else {
+        return None;
+    };
+    let ctor = format!("__cm_{class}__ctor");
+    (matches!(ast.get_expr(*callee), Expr::Ident(n) if *n == ctor)
+        && matches!(ast.get_expr(*init), Expr::ObjectLit { .. }))
+    .then_some(*init)
+}
+
 pub(super) fn collect_super_args(ast: &Ast, e: ExprId, f: &mut impl FnMut(&[ExprId])) {
     if let Expr::Super { args } = ast.get_expr(e) {
         f(args);

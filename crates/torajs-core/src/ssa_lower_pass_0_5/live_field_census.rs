@@ -18,7 +18,10 @@
 //!   store, `delete`, dynamic `new` or reflection surface can reach a
 //!   field; a property of an object literal counts as such a write,
 //!   since the checker lets a literal of the class's shape into a slot
-//!   typed as the class;
+//!   typed as the class. The one literal left out is the class's own
+//!   factory seed for a field the constructor prefix writes, when the
+//!   factory passes the seed straight into the constructor: the prefix
+//!   overwrites that value before anything can read it;
 //! - nothing but an instance of the class reaches a slot typed as it:
 //!   the class (or an ancestor) has no constructor answering another
 //!   object, and no `as` cast names it over a value typed as something
@@ -55,8 +58,8 @@ use crate::num_width::WidthTable;
 
 use super::arr_head_census::{ExprMask, unreachable_twin_exprs};
 use walk::{
-    ctor_class, derives_from, factory_class, key_is_numeric, nested_stmts, never_an_instance,
-    user_params,
+    ctor_class, ctor_fed_seed, derives_from, factory_class, key_is_numeric, nested_stmts,
+    never_an_instance, user_params,
 };
 
 /// `(class, field)` pairs whose reads never see the undefined cell.
@@ -144,6 +147,9 @@ struct Census<'a> {
     prefix: Vec<PrefixWrite>,
     /// `new C(..)` and `super(..)` argument lists, by class.
     construct_args: HashMap<String, Vec<Vec<ExprId>>>,
+    /// Factory seed literals and the fields of each that the
+    /// constructor prefix overwrites unread.
+    unread_seeds: HashMap<ExprId, HashSet<String>>,
 }
 
 impl<'a> Census<'a> {
@@ -171,6 +177,7 @@ impl<'a> Census<'a> {
             ctor_exprs: HashSet::new(),
             prefix: Vec::new(),
             construct_args: HashMap::new(),
+            unread_seeds: HashMap::new(),
         };
         for s in &ast.stmts {
             c.collect_stmt(s);
@@ -184,6 +191,7 @@ impl<'a> Census<'a> {
             }
         }
         let prefix_writes: HashSet<ExprId> = c.prefix_assigns();
+        c.unread_seeds = c.unread_seeds();
         for (i, e) in ast.exprs.iter().enumerate() {
             let id = ExprId(i as u32);
             if dead.contains(id) || prefix_writes.contains(&id) {
@@ -296,6 +304,30 @@ impl<'a> Census<'a> {
         out
     }
 
+    /// The factory seeds of the prefix-written fields, by literal.
+    fn unread_seeds(&self) -> HashMap<ExprId, HashSet<String>> {
+        let mut out: HashMap<ExprId, HashSet<String>> = HashMap::new();
+        for s in &self.ast.stmts {
+            let Stmt::FnDecl { name, body, .. } = s else {
+                continue;
+            };
+            let Some(class) = name.strip_prefix("__new_") else {
+                continue;
+            };
+            if self.foreign_classes.contains(class) {
+                continue;
+            }
+            let Some(seed) = ctor_fed_seed(self.ast, class, body) else {
+                continue;
+            };
+            let fields = (self.prefix.iter())
+                .filter(|w| w.class == class)
+                .map(|w| w.field.clone());
+            out.entry(seed).or_default().extend(fields);
+        }
+        out
+    }
+
     fn collect_expr(&mut self, id: ExprId, e: &'a Expr) {
         match e {
             Expr::Ident(n) => {
@@ -355,7 +387,14 @@ impl<'a> Census<'a> {
             }
             Expr::NewDynamic { .. } => self.road = true,
             Expr::ObjectLit { fields } => {
+                let unread = self.unread_seeds.get(&id).cloned();
                 for (k, v) in fields {
+                    if unread
+                        .as_ref()
+                        .is_some_and(|u| u.contains(k.lossy().as_ref()))
+                    {
+                        continue;
+                    }
                     match self.ast.get_expr(*v) {
                         Expr::Spread { .. } => self.road = true,
                         // a scalar never fills a pointer-shaped field
