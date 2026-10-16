@@ -48,8 +48,7 @@
 //!
 //! `TORAJS_TAIL_DUP_OFF=1` skips (bisect gate).
 
-use crate::block_chain::ChainFacts;
-use crate::id_hash::HashSet;
+use crate::block_chain::{ChainFacts, ColdEdges};
 
 use torajs_core::ssa::dominator::DominatorTree;
 use torajs_core::ssa::loop_analysis::LoopAnalysis;
@@ -78,7 +77,7 @@ pub(crate) struct Copied {
     /// writes a value an original writes too: every value a copy
     /// writes is then read only inside it, and every guard reads as
     /// it did.
-    pub(crate) cold_edges: Option<HashSet<(u32, u32)>>,
+    pub(crate) cold_edges: Option<ColdEdges>,
 }
 
 /// One join whose tail was copied.

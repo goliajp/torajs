@@ -31,7 +31,7 @@ mod dom_view;
 mod facts;
 pub(crate) use block_set::BlockSet;
 pub(crate) use dom_view::DomView;
-pub(crate) use facts::ChainFacts;
+pub(crate) use facts::{ChainFacts, ColdEdges};
 
 /// Reorder `order[span]` (the loop's contiguous range) into
 /// hot-successor chains starting at `header`. `children` are the bodies of the
@@ -133,10 +133,12 @@ fn units_of(range: &[u32], children: &[(&BlockSet, u32)]) -> Vec<std::ops::Range
 }
 
 /// The units placed so far. Placing only ever sets a flag, so the
-/// first unplaced unit only moves forward.
+/// first unplaced unit only moves forward; and since a unit's being
+/// cold does not change, so does the first unplaced warm one.
 struct Placed {
     flags: Vec<bool>,
     first_open: usize,
+    first_warm: usize,
 }
 
 impl Placed {
@@ -144,6 +146,7 @@ impl Placed {
         Placed {
             flags: vec![false; n],
             first_open: 0,
+            first_warm: 0,
         }
     }
 
@@ -156,10 +159,15 @@ impl Placed {
 
     /// The first unplaced unit that is not cold, else the first
     /// unplaced one.
-    fn first_open(&self, cold: impl Fn(usize) -> bool) -> Option<usize> {
+    fn first_open(&mut self, cold: impl Fn(usize) -> bool) -> Option<usize> {
         let n = self.flags.len();
-        (self.first_open..n)
-            .find(|&u| !self.flags[u] && !cold(u))
+        let flags = &self.flags;
+        let skip = |u: usize| flags[u] || cold(u);
+        while self.first_warm < n && skip(self.first_warm) {
+            self.first_warm += 1;
+        }
+        (self.first_warm < n)
+            .then_some(self.first_warm)
             .or_else(|| (self.first_open < n).then_some(self.first_open))
     }
 }
@@ -202,7 +210,7 @@ fn hot_successor(
         let pick = open
             .iter()
             .copied()
-            .filter(|t| !is_cold(func, *t) && !facts.cold_edges.contains(&(b, *t)))
+            .filter(|t| !is_cold(func, *t) && !facts.cold_edges.contains(b, *t))
             .min_by_key(|t| (!leads_to_loop(*t), unit_of(*t)))
             .or_else(|| open.iter().copied().min_by_key(|t| unit_of(*t)));
         if let Some(t) = pick {

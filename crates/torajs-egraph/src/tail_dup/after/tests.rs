@@ -3,8 +3,7 @@
 //! changes.
 
 use super::*;
-use crate::block_chain::ChainFacts;
-use crate::id_hash::HashSet;
+use crate::block_chain::{ChainFacts, ColdEdges};
 use crate::tail_dup::duplicate_small_joins;
 
 use torajs_core::ssa::loop_analysis::LoopAnalysis;
@@ -160,13 +159,13 @@ fn loop_sets(la: &LoopAnalysis) -> Vec<(BlockSet, u32, Vec<u32>)> {
         .collect()
 }
 
-fn cold_edges(f: &Function, dom: &DominatorTree) -> HashSet<(u32, u32)> {
+fn cold_edges(f: &Function, dom: &DominatorTree) -> ColdEdges {
     ChainFacts::new(f, DomView::whole(dom)).into_cold_edges()
 }
 
 /// Whether one of `edges` leaves a branch on a guard's compare.
-fn on_a_guard(f: &Function, edges: &HashSet<(u32, u32)>) -> bool {
-    edges.iter().any(|&(b, _)| {
+fn on_a_guard(f: &Function, edges: &ColdEdges) -> bool {
+    edges.iter().any(|(b, _)| {
         matches!(&f.blocks[b as usize].term,
             Terminator::CondBr { cond: Operand::Value(c), .. } if c.0 >= VALUES)
     })
@@ -192,7 +191,7 @@ fn read_off_the_old_tree_and_loops_matches_computing_them_afresh() {
         copies += 1;
         let fresh = DominatorTree::compute(&f);
         let now = cold_edges(&f, &fresh);
-        cold += usize::from(!before.is_empty());
+        cold += usize::from(before.iter().next().is_some());
         changed += usize::from(before != now);
         match &copied.cold_edges {
             Some(edges) => {
@@ -311,9 +310,10 @@ fn a_copy_that_writes_a_value_read_outside_drops_the_cold_edges() {
     let dom = DominatorTree::compute(&f);
     let la = LoopAnalysis::compute(&f, &dom);
     let before = cold_edges(&f, &dom);
-    assert!(before.contains(&(1, 6)), "the probe's throw arm");
+    assert!(before.contains(1, 6), "the probe's throw arm");
     let copied = duplicate_small_joins(&mut f, &dom, &la);
     assert_eq!(copied.blocks(), 1);
     assert!(copied.cold_edges.is_none());
-    assert!(cold_edges(&f, &DominatorTree::compute(&f)).is_empty());
+    let now = cold_edges(&f, &DominatorTree::compute(&f));
+    assert!(now.iter().next().is_none());
 }

@@ -24,8 +24,7 @@
 //! `TORAJS_BLOCK_LAYOUT_OFF=1` skips (bisect gate),
 //! `TORAJS_BLOCK_LAYOUT_STATS=1` dumps counters.
 
-use crate::block_chain::{BlockSet, ChainFacts, DomView};
-use crate::id_hash::HashSet;
+use crate::block_chain::{BlockSet, ChainFacts, ColdEdges, DomView};
 use crate::tail_dup::Copied;
 
 use torajs_core::ssa::{Block, BlockId, Function, Module, Terminator};
@@ -137,7 +136,7 @@ fn layout_with(
     func: &mut Function,
     dom: DomView,
     mut loops: Vec<(BlockSet, u32, Vec<u32>)>,
-    cold_edges: Option<HashSet<(u32, u32)>>,
+    cold_edges: Option<ColdEdges>,
 ) -> (u32, u32, u32) {
     if loops.is_empty() {
         return (0, 0, 0);

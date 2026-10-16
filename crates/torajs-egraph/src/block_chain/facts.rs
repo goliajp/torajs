@@ -2,7 +2,6 @@
 //! and the edges the lowerer's guards mark cold.
 
 use super::{DomView, is_cold};
-use crate::id_hash::HashSet;
 
 use torajs_core::ssa::branch_prob::cold_arms;
 use torajs_core::ssa::{BlockId, Function};
@@ -11,22 +10,22 @@ use torajs_core::ssa::{BlockId, Function};
 pub(crate) struct ChainFacts<'a> {
     pub(crate) dom: DomView<'a>,
     /// Edges `(from, to)` into an arm the lowerer's guards mark cold.
-    pub(super) cold_edges: HashSet<(u32, u32)>,
+    pub(super) cold_edges: ColdEdges,
 }
 
 impl<'a> ChainFacts<'a> {
     pub(crate) fn new(func: &Function, dom: DomView<'a>) -> Self {
-        Self::with_cold_edges(dom, cold_edges(func))
+        Self::with_cold_edges(dom, ColdEdges::of(func))
     }
 
     /// The facts with the cold edges already read off the function.
-    pub(crate) fn with_cold_edges(dom: DomView<'a>, cold_edges: HashSet<(u32, u32)>) -> Self {
+    pub(crate) fn with_cold_edges(dom: DomView<'a>, cold_edges: ColdEdges) -> Self {
         ChainFacts { dom, cold_edges }
     }
 
     /// Hands back the cold edges, for the same function changed in
     /// ways that leave them as they were.
-    pub(crate) fn into_cold_edges(self) -> HashSet<(u32, u32)> {
+    pub(crate) fn into_cold_edges(self) -> ColdEdges {
         self.cold_edges
     }
 
@@ -50,7 +49,7 @@ impl<'a> ChainFacts<'a> {
             if !in_body(idom.0) {
                 return false;
             }
-            if self.cold_edges.contains(&(idom.0, cur)) {
+            if self.cold_edges.contains(idom.0, cur) {
                 return true;
             }
             cur = idom.0;
@@ -78,7 +77,7 @@ impl<'a> ChainFacts<'a> {
                 }
                 match self.dom.immediate_dominator(BlockId(cur)) {
                     Some(idom) if in_body(idom.0) => {
-                        if self.cold_edges.contains(&(idom.0, cur)) {
+                        if self.cold_edges.contains(idom.0, cur) {
                             break true;
                         }
                         path.push(cur);
@@ -98,9 +97,42 @@ impl<'a> ChainFacts<'a> {
     }
 }
 
-/// Edges `(from, to)` into an arm the lowerer's guards mark cold.
-fn cold_edges(func: &Function) -> HashSet<(u32, u32)> {
-    (cold_arms(func).into_iter())
-        .map(|(from, to, _)| (from.0, to.0))
-        .collect()
+/// The edges `(from, to)` into the arms the lowerer's guards mark
+/// cold: at most one per branching block, so kept as each block's cold
+/// arm by block id.
+#[derive(Debug, Clone)]
+pub(crate) struct ColdEdges(Vec<u32>);
+
+/// No cold arm leaves the block.
+const NO_ARM: u32 = u32::MAX;
+
+impl ColdEdges {
+    fn of(func: &Function) -> Self {
+        let mut arms = Vec::new();
+        for (from, to, _) in cold_arms(func) {
+            let i = from.0 as usize;
+            if arms.len() <= i {
+                arms.resize(i + 1, NO_ARM);
+            }
+            arms[i] = to.0;
+        }
+        ColdEdges(arms)
+    }
+
+    pub(crate) fn contains(&self, from: u32, to: u32) -> bool {
+        self.0.get(from as usize) == Some(&to)
+    }
+
+    /// The edges, by ascending `from`.
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (u32, u32)> + '_ {
+        (self.0.iter().enumerate())
+            .filter(|(_, to)| **to != NO_ARM)
+            .map(|(from, &to)| (from as u32, to))
+    }
+}
+
+impl PartialEq for ColdEdges {
+    fn eq(&self, other: &Self) -> bool {
+        self.iter().eq(other.iter())
+    }
 }
