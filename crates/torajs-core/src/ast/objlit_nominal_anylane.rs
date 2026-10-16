@@ -110,8 +110,18 @@ pub(super) fn collect_anylane_objlits(
         computed_accessors,
     ));
     let fn_any_params = collect_fn_any_params(stmts);
+    let any_only = any_only_binding_names(stmts);
     for (i, e) in exprs.iter().enumerate() {
         match e {
+            // (m) — `x = { ... }` into a binding whose every declaration
+            // says `: any`: `ssa_lower_assign_ident`'s Any-slot route
+            // lowers the literal through `lower_dynobj_init`, so a
+            // this-using method reached its receiver as a struct-unbox
+            // COPY (`this.c = 9` and `delete this.b` landed on it)
+            Expr::Assign { target, value } if matches!(&exprs[target.0 as usize], Expr::Ident(x) if any_only.contains(x)) =>
+            {
+                roots.push(*value);
+            }
             // (b) — literal `undefined` field value; (g) — a
             // computed-key field (the parser's `__computed_N__`
             // sentinel name): the checker answers Any for the whole
@@ -252,6 +262,60 @@ fn collect_fn_any_params_inner(
             collect_fn_any_params_inner(body, map, seen);
         }
     }
+}
+
+/// (m) leg of [`collect_anylane_objlits`] — names every binding of
+/// which is a `let` / `var` annotated `: any`. Name-keyed like (f), so
+/// a name any other binding form also declares (a parameter, a
+/// loop or catch variable, a function, a non-any `let`) drops out:
+/// the slot that name resolves to might not be Any, and (m) must stay
+/// inside the SSA route.
+fn any_only_binding_names(stmts: &[Stmt]) -> std::collections::HashSet<String> {
+    let mut any_lets = std::collections::HashSet::new();
+    let mut other = std::collections::HashSet::new();
+    super::ns_alias::walk_stmts(stmts, &mut |s| match s {
+        Stmt::LetDecl { name, type_ann, .. } => {
+            if type_ann.as_deref() == Some("any") {
+                any_lets.insert(name.clone());
+            } else {
+                other.insert(name.clone());
+            }
+        }
+        Stmt::FnDecl { name, params, .. } => {
+            other.insert(name.clone());
+            other.extend(params.iter().map(|p| p.name.clone()));
+        }
+        Stmt::ForOf { var_name, .. } | Stmt::ForOfSplitIter { var_name, .. } => {
+            other.insert(var_name.clone());
+        }
+        Stmt::Try {
+            catch_param: Some(p),
+            ..
+        } => {
+            other.insert(p.clone());
+        }
+        Stmt::UsingDecl { name, .. } | Stmt::YieldInto { var: name, .. } => {
+            other.insert(name.clone());
+        }
+        Stmt::ClassDecl {
+            name,
+            ctor,
+            methods,
+            static_methods,
+            ..
+        } => {
+            other.insert(name.clone());
+            let ctor_params = ctor.iter().flat_map(|c| c.params.iter());
+            let method_params = methods
+                .iter()
+                .chain(static_methods.iter())
+                .flat_map(|m| m.params.iter());
+            other.extend(ctor_params.chain(method_params).map(|p| p.name.clone()));
+        }
+        _ => {}
+    });
+    any_lets.retain(|n| !other.contains(n));
+    any_lets
 }
 
 /// (a) leg of [`collect_anylane_objlits`] — `let x: any = <init>`
