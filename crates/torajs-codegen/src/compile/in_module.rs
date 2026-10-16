@@ -1,10 +1,24 @@
 //! A function compiled as one of its module's: what its codegen reads
-//! of the module around it.
+//! of the module around it, and the throw register role the module
+//! gives it (compile/throw_reg.rs), which reserves x21 out of its
+//! register pool and guards its frame.
 
 use torajs_core::ssa::id_hash::HashSet;
 use torajs_core::ssa::{FuncId, Function, Module, Type};
 
-use super::{InlineSites, global_access, sibcall};
+use super::throw_reg::{self, Role, ThrowRegPlan};
+use super::{CompiledFunction, InlineSites, emit_body, global_access, sibcall};
+use crate::frame::FrameLayout;
+use crate::regalloc::Assignment;
+
+/// Production entry: the module's function `id`, compiled with the
+/// module's facts.
+pub fn compile_function_at(func: &Function, id: FuncId, facts: &ModuleFacts) -> CompiledFunction {
+    let role = facts.throw_reg.role(id);
+    let reserved = role.reads.then_some(throw_reg::THROW_REG);
+    let alloc = crate::linear_scan::allocate_linear_scan_reserving(func, facts.inline, reserved);
+    compile_with_role(func, alloc, facts, role)
+}
 
 /// What a function's codegen reads of the module around it.
 #[derive(Debug, Clone, Default)]
@@ -31,6 +45,8 @@ pub struct ModuleFacts {
     /// access through one may carry the page offset as its scaled
     /// immediate (compile/global_access.rs).
     pub(crate) aligned8_syms: HashSet<String>,
+    /// Which functions hand a throw back in x21, and which read it.
+    pub(crate) throw_reg: ThrowRegPlan,
 }
 
 impl ModuleFacts {
@@ -48,6 +64,40 @@ impl ModuleFacts {
                 .map(|i| FuncId(i as u32)),
             inline: InlineSites::of_module(module),
             aligned8_syms: global_access::aligned8_syms(module),
+            throw_reg: ThrowRegPlan::of(module),
         }
+    }
+}
+
+pub(super) fn compile_with_role(
+    func: &Function,
+    alloc: Assignment,
+    facts: &ModuleFacts,
+    role: Role,
+) -> CompiledFunction {
+    // Frame carves alloca + spill + callee-save area in one sp
+    // adjustment. `used_callee_*_mask` is 0 for leaf / non-crossing
+    // functions, so this matches the pre-callee-save layout
+    // byte-for-byte; call-crossing functions get the callee-save area
+    // above the spill region (offsets unchanged — see `FrameLayout`).
+    let guarded = role.guards.then_some(throw_reg::THROW_REG);
+    let frame = FrameLayout {
+        zeroed: guarded,
+        ..FrameLayout::with_callee_saved(
+            alloc.total_frame_bytes(),
+            alloc.used_callee_gpr_mask | guarded.map_or(0, |g| 1 << g.idx()),
+            alloc.used_callee_fpr_mask,
+            alloc.has_calls,
+        )
+    };
+    // a TBZ / TBNZ that cannot reach its target: emit again without them
+    let (bytes, relocs) = emit_body(func, &alloc, facts, &frame, role, true)
+        .or_else(|| emit_body(func, &alloc, facts, &frame, role, false))
+        .expect("without bit-test branches every displacement fits");
+    CompiledFunction {
+        name: func.name.clone(),
+        bytes,
+        relocs,
+        frame,
     }
 }

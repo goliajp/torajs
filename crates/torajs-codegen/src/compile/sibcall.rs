@@ -24,6 +24,8 @@
 //! - `f` has a body (an extern or intrinsic call site is rewritten or
 //!   opened inline downstream) and returns this function's type; a fn
 //!   pointer's signature returns it
+//! - the callee keeps the throw register protocol
+//!   (`ThrowRegPlan::sibcall_allowed`, compile/throw_reg.rs)
 //! - every argument travels in a register: a stack argument would sit
 //!   in the frame the epilogue releases
 //! - the function takes no stack parameter of its own, and no address
@@ -43,6 +45,7 @@ use torajs_core::ssa::{
 use super::call_args::{has_stack_lane, pass_args};
 use super::operand::materialize_operand_gpr;
 use super::throw_probe::is_throw_probe;
+use super::throw_reg::Role;
 use super::{ModuleFacts, landing, write_u32};
 use crate::enc::{b_imm26, br_reg, mov_x_reg};
 use crate::frame::FrameLayout;
@@ -75,6 +78,7 @@ pub(super) fn plan<'a>(
     blocks_by_id: &HashMap<u32, &Block>,
     alloc: &Assignment,
     facts: &ModuleFacts,
+    role: Role,
 ) -> Option<Sibling<'a>> {
     let at = block
         .insts
@@ -100,6 +104,9 @@ pub(super) fn plan<'a>(
         ),
         _ => return None,
     };
+    if !facts.throw_reg.sibcall_allowed(role, &call.kind) {
+        return None;
+    }
     let shape = Shape {
         func,
         blocks_by_id,

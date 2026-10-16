@@ -55,14 +55,21 @@ mod str_append;
 mod substr_drop;
 mod terminator;
 mod throw_probe;
+mod throw_reg;
+mod throw_reg_emit;
+mod throw_reg_zero;
 mod vec;
 
 #[cfg(test)]
 pub(crate) mod test_fixtures;
+#[cfg(test)]
+mod throw_reg_tests;
 
 use torajs_core::ssa::id_hash::HashMap;
 
 use torajs_core::ssa::{Block, Function};
+
+use throw_reg::Role;
 
 use crate::frame::FrameLayout;
 use crate::reg::{Fpr, Gpr};
@@ -83,7 +90,7 @@ pub use cast::{
 pub use cell::CellOps;
 pub use cmp::{emit_fcmp, emit_icmp};
 pub use ctpop_range_sum::emit_ctpop_range_sum;
-pub use in_module::ModuleFacts;
+pub use in_module::{ModuleFacts, compile_function_at};
 pub use inline_sites::InlineSites;
 pub use mem::{
     emit_alloca, emit_load, emit_load_dyn, emit_load_dyn_scaled8, emit_load_u8_dyn,
@@ -144,7 +151,8 @@ pub fn compile_function(func: &Function) -> CompiledFunction {
     compile_function_in(func, &ModuleFacts::default())
 }
 
-/// Production entry: [`compile_function`] with the module's facts.
+/// [`compile_function`] with the module's facts, for a function
+/// outside the module's call graph (no throw register role).
 pub fn compile_function_in(func: &Function, facts: &ModuleFacts) -> CompiledFunction {
     compile_function_with(
         func,
@@ -160,27 +168,7 @@ pub fn compile_function_with(
     alloc: Assignment,
     facts: &ModuleFacts,
 ) -> CompiledFunction {
-    // Frame carves alloca + spill + callee-save area in one sp
-    // adjustment. `used_callee_*_mask` is 0 for leaf / non-crossing
-    // functions, so this matches the pre-callee-save layout
-    // byte-for-byte; call-crossing functions get the callee-save area
-    // above the spill region (offsets unchanged — see `FrameLayout`).
-    let frame = FrameLayout::with_callee_saved(
-        alloc.total_frame_bytes(),
-        alloc.used_callee_gpr_mask,
-        alloc.used_callee_fpr_mask,
-        alloc.has_calls,
-    );
-    // a TBZ / TBNZ that cannot reach its target: emit again without them
-    let (bytes, relocs) = emit_body(func, &alloc, facts, &frame, true)
-        .or_else(|| emit_body(func, &alloc, facts, &frame, false))
-        .expect("without bit-test branches every displacement fits");
-    CompiledFunction {
-        name: func.name.clone(),
-        bytes,
-        relocs,
-        frame,
-    }
+    in_module::compile_with_role(func, alloc, facts, Role::default())
 }
 
 /// The function's code and relocations; None when `bit_tests` placed
@@ -190,6 +178,7 @@ fn emit_body(
     alloc: &Assignment,
     facts: &ModuleFacts,
     frame: &FrameLayout,
+    role: Role,
     bit_tests: bool,
 ) -> Option<(Vec<u8>, Vec<Reloc>)> {
     let mut bytes: Vec<u8> = Vec::new();
@@ -204,7 +193,7 @@ fn emit_body(
     let shrink = open_frame(&mut bytes, func, alloc, frame);
     let frameless = FrameLayout::leaf_no_spill();
 
-    let fusions = fusions::Fusions::of(func, alloc, facts, bit_tests);
+    let fusions = fusions::Fusions::of(func, alloc, facts, role, bit_tests);
 
     // Where each branch lands, shared by the terminator emit (fall-
     // through elision needs the next block's final identity) and the
@@ -218,6 +207,7 @@ fn emit_body(
     // slot index of the block's first inst, numbered as in liveness
     let mut block_slot: u32 = 0;
     let emitted = landing.emitted(&func.blocks);
+    let mut throws = throw_reg_emit::BlockHooks::of(func, facts, role, frame, &landing);
     for (bi, block) in func.blocks.iter().enumerate() {
         if !emitted[bi] {
             block_slot += block.insts.len() as u32 + 1;
@@ -232,11 +222,26 @@ fn emit_body(
         block_byte_starts.insert(block.id.0, start as u32);
         let (alloc, frame) =
             landing::open_block(&mut bytes, block, &shrink, alloc, frame, &frameless);
-        let fused = fusions.cmp_of(block.id.0);
-        let sib = sibcall::plan(func, block, &landing.blocks_by_id, alloc, facts);
+        if throws.open(&mut bytes, &mut fixups, block, frame, start) {
+            block_slot += block.insts.len() as u32 + 1;
+            falls_in = false;
+            continue;
+        }
+        let probe = fusions.reads_throw_reg(block.id.0);
+        let fused = fusions.cmp_of(block.id.0).filter(|_| !probe);
+        let sib = sibcall::plan(func, block, &landing.blocks_by_id, alloc, facts, role);
         let body = sib.as_ref().map_or(block.insts.len(), |s| s.at);
         let at = (block, body, block_slot);
-        emit_block_insts(&mut bytes, &mut relocs, func, at, alloc, facts, &fusions);
+        emit_block_insts(
+            &mut bytes,
+            &mut relocs,
+            func,
+            at,
+            alloc,
+            facts,
+            &fusions,
+            &throws,
+        );
         block_slot += block.insts.len() as u32 + 1;
         if let Some(s) = &sib {
             sibcall::emit(&mut bytes, &mut relocs, s, alloc, facts, frame);
@@ -263,6 +268,10 @@ fn emit_body(
             fused,
             &landing,
             next,
+            terminator::ThrowExit {
+                probe,
+                signal: role.signals && throw_reg::has_signal(block),
+            },
         );
         falls_in = terminator::falls_through(&block.term, &landing, next);
     }
@@ -299,6 +308,7 @@ fn open_frame(
 
 /// The instructions of `block` ahead of `end` (a sibling call, or the
 /// terminator); `slot` numbers the first as liveness does.
+#[allow(clippy::too_many_arguments)] // the block loop's state, passed through
 fn emit_block_insts(
     bytes: &mut Vec<u8>,
     relocs: &mut Vec<Reloc>,
@@ -307,6 +317,7 @@ fn emit_block_insts(
     alloc: &Assignment,
     facts: &ModuleFacts,
     fusions: &fusions::Fusions,
+    throws: &throw_reg_emit::BlockHooks,
 ) {
     let mut flags = cond_flags::CondFlags::default();
     // never across a block start: another way in may not have run
@@ -319,6 +330,7 @@ fn emit_block_insts(
             let site = slot + ii as u32;
             emit_inst_at(bytes, relocs, func, inst, alloc, facts, site, &mut carry);
         }
+        throws.after_inst(bytes, block, ii);
     }
 }
 

@@ -17,6 +17,9 @@ pub(crate) struct Switches {
     /// `TORAJS_CALL_SAVE_OFF=1`: no caller-saved register saved around
     /// calls for a call-crossing value (bisect gate).
     pub(crate) call_save_off: bool,
+    /// `TORAJS_THROW_REG_OFF=1`: no throw handed back in x21; every
+    /// probe reads the pending-throw flag (bisect gate).
+    pub(crate) throw_reg_off: bool,
     /// `TORAJS_REGALLOC_POOL=<n>`: registers kept per pool.
     pub(crate) pool: usize,
     /// `TORAJS_REGALLOC_DUMP=<substring>`: the functions to narrate.
@@ -34,6 +37,7 @@ pub(crate) fn get() -> &'static Switches {
         coalesce_live_off: is_1("TORAJS_COALESCE_LIVE_OFF"),
         share_off: is_1("TORAJS_SHARE_OFF"),
         call_save_off: is_1("TORAJS_CALL_SAVE_OFF"),
+        throw_reg_off: is_1("TORAJS_THROW_REG_OFF"),
         pool: std::env::var("TORAJS_REGALLOC_POOL")
             .ok()
             .and_then(|v| v.parse::<usize>().ok())

@@ -17,8 +17,9 @@ use torajs_core::ssa::{BlockId, Terminator};
 
 use super::landing::Landing;
 use super::operand::{self, materialize_operand_fpr, materialize_operand_gpr};
+use super::throw_reg::THROW_REG;
 use super::{OP_SCRATCH_LHS, bittest, brfuse, write_u32};
-use crate::enc::{b_imm26, brk_imm16, cbnz_x, cbz_x, mov_d_reg, mov_x_reg, ret};
+use crate::enc::{b_imm26, brk_imm16, cbnz_x, cbz_x, mov_d_reg, mov_x_reg, movz_imm, ret};
 use crate::frame::FrameLayout;
 use crate::reg::{Fpr, Gpr};
 use crate::regalloc::Assignment;
@@ -39,6 +40,16 @@ pub(super) enum BranchKind {
 pub(super) struct Next {
     pub(super) here: BlockId,
     pub(super) resolved: Option<BlockId>,
+}
+
+/// What the terminator does with the throw register
+/// (compile/throw_reg.rs): branch on it in place of the absorbed
+/// probe, or set it after the epilogue of a return that propagates a
+/// throw.
+#[derive(Debug, Clone, Copy, Default)]
+pub(super) struct ThrowExit {
+    pub(super) probe: bool,
+    pub(super) signal: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -118,6 +129,7 @@ pub(super) fn emit_terminator(
     fused: Option<&brfuse::FusedCmp>,
     landing: &Landing,
     next: Next,
+    throw: ThrowExit,
 ) {
     let resolve = |t: BlockId| landing.resolve(t);
     match term {
@@ -151,6 +163,9 @@ pub(super) fn emit_terminator(
                 }
             }
             frame.emit_epilogue(bytes);
+            if throw.signal {
+                write_u32(bytes, movz_imm(THROW_REG, 1, 0));
+            }
             write_u32(bytes, ret(Gpr::X30));
         }
         Terminator::Br(target_block) => {
@@ -190,7 +205,11 @@ pub(super) fn emit_terminator(
             // Materialize the Bool cond into a GPR scratch. If the
             // cond is a Value, the allocator already placed it in a
             // register and materialize_operand_gpr is a fast lookup.
-            let cond_reg = operand::materialize_operand_gpr(bytes, cond, OP_SCRATCH_LHS, alloc);
+            let cond_reg = if throw.probe {
+                THROW_REG
+            } else {
+                operand::materialize_operand_gpr(bytes, cond, OP_SCRATCH_LHS, alloc)
+            };
             // CBNZ cond, then_blk — branch when cond != 0 (i.e. true);
             // flipped to CBZ cond, else_blk when the branch goes there.
             let cb_site = bytes.len() as u32;

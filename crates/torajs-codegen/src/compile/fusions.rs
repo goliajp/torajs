@@ -14,6 +14,8 @@ use super::cmp;
 use super::global_access::{self, GlobalAccesses};
 use super::selinc::{self, SelectIncs};
 use super::store_pair::{self, StorePair};
+use super::throw_probe;
+use super::throw_reg::Role;
 use crate::regalloc::Assignment;
 use crate::reloc::Reloc;
 
@@ -38,6 +40,10 @@ pub(super) struct Fusions {
     /// reads, which fold the address's low half. See
     /// compile/global_access.rs.
     globals: GlobalAccesses,
+    /// Blocks whose tail probe of the pending-throw flag reads x21
+    /// instead, by the index of the first instruction it absorbs. See
+    /// compile/throw_reg.rs.
+    throw_probes: HashMap<u32, usize>,
 }
 
 impl Fusions {
@@ -45,9 +51,15 @@ impl Fusions {
         func: &Function,
         alloc: &Assignment,
         facts: &ModuleFacts,
+        role: Role,
         bit_tests: bool,
     ) -> Self {
         let uses = brfuse::count_uses(func);
+        let throw_probes = if role.reads {
+            throw_probe::probes(func, &facts.throw_reg, &uses)
+        } else {
+            HashMap::default()
+        };
         Fusions {
             cmps: brfuse::fusible_cmps(func, bit_tests),
             select_cmps: brfuse::fusible_select_cmps(func, alloc),
@@ -55,7 +67,13 @@ impl Fusions {
             store_pairs: store_pair::plan(func, alloc),
             dead_refs: dead_refs(func, &uses),
             globals: global_access::plan(func, &uses, &facts.aligned8_syms),
+            throw_probes,
         }
+    }
+
+    /// Whether the terminator of `block` branches on x21.
+    pub(super) fn reads_throw_reg(&self, block: u32) -> bool {
+        self.throw_probes.contains_key(&block)
     }
 
     /// The compare the terminator of `block` emits fused.
@@ -76,6 +94,9 @@ impl Fusions {
         alloc: &Assignment,
     ) -> bool {
         let (b, i) = (block.id.0, ii as u32);
+        if self.throw_probes.get(&b).is_some_and(|&first| ii >= first) {
+            return true; // the terminator branches on x21 instead
+        }
         if self.dead_refs.contains(&(b, i)) || self.globals.absorbed(b, i) {
             return true;
         }

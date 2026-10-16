@@ -21,8 +21,8 @@ use crate::runtime_image::TORAJS_RUNTIME_IMAGE;
 use torajs_codegen::CompiledFunction;
 use torajs_codegen::frame::FrameLayout;
 use torajs_codegen::reloc::{CallTarget, RelocKind};
-use torajs_codegen::{ModuleFacts, compile_function_in};
-use torajs_core::ssa::Module;
+use torajs_codegen::{ModuleFacts, compile_function_at};
+use torajs_core::ssa::{FuncId, Module};
 use torajs_link::archive_emit::link_to_exec_for_exit;
 use torajs_link::exec::LinkConfig;
 use torajs_link::phase_timer::PhaseTimer;
@@ -156,7 +156,8 @@ fn compile_module_funcs(ssa_module: &Module) -> Vec<CompiledFunction> {
     let mut funcs: Vec<_> = ssa_module
         .funcs
         .iter()
-        .map(|f| {
+        .enumerate()
+        .map(|(i, f)| {
             if f.is_declaration() {
                 // Reserve a fn_vaddrs slot with empty bytes so call-site
                 // reloc rewrites below preserve FuncId indexing.
@@ -167,7 +168,7 @@ fn compile_module_funcs(ssa_module: &Module) -> Vec<CompiledFunction> {
                     frame: FrameLayout::leaf_no_spill(),
                 }
             } else {
-                compile_function_in(f, &facts)
+                compile_function_at(f, FuncId(i as u32), &facts)
             }
         })
         .collect::<Vec<_>>();

@@ -45,7 +45,7 @@ use crate::linear_scan_lanes::{param_entries, param_lanes, ret_lane_free};
 use crate::linear_scan_sweep::Sweep;
 use crate::live_ranges::LazyRanges;
 use crate::liveness::compute_liveness;
-use crate::reg::{Reg, aapcs64};
+use crate::reg::{Gpr, Reg, aapcs64};
 use crate::regalloc::{Assignment, collect_ret_value_ids};
 use crate::spill_weight::compute_spill_weights;
 
@@ -58,6 +58,16 @@ pub fn allocate_linear_scan(func: &Function) -> Assignment {
 /// [`allocate_linear_scan`] for a function whose intrinsic calls
 /// `compile` opens inline: those sites call only on their slow arm.
 pub fn allocate_linear_scan_with(func: &Function, inline: InlineSites) -> Assignment {
+    allocate_linear_scan_reserving(func, inline, None)
+}
+
+/// [`allocate_linear_scan_with`] that hands `reserved` to no value
+/// (the throw register of a function that reads it, compile/throw_reg.rs).
+pub(crate) fn allocate_linear_scan_reserving(
+    func: &Function,
+    inline: InlineSites,
+    reserved: Option<Gpr>,
+) -> Assignment {
     let (mut intervals, blocks) = compute_liveness(func);
     let ret_vids = collect_ret_value_ids(func);
 
@@ -76,7 +86,7 @@ pub fn allocate_linear_scan_with(func: &Function, inline: InlineSites) -> Assign
     classes.fold_into(&mut intervals, &mut weights);
     let ranges = LazyRanges::new(func, &blocks, &intervals, &classes);
     let call_costs = CallCosts::new(&call_sites, &call_rarity, &units);
-    let mut sweep = Sweep::new(next_alloca_offset, weights, call_costs, ranges);
+    let mut sweep = Sweep::new(next_alloca_offset, weights, call_costs, ranges, reserved);
     sweep.unspillable = crate::vec_homes::vector_values(func, &classes);
     sweep.log = crate::linear_scan_dump::wanted(func);
 

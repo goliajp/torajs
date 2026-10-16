@@ -112,6 +112,7 @@ impl<'a> Sweep<'a> {
         weights: HashMap<u32, u64>,
         call_costs: CallCosts,
         ranges: LazyRanges<'a>,
+        reserved: Option<Gpr>,
     ) -> Self {
         let switches = crate::switches::get();
         let n = switches.pool;
@@ -124,7 +125,10 @@ impl<'a> Sweep<'a> {
             at: 0,
             ranges,
             free_caller_gpr: pool(&aapcs64::CALLER_SAVED_SCRATCH, n),
-            free_callee_gpr: pool(&aapcs64::CALLEE_SAVED_SCRATCH, n),
+            free_callee_gpr: pool(&aapcs64::CALLEE_SAVED_SCRATCH, n)
+                .into_iter()
+                .filter(|&g| Some(g) != reserved)
+                .collect(),
             free_caller_fpr: pool(&aapcs64::FP_CALLER_SAVED_SCRATCH, n),
             free_callee_fpr: pool(&aapcs64::FP_CALLEE_SAVED_SCRATCH, n),
             next_spill_offset: spill_base,

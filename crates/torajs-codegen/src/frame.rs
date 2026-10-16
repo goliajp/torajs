@@ -39,7 +39,7 @@
 
 use crate::compile::slot;
 use crate::enc::{
-    add_imm, add_imm_lsl12, ldp_post_index, ldp_x_off, stp_pre_index, stp_x_off, sub_imm,
+    add_imm, add_imm_lsl12, ldp_post_index, ldp_x_off, movz_imm, stp_pre_index, stp_x_off, sub_imm,
     sub_imm_lsl12,
 };
 use crate::reg::{Fpr, Gpr, aapcs64};
@@ -83,6 +83,10 @@ pub struct FrameLayout {
     /// True if the function makes any calls (any `BL`/`BLR` site) —
     /// forces FP/LR save in the prologue.
     pub uses_calls: bool,
+    /// The prologue ends by zeroing this register, which the
+    /// callee-save area saves (the throw register of a guarded reader,
+    /// compile/throw_reg.rs).
+    pub zeroed: Option<Gpr>,
 }
 
 impl FrameLayout {
@@ -94,6 +98,7 @@ impl FrameLayout {
             callee_saved_gpr_mask: 0,
             callee_saved_fpr_mask: 0,
             uses_calls: false,
+            zeroed: None,
         }
     }
 
@@ -119,6 +124,7 @@ impl FrameLayout {
             callee_saved_gpr_mask,
             callee_saved_fpr_mask,
             uses_calls,
+            zeroed: None,
         }
     }
 
@@ -228,6 +234,9 @@ impl FrameLayout {
         }
         // Save callee-saved registers into the area above alloca/spill.
         self.emit_callee_saves(bytes, /*restore=*/ false);
+        if let Some(g) = self.zeroed {
+            write_word(bytes, movz_imm(g, 0, 0));
+        }
     }
 
     /// Emit the epilogue into `bytes`. No-op when trivial. RET is
@@ -367,6 +376,7 @@ mod tests {
             callee_saved_gpr_mask: 0,
             callee_saved_fpr_mask: 0,
             uses_calls: true,
+            zeroed: None,
         };
         assert!(!f.is_trivial());
     }
