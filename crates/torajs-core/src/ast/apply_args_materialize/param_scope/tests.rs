@@ -86,3 +86,47 @@ fn a_body_no_default_reaches_is_untouched() {
     assert_eq!(let_names(fn_body(&ast, "f")), ["K"]);
     assert_eq!(let_names(fn_body(&ast, "g")), ["K"]);
 }
+
+fn ctor<'a>(ast: &'a Ast, class: &str) -> &'a crate::ast::ClassCtor {
+    ast.stmts
+        .iter()
+        .find_map(|s| match s {
+            Stmt::ClassDecl {
+                name,
+                ctor: Some(c),
+                ..
+            } if name == class => Some(c),
+            _ => None,
+        })
+        .expect("constructor")
+}
+
+#[test]
+fn a_parameter_a_field_initializer_names_moves_out_of_its_way() {
+    let ast = run("const k = 1; class E { v = k; constructor(k) { this.w = k; } }");
+    let c = ctor(&ast, "E");
+    assert_eq!(c.params[0].name, "k__fi0");
+    let names: Vec<&str> = c
+        .body
+        .iter()
+        .filter_map(|s| match s {
+            Stmt::Expr(e) => match ast.get_expr(*e) {
+                Expr::Assign { value, .. } => match ast.get_expr(*value) {
+                    Expr::Ident(n) => Some(n.as_str()),
+                    _ => None,
+                },
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect();
+    assert_eq!(names, ["k", "k__fi0"]);
+}
+
+#[test]
+fn a_constructor_with_no_name_in_common_is_untouched() {
+    let ast = run("const a = 1; class N { x = a; y; constructor(b) { let c = b; this.y = c; } }");
+    let c = ctor(&ast, "N");
+    assert_eq!(c.params[0].name, "b");
+    assert_eq!(let_names(&c.body), ["c"]);
+}

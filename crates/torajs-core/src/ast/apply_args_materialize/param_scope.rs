@@ -20,8 +20,10 @@
 //! parameter unpacks into at the head of the body, and a constructor's
 //! field initializers (those read the class's surroundings). A name
 //! declared by a body `class`, or held in a name-keyed side table, is
-//! left alone.
+//! left alone. A constructor binding the field initializers would
+//! reach moves first, on its own (`field_scope`).
 
+mod field_scope;
 mod refs;
 mod walk;
 
@@ -65,6 +67,8 @@ pub fn split_param_scope(ast: &mut Ast) {
             _ => None,
         })
         .collect();
+    collect_taken(ast, &mut taken);
+    field_scope::split_field_scope(ast, &mut taken);
     let mut planner = Planner {
         ast: &*ast,
         roots: ast.class_field_init_roots.iter().copied().collect(),
@@ -73,7 +77,6 @@ pub fn split_param_scope(ast: &mut Ast) {
         by_ord: HashMap::new(),
         by_arrow: HashMap::new(),
     };
-    planner.collect_taken();
     let mut ord = 0usize;
     for_each_fn(&ast.stmts, &mut |p, b, ctor| {
         planner.plan_ord(&mut ord, p, b, ctor)
@@ -240,24 +243,24 @@ impl Planner<'_> {
         }
         side
     }
+}
 
-    /// Every spelling a declaration already uses, so a minted name
-    /// collides with none.
-    fn collect_taken(&mut self) {
-        let mut out = Vec::new();
-        for s in &self.ast.stmts {
-            all_decl_names(s, &mut out);
-        }
-        for e in &self.ast.exprs {
-            if let Expr::ArrowFn { params, body, .. } = e {
-                out.extend(params.iter().map(|p| p.name.as_str()));
-                for s in body {
-                    all_decl_names(s, &mut out);
-                }
+/// Every spelling a declaration already uses, so a minted name
+/// collides with none.
+fn collect_taken(ast: &Ast, taken: &mut HashSet<String>) {
+    let mut out = Vec::new();
+    for s in &ast.stmts {
+        all_decl_names(s, &mut out);
+    }
+    for e in &ast.exprs {
+        if let Expr::ArrowFn { params, body, .. } = e {
+            out.extend(params.iter().map(|p| p.name.as_str()));
+            for s in body {
+                all_decl_names(s, &mut out);
             }
         }
-        self.taken.extend(out.into_iter().map(str::to_string));
     }
+    taken.extend(out.into_iter().map(str::to_string));
 }
 
 /// A name some side table recorded by spelling before this pass.

@@ -8,6 +8,7 @@ use super::free_vars::walk_stmt;
 use super::free_vars::{Bound, FreeSink};
 use super::free_vars_expr::walk_expr;
 use super::free_vars_hoisted_names::{hoist_list_names, hoist_var_names};
+use super::hoist_gen_fn_exprs_self_write::ctor_field_inits;
 use super::{Ast, ClassCtor, ClassMethod, Expr, ExprId, Param, StaticInit, Stmt};
 
 /// A nested `function` declaration's body walk. The decl's own name is
@@ -54,7 +55,7 @@ pub(super) fn walk_fn_decl(
 /// — a body here reports its REAL frees, strictly more correct than
 /// ignoring it). Each callable body is a fn scope; instance-field
 /// inits already live in the ctor body
-/// (`finalize_class_field_inits`).
+/// (`finalize_class_field_inits`), see [`walk_ctor`].
 ///
 /// The computed keys and computed static-field initializers live in
 /// side tables keyed by the class name, and a name is not an identity
@@ -92,7 +93,7 @@ pub(super) fn walk_class_decl(
         walk_expr(ast, k, bound, out);
     }
     if let Some(c) = ctor {
-        walk_fn_decl(ast, &c.params, &c.body, bound, out);
+        walk_ctor(ast, name, c, bound, out);
     }
     for m in methods.iter().chain(static_methods.iter()) {
         walk_fn_decl(ast, &m.params, &m.body, bound, out);
@@ -142,4 +143,39 @@ pub(super) fn walk_param_defaults(
         }
         walk_expr(ast, d, bound, out);
     }
+}
+
+/// A constructor body, with the instance field initializers the parser
+/// spliced into it walked in the class scope (§15.7.10): the
+/// constructor's parameters and declarations do not reach them, so a
+/// name they share with the initializers is still free there. The
+/// statements are walked in body order either way.
+fn walk_ctor(ast: &Ast, class: &str, c: &ClassCtor, bound: &mut Bound<'_>, out: &mut dyn FreeSink) {
+    let fields = ctor_field_inits(ast, class, &c.body);
+    if fields.is_empty() {
+        walk_fn_decl(ast, &c.params, &c.body, bound, out);
+        return;
+    }
+    let saved = bound.names.len();
+    for p in &c.params {
+        bound.names.push(p.name.clone());
+    }
+    bound.names.push("arguments".into());
+    bound.names.push("__this".into());
+    walk_param_defaults(ast, &c.params, bound, out);
+    hoist_list_names(&c.body, &mut bound.names);
+    hoist_var_names(&c.body, &mut bound.names);
+    for (i, s) in c.body.iter().enumerate() {
+        if !fields.contains(&i) {
+            walk_stmt(ast, s, bound, out);
+            continue;
+        }
+        let frame = bound.names.split_off(saved);
+        bound.names.push("__this".into());
+        hoist_list_names(&c.body[fields.clone()], &mut bound.names);
+        walk_stmt(ast, s, bound, out);
+        bound.names.truncate(saved);
+        bound.names.extend(frame);
+    }
+    bound.names.truncate(saved);
 }

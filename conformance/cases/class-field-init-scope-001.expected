@@ -1,0 +1,10 @@
+param 1 5
+local 2 7
+plain 4 4
+destructured outer inner
+derived 1 10 20
+nested s-outer x!arg
+var o i
+function outer inner
+default 1 2 3
+write 9
