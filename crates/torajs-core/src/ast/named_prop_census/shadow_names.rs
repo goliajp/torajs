@@ -27,62 +27,14 @@ use std::cell::OnceCell;
 use std::collections::{HashMap, HashSet};
 
 use super::accessor_names::{AccessorFieldNames, Reach};
-use super::write_hit::{Hit, Kind, any_receiver, call, literal, spare, write};
+use super::write_hit::{Hit, any_receiver, call, literal, spare, write};
 use super::write_sites::candidates;
 use crate::ast::{Ast, Expr, ExprId, PropKey};
 use crate::check::{GenericAliasMap, Lit, Type};
 use crate::ssa_lower_pass_0_5::arr_head_census::TwinBodies;
+use names::Names;
 
-/// The names a pass reaches. `unknown` holds every name written a
-/// value that is no number, which may shadow any slot but a number
-/// slot; `any`, `string` and `boolean` split it by what the value was.
-#[derive(Default)]
-struct Names {
-    unknown: HashSet<String>,
-    number: HashSet<String>,
-    any: HashSet<String>,
-    string: HashSet<String>,
-    boolean: HashSet<String>,
-    all_unknown: bool,
-    all_number: bool,
-}
-
-impl Names {
-    fn take(&mut self, hit: &Hit) {
-        match hit {
-            Hit::None => {}
-            Hit::Name(n, k) => self.name(n, *k),
-            Hit::Names(ns) => {
-                for (n, k) in ns {
-                    self.name(n, *k);
-                }
-            }
-            Hit::All(Kind::Number) => self.all_number = true,
-            Hit::All(_) => self.all_unknown = true,
-        }
-    }
-
-    fn name(&mut self, n: &str, k: Kind) {
-        let by_kind = match k {
-            Kind::Number => &mut self.number,
-            Kind::String => &mut self.string,
-            Kind::Boolean => &mut self.boolean,
-            Kind::Unknown => &mut self.any,
-        };
-        by_kind.insert(n.to_string());
-        if k != Kind::Number {
-            self.unknown.insert(n.to_string());
-        }
-    }
-
-    fn reach(all: bool, names: HashSet<String>) -> Reach {
-        match (all, names.is_empty()) {
-            (true, _) => Reach::All,
-            (false, true) => Reach::None,
-            (false, false) => Reach::Names(names),
-        }
-    }
-}
+mod names;
 
 impl AccessorFieldNames {
     /// Record which declared fields the program's writes can shadow.
