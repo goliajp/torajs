@@ -1,0 +1,10 @@
+owns 2 3 4 5 ReferenceError 7 8 1
+fnexpr-self 1 function
+catch-param-try TypeError 1
+catch-param-finally TypeError 1
+method TypeError 1
+static TypeError 1
+for-head TypeError 0
+for-head-2 TypeError 9
+for-of TypeError 7
+for-of-dstr TypeError 8

@@ -1,30 +1,53 @@
-//! A write to a top-level `const` from inside a function is a runtime
-//! TypeError (rotation 636).
+//! A write to a `const` from inside a nested function is a runtime
+//! TypeError.
 //!
 //! §9.1.1.1.5 SetMutableBinding on an immutable binding throws a
 //! TypeError — in strict AND sloppy code, `const` bindings being
 //! strict-immutable — after the right-hand side has been evaluated
 //! (§13.15.2 PutValue follows GetValue of the rref). The checker
-//! refuses the same-scope spelling at compile time (`const c = 3;
-//! c = 4` is a type error, which is the TypeScript answer and the
-//! better one for a typed program); a write from a NESTED function
-//! got past it and died in the lowering ("assign to unknown ident"),
-//! since an inlined-literal `const` has no slot for a store to land
-//! in. test262 `global-code/decl-lex` asserts the throw.
+//! answers the same-scope spelling itself (`const c = 3; c = 4` is
+//! marked and the assign lane throws). A write from a NESTED function
+//! got past it: for a top-level `const` it died in the lowering
+//! ("assign to unknown ident"), since an inlined-literal `const` has
+//! no slot for a store to land in; for a `const` declared in a
+//! function body or a block, the closure's captured copy took the
+//! store and the program ran on with a wrong value. test262
+//! `global-code/decl-lex` and `staging/sm/regress/regress-383902`
+//! assert the throw.
 //!
-//! The rewrite is the readonly-global lane's — `(rhs, throw)` for an
-//! assignment, the throw alone for `c++` — applied through the
-//! scope-aware collector the generator self-name pass uses: a nested
-//! function, arrow, block, for-of head or catch clause that rebinds
-//! the name owns the writes inside it.
+//! The rewrite reads the binding, then mints the readonly-global
+//! lane's throw — `(rhs, c, throw)` for an assignment, `(+c, throw)`
+//! for `c++` — through the scope-aware collector the generator
+//! self-name pass uses: a nested function, arrow, block, `try` /
+//! `catch` / `finally` list, switch, for head, for-of head, catch
+//! parameter or named function expression that rebinds the name owns
+//! the writes inside it. Every statement list that declares a `const`
+//! is visited — the top level, a function or arrow body, a block, a
+//! `try` / `catch` / `finally` list, a switch's clauses, a class
+//! member's body — and so is a `for` whose head declares one (the
+//! parser already rewrites a one-name head, and a `for (const x of
+//! …)` variable in `throw_on_const_loop_var_writes`). A program that
+//! declares no `const` is left as it was.
 //!
-//! Runs after the sloppy implicit-global synthesis, before anything
-//! lifts a function out of its scope.
+//! Runs before the sloppy implicit-global synthesis and before
+//! anything lifts a function out of its scope.
 
-use super::{Ast, Stmt};
+use super::desugar_with::walk::{arrow_nodes, stmt_children_ref};
+use super::hoist_gen_fn_exprs_self_write::{
+    rewrite_writes_inside_functions, rewrite_writes_inside_functions_of_for,
+};
+use super::{Ast, Expr, ExprId, StaticInit, Stmt, SwitchCase};
 
 pub fn rewrite_const_writes_in_functions(ast: &mut Ast) {
-    let consts: Vec<String> = super::toplevel_stmts_flat(ast)
+    let stmts = std::mem::take(&mut ast.stmts);
+    visit_list(ast, &stmts);
+    ast.stmts = stmts;
+}
+
+/// The `const` names `list` declares at its own level (a `Multi`
+/// group shares the list's scope).
+fn declared_consts(list: &[Stmt]) -> Vec<String> {
+    super::stmts_flat(list)
         .into_iter()
         .filter_map(|s| match s {
             Stmt::LetDecl {
@@ -35,13 +58,117 @@ pub fn rewrite_const_writes_in_functions(ast: &mut Ast) {
             } => Some(name.clone()),
             _ => None,
         })
+        .collect()
+}
+
+fn visit_list(ast: &mut Ast, list: &[Stmt]) {
+    for name in declared_consts(list) {
+        rewrite_writes_inside_functions(ast, list, &name);
+    }
+    for s in list {
+        visit_stmt(ast, s);
+    }
+}
+
+fn visit_stmt(ast: &mut Ast, s: &Stmt) {
+    for eid in arrow_nodes(ast, s) {
+        visit_arrow(ast, eid);
+    }
+    match s {
+        Stmt::FnDecl { body, .. } | Stmt::Block(body) => visit_list(ast, body),
+        // The group's declarations belong to the enclosing list, which
+        // has already rewritten for them.
+        Stmt::Multi(list) => {
+            for c in list {
+                visit_stmt(ast, c);
+            }
+        }
+        Stmt::Try {
+            body,
+            catch_body,
+            finally_body,
+            ..
+        } => {
+            visit_list(ast, body);
+            visit_list(ast, catch_body);
+            if let Some(f) = finally_body {
+                visit_list(ast, f);
+            }
+        }
+        Stmt::Switch { cases, default, .. } => visit_switch(ast, cases, default.as_deref()),
+        Stmt::ClassDecl { .. } => visit_class(ast, s),
+        Stmt::ExportDecl {
+            inner: Some(inner), ..
+        } => visit_stmt(ast, inner),
+        Stmt::For {
+            init: Some(init), ..
+        } => {
+            for name in declared_consts(std::slice::from_ref(init.as_ref())) {
+                rewrite_writes_inside_functions_of_for(ast, s, &name);
+            }
+            for c in stmt_children_ref(s) {
+                visit_stmt(ast, c);
+            }
+        }
+        _ => {
+            for c in stmt_children_ref(s) {
+                visit_stmt(ast, c);
+            }
+        }
+    }
+}
+
+/// §14.12.2 — every clause of a switch shares one scope.
+fn visit_switch(ast: &mut Ast, cases: &[SwitchCase], default: Option<&[Stmt]>) {
+    let clauses: Vec<&[Stmt]> = cases
+        .iter()
+        .map(|c| c.body.as_slice())
+        .chain(default)
         .collect();
-    if consts.is_empty() {
+    if clauses.iter().any(|b| !declared_consts(b).is_empty()) {
+        let joined: Vec<Stmt> = clauses.iter().flat_map(|b| b.iter().cloned()).collect();
+        for name in declared_consts(&joined) {
+            rewrite_writes_inside_functions(ast, &joined, &name);
+        }
+    }
+    for c in clauses.into_iter().flatten() {
+        visit_stmt(ast, c);
+    }
+}
+
+fn visit_class(ast: &mut Ast, s: &Stmt) {
+    let Stmt::ClassDecl {
+        ctor,
+        methods,
+        static_methods,
+        static_init,
+        ..
+    } = s
+    else {
         return;
+    };
+    if let Some(c) = ctor {
+        visit_list(ast, &c.body);
     }
-    let stmts = std::mem::take(&mut ast.stmts);
-    for name in &consts {
-        super::hoist_gen_fn_exprs_self_write::rewrite_writes_inside_functions(ast, &stmts, name);
+    for m in methods.iter().chain(static_methods) {
+        visit_list(ast, &m.body);
     }
-    ast.stmts = stmts;
+    for i in static_init {
+        if let StaticInit::Block(b) = i {
+            visit_list(ast, b);
+        }
+    }
+}
+
+/// An arrow's body lives in the arena; it is lent out for the visit
+/// (the rewrite only touches arena expressions, never this node).
+fn visit_arrow(ast: &mut Ast, eid: ExprId) {
+    let body = match &mut ast.exprs[eid.0 as usize] {
+        Expr::ArrowFn { body, .. } => std::mem::take(body),
+        _ => unreachable!("arrow_nodes answers arrow nodes"),
+    };
+    visit_list(ast, &body);
+    if let Expr::ArrowFn { body: slot, .. } = &mut ast.exprs[eid.0 as usize] {
+        *slot = body;
+    }
 }

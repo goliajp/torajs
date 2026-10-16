@@ -114,7 +114,7 @@ pub(crate) fn run_ast_prelude(ast: &mut ast::Ast) -> Result<(), ()> {
     // their §13.3.6.2 runtime TypeError — no goal split, both goals
     // throw. Same placement rationale.
     ast::resolve_uncallable_builtin_calls(ast);
-    // A top-level `const` written from inside a function: the
+    // A `const` written from inside a nested function: the
     // runtime TypeError §9.1.1.1.5 gives, minted here while every
     // function is still in its own scope (`const_write_throw`).
     ast::rewrite_const_writes_in_functions(ast);

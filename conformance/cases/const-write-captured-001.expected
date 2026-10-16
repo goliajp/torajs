@@ -1,0 +1,29 @@
+same TypeError 42
+fn TypeError 42
+arrow TypeError 42
+rhs-first TypeError 1 42
+compound TypeError 42
+postinc TypeError 42
+preinc TypeError 42
+dstr-arr TypeError 42
+dstr-obj TypeError 42
+forof TypeError 42
+forin TypeError 42
+fnexpr TypeError 42
+shadow 2 42
+block TypeError 1
+top TypeError 1
+switch TypeError one
+try TypeError 3
+finally TypeError 5
+method TypeError 7
+7
+shadows 3 4 5 1 1
+gen TypeError 1
+reads 15 20
+tdz-assign ReferenceError
+tdz-inc ReferenceError
+after TypeError 1
+inc TypeError 1 object
+top-tdz ReferenceError
+async TypeError 1
