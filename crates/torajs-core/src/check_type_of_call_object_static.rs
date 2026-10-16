@@ -64,6 +64,15 @@ pub(crate) fn try_match(
     if let Some(r) = try_match_assign(checker, ast, eid, callee, args) {
         return Some(r);
     }
+    // A missing argument is `undefined`, and each of these begins
+    // with ToObject on it (§20.1.2.{5,18,23} step 1)
+    if args.is_empty()
+        && let Expr::Member { obj, name } = ast.get_expr(*callee)
+        && matches!(name.as_str(), "keys" | "values" | "entries")
+        && matches!(ast.get_expr(*obj), Expr::Ident(ns) if ns == "Object")
+    {
+        return Some(nullish_to_object(checker, ast, eid, &[]));
+    }
     // `Object.values(obj)` — result Array<T> for a
     // homogeneous struct (T = shared field type), resolved
     // at lower time like Object.keys but packing values.
