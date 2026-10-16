@@ -59,18 +59,20 @@ pub(crate) fn bag_face_arraylike_tag(tag: u16) -> bool {
 pub(crate) unsafe fn arraylike_len(obj: *mut c_void) -> Option<i64> {
     unsafe {
         let key = __torajs_str_alloc(c"length".as_ptr() as *const u8, 6);
-        // 刀 2 (RFC 20260714-t262-top-clusters) — a `Tag::Obj` anon
-        // struct receiver (`{0: v, length: 2}` lowers static) reads
-        // its `length` field through the class-layouts probe; absent
-        // field answers the undefined pair (→ ToLength 0).
         let obj_tag = (obj.cast::<u8>().add(4) as *const u16).read();
         // §10.5.8 — a Proxy's `length` is ONE [[Get]] through its
         // trap; the tag / value probe pair below would run the trap
-        // twice, and the get-order tests count every call.
-        if obj_tag == torajs_rc::Tag::Proxy as u16 {
+        // twice, and the get-order tests count every call. A struct
+        // cell's `length` is its data field, accessor or `+24` expando
+        // entry (`err.length = 2` on an Error instance, whose layout
+        // never spells it), and the accessor runs its getter: a layout
+        // probe alone answered ToLength 0 for `{get length() {…}}`.
+        // The `.length` read answers both.
+        if obj_tag == torajs_rc::Tag::Proxy as u16 || obj_tag == torajs_rc::Tag::Obj as u16 {
             __torajs_str_drop(key as *mut c_void);
-            let av = crate::proxy::get_named(__torajs_anyv_box_pointer(obj), b"length");
+            let av = crate::len_get::__torajs_any_length_get(__torajs_anyv_box_pointer(obj));
             if __torajs_throw_check() != 0 {
+                crate::nanbox_ffi::__torajs_anyv_rc_dec(av);
                 return None;
             }
             let n = __torajs_anyv_to_number(av);
@@ -122,24 +124,6 @@ pub(crate) unsafe fn arraylike_len(obj: *mut c_void) -> Option<i64> {
                 crate::member_get::__torajs_any_member_get_tag(recv, key as *const c_void),
                 crate::member_get_value::__torajs_any_member_get_value(recv, key as *const c_void),
             )
-        } else if obj_tag == torajs_rc::Tag::Obj as u16 {
-            // Layout DATA field first; a miss falls to the `+24`
-            // expando dict — `err.length = 2` on an Error instance
-            // (whose layout never spells `length`) lives there, and
-            // the old layout-only read answered ToLength 0 for it
-            // (every/some stayed accidentally right by vacuity;
-            // indexOf/join read the wrong emptiness).
-            crate::struct_probe::struct_field_pair(obj, key as *const c_void).unwrap_or_else(|| {
-                let props = crate::member_get_layout::struct_props(obj);
-                if props.is_null() {
-                    (5, 0)
-                } else {
-                    (
-                        __torajs_dynobj_get_tag(props, key as *const c_void),
-                        __torajs_dynobj_get_value(props, key as *const c_void),
-                    )
-                }
-            })
         } else if crate::member_get::is_wrapper_tag(obj_tag) {
             // 刀 9 G2c — a primitive-wrapper receiver's own `length`
             // lives in its lazy `+16` expando dynobj (`obj.length =
