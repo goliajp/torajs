@@ -31,6 +31,52 @@ pub unsafe extern "C" fn __torajs_obj_field_get_exotic_impl(
     unsafe { crate::member_get_receiver::__torajs_any_member_get_with_receiver(recv, name, recv) }
 }
 
+unsafe extern "C" {
+    fn __torajs_obj_proto_borrowed(cell: *const c_void) -> u64;
+}
+
+/// Whether the declared member `name` of the instance `p` is deleted
+/// (its deletion record is set, §10.1.10): 1 or 0. The typed read of an
+/// object-literal accessor a delete of the program can reach asks it
+/// before calling the getter in the layout slot.
+///
+/// # Safety
+/// `p` is a live `Tag::Obj` cell; `name` is a live Str cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_obj_member_deleted(p: *mut c_void, name: *const c_void) -> i64 {
+    i64::from(unsafe { crate::struct_probe::declared_field_deleted(p, name) })
+}
+
+/// §10.1.8.1 [[Get]] of the deleted declared member `name` of the
+/// instance `p`, OWNED: no own property is left (§10.1.10), so
+/// OrdinaryGet asks the prototype (step 3), `p` staying the receiver.
+/// An instance whose prototype nothing registered or reassigned has
+/// %Object.prototype%; an explicit null prototype ends the chain.
+///
+/// # Safety
+/// `p` is a live `Tag::Obj` cell; `name` is a live Str cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_obj_deleted_member_get(
+    p: *mut c_void,
+    name: *const c_void,
+) -> AnyValue {
+    let root = unsafe { __torajs_obj_proto_borrowed(p) };
+    let proto = if is_cell(root) {
+        root
+    } else if unsafe { crate::member_get_layout::obj_user_proto_raised(p) } {
+        return crate::nanbox::VALUE_UNDEFINED;
+    } else {
+        use torajs_rc::builtin_proto::{__torajs_get_builtin_prototype, OBJECT_PROTO_TAG};
+        let op = unsafe { __torajs_get_builtin_prototype(OBJECT_PROTO_TAG as i64) };
+        if op.is_null() {
+            return crate::nanbox::VALUE_UNDEFINED;
+        }
+        box_void_ptr(op)
+    };
+    let get = crate::member_get_receiver::__torajs_any_member_get_with_receiver;
+    unsafe { get(proto, name, box_void_ptr(p)) }
+}
+
 /// §10.1.9.2 [[Set]] of `name` on the class instance `p` to the
 /// payload `(tag, value)`, whose stake transfers in. `strict` picks
 /// the §13.15.2 goal: a refusal records the TypeError when non-zero

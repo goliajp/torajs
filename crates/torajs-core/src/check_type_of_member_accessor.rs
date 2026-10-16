@@ -38,12 +38,16 @@ pub(crate) fn try_accessor_read(
             let Type::Function(_, ret) = ty else {
                 return Some(Err(format!("accessor `{name}` is not a getter closure")));
             };
-            return Some(Ok(resolve_class_ref(
+            let ret = resolve_class_ref(
                 ret,
                 &checker.class_structs,
                 &checker.aliases,
                 &checker.generic_alias_decls,
-            )));
+            );
+            if deleted_read(checker, name, &ret) {
+                return Some(Ok(Type::Any));
+            }
+            return Some(Ok(ret));
         }
     }
     // Blade 2 (rotation 413) — the pair may live on an ANCESTOR
@@ -168,4 +172,16 @@ pub(crate) fn class_name_of(obj_ty: &Type, ast: &Ast) -> Option<String> {
         Type::ClassRef(n) if ast.class_parents.contains_key(n) => Some(n.clone()),
         _ => None,
     }
+}
+
+/// Whether the read of the object-literal accessor `name`, whose getter
+/// answers `ret`, types `any`: a delete of the program can remove the
+/// member (§10.1.10), and the read then answers `undefined` or the
+/// prototype's value, which no type the getter declares but `any`
+/// spells. The lowering reads the member through [[Get]] then
+/// (`ssa_lower_member_obj_field::try_lower`), as it reads a data
+/// member the census retypes (`check_type_of_member::mistyped_read`).
+fn deleted_read(checker: &mut Checker, name: &str, ret: &Type) -> bool {
+    use crate::ast::named_prop_census::shadow_names::SlotKind;
+    !matches!(ret, Type::Any) && checker.shadowed_reads.retypes(name, SlotKind::Accessor)
 }

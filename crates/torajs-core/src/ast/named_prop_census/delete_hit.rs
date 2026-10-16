@@ -36,6 +36,18 @@ pub(super) fn reflect(ast: &Ast, args: &[ExprId]) -> Hit {
     }
 }
 
+/// Whether the write site `id` is a delete: `delete target`, or a call
+/// spelled `Reflect.deleteProperty`.
+pub(super) fn deletes(ast: &Ast, id: ExprId) -> bool {
+    match ast.get_expr(id) {
+        Expr::Delete { .. } => true,
+        Expr::Call { callee, .. } | Expr::OptCall { callee, .. } => matches!(ast.get_expr(*callee),
+            Expr::Member { obj, name } if name == "deleteProperty"
+                && matches!(ast.get_expr(*obj), Expr::Ident(r) if r == "Reflect")),
+        _ => false,
+    }
+}
+
 /// A callee spelled `Reflect.set` or `Reflect.deleteProperty`, whose
 /// first argument is the receiver it writes.
 pub(super) fn reflect_write(ast: &Ast, callee: ExprId) -> bool {
@@ -73,5 +85,17 @@ mod tests {
         assert!(n.may_mistype("d", SlotKind::Boolean));
         let fs = Type::struct_of(vec![(crate::ast::PropKey::from("e"), Type::Number)]);
         assert!(mistyped("delete o.e;", fs).may_mistype("e", SlotKind::Number));
+    }
+
+    #[test]
+    fn only_a_delete_retypes_an_accessor_read() {
+        let n = mistyped("o.value = null; delete o.gone;", Type::Any);
+        assert!(n.may_mistype("value", SlotKind::Number));
+        assert!(!n.may_mistype("value", SlotKind::Accessor));
+        assert!(n.may_mistype("gone", SlotKind::Accessor));
+        let n = mistyped(r#"Reflect.deleteProperty(o, "r");"#, Type::Any);
+        assert!(n.may_mistype("r", SlotKind::Accessor) && !n.deleted_all);
+        let n = mistyped("function del(k: string) { delete o[k]; }", Type::Any);
+        assert!(n.deleted_all && n.may_mistype("anything", SlotKind::Accessor));
     }
 }

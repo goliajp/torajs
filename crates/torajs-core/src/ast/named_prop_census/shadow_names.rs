@@ -126,6 +126,11 @@ pub struct ShadowedNames {
     pub string: HashSet<String>,
     /// Written a boolean.
     pub boolean: HashSet<String>,
+    /// Removed by a delete (`delete`, `Reflect.deleteProperty`), which
+    /// is the one write that changes what an accessor member answers.
+    pub deleted: HashSet<String>,
+    /// Whether some delete may remove any name (a computed key).
+    pub deleted_all: bool,
 }
 
 /// What a member's slot holds as it is: a value of that kind written
@@ -138,6 +143,10 @@ pub enum SlotKind {
     Boolean,
     /// A slot no write is known to fit.
     Other,
+    /// No slot: an accessor member, whose getter answers the read
+    /// whatever a [[Set]] wrote. Only a delete can leave its read
+    /// answering something else.
+    Accessor,
 }
 
 impl SlotKind {
@@ -200,6 +209,8 @@ impl ShadowedNames {
             number: user(&names.number),
             string: user(&names.string),
             boolean: user(&names.boolean),
+            deleted: user(&names.deleted),
+            deleted_all: names.all_deleted,
         }
     }
 
@@ -208,6 +219,8 @@ impl ShadowedNames {
             && self.number.is_subset(&other.number)
             && self.string.is_subset(&other.string)
             && self.boolean.is_subset(&other.boolean)
+            && self.deleted.is_subset(&other.deleted)
+            && (!self.deleted_all || other.deleted_all)
     }
 
     pub fn extend(&mut self, other: ShadowedNames) {
@@ -215,6 +228,8 @@ impl ShadowedNames {
         self.number.extend(other.number);
         self.string.extend(other.string);
         self.boolean.extend(other.boolean);
+        self.deleted.extend(other.deleted);
+        self.deleted_all |= other.deleted_all;
     }
 
     /// Whether the member `name`, whose slot is a `slot` one, may hold a
@@ -223,6 +238,9 @@ impl ShadowedNames {
     /// generates, which casts what the protocol hands it; its reads keep
     /// their type and their guard.
     pub fn may_mistype(&self, name: &str, slot: SlotKind) -> bool {
+        if slot == SlotKind::Accessor {
+            return !name.starts_with("__") && (self.deleted_all || self.deleted.contains(name));
+        }
         let other = |kind, names: &HashSet<String>| slot != kind && names.contains(name);
         !name.starts_with("__")
             && (self.unknown.contains(name)
@@ -305,8 +323,11 @@ fn writes<'a>(
             asked_by[k] = asked.into_inner();
         }
         let mut names = Names::default();
-        for hit in &hits {
+        for (hit, &id) in hits.iter().zip(sites) {
             names.take(hit);
+            if super::delete_hit::deletes(ast, id) {
+                names.delete(hit);
+            }
         }
         let added: Vec<&String> = (names.unknown.iter())
             .filter(|n| !unknown.contains(*n))

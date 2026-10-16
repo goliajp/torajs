@@ -13,11 +13,12 @@ use std::collections::HashSet;
 
 use crate::ast::named_prop_census::shadow_names::{ShadowedNames, SlotKind};
 
-const KINDS: [SlotKind; 4] = [
+const KINDS: [SlotKind; 5] = [
     SlotKind::Number,
     SlotKind::String,
     SlotKind::Boolean,
     SlotKind::Other,
+    SlotKind::Accessor,
 ];
 
 #[derive(Default)]
@@ -26,7 +27,7 @@ pub(crate) struct ShadowedReads {
     pub(crate) names: ShadowedNames,
     /// The members a read asked about, by the kind of their slot
     /// (`KINDS` order, which is the enum's).
-    asked: [HashSet<String>; 4],
+    asked: [HashSet<String>; 5],
 }
 
 impl ShadowedReads {
@@ -100,5 +101,27 @@ mod tests {
         };
         assert!(!r.would_retype(&more(&["s"], &[])));
         assert!(r.would_retype(&more(&[], &["s"])));
+    }
+
+    #[test]
+    fn an_accessor_read_retypes_on_a_delete_only() {
+        let deleted = |ds: &[&str]| ShadowedNames {
+            deleted: ds.iter().map(|s| s.to_string()).collect(),
+            ..Default::default()
+        };
+        let mut seed = names(&["u"], &["n"]);
+        seed.extend(deleted(&["d"]));
+        let mut r = ShadowedReads::seeded(seed);
+        assert!(r.retypes("d", SlotKind::Accessor));
+        // the getter answers a read whatever value a [[Set]] wrote
+        assert!(!r.retypes("n", SlotKind::Accessor));
+        assert!(!r.retypes("u", SlotKind::Accessor));
+        assert!(!r.would_retype(&names(&["n", "u"], &["n"])));
+        assert!(r.would_retype(&deleted(&["n"])));
+        let all = ShadowedNames {
+            deleted_all: true,
+            ..Default::default()
+        };
+        assert!(r.would_retype(&all));
     }
 }

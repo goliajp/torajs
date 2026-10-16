@@ -18,6 +18,9 @@ pub(super) struct Names {
     pub(super) boolean: HashSet<String>,
     pub(super) all_unknown: bool,
     pub(super) all_number: bool,
+    /// The names a delete reaches, and whether one reaches every name.
+    pub(super) deleted: HashSet<String>,
+    pub(super) all_deleted: bool,
 }
 
 impl Names {
@@ -32,6 +35,18 @@ impl Names {
             }
             Hit::All(Kind::Number) => self.all_number = true,
             Hit::All(_) => self.all_unknown = true,
+        }
+    }
+
+    /// Note what the delete that `hit` names reaches.
+    pub(super) fn delete(&mut self, hit: &Hit) {
+        match hit {
+            Hit::None => {}
+            Hit::Name(n, _) => {
+                self.deleted.insert(n.to_string());
+            }
+            Hit::Names(ns) => (self.deleted).extend(ns.iter().map(|(n, _)| n.clone())),
+            Hit::All(_) => self.all_deleted = true,
         }
     }
 

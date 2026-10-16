@@ -41,7 +41,7 @@ use torajs_rc::any_method_family as fam;
 /// be a fallback trigger: it would kill the judgment for the empty
 /// program too. `SYNTH_ERROR_FNS` in the judge is what keeps that
 /// per-program tax off; it cannot retire while ToString is here.)
-pub(crate) const COERCION_PREFIXES: [&str; 56] = [
+pub(crate) const COERCION_PREFIXES: [&str; 57] = [
     "__torajs_anyv_to_number",
     // `x++` / `x--` run ToNumeric in the kernel (`eval++` asks for valueOf).
     "__torajs_anyv_incr_",
@@ -149,6 +149,10 @@ pub(crate) const COERCION_PREFIXES: [&str; 56] = [
     // unit, which the call dispatches. Both entries (plain and the
     // optional-member one) share the prefix.
     "__torajs_anyv_cast_obj",
+    // the typed read of a deleted object-literal accessor asks the
+    // prototype with [[Get]] (§10.1.8.1 step 3), whose getter runs on
+    // the instance and may be a borrowed builtin method unit.
+    "__torajs_obj_deleted_member_get",
 ];
 
 /// What a hit keeps — see [`COERCION_PREFIXES`]. Shared truth with

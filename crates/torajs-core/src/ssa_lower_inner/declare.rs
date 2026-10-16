@@ -48,5 +48,6 @@ pub(super) fn declare_intrinsic_batches(
     // [`crate::ssa_lower_intrinsics_init_d`] (chunk-326 RFC final
     // batch). After this Pass 0 is fully drained from `lower_inner`.
     let init_d = crate::ssa_lower_intrinsics_init_d::declare(module, fn_table);
+    crate::ssa_lower_member_obj_field::declare_deletable_accessor(module, fn_table);
     (init_a, init_b, init_c, init_d)
 }

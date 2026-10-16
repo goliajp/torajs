@@ -29,6 +29,8 @@
 
 pub(crate) mod accessor_argv;
 pub(crate) mod accessor_slot;
+mod deleted_accessor;
+pub(crate) use deleted_accessor::declare as declare_deletable_accessor;
 pub(crate) mod exotic_read;
 pub(crate) mod shadow_read;
 
@@ -86,6 +88,10 @@ pub(crate) fn try_lower(
     // Left off, every consumer took its own stake on top and the
     // call's was never released — which a getter body returning a bare
     // field used to hide by handing back no stake at all.
+    if let Some(op) = deleted_accessor::read(ctx, eid, obj, obj_val, (sid, name)) {
+        ctx.owned_member_reads.insert(eid);
+        return op;
+    }
     let getter = match try_accessor_getter(ctx, eid, obj, obj_val, sid, name) {
         Some(op) => Some(op),
         None => try_objlit_getter(ctx, obj, obj_val, sid, name),
