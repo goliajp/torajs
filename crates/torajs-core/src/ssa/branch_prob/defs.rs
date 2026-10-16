@@ -10,7 +10,14 @@ use crate::ssa::{BinOp, Function, InstKind, Operand, ValueId};
 /// header word kept in a register across a loop and read again after
 /// the calls that may write it): it reads as that load or mask.
 pub(super) fn single_defs(func: &Function) -> Defs<'_> {
-    let (count, mut first) = count_defs(func);
+    let DefCounts {
+        count,
+        mut first,
+        later,
+    } = count_defs(func);
+    if later.is_empty() {
+        return Defs(first);
+    }
     let single = |v: &ValueId| match count.get(v.0 as usize) {
         Some(1) => first[v.0 as usize],
         _ => None,
@@ -35,21 +42,15 @@ pub(super) fn single_defs(func: &Function) -> Defs<'_> {
     // every later def, in block order, copies the same word
     let key = |k: &InstKind| loaded(k).map(|(_, p, o, m)| (p, o, m));
     let mut mixed = vec![false; count.len()];
-    for (r, kind) in all_defs(func).filter(|(r, _)| count[r.0 as usize] > 1) {
-        let (r, head) = (r.0 as usize, first[r.0 as usize].expect("a def was seen"));
-        if !mixed[r] && !std::ptr::eq(kind, head) {
-            mixed[r] = key(kind).is_none() || key(kind) != key(head);
-        }
+    for &(r, kind) in &later {
+        let (r, k) = (r as usize, key(kind));
+        mixed[r] |= k.is_none() || k != key(first[r].expect("a def was seen"));
     }
-    let cells: Vec<(usize, Option<&InstKind>)> = (0..count.len())
-        .filter(|&v| count[v] > 1)
-        .map(|v| {
-            (
-                v,
-                first[v]
-                    .filter(|_| !mixed[v])
-                    .and_then(|h| Some(loaded(h)?.0)),
-            )
+    let cells: Vec<(usize, Option<&InstKind>)> = (later.iter())
+        .map(|&(v, _)| {
+            let v = v as usize;
+            let def = (first[v].filter(|_| !mixed[v])).and_then(|h| Some(loaded(h)?.0));
+            (v, def)
         })
         .collect();
     for (v, def) in cells {
@@ -58,25 +59,41 @@ pub(super) fn single_defs(func: &Function) -> Defs<'_> {
     Defs(first)
 }
 
-/// Every def in block order: its result and its inst.
-fn all_defs(func: &Function) -> impl Iterator<Item = (ValueId, &InstKind)> {
-    (func.blocks.iter().flat_map(|b| &b.insts)).filter_map(|i| Some((i.result?, &i.kind)))
+/// What one walk over the defs reads.
+struct DefCounts<'a> {
+    /// Per value index, its number of defs.
+    count: Vec<u32>,
+    /// Per value index, its first def.
+    first: Vec<Option<&'a InstKind>>,
+    /// Every def of a value after its first, in block order.
+    later: Vec<(u32, &'a InstKind)>,
 }
 
-/// Per value index, its def count and first def.
-fn count_defs(func: &Function) -> (Vec<u32>, Vec<Option<&InstKind>>) {
+fn count_defs(func: &Function) -> DefCounts<'_> {
     let mut count = vec![0u32; func.values.len()];
     let mut first: Vec<Option<&InstKind>> = vec![None; func.values.len()];
-    for (r, kind) in all_defs(func) {
+    let mut later = Vec::new();
+    for inst in func.blocks.iter().flat_map(|b| &b.insts) {
+        let Some(r) = inst.result else {
+            continue;
+        };
+        let r_ = r.0 as usize;
         // a hand-built function may leave `values` short
-        if count.len() <= r.0 as usize {
-            count.resize(r.0 as usize + 1, 0);
-            first.resize(r.0 as usize + 1, None);
+        if count.len() <= r_ {
+            count.resize(r_ + 1, 0);
+            first.resize(r_ + 1, None);
         }
-        count[r.0 as usize] += 1;
-        first[r.0 as usize].get_or_insert(kind);
+        count[r_] += 1;
+        match first[r_] {
+            None => first[r_] = Some(&inst.kind),
+            Some(_) => later.push((r.0, &inst.kind)),
+        }
     }
-    (count, first)
+    DefCounts {
+        count,
+        first,
+        later,
+    }
 }
 
 /// The single def of each value (or the load a register cell copies),

@@ -57,8 +57,10 @@
 //! A guard arm predicted cold but actually hot costs a store and a
 //! reload around a call that itself costs far more.
 
+use std::cell::OnceCell;
+
 use crate::ssa::{
-    BinOp, BlockId, Function, IPred, InstKind, Operand, THROW_ACTIVE_SYM, Terminator,
+    BinOp, BlockId, Function, IPred, InstKind, Operand, THROW_ACTIVE_SYM, Terminator, ValueId,
 };
 
 mod defs;
@@ -77,32 +79,26 @@ const ARR_LEN_OFFSET: u64 = 8;
 /// Every predicted-cold edge: the branching block, the arm it rarely
 /// takes, and the odds of taking it.
 pub fn cold_arms(func: &Function) -> Vec<(BlockId, BlockId, f64)> {
+    if !(func.blocks.iter()).any(|b| matches!(b.term, Terminator::CondBr { .. })) {
+        return Vec::new();
+    }
     let defs = single_defs(func);
-    let cells = length_cells(func, &defs);
-    let blocks = positions(func);
-    let calls = |b: BlockId| {
-        func.blocks[blocks[b.0 as usize]].insts.iter().any(|i| {
-            matches!(
-                i.kind,
-                InstKind::Call(..) | InstKind::CallIndirect(..) | InstKind::RcDecAny(_)
-            )
-        })
+    // only a bounds check asks, and most functions have none
+    let cells = OnceCell::new();
+    let in_cell = |v: ValueId| {
+        let cells = cells.get_or_init(|| length_cells(func, &defs));
+        cells.get(v.0 as usize) == Some(&true)
     };
-    let ends_unreachable = |b: BlockId| {
-        matches!(
-            func.blocks[blocks[b.0 as usize]].term,
-            Terminator::Unreachable
-        )
+    let arms = Arms {
+        func,
+        blocks: positions(func),
+        defs: &defs,
     };
-    // a block that raises an error: its branch on the throw probe goes
-    // on only into `unreachable` when nothing was thrown
-    let throws = |b: BlockId| match &func.blocks[blocks[b.0 as usize]].term {
-        Terminator::CondBr { cond, else_blk, .. } => {
-            ends_unreachable(*else_blk)
-                && value_def(cond, &defs).is_some_and(|c| is_throw_probe(c, &defs))
-        }
-        _ => false,
-    };
+    let (calls, ends_unreachable, throws) = (
+        |b| arms.calls(b),
+        |b| arms.ends_unreachable(b),
+        |b| arms.throws(b),
+    );
 
     let mut out = Vec::new();
     for b in &func.blocks {
@@ -120,18 +116,19 @@ pub fn cold_arms(func: &Function) -> Vec<(BlockId, BlockId, f64)> {
         }
         let cond = value_def(cond, &defs);
         let calling_arm = || if calls(t) { t } else { e };
-        let one_calls = calls(t) != calls(e);
+        // scans both arms: asked last
+        let one_calls = || calls(t) != calls(e);
         let arm = if cond.is_some_and(|c| is_throw_probe(c, &defs)) {
             Some((t, P_NEVER))
         } else if ends_unreachable(t) != ends_unreachable(e) {
             Some((if ends_unreachable(t) { t } else { e }, P_NEVER))
         } else if throws(t) != throws(e) {
             Some((if throws(t) { t } else { e }, P_NEVER))
-        } else if one_calls && cond.is_some_and(|c| is_flag_guard(c, &defs)) {
+        } else if cond.is_some_and(|c| is_flag_guard(c, &defs)) && one_calls() {
             Some((calling_arm(), P_SLOW_PATH))
-        } else if let Some(oob) = cond.and_then(|c| out_of_bounds_arm(c, &defs, &cells, t, e)) {
+        } else if let Some(oob) = cond.and_then(|c| out_of_bounds_arm(c, &defs, &in_cell, t, e)) {
             Some((oob, P_SLOW_PATH))
-        } else if one_calls && cond.is_some_and(|c| is_boxed_guard(c, &defs, 1)) {
+        } else if cond.is_some_and(|c| is_boxed_guard(c, &defs, 1)) && one_calls() {
             Some((calling_arm(), P_SLOW_PATH))
         } else if cond.is_some_and(|c| is_int_pair_test(c, &defs)) {
             Some((e, P_SLOW_PATH))
@@ -143,6 +140,48 @@ pub fn cold_arms(func: &Function) -> Vec<(BlockId, BlockId, f64)> {
         }
     }
     out
+}
+
+/// What the cold-arm rules ask of a branch's target block.
+struct Arms<'f, 'd> {
+    func: &'f Function,
+    /// Each block's position, by id.
+    blocks: Vec<usize>,
+    defs: &'d Defs<'f>,
+}
+
+impl Arms<'_, '_> {
+    fn term(&self, b: BlockId) -> &Terminator {
+        &self.func.blocks[self.blocks[b.0 as usize]].term
+    }
+
+    fn calls(&self, b: BlockId) -> bool {
+        self.func.blocks[self.blocks[b.0 as usize]]
+            .insts
+            .iter()
+            .any(|i| {
+                matches!(
+                    i.kind,
+                    InstKind::Call(..) | InstKind::CallIndirect(..) | InstKind::RcDecAny(_)
+                )
+            })
+    }
+
+    fn ends_unreachable(&self, b: BlockId) -> bool {
+        matches!(self.term(b), Terminator::Unreachable)
+    }
+
+    /// A block that raises an error: its branch on the throw probe goes
+    /// on only into `unreachable` when nothing was thrown.
+    fn throws(&self, b: BlockId) -> bool {
+        match self.term(b) {
+            Terminator::CondBr { cond, else_blk, .. } => {
+                self.ends_unreachable(*else_blk)
+                    && value_def(cond, self.defs).is_some_and(|c| is_throw_probe(c, self.defs))
+            }
+            _ => false,
+        }
+    }
 }
 
 /// Each block's position, by id.
@@ -275,15 +314,14 @@ fn length_cells(func: &Function, defs: &Defs) -> Vec<bool> {
 fn out_of_bounds_arm(
     cond: &InstKind,
     defs: &Defs,
-    cells: &[bool],
+    in_cell: &impl Fn(ValueId) -> bool,
     then_blk: BlockId,
     else_blk: BlockId,
 ) -> Option<BlockId> {
     let InstKind::ICmp(pred @ (IPred::Ult | IPred::Uge), _, len) = cond else {
         return None;
     };
-    let in_cell =
-        |op: &Operand| matches!(op, Operand::Value(v) if cells.get(v.0 as usize) == Some(&true));
+    let in_cell = |op: &Operand| matches!(op, Operand::Value(v) if in_cell(*v));
     let is_len = is_len_load(value_def(len, defs))
         || in_cell(len)
         || matches!(value_def(len, defs), Some(InstKind::Copy(_, c)) if in_cell(c));
