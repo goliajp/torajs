@@ -93,7 +93,8 @@ impl Sink for RowSink {
 
     #[inline(always)]
     fn finish(self) {
-        unsafe { (*(&raw mut __torajs_core_tlab)).lower(&self.row) };
+        let tlab = &raw mut __torajs_core_tlab;
+        unsafe { (*tlab).lower(&self.row) };
     }
 }
 
@@ -145,7 +146,8 @@ unsafe fn release_leaf_array<const CLASS: bool>(p: *mut c_void, size: Option<usi
         let slots = unsafe { arr_data(cell).add(head * 8) as *const *mut u8 };
         let row = match size {
             Some(n) if !cfg!(torajs_census) => {
-                bucket_for(n).and_then(|c| unsafe { (*(&raw const __torajs_core_tlab)).lift(c) })
+                let tlab = &raw const __torajs_core_tlab;
+                bucket_for(n).and_then(|c| unsafe { (*tlab).lift(c) })
             }
             _ => None,
         };
