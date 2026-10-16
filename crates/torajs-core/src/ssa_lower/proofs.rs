@@ -35,6 +35,10 @@ pub(crate) struct ProgramFacts {
     /// `(class, field)` pairs whose reads never see the undefined cell
     /// (`ssa_lower_pass_0_5::live_field_census`).
     pub(crate) live_fields: crate::ssa_lower_pass_0_5::live_field_census::LiveFields,
+    /// A typed array's read at a non-integral key can run user code
+    /// (`compute_may_throw_fns`): a getter or a `valueOf` reachable
+    /// through the property the key names.
+    pub(crate) nonint_reads_run_code: bool,
 }
 
 pub(crate) type ProgramFactsRc = std::rc::Rc<ProgramFacts>;
@@ -86,6 +90,11 @@ impl Proofs {
     /// every element lives at `data + idx * stride`.
     pub(crate) fn arr_head_pinned(&self) -> bool {
         self.facts.arr_head_pinned
+    }
+
+    /// See [`ProgramFacts::nonint_reads_run_code`].
+    pub(crate) fn nonint_reads_run_code(&self) -> bool {
+        self.facts.nonint_reads_run_code
     }
 
     /// `obj.name` reads a field the census proved live.

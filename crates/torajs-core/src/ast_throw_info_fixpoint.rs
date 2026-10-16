@@ -20,11 +20,14 @@ pub(crate) struct FnThrow {
 /// M4.3.b — the transitive may-throw set: collect each FnDecl's
 /// `(direct_throw, called_names)` then iterate to fixed-point — a fn
 /// is may_throw if it throws directly OR calls any may_throw fn.
+/// Also answers whether a non-integral keyed read can run code at
+/// all; the lowering checks after such a read on that same answer,
+/// so a fn never raises where its callers were told it cannot.
 pub(crate) fn compute_may_throw_fns(
     ast: &Ast,
     expr_types: &HashMap<ExprId, crate::check::Type>,
     widths: &crate::num_width::WidthTable,
-) -> HashSet<String> {
+) -> (HashSet<String>, bool) {
     let mut may_throw: HashSet<String> = HashSet::new();
     let mut decl_throw_info: Vec<(String, bool, Vec<String>)> = Vec::new();
     let assigned = assigned_names(ast);
@@ -125,7 +128,7 @@ pub(crate) fn compute_may_throw_fns(
             break;
         }
     }
-    may_throw
+    (may_throw, props_run_code)
 }
 
 /// A non-integral keyed read raises only where some named property on

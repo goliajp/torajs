@@ -86,9 +86,7 @@ pub(crate) fn emit_nonintegral_typed_read(
         elem_ty,
         None,
     );
-    // A getter on the property may throw, and the seam's reject
-    // stub records one too; neither answer may reach the slot.
-    ctx.emit_throw_check(None);
+    check_keyed_read(ctx);
     if elem_ty == Type::F64 {
         ctx.f.append_void(
             ctx.cur_block,
@@ -133,6 +131,21 @@ pub(crate) fn emit_nonintegral_typed_read(
     ctx.f.set_term(cell_blk, Terminator::Br(done_blk));
     ctx.cur_block = done_blk;
     true
+}
+
+/// The throw check after a typed lane's keyed read. A getter on the
+/// property may throw, as may the `valueOf` the `number[]` lane's
+/// ToNumber runs, and neither answer may reach the slot. Where no
+/// such property can run code (`ProgramFacts::nonint_reads_run_code`
+/// false) the read cannot raise, and the throw analysis told every
+/// caller of this fn so: a check here would only lead to a throw
+/// path its callers never test. The seam's reject stub, which
+/// records a TypeError when the link judgment missed a writer, then
+/// surfaces at the next check instead of at this read.
+fn check_keyed_read(ctx: &mut LowerCtx<'_>) {
+    if ctx.proofs.nonint_reads_run_code() {
+        ctx.emit_throw_check(None);
+    }
 }
 
 /// The out-of-range exit of a typed read in a program that can put a
@@ -263,7 +276,7 @@ fn emit_any_shaped_read(
         Type::Any,
         None,
     );
-    ctx.emit_throw_check(None);
+    check_keyed_read(ctx);
     let stored = if keep {
         Operand::Value(v)
     } else {

@@ -49,7 +49,8 @@ pub(crate) fn run(
     let mut arr_layouts: Vec<Type> = Vec::new();
     let baked_regex_buf: Vec<BakedRegexEntry> = Vec::new();
     let mut fn_sigs: Vec<(Vec<Type>, Type)> = Vec::new();
-    let may_throw = crate::ast_throw_info::compute_may_throw_fns(ast, expr_types, num_f64_slots);
+    let (may_throw, nonint_reads_run_code) =
+        crate::ast_throw_info::compute_may_throw_fns(ast, expr_types, num_f64_slots);
     let arr_head_pinned = arr_head_census::program_pins_arr_head(ast, expr_types);
     let live_fields = live_field_census::program_live_fields(ast, expr_types, num_f64_slots);
 
@@ -209,6 +210,7 @@ pub(crate) fn run(
         facts: std::rc::Rc::new(crate::ssa_lower::proofs::ProgramFacts {
             arr_head_pinned,
             live_fields,
+            nonint_reads_run_code,
         }),
         generic_struct_decls,
         struct_layouts,
