@@ -7,6 +7,11 @@ use core::ffi::c_void;
 
 use super::*;
 
+unsafe extern "C" {
+    /// torajs-meta — is this declared member deleted?
+    fn __torajs_obj_field_is_deleted(cell: *const c_void, name: *const u8, name_len: u32) -> i64;
+}
+
 /// The own-property key a layout slot serializes under: an accessor
 /// slot answers the property it stands for, a data field answers
 /// itself. The twin of `torajs-meta::struct_reflect::slot_key`, which
@@ -52,10 +57,9 @@ unsafe fn accessor_pair_already_emitted(
 
 /// What one layout slot contributes to `SerializeJSONObject` —
 /// [`super::write_struct`]'s per-slot half, split out at the file's function
-/// size limit. `Skip` = not an own enumerable property; `Threw` = a
-/// getter left a pending throw and the walk stops.
+/// size limit. `Threw` = a getter left a pending throw and the walk
+/// stops.
 pub(super) enum SlotEntry {
-    Skip,
     Threw,
     Emit {
         key: StructFieldName,
@@ -64,97 +68,148 @@ pub(super) enum SlotEntry {
     },
 }
 
-/// See [`SlotEntry`].
+/// The own property a layout slot stands for.
+pub(super) struct SlotKey {
+    ptr: *const u8,
+    len: usize,
+    /// An accessor slot (`__getter_p` stands for `p`); otherwise the
+    /// key is the data field's own slot name.
+    accessor: bool,
+}
+
+/// The property key slot `i` serializes under, or `None` when the slot
+/// contributes no entry: an error's `message` / `stack`, an unassigned
+/// error `name`, the second slot of a get/set pair.
 ///
 /// # Safety
 /// `ptr` is a live `Tag::Obj` cell; `layout` its live layout entry;
 /// `i` is below the entry's field count.
-pub(super) unsafe fn struct_slot_entry(
+pub(super) unsafe fn struct_slot_key(
     ptr: *mut c_void,
     layout: *const c_void,
     i: u32,
     is_error: bool,
-) -> SlotEntry {
+) -> Option<SlotKey> {
     unsafe {
         let name = __torajs_struct_field_name(layout, i);
         if is_error {
             let key = core::slice::from_raw_parts(name.ptr, name.len);
             if key == b"message" || key == b"stack" {
-                return SlotEntry::Skip;
+                return None;
             }
             // §20.5.3.2 — an unassigned `name` is not an own property
             // at all (the class name is the prototype's), so it
             // contributes no entry. An assigned one is ordinary and
             // enumerable, and serializes like any other field.
             if key == b"name" && crate::struct_error_msg::error_name_is_absent(ptr) {
-                return SlotEntry::Skip;
+                return None;
             }
         }
         // An accessor rides the layout under a synthetic slot name, so
-        // the raw name is not the property's — and the read below,
-        // which correctly refuses that spelling, answered 0 and
-        // dropped the whole property. `{a: 1, get b() { return 2 }}`
-        // serialized as `{"a":1}` through the any lane while
-        // `Object.keys` on the very same cell listed `b`. §25.5.2
-        // walks EnumerableOwnProperties, which is what the keys walker
-        // answers; this one takes the same two steps it does — slot
-        // name to property name, and [[Get]] for the value.
+        // the raw name is not the property's; §25.5.2 walks
+        // EnumerableOwnProperties, which is what the keys walker
+        // answers, and this takes the same slot-name-to-property-name
+        // step it does.
         let (key_ptr, key_len) = slot_property_name(name.ptr, name.len);
-        let key = StructFieldName {
+        let accessor = key_len != name.len;
+        // A get/set pair is two slots and one own property.
+        if accessor && accessor_pair_already_emitted(layout, i, key_ptr, key_len) {
+            return None;
+        }
+        Some(SlotKey {
             ptr: key_ptr,
             len: key_len,
+            accessor,
+        })
+    }
+}
+
+/// Whether the property `k` names is own and enumerable by the
+/// instance's redefine / delete / absent records, asked with the
+/// PROPERTY name: a redefine of an accessor records against `p`, never
+/// `__getter_p`. A deletion
+/// record clears the entry's attribute bits and an absent member reads
+/// like one, so the one question covers all three. Runs no user code,
+/// so [`super::write_struct`] can take the whole of K (§25.5.2.4 step
+/// 6) before the first getter can move it.
+///
+/// # Safety
+/// `ptr` is a live `Tag::Obj` cell; `k` is [`struct_slot_key`]'s
+/// answer for one of its slots.
+pub(super) unsafe fn struct_key_listed(ptr: *mut c_void, k: &SlotKey) -> bool {
+    unsafe { __torajs_obj_field_is_nonenumerable(ptr, k.ptr, k.len as u32) == 0 }
+}
+
+/// `? Get(holder, key)` for a key [`struct_slot_key`] put in K.
+///
+/// # Safety
+/// `ptr` is a live `Tag::Obj` cell; `k` is [`struct_slot_key`]'s
+/// answer for one of its slots.
+pub(super) unsafe fn struct_slot_value(ptr: *mut c_void, k: SlotKey) -> SlotEntry {
+    unsafe {
+        let key = StructFieldName {
+            ptr: k.ptr,
+            len: k.len,
         };
-        // RFC 20260806-declared-field-redefine — the same filter one
-        // line up, for an enumerability USER code moved rather than
-        // the spec fixing. Free on any instance never passed to
-        // defineProperty (the kernel gates on a header bit).
-        //
-        // Asked with the PROPERTY name, not the slot name: a redefine
-        // of an accessor records against `p`, never `__getter_p`, so
-        // asking the raw name here answered "still enumerable" about a
-        // property `Object.keys` had already dropped.
-        if __torajs_obj_field_is_nonenumerable(ptr, key_ptr, key_len as u32) != 0 {
-            return SlotEntry::Skip;
-        }
-        if key_len == name.len {
+        // A data member answers its slot unless it was deleted or
+        // redefined as an accessor (the read sees both records); an
+        // accessor answers its getter while no member of the instance
+        // was redefined, deleted or shadowed.
+        if !k.accessor {
             let mut value: u64 = 0;
-            if __torajs_struct_field_read_anyv(ptr, name.ptr, name.len as u32, &mut value) == 0 {
-                // A field redefined as an accessor is no data slot any
-                // more; its getter answers (§25.5.2 walks [[Get]]).
-                let bytes = core::slice::from_raw_parts(name.ptr, name.len);
-                let Some(value) = crate::struct_probe::declared_accessor_get_bytes(ptr, bytes)
-                else {
-                    return SlotEntry::Skip;
-                };
-                if __torajs_throw_check() != 0 {
-                    crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
-                    return SlotEntry::Threw;
-                }
+            if __torajs_struct_field_read_anyv(ptr, k.ptr, k.len as u32, &mut value) != 0 {
                 return SlotEntry::Emit {
                     key,
                     value,
-                    owned: true,
+                    owned: false,
                 };
             }
-            return SlotEntry::Emit {
-                key,
-                value,
-                owned: false,
-            };
+        } else if !crate::member_get::header_flag(ptr, torajs_rc::FLAG_OBJ_EXOTIC_FIELD) {
+            let value = crate::struct_probe::__torajs_struct_accessor_get(ptr, k.ptr, k.len as u32);
+            return threw_or_emit(key, value);
         }
-        // A get/set pair is two slots and one own property.
-        if accessor_pair_already_emitted(layout, i, key_ptr, key_len) {
-            return SlotEntry::Skip;
-        }
-        let value = crate::struct_probe::__torajs_struct_accessor_get(ptr, key_ptr, key_len as u32);
-        if __torajs_throw_check() != 0 {
-            crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
-            return SlotEntry::Threw;
-        }
-        SlotEntry::Emit {
-            key,
-            value,
-            owned: true,
-        }
+        threw_or_emit(key, exotic_get(ptr, k.ptr, k.len))
+    }
+}
+
+/// The full `? Get(holder, key)` of a member of K the plain reads
+/// cannot answer: a member deleted since K was taken has no own face
+/// left, so the prototype chain answers — the own-face probe would
+/// still find a deleted accessor's getter in the layout — and any
+/// other answers through the ordinary [[Get]], which reads a
+/// redefinition's sidecar. Owned.
+///
+/// # Safety
+/// `ptr` is a live `Tag::Obj` cell; `key_ptr` points at `key_len`
+/// readable bytes.
+unsafe fn exotic_get(ptr: *mut c_void, key_ptr: *const u8, key_len: usize) -> u64 {
+    unsafe {
+        let cell = __torajs_str_alloc(key_ptr, key_len as i64) as *const c_void;
+        let recv = box_void_ptr(ptr);
+        let value = match __torajs_obj_field_is_deleted(ptr, key_ptr, key_len as u32) {
+            0 => super::super::replacer::get_owned(recv, cell),
+            _ => {
+                let (tag, raw) = crate::struct_error_msg::struct_proto_chain_pair(ptr, cell);
+                crate::len_get::box_probe_pair(tag, raw, recv, cell)
+            }
+        };
+        __torajs_str_drop(cell as *mut c_void);
+        value
+    }
+}
+
+/// An OWNED [[Get]] result, or the pending throw it left.
+///
+/// # Safety
+/// `value` is a live owned AnyValue.
+unsafe fn threw_or_emit(key: StructFieldName, value: u64) -> SlotEntry {
+    if unsafe { __torajs_throw_check() } != 0 {
+        unsafe { crate::nanbox_ffi::__torajs_anyv_rc_dec(value) };
+        return SlotEntry::Threw;
+    }
+    SlotEntry::Emit {
+        key,
+        value,
+        owned: true,
     }
 }

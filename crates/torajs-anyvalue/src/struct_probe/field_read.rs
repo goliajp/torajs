@@ -172,29 +172,6 @@ pub(crate) unsafe fn declared_accessor_sidecar(ptr: *const c_void, key: *const c
         && unsafe { struct_layout_declares(ptr, key) }
 }
 
-/// [[Get]] of a declared field redefined as an accessor, by name bytes
-/// — the getter's owned answer, or `None` when `name` is no such field.
-///
-/// # Safety
-/// `ptr` is a live `Tag::Obj` heap pointer.
-pub(crate) unsafe fn declared_accessor_get_bytes(
-    ptr: *mut c_void,
-    name: &[u8],
-) -> Option<AnyValue> {
-    unsafe {
-        let key = __torajs_str_alloc(name.as_ptr(), name.len() as i64) as *const c_void;
-        let out = if declared_accessor_sidecar(ptr, key) {
-            let props = crate::member_get_layout::struct_props(ptr);
-            let pair = __torajs_dynobj_get_value(props, key) as *const c_void;
-            Some(__torajs_accessor_invoke_getter(pair, box_void_ptr(ptr)))
-        } else {
-            None
-        };
-        __torajs_str_drop(key as *mut c_void);
-        out
-    }
-}
-
 pub(crate) unsafe fn expando_own_has(ptr: *const c_void, key: *const c_void) -> bool {
     let props = unsafe { crate::member_get_layout::struct_props(ptr) };
     !props.is_null()

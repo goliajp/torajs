@@ -197,6 +197,18 @@ unsafe fn same_key(a: *mut c_void, b: *mut c_void) -> bool {
     unsafe { crate::prop_has::key_bytes(a).as_bytes() == crate::prop_has::key_bytes(b).as_bytes() }
 }
 
+/// `? Get(holder, key)`, the answer owned (undefined after a throw).
+///
+/// # Safety
+/// `holder` is a live receiver; `key` a live Str cell.
+pub(super) unsafe fn get_owned(holder: AnyValue, key: *const c_void) -> AnyValue {
+    unsafe {
+        let tag = __torajs_any_member_get_tag(holder, key);
+        let raw = __torajs_any_member_get_value(holder, key);
+        crate::len_get::box_probe_pair(tag, raw, holder, key)
+    }
+}
+
 /// §25.5.2.4 SerializeJSONObject step 5 under a PropertyList — the
 /// keys come from the list instead of the holder's own enumerable
 /// names, and each one is read with a full `? Get(holder, P)`. A key
@@ -207,9 +219,7 @@ pub(super) unsafe fn write_object_list(sb: *mut c_void, holder: AnyValue, depth:
         __torajs_jsb_push_byte(sb, b'{');
         let mut emitted = false;
         for &key in st.property_list.as_deref().unwrap_or(&[]) {
-            let tag = __torajs_any_member_get_tag(holder, key);
-            let raw = __torajs_any_member_get_value(holder, key);
-            let mut value = crate::len_get::box_probe_pair(tag, raw, holder, key);
+            let mut value = get_owned(holder, key);
             if __torajs_throw_check() != 0 {
                 crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
                 break;

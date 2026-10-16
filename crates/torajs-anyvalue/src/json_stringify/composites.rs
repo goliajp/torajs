@@ -8,7 +8,7 @@ use core::ffi::c_void;
 
 use super::struct_expando;
 use super::*;
-use struct_slot::{SlotEntry, struct_slot_entry};
+use struct_slot::{SlotEntry, struct_key_listed, struct_slot_key, struct_slot_value};
 
 mod struct_slot;
 
@@ -23,6 +23,10 @@ unsafe extern "C" {
 /// after the heap header of a `Tag::Obj` cell) — named so a class-tag
 /// read-point sweep finds this walk.
 const OBJ_CLASS_TAG_OFF: usize = 8;
+
+/// Marks a layout row [`write_struct`] left out of K (a row index never
+/// reaches bit 31).
+const NOT_IN_K: u32 = 1 << 31;
 
 /// `{...}` — own enumerable entries in §10.1.11.1 order (the print
 /// walker's `iter_order` contract); a key whose value serializes to
@@ -208,81 +212,111 @@ pub(super) unsafe fn write_struct(sb: *mut c_void, ptr: *mut c_void, depth: u32,
             let mut order = vec![0u32; n as usize];
             let rows = __torajs_struct_field_order_fill(layout, n, order.as_mut_ptr());
             order.truncate(rows as usize);
-            for i in order {
-                // 628-05 — a computed field declared before this row.
-                struct_expando::write_struct_expandos(
-                    sb,
-                    ptr,
-                    depth,
-                    st,
-                    &mut emitted,
-                    struct_expando::before_row(i),
-                );
-                if __torajs_throw_check() != 0 {
-                    break;
-                }
-                let (name, mut value, is_accessor) =
-                    match struct_slot_entry(ptr, layout, i, is_error) {
-                        SlotEntry::Skip => continue,
-                        SlotEntry::Threw => break,
+            // §25.5.2.4 step 6 fixes K before step 8 reads a value, so
+            // a getter that deletes a later member leaves its key in
+            // the walk. While the redefine and absent bits are clear
+            // every declared member is an own enumerable property, so K
+            // is the layout; an instance already moved takes a first
+            // pass over the rows, which runs no user code, to mark the
+            // ones K leaves out.
+            let mut scan = crate::member_get::header_flag(
+                ptr,
+                torajs_rc::FLAG_OBJ_EXOTIC_FIELD | torajs_rc::flags::FLAG_OBJ_ABSENT_FIELD,
+            );
+            'walk: loop {
+                for row in order.iter_mut() {
+                    let i = *row & !NOT_IN_K;
+                    if !scan {
+                        // 628-05 — a computed field declared before this row.
+                        struct_expando::write_struct_expandos(
+                            sb,
+                            ptr,
+                            depth,
+                            st,
+                            &mut emitted,
+                            struct_expando::before_row(i),
+                        );
+                        if __torajs_throw_check() != 0 {
+                            break 'walk;
+                        }
+                        if *row & NOT_IN_K != 0 {
+                            continue;
+                        }
+                    }
+                    let Some(k) = struct_slot_key(ptr, layout, i, is_error) else {
+                        continue;
+                    };
+                    if scan {
+                        if !struct_key_listed(ptr, &k) {
+                            *row |= NOT_IN_K;
+                        }
+                        continue;
+                    }
+                    let (name, mut value, is_accessor) = match struct_slot_value(ptr, k) {
+                        SlotEntry::Threw => break 'walk,
                         SlotEntry::Emit { key, value, owned } => (key, value, owned),
                     };
-                // §25.5.2.3 step 2 — field-level toJSON hook (a
-                // struct's Any field can hold a dynobj carrying one).
-                // An accessor's [[Get]] result arrives OWNED — the
-                // same ledger the hook result rides.
-                let mut hook_owned = is_accessor;
-                if let Some(r) = crate::json_stringify_tojson::apply_tojson(value) {
-                    if hook_owned {
-                        crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
+                    // §25.5.2.3 step 2 — field-level toJSON hook (a
+                    // struct's Any field can hold a dynobj carrying one).
+                    // An accessor's [[Get]] result arrives OWNED — the
+                    // same ledger the hook result rides.
+                    let mut hook_owned = is_accessor;
+                    if let Some(r) = crate::json_stringify_tojson::apply_tojson(value) {
+                        if hook_owned {
+                            crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
+                        }
+                        value = r;
+                        hook_owned = true;
+                        if __torajs_throw_check() != 0 {
+                            crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
+                            break 'walk;
+                        }
                     }
-                    value = r;
-                    hook_owned = true;
+                    // §25.5.2.2 step 3 — the field name lives in the
+                    // static layout table as raw bytes, so the call site
+                    // mints the Str the replacer's `key` argument needs.
+                    (value, hook_owned) = replacer::apply_named(
+                        st,
+                        crate::nanbox::box_void_ptr(ptr),
+                        name.ptr,
+                        name.len,
+                        value,
+                        hook_owned,
+                    );
                     if __torajs_throw_check() != 0 {
-                        crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
-                        break;
+                        if hook_owned {
+                            crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
+                        }
+                        break 'walk;
                     }
-                }
-                // §25.5.2.2 step 3 — the field name lives in the
-                // static layout table as raw bytes, so the call site
-                // mints the Str the replacer's `key` argument needs.
-                (value, hook_owned) = replacer::apply_named(
-                    st,
-                    crate::nanbox::box_void_ptr(ptr),
-                    name.ptr,
-                    name.len,
-                    value,
-                    hook_owned,
-                );
-                if __torajs_throw_check() != 0 {
+                    if serializes_to_nothing(value) {
+                        if hook_owned {
+                            crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
+                        }
+                        continue;
+                    }
+                    if emitted {
+                        __torajs_jsb_push_byte(sb, b',');
+                    }
+                    emitted = true;
+                    push_indent(sb, depth + 1, st);
+                    quote_bytes(sb, name.ptr, name.len);
+                    __torajs_jsb_push_byte(sb, b':');
+                    if st.has_gap() {
+                        __torajs_jsb_push_byte(sb, b' ');
+                    }
+                    write_value(sb, value, depth + 1, st);
                     if hook_owned {
                         crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
                     }
-                    break;
-                }
-                if serializes_to_nothing(value) {
-                    if hook_owned {
-                        crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
+                    if __torajs_throw_check() != 0 {
+                        break 'walk;
                     }
-                    continue;
                 }
-                if emitted {
-                    __torajs_jsb_push_byte(sb, b',');
-                }
-                emitted = true;
-                push_indent(sb, depth + 1, st);
-                quote_bytes(sb, name.ptr, name.len);
-                __torajs_jsb_push_byte(sb, b':');
-                if st.has_gap() {
-                    __torajs_jsb_push_byte(sb, b' ');
-                }
-                write_value(sb, value, depth + 1, st);
-                if hook_owned {
-                    crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
-                }
-                if __torajs_throw_check() != 0 {
+                if !scan {
                     break;
                 }
+                scan = false;
             }
         }
         // Blade 3 (RFC 20260714-struct-dynamic-props) — the expando

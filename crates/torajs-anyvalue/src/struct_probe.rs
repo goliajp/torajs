@@ -41,9 +41,8 @@ use torajs_rc::Tag;
 
 mod field_read;
 pub(crate) use field_read::{
-    declared_accessor_get_bytes, declared_accessor_sidecar, declared_field_deleted,
-    deleted_field_write_gate, expando_own_has, struct_field_pair, struct_field_pair_bytes,
-    struct_layout_declares,
+    declared_accessor_sidecar, declared_field_deleted, deleted_field_write_gate, expando_own_has,
+    struct_field_pair, struct_field_pair_bytes, struct_layout_declares,
 };
 
 use crate::method_call::invoke_boxed;
