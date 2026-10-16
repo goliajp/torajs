@@ -19,9 +19,9 @@
 //! non-null assertion the desugar wrapped it in, and that assertion
 //! lowers by lowering its inner.
 
-use crate::ast::ExprId;
+use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, Terminator, Type};
-use crate::ssa_lower::LowerCtx;
+use crate::ssa_lower::{LowerCtx, intern_arr_layout};
 use crate::ssa_lower_optindex::emit_nullish_cond;
 
 /// Claim a call the desugar marked as an optional chain. `None` for
@@ -54,6 +54,10 @@ pub(crate) fn try_lower(
 
     // Short circuit — the chain's value, and nothing else runs.
     ctx.cur_block = null_blk;
+    if ctx.ast.paren_optchain_calls.contains(&eid) {
+        throw_calling_undefined(ctx, args);
+    }
+    let null_blk = ctx.cur_block;
     let undef = ctx.f.append_inst(
         null_blk,
         InstKind::BoxAny(5, Operand::ConstI64(0)),
@@ -94,4 +98,32 @@ pub(crate) fn try_lower(
         None,
     );
     Some(Operand::Value(r))
+}
+
+/// `(o?.m)(args)` with a nullish `o`: the parenthesized chain is
+/// `undefined`, the arguments still evaluate, and the call throws
+/// (§13.3.6.1 steps 3-4, EvaluateCall step 5). The argument values
+/// are dropped, but a spread still iterates its source (§13.3.8.1
+/// ArgumentListEvaluation), so a spread list goes through the same
+/// materialization a spread call uses.
+fn throw_calling_undefined(ctx: &mut LowerCtx<'_>, args: &[ExprId]) {
+    if args
+        .iter()
+        .any(|a| matches!(ctx.ast.get_expr(*a), Expr::Spread { .. }))
+    {
+        let arr = crate::ssa_lower_call_spread::build_args_arr(ctx, args);
+        let arr_any_id = intern_arr_layout(ctx.arr_layouts, Type::Any);
+        ctx.emit_drop_value(arr, Type::Arr(arr_any_id));
+    } else {
+        for &a in args {
+            let op = ctx.lower_expr(a);
+            ctx.release_owned_temp(a, &op);
+        }
+    }
+    let msg = ctx.intern_string_literal("value is not a function");
+    let raiser = ctx.intrinsics.throw_type_error_str;
+    let cur = ctx.cur_block;
+    ctx.f
+        .append_void(cur, InstKind::Call(raiser, vec![Operand::Value(msg)]));
+    ctx.emit_throw_check(None);
 }

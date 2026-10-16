@@ -59,6 +59,14 @@ pub fn desugar_optchain_calls(ast: &mut Ast) {
         rewrites.push((i, link, *obj, args.clone(), tail));
     }
     for (i, callee, obj, args, tail) in rewrites {
+        // `(o?.m)(args)`: the parenthesized chain is a reference to
+        // `o.m` (§13.3.9.1 ChainEvaluation), so a present `o` is still
+        // the receiver; a nullish one makes the chain `undefined`, and
+        // calling that is a TypeError after the arguments evaluate
+        // (§13.3.6.1 steps 3-4)
+        if tail.is_empty() && ast.paren_optchains.contains(&callee) {
+            ast.paren_optchain_calls.insert(ExprId(i as u32));
+        }
         let Expr::OptChain { name, .. } = ast.get_expr(callee) else {
             unreachable!("collected as an OptChain callee");
         };
@@ -236,5 +244,31 @@ mod tests {
         desugar_optchain_calls(&mut ast);
         assert!(ast.optchain_calls.is_empty());
         assert!(matches!(ast.get_expr(call), Expr::Call { callee: c, .. } if *c == callee));
+    }
+
+    #[test]
+    fn a_parenthesized_chain_called_directly_throws_when_nullish() {
+        // `(a?.m)()` keeps `a` as the receiver and is marked to throw
+        let mut ast = Ast::default();
+        let obj = ast.add_expr(Expr::Ident("a".into()));
+        let chain = ast.add_expr(Expr::OptChain {
+            obj,
+            name: "m".into(),
+        });
+        ast.paren_optchains.insert(chain);
+        let call = ast.add_expr(Expr::Call {
+            callee: chain,
+            args: Vec::new(),
+        });
+        desugar_optchain_calls(&mut ast);
+        assert_eq!(ast.optchain_calls.get(&call), Some(&obj));
+        assert!(ast.paren_optchain_calls.contains(&call));
+    }
+
+    #[test]
+    fn an_unparenthesized_chain_call_short_circuits() {
+        let (mut ast, call) = optchain_call();
+        desugar_optchain_calls(&mut ast);
+        assert!(!ast.paren_optchain_calls.contains(&call));
     }
 }

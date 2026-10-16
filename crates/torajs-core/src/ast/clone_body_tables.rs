@@ -118,6 +118,7 @@ pub(crate) fn migrate(cloner: &mut BodyCloner<'_>) {
     }
     copy_set!(stack_array_literals);
     copy_set!(paren_optchains);
+    copy_set!(paren_optchain_calls);
     copy_set!(regex_result_props_unread);
     copy_map!(regex_exec_record_callees);
     copy_map!(eval_var_sites);

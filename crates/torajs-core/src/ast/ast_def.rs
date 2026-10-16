@@ -193,17 +193,17 @@ pub struct Ast {
     /// Calls that were written as an optional chain ending in a call
     /// (`a?.m(args)`): the Call's ExprId → the chain's BASE.
     ///
-    /// `desugar_optchain_calls` rewrites such a callee from `OptChain`
-    /// to `Member`, so the checker and every dispatch lane read the
-    /// ORDINARY member call of §13.3.9's hit branch. The chain may still
-    /// short-circuit, so the result widens to `Any` at the checker and
-    /// the lowering wraps the call in the base's nullish guard, with
-    /// the arguments inside the hit block. The base is kept because the
-    /// guard evaluates it once, and the callee reads it non-null.
+    /// `desugar_optchain_calls` makes the callee an ordinary `Member`
+    /// (§13.3.9's hit branch); the lowering wraps the call in a nullish
+    /// guard on the base, evaluated once, with the arguments inside.
+    /// The callee reads the base non-null.
     pub optchain_calls: std::collections::HashMap<ExprId, ExprId>,
     /// Optional chains written in parentheses: `(a?.m).call(t)` ends
     /// the chain at `)`, so the call past it does not short-circuit.
     pub paren_optchains: std::collections::HashSet<ExprId>,
+    /// The `(a?.m)(args)` subset of `optchain_calls`: a nullish base
+    /// calls `undefined`, so the guard's miss branch throws.
+    pub paren_optchain_calls: std::collections::HashSet<ExprId>,
     /// How many arguments a call site supplies before the tail, for
     /// every top-level declaration whose last parameter is a rest.
     /// Published by `apply_rest_args` out of the very reading it packs
