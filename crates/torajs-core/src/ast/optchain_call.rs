@@ -27,8 +27,12 @@ use super::{Ast, Expr, ExprId};
 mod spelled_callee;
 pub use spelled_callee::distribute_spelled_callees;
 
+/// One call to rewrite: the call's index, its optional link, the link's
+/// base, the call's arguments and the `.name` steps past the link.
+type Rewrite = (usize, ExprId, ExprId, Vec<ExprId>, Vec<String>);
+
 pub fn desugar_optchain_calls(ast: &mut Ast) {
-    let mut rewrites: Vec<(usize, ExprId, ExprId, Vec<ExprId>, Vec<String>)> = Vec::new();
+    let mut rewrites: Vec<Rewrite> = Vec::new();
     for i in 0..ast.exprs.len() {
         let Expr::Call { callee, args } = &ast.exprs[i] else {
             continue;
