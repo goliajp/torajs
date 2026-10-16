@@ -191,9 +191,9 @@ pub struct Ast {
     /// answers the [[Get]] semantics either way.
     pub obj_rest_names: std::collections::HashSet<String>,
     /// Calls that were written as an optional chain ending in a call
-    /// (`a?.m(args)`): the Call's ExprId → the chain's BASE.
+    /// (`a?.m(args)`, `a?.[k](args)`): the Call's ExprId → the BASE.
     ///
-    /// `desugar_optchain_calls` makes the callee an ordinary `Member`
+    /// `desugar_optchain_calls` makes the callee a `Member` / `Index`
     /// (§13.3.9's hit branch); the lowering wraps the call in a nullish
     /// guard on the base, evaluated once, with the arguments inside.
     /// The callee reads the base non-null.

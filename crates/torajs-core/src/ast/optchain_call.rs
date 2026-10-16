@@ -20,7 +20,8 @@
 //!
 //! Only a `Call` callee is rewritten. `a?.m` as a VALUE stays an
 //! `OptChain`: nothing is being invoked, so there is no receiver to
-//! keep and no arguments to withhold.
+//! keep and no arguments to withhold. A computed link (`a?.[k](args)`)
+//! is rewritten the same way, to an `Index` callee.
 
 use super::{Ast, Expr, ExprId};
 
@@ -50,7 +51,7 @@ pub fn desugar_optchain_calls(ast: &mut Ast) {
             tail.push(name.clone());
             link = *obj;
         }
-        let Expr::OptChain { obj, name: _ } = ast.get_expr(link) else {
+        let (Expr::OptChain { obj, .. } | Expr::OptIndex { obj, .. }) = ast.get_expr(link) else {
             continue;
         };
         if cut || (!tail.is_empty() && ast.paren_optchains.contains(&link)) {
@@ -67,10 +68,7 @@ pub fn desugar_optchain_calls(ast: &mut Ast) {
         if tail.is_empty() && ast.paren_optchains.contains(&callee) {
             ast.paren_optchain_calls.insert(ExprId(i as u32));
         }
-        let Expr::OptChain { name, .. } = ast.get_expr(callee) else {
-            unreachable!("collected as an OptChain callee");
-        };
-        let name = name.clone();
+        let link = ast.get_expr(callee).clone();
         // In the hit branch the base is known not to be nullish —
         // that is what the guard ahead of it decided — so the member
         // read says so with the non-null assertion the language
@@ -84,7 +82,12 @@ pub fn desugar_optchain_calls(ast: &mut Ast) {
         // A FRESH node rather than a mutation of the chain in place:
         // the same `OptChain` expr may also be read as a value
         // elsewhere in the arena, and that reading is still a chain.
-        let mut member = ast.add_expr(Expr::Member { obj: base, name });
+        // `o?.[k](args)` keeps its key: the hit branch is `o[k](args)`
+        let mut member = match link {
+            Expr::OptChain { name, .. } => ast.add_expr(Expr::Member { obj: base, name }),
+            Expr::OptIndex { index, .. } => ast.add_expr(Expr::Index { obj: base, index }),
+            _ => unreachable!("collected as an optional link"),
+        };
         for name in tail.into_iter().rev() {
             member = ast.add_expr(Expr::Member { obj: member, name });
         }
@@ -263,6 +266,27 @@ mod tests {
         desugar_optchain_calls(&mut ast);
         assert_eq!(ast.optchain_calls.get(&call), Some(&obj));
         assert!(ast.paren_optchain_calls.contains(&call));
+    }
+
+    #[test]
+    fn a_computed_link_keeps_its_key_and_receiver() {
+        // `(a?.[k])()` is `a[k]()` in the hit branch, marked to throw
+        let mut ast = Ast::default();
+        let obj = ast.add_expr(Expr::Ident("a".into()));
+        let key = ast.add_expr(Expr::Ident("k".into()));
+        let chain = ast.add_expr(Expr::OptIndex { obj, index: key });
+        ast.paren_optchains.insert(chain);
+        let call = ast.add_expr(Expr::Call {
+            callee: chain,
+            args: Vec::new(),
+        });
+        desugar_optchain_calls(&mut ast);
+        assert_eq!(ast.optchain_calls.get(&call), Some(&obj));
+        assert!(ast.paren_optchain_calls.contains(&call));
+        let Expr::Call { callee, .. } = ast.get_expr(call) else {
+            panic!("the call stays a call")
+        };
+        assert!(matches!(ast.get_expr(*callee), Expr::Index { index, .. } if *index == key));
     }
 
     #[test]

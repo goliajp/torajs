@@ -143,7 +143,10 @@ impl<'a> Parser<'a> {
         while let Expr::Member { obj, .. } = self.ast.get_expr(link) {
             link = *obj;
         }
-        if matches!(self.ast.get_expr(link), Expr::OptChain { .. }) {
+        if matches!(
+            self.ast.get_expr(link),
+            Expr::OptChain { .. } | Expr::OptIndex { .. }
+        ) {
             self.ast.paren_optchains.insert(last);
         }
         Ok(last)
