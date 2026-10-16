@@ -80,6 +80,8 @@ unsafe fn spec_run(this: AnyValue, mid: i64, argv: *const u64, argc: i64) -> Any
             m if m == ANY_METHOD_REPLACE => replace::symbol_replace(this, arg(0), arg(1)),
             m if m == ANY_METHOD_SPLIT => split::symbol_split(this, arg(0), arg(1)),
             m if m == ANY_METHOD_MATCH_ALL => match_all::symbol_match_all(this, arg(0)),
+            // String.prototype.matchAll / replaceAll step 2.b's read
+            m if m == torajs_rc::ANY_METHOD_GET_FLAGS => ops::flags_have_g(this),
             _ => av::method_no_such(),
         }
     }

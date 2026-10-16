@@ -25,15 +25,20 @@
 
 use core::ffi::c_void;
 
-use torajs_anyvalue::nanbox::{AnyValue, VALUE_UNDEFINED};
+use torajs_anyvalue::nanbox::{AnyValue, VALUE_UNDEFINED, box_bool};
 use torajs_anyvalue::regexp_support as av;
-use torajs_rc::{ANY_METHOD_MATCH_ALL, ANY_METHOD_NEXT, ANY_METHOD_SPLIT};
+use torajs_rc::{
+    ANY_METHOD_GET_FLAGS, ANY_METHOD_MATCH_ALL, ANY_METHOD_NEXT, ANY_METHOD_REPLACE_ALL,
+    ANY_METHOD_SPLIT,
+};
 
 unsafe extern "C" {
     /// torajs-regex — 1 when the cell itself carries nothing the
     /// protocol algorithms could observe (no own bag, no subclass,
     /// a plain writable numeric `lastIndex`).
     fn __torajs_regex_protocol_plain(re: *const c_void) -> i64;
+    /// torajs-regex — non-zero iff the cell carries the flag bit.
+    fn __torajs_regex_has_flag(re: *const c_void, bit: i64) -> i64;
     /// torajs-throw — record a pending catchable TypeError.
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
     /// torajs-regexp-protocol — the spec algorithm of a protocol
@@ -82,6 +87,44 @@ unsafe fn spec_needed(this: AnyValue, mid: i64, argv: *const u64, argc: i64) -> 
         && (!regexp_species_untouched() || (argc > 1 && unsafe { av::av_is_object(*argv.add(1)) }))
 }
 
+/// `g` bit mirror (torajs-regex parser).
+const RE_FLAG_G: i64 = 0x02;
+
+/// String.prototype.matchAll / replaceAll (`string_mid`) step 2.b over
+/// the RegExp `re`: ? ToString(? Get(re, "flags")) must contain "g",
+/// else a TypeError. A RegExp whose read cannot observe more than its
+/// own flag bits answers from the bits. Nonzero when the call is
+/// abandoned with a throw pending.
+///
+/// # Safety
+/// `re` boxes a live RegExp cell.
+unsafe fn step_2b(re: AnyValue, string_mid: i64) -> AnyValue {
+    unsafe {
+        let global = match av::regexp_cell(re) {
+            Some(cell) if !spec_needed(re, ANY_METHOD_GET_FLAGS, core::ptr::null(), 0) => {
+                __torajs_regex_has_flag(cell, RE_FLAG_G) != 0
+            }
+            _ => {
+                let g =
+                    __torajs_regexp_protocol_run(re, ANY_METHOD_GET_FLAGS, core::ptr::null(), 0);
+                if g == VALUE_UNDEFINED {
+                    return 1;
+                }
+                g == box_bool(true)
+            }
+        };
+        if global {
+            return 0;
+        }
+        __torajs_throw_type_error(if string_mid == ANY_METHOD_REPLACE_ALL {
+            c"String.prototype.replaceAll called with a non-global RegExp argument".as_ptr()
+        } else {
+            c"String.prototype.matchAll called with a non-global RegExp argument".as_ptr()
+        });
+        1
+    }
+}
+
 /// The protocol seam's body: one RegExp String Iterator step for a
 /// `next` on one of its cells; [`av::KERNEL_LANE`] for a protocol
 /// method whose receiver cannot tell the native kernels from the
@@ -94,6 +137,9 @@ unsafe fn spec_needed(this: AnyValue, mid: i64, argv: *const u64, argc: i64) -> 
 /// from (`RegExp.prototype[Symbol.search].call(86)`): step 2 of each
 /// (§22.2.6.8 / .9 / .11 / .12 / .14) throws.
 ///
+/// [`ANY_METHOD_GET_FLAGS`] names no method here: it asks [`step_2b`]
+/// over the RegExp `recv`, with the String method's id in `argc`.
+///
 /// # Safety
 /// `recv` is a live value; `argv` addresses `argc` live slots.
 #[unsafe(no_mangle)]
@@ -104,6 +150,9 @@ pub unsafe extern "C" fn __torajs_regexp_protocol_call(
     argc: i64,
 ) -> AnyValue {
     unsafe {
+        if mid == ANY_METHOD_GET_FLAGS {
+            return step_2b(recv, argc);
+        }
         if !av::av_is_object(recv) {
             __torajs_throw_type_error(c"RegExp protocol method called on a non-object".as_ptr());
             return VALUE_UNDEFINED;

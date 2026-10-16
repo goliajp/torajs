@@ -85,7 +85,12 @@ pub(crate) fn lower_symbol_dispatch_pattern(
                 recv_op,
                 raw_arg,
                 extra_any,
-                Operand::ConstI64(1),
+                // | 4: matchAll's step 2.b runs ahead of the lookup
+                Operand::ConstI64(if kind == SymbolDispatchKind::MatchAll {
+                    1 | 4
+                } else {
+                    1
+                }),
                 Operand::ConstI64(wk_idx),
                 Operand::Value(result_slot),
             ],
@@ -246,7 +251,8 @@ pub(crate) fn lower_replace_any_pattern(
                 recv_op,
                 raw_arg,
                 extra_any,
-                Operand::ConstI64(2),
+                // | 4: replaceAll's step 2.b runs ahead of the lookup
+                Operand::ConstI64(if all { 2 | 4 } else { 2 }),
                 Operand::ConstI64(8),
                 Operand::Value(result_slot),
             ],

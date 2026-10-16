@@ -252,6 +252,34 @@ pub(crate) unsafe fn last_index_length(rx: AnyValue) -> Option<i64> {
 /// ? ToString(? Get(R, "flags")) as code units.
 pub(crate) unsafe fn flags_of(rx: AnyValue) -> Option<Vec<u16>> {
     unsafe {
+        let f = flags_value(rx)?;
+        let s = to_string(f.get())?;
+        Some(s.units())
+    }
+}
+
+/// §22.1.3.13 / .20 step 2.b.i-iii: whether ToString(flags) contains
+/// "g", after RequireObjectCoercible(flags) — a boxed boolean, or
+/// undefined with the throw pending.
+pub(crate) unsafe fn flags_have_g(rx: AnyValue) -> AnyValue {
+    unsafe {
+        let Some(f) = flags_value(rx) else {
+            return VALUE_UNDEFINED;
+        };
+        if f.get() == VALUE_UNDEFINED || f.get() == VALUE_NULL {
+            type_error(c"RegExp flags is undefined or null");
+            return VALUE_UNDEFINED;
+        }
+        let Some(s) = to_string(f.get()) else {
+            return VALUE_UNDEFINED;
+        };
+        torajs_anyvalue::nanbox::box_bool(has_flag(&s.units(), b'g'))
+    }
+}
+
+/// ? Get(R, "flags").
+unsafe fn flags_value(rx: AnyValue) -> Option<Owned> {
+    unsafe {
         let key = key_str(b"flags");
         // A RegExp cell's direct `flags` read renders its own flag
         // word; the §22.2.6.4 getter it stands for reads the eight
@@ -270,8 +298,7 @@ pub(crate) unsafe fn flags_of(rx: AnyValue) -> Option<Vec<u16>> {
         } else {
             get_key(rx, key.ptr())?
         };
-        let s = to_string(f.get())?;
-        Some(s.units())
+        Some(f)
     }
 }
 

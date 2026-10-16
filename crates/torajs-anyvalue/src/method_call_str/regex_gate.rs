@@ -17,16 +17,6 @@
 
 use super::*;
 
-unsafe extern "C" {
-    /// torajs-regex — non-zero iff the cell carries the flag bit.
-    fn __torajs_regex_has_flag(re: *const c_void, bit: i64) -> i64;
-    /// torajs-throw — record a pending catchable TypeError.
-    fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
-}
-
-/// `g` bit mirror (torajs-regex parser / `member_props_regexp.rs`).
-const RE_FLAG_G: i64 = 0x02;
-
 /// True when the pending TypeError was recorded — the caller must
 /// abandon the dispatch without coercing anything. False for every
 /// other method id, a non-RegExp search argument, and a RegExp that
@@ -45,18 +35,19 @@ pub(crate) unsafe fn reject_non_global_regex_search(mid: i64, argv: *const u64, 
     // SAFETY: `argc >= 1` was just checked; caller owns the buffer.
     let search = unsafe { *argv };
     // SAFETY: caller invariant on the AnyValue bit pattern.
-    let Some(re) = (unsafe { regexp_cell(search) }) else {
-        return false;
-    };
-    // SAFETY: `re` is a live RegExp cell from `regexp_cell`.
-    if unsafe { __torajs_regex_has_flag(re, RE_FLAG_G) } != 0 {
+    if unsafe { regexp_cell(search) }.is_none() {
         return false;
     }
-    let msg = if mid == ANY_METHOD_REPLACE_ALL {
-        c"String.prototype.replaceAll called with a non-global RegExp argument"
-    } else {
-        c"String.prototype.matchAll called with a non-global RegExp argument"
-    };
-    unsafe { __torajs_throw_type_error(msg.as_ptr()) };
-    true
+    // Step 2.b reads `flags` and throws unless it holds "g": the
+    // protocol seam's, behind which the read, the flag bits and the
+    // TypeError live with the rest of the RegExp world. It answers
+    // nonzero when the call is abandoned.
+    unsafe {
+        crate::dispatch_seam::__torajs_regexp_protocol_call(
+            search,
+            torajs_rc::ANY_METHOD_GET_FLAGS,
+            core::ptr::null(),
+            mid,
+        ) != 0
+    }
 }

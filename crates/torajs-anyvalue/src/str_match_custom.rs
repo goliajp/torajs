@@ -51,6 +51,11 @@ pub(crate) const WK_REPLACE: i64 = 8;
 pub(crate) const WK_SEARCH: i64 = 9;
 pub(crate) const WK_SPLIT: i64 = 11;
 
+/// Set on the `argc` operand by a typed matchAll / replaceAll lane:
+/// step 2.b (a RegExp whose `flags` lack "g" is a TypeError) runs
+/// before the lookup. The any-receiver lane runs it itself.
+const ARGC_STEP_2B: i64 = 4;
+
 /// The per-symbol GetMethod step-4 TypeError text, in the spec's
 /// `@@name` spelling. Kept short: every program that links the
 /// dispatch carries all five.
@@ -106,6 +111,20 @@ pub unsafe extern "C" fn __torajs_any_str_symbol_try(
         if !crate::iter_zip_shared::av_is_object(arg) {
             return 0;
         }
+        let argc = if argc & ARGC_STEP_2B != 0 {
+            let mid = if wk_idx == WK_MATCH_ALL {
+                ANY_METHOD_MATCH_ALL
+            } else {
+                ANY_METHOD_REPLACE_ALL
+            };
+            if reject_non_global_regex_search(mid, &raw const arg, 1) {
+                *out = VALUE_UNDEFINED;
+                return 1;
+            }
+            argc & !ARGC_STEP_2B
+        } else {
+            argc
+        };
         let sym = __torajs_symbol_well_known(wk_idx);
         if sym.is_null() {
             return 0;
