@@ -265,8 +265,9 @@ fn lower_method_spread(
 
 /// Materialize the full argument list into one fresh `Array<Any>`
 /// (owned, rc=1 — the caller drops it after the call, releasing the
-/// elements). Literal args push through `pack_any_elem` (its rc /
-/// unbox ledger transfers each stake into the slot); spread sources
+/// elements). Literal args push through `pack_any_elem`, which gives
+/// the slot a stake of its own; a fresh arg's own stake is released
+/// after the push. Spread sources
 /// route through the unified iteration protocol: an `Array<Any>`
 /// extends directly (per-slot rc_inc copy), everything else boxes
 /// and materializes via `ssa_lower_arr_from_any::emit` (typed
@@ -373,6 +374,9 @@ pub(crate) fn build_args_arr(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand
                 Type::Arr(arr_any_id),
                 None,
             ));
+            // the slot took a stake of its own, so a fresh argument's
+            // original one goes (the array literal's account)
+            ctx.release_owned_temp(aid, &v);
         }
     }
     arr

@@ -260,6 +260,9 @@ pub(crate) fn assemble_any_spread(
                 Type::Arr(arr_id),
                 None,
             );
+            // the slot took a stake of its own, so a fresh item's
+            // original one goes (`lower_array_any_literal`'s account)
+            ctx.release_owned_temp(li.src_eid, &li.op);
         }
     }
     Operand::Value(arr)
