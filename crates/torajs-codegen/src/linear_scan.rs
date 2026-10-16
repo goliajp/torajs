@@ -185,6 +185,7 @@ pub fn allocate_linear_scan_with(func: &Function, inline: InlineSites) -> Assign
         sweep.alloc_value(vid, interval, is_fp, crossing);
     }
 
+    sweep.rehome_saved();
     classes.fan_out(&mut sweep.by_value);
     if sweep.log {
         crate::linear_scan_dump::dump(func, &intervals, &sweep, &call_sites);

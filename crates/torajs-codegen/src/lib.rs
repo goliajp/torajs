@@ -30,6 +30,7 @@ mod linear_scan_alloc;
 mod linear_scan_calls;
 mod linear_scan_dump;
 mod linear_scan_lanes;
+mod linear_scan_rehome;
 mod linear_scan_spill;
 pub(crate) mod linear_scan_sweep;
 mod live_ranges;
