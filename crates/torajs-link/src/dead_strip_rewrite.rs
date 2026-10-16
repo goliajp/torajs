@@ -23,12 +23,12 @@
 //!
 //! Address-space account:
 //!   - live atoms move to their run-remapped address, each run
-//!     placed congruent to its old address mod
-//!     `max(16, 1 << align)` so every intra-section offset keeps
-//!     the address class the compiler relied on (the final layout
-//!     re-aligns each section's placement and resolves symbols as
-//!     `final_vaddr + (n_value - member_addr)`, so only the class
-//!     matters, not the absolute value);
+//!     placed congruent to its old address mod the section's
+//!     placement modulus (see [`run_modulus`]) so every intra-section
+//!     offset keeps the address class the compiler relied on (the
+//!     final layout re-aligns each section's placement and resolves
+//!     symbols as `final_vaddr + (n_value - member_addr)`, so only
+//!     the class matters, not the absolute value);
 //!   - every later section's `addr` and `offset` drop by `shift`,
 //!     so `n_value - member_addr` stays invariant for later-section
 //!     symbols (both sides move together);
@@ -39,7 +39,8 @@
 
 use torajs_obj::{
     ARM64_RELOC_UNSIGNED, LC_SEGMENT_64, LC_SYMTAB, MH_MAGIC_64, N_SECT, N_TYPE, NLIST_64_SIZE,
-    RELOCATION_INFO_SIZE, SECTION_64_SIZE, SEGMENT_COMMAND_64_SIZE,
+    RELOCATION_INFO_SIZE, S_ATTR_PURE_INSTRUCTIONS, S_ATTR_SOME_INSTRUCTIONS, SECTION_64_SIZE,
+    SEGMENT_COMMAND_64_SIZE,
 };
 
 use crate::runtime_prestrip::dead_content_in_prestripped;
@@ -65,6 +66,7 @@ pub(crate) struct SectHdr {
     align: u8,
     pub(crate) reloff: u32,
     pub(crate) nreloc: u32,
+    flags: u32,
 }
 
 /// A rewritten member `.o` plus the nlist indices of the rows whose
@@ -117,7 +119,7 @@ pub(crate) fn strip_member_section(
     let sect_addr = hdr.addr;
     let old_size = hdr.size;
 
-    let (runs, new_size) = build_runs(atoms_rel, live, hdr.align);
+    let (runs, new_size) = build_runs(atoms_rel, live, run_modulus(hdr));
     if new_size >= old_size && !dead_content_in_prestripped(bytes, symtab_pos, hdr, atoms_rel, live)
     {
         return Ok(None);
@@ -297,14 +299,25 @@ fn dead_row_addr(runs: &[Run], dead_at: DeadRowPlacement, sect_addr: u64, addr: 
     }
 }
 
+/// The modulus a run keeps its old offset under. An instruction
+/// section uses its declared alignment floored at the 4-byte A64
+/// instruction, as ld64 places atoms: the assembler already raised it
+/// to the widest `.p2align` any function or loop head asked for, and a
+/// wider modulus makes a run's padding depend on where the bytes before
+/// it ended, so dead code earlier in the member would move every later
+/// live byte. Other sections keep the floor of 16 they always had.
+fn run_modulus(hdr: &SectHdr) -> u64 {
+    let declared = 1u64 << u32::from(hdr.align.min(14));
+    let code = hdr.flags & (S_ATTR_PURE_INSTRUCTIONS | S_ATTR_SOME_INSTRUCTIONS) != 0;
+    declared.max(if code { 4 } else { 16 })
+}
+
 /// Merge adjacent live atoms into placement runs. Each run lands at
 /// the smallest offset ≥ the running cursor congruent to its old
-/// offset mod `a = max(16, 1 << align)` — preserving every atom's
-/// address class (function atoms conventionally get 16 even when
-/// the section header says less). Offsets are section-relative;
-/// returns the runs plus the new payload size.
-fn build_runs(atoms_rel: &[(u64, u64)], live: &[bool], align: u8) -> (Vec<Run>, u64) {
-    let a = (1u64 << u32::from(align.min(14))).max(16);
+/// offset mod `a` ([`run_modulus`]), preserving every atom's address
+/// class. Offsets are section-relative; returns the runs plus the new
+/// payload size.
+fn build_runs(atoms_rel: &[(u64, u64)], live: &[bool], a: u64) -> (Vec<Run>, u64) {
     let mut runs: Vec<Run> = Vec::new();
     let mut cursor: u64 = 0;
     for (i, &(rs, re)) in atoms_rel.iter().enumerate() {
@@ -469,6 +482,7 @@ pub(crate) fn scan_load_commands(
                             as u8,
                         reloff: u32::from_le_bytes(bytes[p + 56..p + 60].try_into().unwrap()),
                         nreloc: u32::from_le_bytes(bytes[p + 60..p + 64].try_into().unwrap()),
+                        flags: u32::from_le_bytes(bytes[p + 64..p + 68].try_into().unwrap()),
                     });
                 }
             }
@@ -557,10 +571,12 @@ mod tests {
     /// Stripping against a superset of the live atoms first, then
     /// against the subset, lays the subset out exactly as stripping
     /// the original against it: the alignment padding the first pass
-    /// leaves ahead of a run must not join the run before it.
+    /// leaves ahead of a run must not join the run before it. Padding
+    /// only exists where the modulus exceeds the atom granule, so the
+    /// section is declared 16-aligned.
     #[test]
     fn stripping_twice_places_runs_as_stripping_once() {
-        let obj = packed_obj();
+        let obj = packed_obj(4);
         let subset = ["_f0", "_f6"];
         let base = DeadRowPlacement::SectionBase;
         let once = strip(&obj, &subset, base);
@@ -581,10 +597,11 @@ mod tests {
     /// A pre-stripped section whose one dead atom sits where the next
     /// run's alignment padding goes buys no bytes from the second
     /// strip, yet stripping the original leaves zeros there: the second
-    /// strip must still rewrite it.
+    /// strip must still rewrite it. 16-aligned for the same reason as
+    /// above.
     #[test]
     fn a_prestripped_dead_atom_in_padding_is_zeroed() {
-        let obj = packed_obj();
+        let obj = packed_obj(4);
         let subset = ["_f0", "_f6"];
         let once = strip(&obj, &subset, DeadRowPlacement::SectionBase);
         let pre = strip_rows(&obj, &["_f0", "_f5", "_f6"], DeadRowPlacement::GapStart).unwrap();
@@ -601,10 +618,34 @@ mod tests {
         assert_eq!(text_twice, text_once);
     }
 
+    /// In a 4-aligned instruction section a run lands right at the
+    /// cursor, so the live bytes after a dead atom come out the same
+    /// whatever its length: a change confined to dead code cannot move
+    /// live code. Under a modulus of 16 the dead 4 vs 8 bytes put
+    /// `_f2` at 16 vs 20.
+    #[test]
+    fn dead_atom_length_does_not_move_later_runs() {
+        let stripped = |dead_words: usize| {
+            let obj = torajs_obj::write_object(&[
+                leaf("_f0", 3),
+                leaf("_dead", dead_words),
+                leaf("_f2", 5),
+            ]);
+            strip(&obj, &["_f0", "_f2"], DeadRowPlacement::SectionBase)
+        };
+        let (text_a, rows_a, _) = text_of(&stripped(1));
+        let (text_b, rows_b, _) = text_of(&stripped(2));
+        let at = |rows: &[(String, u64)], n: &str| rows.iter().find(|r| r.0 == n).unwrap().1;
+        assert_eq!(at(&rows_a, "_f2"), 12);
+        assert_eq!(at(&rows_b, "_f2"), 12);
+        assert_eq!(text_a, text_b);
+        assert_eq!(text_a.len(), 32);
+    }
+
     /// Seven leaf fns whose rows are re-pointed so the atoms pack at 4
     /// bytes: f0 0..12, f1 ..36, f2 ..44, f3 ..52, f4 ..60, f5 ..64,
-    /// f6 64..
-    fn packed_obj() -> Vec<u8> {
+    /// f6 64.., in a `__text` declared `1 << align`-aligned.
+    fn packed_obj(align: u32) -> Vec<u8> {
         let mut obj = torajs_obj::write_object(&[
             leaf("_f0", 32),
             leaf("_f1", 1),
@@ -615,7 +656,9 @@ mod tests {
             leaf("_f6", 1),
         ]);
         let (_, symtab_pos, _, sects) = scan_load_commands(&obj).unwrap();
-        let base = sects.iter().find(|s| s.ord == 1).unwrap().addr;
+        let text = sects.iter().find(|s| s.ord == 1).unwrap();
+        let base = text.addr;
+        obj[text.hdr_pos + 52..text.hdr_pos + 56].copy_from_slice(&align.to_le_bytes());
         let sp = symtab_pos.unwrap();
         let rd = |b: &[u8], o: usize| u32::from_le_bytes(b[o..o + 4].try_into().unwrap()) as usize;
         let (symoff, nsyms) = (rd(&obj, sp + 8), rd(&obj, sp + 12));
