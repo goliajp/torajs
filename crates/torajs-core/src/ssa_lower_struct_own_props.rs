@@ -50,6 +50,31 @@ impl OwnProp {
     }
 }
 
+/// Whether a data member of `props` is one a write of the program can
+/// shadow (`shadow_read`): its slot may stop telling the member's value,
+/// or whether it is still an own enumerable member, once a getter or a
+/// write through an `any` receiver ran. A whole-object reader then
+/// reads the receiver through the runtime own-walk, which asks each
+/// member its live state when the walk reaches it.
+pub(crate) fn some_member_shadowed(ctx: &LowerCtx<'_>, props: &[OwnProp], recv: ExprId) -> bool {
+    use crate::ssa_lower_member_obj_field::shadow_read;
+    props.iter().any(|p| {
+        matches!(p.src, PropSource::Data { ty, .. }
+            if shadow_read::applies(ctx, Some(recv), &p.key.lossy(), ty)
+                || shadow_read::mistyped_field(ctx, &p.key.lossy(), ty))
+    })
+}
+
+/// [`some_member_shadowed`] for a receiver of type `ty`; false unless
+/// it is a struct.
+pub(crate) fn obj_member_shadowed(ctx: &LowerCtx<'_>, ty: &Type, recv: ExprId) -> bool {
+    let Type::Obj(sid) = ty else {
+        return false;
+    };
+    let props = own_props(&ctx.struct_layouts[sid.0 as usize], ctx.fn_sigs);
+    some_member_shadowed(ctx, &props, recv)
+}
+
 /// Walk a struct layout into its own properties, in declaration order.
 /// A get/set pair collapses into one entry keyed by the plain name (the
 /// getter half wins whichever order the two slots appear in).

@@ -25,14 +25,9 @@ pub(super) fn runtime_walks(
     props: &[crate::ssa_lower_struct_own_props::OwnProp],
     recv: ExprId,
 ) -> bool {
-    let shadowed = props.iter().any(|p| {
-        matches!(p.src, crate::ssa_lower_struct_own_props::PropSource::Data { ty, .. }
-            if crate::ssa_lower_member_obj_field::shadow_read::applies(
-                ctx, Some(recv), &p.key.lossy(), ty)
-                || crate::ssa_lower_member_obj_field::shadow_read::mistyped_field(
-                    ctx, &p.key.lossy(), ty))
-    });
-    props.is_empty() || shadowed || !props.iter().all(|p| p.ty() == props[0].ty())
+    props.is_empty()
+        || crate::ssa_lower_struct_own_props::some_member_shadowed(ctx, props, recv)
+        || !props.iter().all(|p| p.ty() == props[0].ty())
 }
 
 /// Receivers the typed lane hands to the runtime own-values walk

@@ -159,13 +159,11 @@ pub(crate) fn try_lower(
     // assumed. `Type::Obj(_)` stays out on purpose: a struct's keys
     // come from its compile-time layout, which is both exact and
     // cheaper than a runtime walk.
-    //
-    // The refusal this removes was the lowering's alone. `const x: any
-    // = m; Object.keys(x)` already answered correctly through the Any
-    // arm below; only the spelling that kept its static type died, at
-    // "requires a struct arg, got Map". The three copies of this
-    // block are one predicate now.
-    let (arg_op, arg_ty) = if ctx.own_keys_walk_at_runtime(&arg_ty) {
+    // A struct member a write of the program can shadow is read live
+    // too, as `Object.values` reads it: a getter the walk runs may
+    // delete or hide a later member.
+    let live = crate::ssa_lower_struct_own_props::obj_member_shadowed(ctx, &arg_ty, args[0]);
+    let (arg_op, arg_ty) = if ctx.own_keys_walk_at_runtime(&arg_ty) || live {
         (ctx.box_to_any(arg_op), Type::Any)
     } else {
         (arg_op, arg_ty)
