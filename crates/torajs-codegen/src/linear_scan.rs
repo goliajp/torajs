@@ -182,7 +182,7 @@ pub fn allocate_linear_scan_with(func: &Function, inline: InlineSites) -> Assign
             }
         }
 
-        sweep.alloc_value(vid, interval, is_fp, crossing);
+        sweep.alloc_value(vid, interval, is_fp, crossing, &call_sites);
     }
 
     sweep.rehome_saved();

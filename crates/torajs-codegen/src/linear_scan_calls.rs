@@ -30,6 +30,17 @@ pub(crate) fn crosses_call(interval: Interval, call_sites: &[u32]) -> bool {
     call_sites.get(i).is_some_and(|&p| p < interval.end)
 }
 
+/// Whether `ranges` hold the value across one of the calls strictly
+/// inside its hull `it`. A call in a hole of the hull, on a path where
+/// the value is already dead or not yet defined, clobbers nothing the
+/// value needs.
+pub(crate) fn live_across_a_call(ranges: &[(u32, u32)], it: Interval, call_sites: &[u32]) -> bool {
+    let first = call_sites.partition_point(|&p| p <= it.start);
+    (call_sites[first..].iter())
+        .take_while(|&&p| p < it.end)
+        .any(|&p| LiveRanges::live_across(ranges, p))
+}
+
 /// The param variant of [`crosses_call`]: a param defs at function
 /// ENTRY, before inst slot 0, so a call AT `start` clobbers its arg
 /// register too (the `p == start` exemption is sound only for a
@@ -143,7 +154,7 @@ pub(crate) fn collect_call_saves(
             continue;
         }
         let slot = sweep.alloc_spill_slot();
-        for &p in crossed {
+        for &p in crossed.filter(|&&p| LiveRanges::live_across(sweep.ranges.of(vid), p)) {
             out.entry(p).or_default().push((reg, slot));
         }
     }

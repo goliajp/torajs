@@ -17,9 +17,20 @@ impl Sweep<'_> {
         interval: Interval,
         is_fp: bool,
         crossing: bool,
+        call_sites: &[u32],
     ) {
         let reg = if crossing && self.unspillable.contains(&vid) {
             self.alloc_crossing_vector(vid, interval)
+        } else if crossing
+            && !crate::linear_scan_calls::live_across_a_call(
+                self.ranges.of(vid),
+                interval,
+                call_sites,
+            )
+        {
+            // a hull that spans calls it is never live across (they sit
+            // in its holes) needs no register that survives them
+            self.alloc_spanning(vid, interval, is_fp)
         } else if crossing && self.save_calls {
             self.alloc_crossing_saved(vid, interval, is_fp)
         } else if crossing {
@@ -148,6 +159,32 @@ impl Sweep<'_> {
         }
     }
 
+    /// Allocate for a value whose hull spans calls it is never live
+    /// across: a callee-saved register the frame saves already (a free
+    /// one, or one whose holders are dead wherever the value is live),
+    /// else a caller-saved one, else as a value that crosses no call.
+    pub(crate) fn alloc_spanning(&mut self, vid: u32, interval: Interval, is_fp: bool) -> Reg {
+        if !self.next_callee_is_fresh(is_fp) {
+            let saved = if is_fp {
+                self.take_callee_fpr().map(Reg::Fpr)
+            } else {
+                self.take_callee_gpr().map(Reg::Gpr)
+            };
+            if let Some(r) = saved {
+                return r;
+            }
+        }
+        if let Some(r) = self.share(vid, is_fp, true) {
+            return r;
+        }
+        let caller = if is_fp {
+            self.free_caller_fpr.pop_front().map(Reg::Fpr)
+        } else {
+            self.free_caller_gpr.pop_front().map(Reg::Gpr)
+        };
+        caller.unwrap_or_else(|| self.alloc_noncrossing(vid, interval, is_fp))
+    }
+
     /// Allocate for a value that never crosses a call: prefer caller-
     /// saved (free to clobber), fall back to callee-saved (then it
     /// must be saved/restored), then a register whose holders are dead
@@ -175,5 +212,70 @@ impl Sweep<'_> {
             return r;
         }
         self.spill_at_active(vid, interval, is_fp, /*callee_only=*/ false)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::linear_scan::allocate_linear_scan;
+    use crate::reg::{Reg, aapcs64};
+    use torajs_core::ssa::{
+        BinOp, Block, BlockId, FuncId, Function, Inst, InstKind, Operand, Terminator, Type,
+        ValueId, ValueInfo,
+    };
+
+    /// p0 → bb0: v1 = p0 + 1; ? bb1 : bb2 ; bb1: call → bb3 ;
+    /// bb2: v2 = v1 + 1 → bb3 ; bb3: ret. v1's hull spans bb1's call,
+    /// but no path through that call reads v1 again.
+    #[test]
+    fn a_value_dead_at_every_call_its_hull_spans_takes_a_caller_saved_register() {
+        let (p0, v1, v2) = (ValueId(0), ValueId(1), ValueId(2));
+        let block = |id: u32, insts: Vec<Inst>, term: Terminator| Block {
+            id: BlockId(id),
+            insts,
+            term,
+        };
+        let add = |r: ValueId, a: ValueId| Inst {
+            result: Some(r),
+            kind: InstKind::BinOp(BinOp::Add, Operand::Value(a), Operand::ConstI64(1)),
+            origin: None,
+        };
+        let call = Inst {
+            result: None,
+            kind: InstKind::Call(FuncId(0), Vec::new()),
+            origin: None,
+        };
+        let func = Function {
+            name: "spanning".into(),
+            params: vec![p0],
+            ret: Type::Void,
+            values: (0..3)
+                .map(|_| ValueInfo {
+                    ty: Type::I64,
+                    name: None,
+                })
+                .collect(),
+            blocks: vec![
+                block(
+                    0,
+                    vec![add(v1, p0)],
+                    Terminator::CondBr {
+                        cond: Operand::Value(p0),
+                        then_blk: BlockId(1),
+                        else_blk: BlockId(2),
+                    },
+                ),
+                block(1, vec![call], Terminator::Br(BlockId(3))),
+                block(2, vec![add(v2, v1)], Terminator::Br(BlockId(3))),
+                block(3, Vec::new(), Terminator::Ret(None)),
+            ],
+            current_origin: None,
+        };
+        let a = allocate_linear_scan(&func);
+        let Reg::Gpr(g) = a.of(v1) else {
+            panic!("{:?}", a.of(v1));
+        };
+        assert!(aapcs64::CALLER_SAVED_SCRATCH.contains(&g), "{g:?}");
+        assert!(a.call_saves.values().all(|s| s.is_empty()));
     }
 }
