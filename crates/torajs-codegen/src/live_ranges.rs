@@ -149,8 +149,8 @@ impl LiveRanges {
                 pairs.push((v as u32, c));
             }
         }
-        for (v, only) in hull_only.iter().enumerate() {
-            if let (true, Some(it)) = (only, intervals.get(&(v as u32))) {
+        for (v, _) in hull_only.iter().enumerate().filter(|(_, only)| **only) {
+            if let Some(it) = intervals.get(&(v as u32)) {
                 pairs.push((v as u32, (2 * it.start, 2 * it.end + 1)));
             }
         }
