@@ -17,10 +17,7 @@ pub use crate::method_support_proto::proto_own_has;
 pub use crate::method_value::builtin_method_mid;
 pub use crate::method_value::ctor::ctor_cell_peek;
 pub use crate::method_value::family::builtin_method_family;
-pub use crate::method_value::symbol_lookup::{
-    DYNOBJ_COUNT_OFF, DYNOBJ_ENTRIES_LEN_OFF, REGEXP_FAMILY as REGEXP_PROTO_FAMILY,
-    REGEXP_PROTO_MINT_LEN,
-};
+pub use crate::method_value::symbol_lookup::REGEXP_FAMILY as REGEXP_PROTO_FAMILY;
 pub use crate::method_value::symbol_static::well_known_singleton;
 pub use crate::nanbox_encode::{__torajs_anyv_box_from_pair, __torajs_anyv_box_pointer};
 pub use crate::nanbox_ffi::{

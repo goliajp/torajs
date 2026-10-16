@@ -264,6 +264,39 @@ pub(crate) struct DispatchJudgment {
     pub stub_ctor_regexp: bool,
 }
 
+/// A reified namespace static: the constant id resolves the cell
+/// kernel's modelled re-dispatch surface (per-static table).
+fn judge_ns_static(
+    args: &[Operand],
+    diag: bool,
+    keep_bits: &mut u16,
+    print_world: &mut bool,
+    fallback: &mut bool,
+) {
+    match args.first() {
+        Some(Operand::ConstI64(id)) => match torajs_rc::ns_static_judge::ns_static_judge(*id) {
+            torajs_rc::ns_static_judge::NsStaticJudge::Keep(bits) => {
+                if diag && *keep_bits & bits != bits {
+                    eprintln!("[judge] ns-static keep: id {id} -> {bits:#b}");
+                }
+                *keep_bits |= bits;
+            }
+            torajs_rc::ns_static_judge::NsStaticJudge::Print => {
+                *print_world = true;
+            }
+            torajs_rc::ns_static_judge::NsStaticJudge::Fallback => {
+                if diag {
+                    eprintln!("[judge] ns-static fallback: id {id}");
+                }
+                *fallback = true;
+            }
+        },
+        // a non-constant id slot: a lowering changed shape under us —
+        // unknowable, punt.
+        _ => *fallback = true,
+    }
+}
+
 /// Scan the lowered module and judge the stub set. Returns the
 /// no-stub judgment (bits 0) on any conservative-fallback trigger.
 pub(crate) fn judge(module: &Module) -> DispatchJudgment {
@@ -317,33 +350,7 @@ pub(crate) fn judge(module: &Module) -> DispatchJudgment {
                     }
                 }
                 if facts.ns_static_cell {
-                    // a reified namespace static: the constant id
-                    // resolves the cell kernel's modelled
-                    // re-dispatch surface (per-static table).
-                    match args.first() {
-                        Some(Operand::ConstI64(id)) => {
-                            match torajs_rc::ns_static_judge::ns_static_judge(*id) {
-                                torajs_rc::ns_static_judge::NsStaticJudge::Keep(bits) => {
-                                    if diag && keep_bits & bits != bits {
-                                        eprintln!("[judge] ns-static keep: id {id} -> {bits:#b}");
-                                    }
-                                    keep_bits |= bits;
-                                }
-                                torajs_rc::ns_static_judge::NsStaticJudge::Print => {
-                                    print_world = true;
-                                }
-                                torajs_rc::ns_static_judge::NsStaticJudge::Fallback => {
-                                    if diag {
-                                        eprintln!("[judge] ns-static fallback: id {id}");
-                                    }
-                                    fallback = true;
-                                }
-                            }
-                        }
-                        // a non-constant id slot: a lowering changed
-                        // shape under us — unknowable, punt.
-                        _ => fallback = true,
-                    }
+                    judge_ns_static(args, diag, &mut keep_bits, &mut print_world, &mut fallback);
                 }
                 symbol_gate |= facts.symbol_gate;
                 regexp_ctor = regexp_ctor || facts.ctor_handout.hands_out(args);

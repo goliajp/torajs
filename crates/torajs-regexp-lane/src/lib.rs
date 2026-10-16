@@ -27,7 +27,7 @@ use core::ffi::c_void;
 
 use torajs_anyvalue::nanbox::AnyValue;
 use torajs_anyvalue::regexp_support as av;
-use torajs_rc::{ANY_METHOD_MATCH_ALL, ANY_METHOD_NEXT, ANY_METHOD_SPLIT, Tag};
+use torajs_rc::{ANY_METHOD_MATCH_ALL, ANY_METHOD_NEXT, ANY_METHOD_SPLIT};
 
 unsafe extern "C" {
     /// torajs-regex — 1 when the cell itself carries nothing the
@@ -47,22 +47,12 @@ unsafe extern "C" {
 /// %RegExp.prototype%'s builtin-prototype tag.
 const REGEXP_PROTO_TAG: i64 = 7;
 
-/// Whether a program has put anything on %RegExp.prototype%. A
-/// singleton nobody minted carries nothing; a minted one holds exactly
-/// the protocol-method entries its mint installed until a program
-/// adds (appends past them) or deletes (drops the live count) one.
+/// Whether %RegExp.prototype% still holds exactly what its mint
+/// installed: no entry created, rewritten, redefined or deleted, no
+/// interned method deleted, no [[Prototype]] change since. A singleton
+/// nobody minted answers untouched.
 fn regexp_proto_untouched() -> bool {
-    unsafe {
-        let proto = torajs_rc::builtin_proto::__torajs_peek_builtin_prototype(REGEXP_PROTO_TAG);
-        if proto.is_null() {
-            return true;
-        }
-        let p = proto.cast::<u8>();
-        let minted = av::REGEXP_PROTO_MINT_LEN.load(core::sync::atomic::Ordering::Relaxed);
-        (p.add(4) as *const u16).read() == Tag::DynObj as u16
-            && (p.add(av::DYNOBJ_ENTRIES_LEN_OFF) as *const u32).read() == minted
-            && (p.add(av::DYNOBJ_COUNT_OFF) as *const u32).read() == minted
-    }
+    torajs_rc::builtin_proto::__torajs_singleton_touched(REGEXP_PROTO_TAG) == 0
 }
 
 /// Whether `RegExp[@@species]` is still the installed accessor.
@@ -93,10 +83,9 @@ unsafe fn spec_needed(this: AnyValue, mid: i64, argv: *const u64, argc: i64) -> 
 /// The protocol seam's body: one RegExp String Iterator step for a
 /// `next` on one of its cells; [`av::KERNEL_LANE`] for a protocol
 /// method whose receiver cannot tell the native kernels from the
-/// algorithm (or is no Object at all — the string symbol-dispatch
-/// gate's coerce lane); else the spec algorithm of the protocol method
-/// `mid` over the Object `recv` — its completion, undefined with a
-/// pending throw on an abrupt one.
+/// algorithm (or is no Object at all); else the spec algorithm of the
+/// protocol method `mid` over the Object `recv` — its completion,
+/// undefined with a pending throw on an abrupt one.
 ///
 /// # Safety
 /// `recv` is a live value; `argv` addresses `argc` live slots.

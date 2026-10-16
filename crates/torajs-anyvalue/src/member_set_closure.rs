@@ -79,28 +79,14 @@ pub(crate) unsafe fn refuse_new_key_non_extensible(
 /// `ssa_lower.rs::CLOSURE_PROPS_OFF`.
 const MEMBER_SET_CLOSURE_PROPS_OFF: usize = 24;
 
-/// `torajs_rc::Tag::Str` — a property key cell is a Str or a Symbol.
-const TAG_STR_KEY: u16 = 0;
-
 /// Mark a write to a builtin-prototype singleton's expando against
 /// the CELL, so the patch bitmap sees it. A no-op for every ordinary
-/// closure (the address scan answers -1 inside) and for a symbol key
-/// (the bitmap is mid-keyed, and mids are string names).
+/// closure (the address scan answers -1 inside).
 ///
 /// # Safety
 /// `cell` is a live Closure cell; `key` is a live key cell.
 unsafe fn note_builtin_proto_write(cell: *mut c_void, key: *const c_void) {
-    unsafe {
-        if key.is_null() || key.cast::<u8>().add(4).cast::<u16>().read() != TAG_STR_KEY {
-            return;
-        }
-        let name = torajs_rc::str_wtf8::StrWtf8::of(key);
-        torajs_rc::builtin_proto::__torajs_builtin_proto_note_own_write(
-            cell,
-            name.as_ptr(),
-            name.len() as i64,
-        );
-    }
+    unsafe { torajs_rc::builtin_proto::__torajs_builtin_proto_note_key(cell, key) };
 }
 
 /// Promise-cell lazy props slot — mirror of torajs-dynobj

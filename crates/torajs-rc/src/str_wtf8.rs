@@ -27,15 +27,15 @@ unsafe extern "C" {
     fn __torajs_str_wtf8_into(s: *const u8, buf: *mut u8, cap: u32) -> u32;
 }
 
-const STR_LEN_OFF: usize = 8;
-const STR_DATA_OFF: usize = 16;
+pub(crate) const STR_LEN_OFF: usize = 8;
+pub(crate) const STR_DATA_OFF: usize = 16;
 const HDR_TYPE_TAG_OFF: usize = 4;
 const HDR_FLAGS_OFF: usize = 6;
 /// torajs-str `STR_FLAG_IS_LATIN1` mirror.
-const STR_FLAG_IS_LATIN1: u16 = 0x0002;
+pub(crate) const STR_FLAG_IS_LATIN1: u16 = 0x0002;
 /// torajs-str `FLAG_SUBSTR_INLINE | FLAG_SUBSTR_VIEW` mirror — a
 /// Substr cell keeps no payload of its own at the owned offsets.
-const STR_FLAGS_SUBSTR: u16 = (1 << 0) | (1 << 10);
+pub(crate) const STR_FLAGS_SUBSTR: u16 = (1 << 0) | (1 << 10);
 const INLINE_CAP: usize = 64;
 
 pub enum StrWtf8 {

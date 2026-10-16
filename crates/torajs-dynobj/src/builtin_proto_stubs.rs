@@ -7,10 +7,9 @@
 /// # Safety
 /// Test stub; dereferences none of its arguments.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_builtin_proto_note_own_write(
+pub unsafe extern "C" fn __torajs_builtin_proto_note_key(
     _obj: *const core::ffi::c_void,
-    _name: *const u8,
-    _len: i64,
+    _key: *const core::ffi::c_void,
 ) {
 }
 

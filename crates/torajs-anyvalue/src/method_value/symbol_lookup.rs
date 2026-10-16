@@ -280,23 +280,7 @@ unsafe fn install_regexp_protocol(proto: *mut c_void) {
             )
         };
     }
-    REGEXP_PROTO_MINT_LEN.store(
-        unsafe { (slot.cast::<u8>().add(DYNOBJ_ENTRIES_LEN_OFF) as *const u32).read() },
-        core::sync::atomic::Ordering::Relaxed,
-    );
 }
-
-/// torajs-dynobj header mirrors: live-entry count and the dense entry
-/// array's used length (holes included — it only grows until a
-/// resize compacts it).
-pub const DYNOBJ_COUNT_OFF: usize = 8;
-pub const DYNOBJ_ENTRIES_LEN_OFF: usize = 16;
-
-/// The dense entry length %RegExp.prototype% had when its mint
-/// finished installing the protocol methods. Any entry a program adds
-/// later appends past it, and a delete drops the live count below it.
-pub static REGEXP_PROTO_MINT_LEN: core::sync::atomic::AtomicU32 =
-    core::sync::atomic::AtomicU32::new(u32::MAX);
 
 /// §23.1.3.44 — the method names a `with` block must NOT bring into
 /// scope, in the clause's creation order. `Object.keys` on the

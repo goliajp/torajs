@@ -16,6 +16,7 @@ use core::ffi::c_void;
 use core::sync::atomic::{AtomicU64, Ordering};
 
 use super::{__torajs_builtin_proto_tag_of, NUM_BUILTIN_PROTOS};
+use crate::str_wtf8::{STR_DATA_OFF, STR_FLAG_IS_LATIN1, STR_FLAGS_SUBSTR, STR_LEN_OFF};
 
 /// Method-id span of the per-tag deleted bitmask below — mirrors
 /// `torajs-anyvalue::method_value::TABLE_SIZE` (the intern-table
@@ -113,42 +114,54 @@ const PATCH_MASK_INIT: [AtomicU64; DELETED_MASK_WORDS] =
 static PATCHED_MIDS: [[AtomicU64; DELETED_MASK_WORDS]; NUM_BUILTIN_PROTOS] =
     [PATCH_MASK_INIT; NUM_BUILTIN_PROTOS];
 
-/// Own-entry write note — every kernel that can create an own entry
-/// on a dynobj calls here with the target and the key's name bytes.
-/// `obj` values that are not a minted builtin-prototype singleton
-/// (the overwhelmingly common case) return after one filter-bit test,
-/// rarely an address scan; a singleton hit interns the name and
-/// marks the (tag, mid) patch bit.
+/// Own-entry change note — every kernel that writes, defines or
+/// deletes an own entry calls here with the target and the key cell
+/// (null for a delete). `obj` values that are not a minted
+/// builtin-prototype singleton (the overwhelmingly common case)
+/// return after one filter-bit test, rarely an address scan, so the
+/// call sites stay a bare call; a singleton hit raises its
+/// [`TOUCHED`] bit and, for a key that spells an interned method
+/// name, marks the (tag, mid) patch bit.
 ///
 /// # Safety
-/// `obj` is any pointer (compared, never dereferenced); `name` /
-/// `len` describe live UTF-8 key bytes.
+/// `obj` is any pointer (compared, never dereferenced); `key` is null
+/// or a live Str or Symbol cell.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_builtin_proto_note_own_write(
-    obj: *const c_void,
-    name: *const u8,
-    len: i64,
-) {
+pub unsafe extern "C" fn __torajs_builtin_proto_note_key(obj: *const c_void, key: *const c_void) {
     let (w, b) = mint_filter_bit(obj as usize);
     if (MINT_FILTER[w].load(Ordering::Acquire) >> b) & 1 == 0 {
         return;
     }
-    unsafe { note_singleton_write(obj, name, len) }
+    unsafe { note_singleton_write(obj, key) }
 }
 
 /// The note's rare half, out of line so the common return above needs
 /// no stack frame.
 ///
 /// # Safety
-/// As [`__torajs_builtin_proto_note_own_write`].
+/// As [`__torajs_builtin_proto_note_key`].
 #[cold]
 #[inline(never)]
-unsafe fn note_singleton_write(obj: *const c_void, name: *const u8, len: i64) {
+unsafe fn note_singleton_write(obj: *const c_void, key: *const c_void) {
     let tag = unsafe { __torajs_builtin_proto_tag_of(obj) };
-    if tag < 0 || name.is_null() || len <= 0 {
+    if tag < 0 {
         return;
     }
-    let bytes = unsafe { core::slice::from_raw_parts(name, len as usize) };
+    TOUCHED.fetch_or(1 << tag, Ordering::AcqRel);
+    // only a Str cell owning a Latin-1 payload can spell a method name;
+    // a Symbol keeps a pointer where a Str keeps its length
+    if key.is_null() {
+        return;
+    }
+    let k = key.cast::<u8>();
+    let flags = unsafe { k.add(6).cast::<u16>().read() };
+    if unsafe { k.add(4).cast::<u16>().read() } != crate::Tag::Str as u16
+        || flags & (STR_FLAG_IS_LATIN1 | STR_FLAGS_SUBSTR) != STR_FLAG_IS_LATIN1
+    {
+        return;
+    }
+    let len = unsafe { k.add(STR_LEN_OFF).cast::<u32>().read() } as usize;
+    let bytes = unsafe { core::slice::from_raw_parts(k.add(STR_DATA_OFF), len) };
     let Ok(s) = core::str::from_utf8(bytes) else {
         return;
     };
@@ -201,4 +214,28 @@ pub unsafe extern "C" fn __torajs_builtin_proto_is_shadowed(tag: i64, mid: i64) 
     let patched = PATCHED_MIDS[t][m / 64].load(Ordering::Acquire) & bit;
     let deleted = DELETED_MIDS[t][m / 64].load(Ordering::Acquire) & bit;
     ((patched | deleted) != 0) as i64
+}
+
+// One bit per prototype tag, raised the first time an own entry of
+// that singleton is created, overwritten or redefined after it is
+// published (its [[Prototype]] link is such an entry), or a delete
+// reaches it — the dynobj delete notes before its probe, so deleting
+// an interned method, which has no entry, raises it too. Never
+// cleared. A reader asking
+// "does the singleton still hold what its mint installed" cannot
+// answer from the entry counts: a full dense array compacts its holes
+// away, so deletes followed by adds can bring both counts back to the
+// minted values over a changed key set. Integrity-level changes
+// (seal / freeze / preventExtensions) do not raise it: they change no
+// value a read of the singleton answers.
+static TOUCHED: AtomicU64 = AtomicU64::new(0);
+const _: () = assert!(NUM_BUILTIN_PROTOS <= 64);
+
+/// 1 = an own entry of `<proto tag>`'s singleton changed after its
+/// mint (see [`TOUCHED`]); 0 for a singleton never minted. `tag` is a
+/// prototype tag, below [`NUM_BUILTIN_PROTOS`].
+#[unsafe(no_mangle)]
+pub extern "C" fn __torajs_singleton_touched(tag: i64) -> i64 {
+    // no data is published with the bit, so no ordering is owed
+    ((TOUCHED.load(Ordering::Relaxed) >> (tag as u32 & 63)) & 1) as i64
 }

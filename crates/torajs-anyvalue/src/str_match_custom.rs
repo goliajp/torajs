@@ -28,7 +28,7 @@ use torajs_rc::{
 use crate::iter_any_get_method::callable_method;
 use crate::method_call_closure_dispatch::invoke_with_this;
 use crate::method_call_str::{reject_non_global_regex_search, str_method_switch};
-use crate::nanbox::{AnyValue, VALUE_UNDEFINED, is_cell};
+use crate::nanbox::{AnyValue, VALUE_UNDEFINED};
 use crate::nanbox_encode::__torajs_anyv_box_from_pair;
 
 unsafe extern "C" {
@@ -99,10 +99,11 @@ pub unsafe extern "C" fn __torajs_any_str_symbol_try(
     out: *mut AnyValue,
 ) -> i64 {
     unsafe {
-        // Step 2 — undefined / null skip to step 4; a non-cell
-        // primitive has no own symbol face and tr's builtin
-        // prototypes carry none.
-        if !is_cell(arg) {
+        // Step 2 asks only an Object: a primitive pattern skips to
+        // step 4 whatever its prototype carries, so a RegExp protocol
+        // method stored on String.prototype never sees a primitive
+        // `this`.
+        if !crate::iter_zip_shared::av_is_object(arg) {
             return 0;
         }
         let sym = __torajs_symbol_well_known(wk_idx);

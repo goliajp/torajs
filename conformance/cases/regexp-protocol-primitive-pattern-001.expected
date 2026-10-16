@@ -1,0 +1,9 @@
+[ "x", index: 0, input: "x", groups: undefined ]
+1
+x-y a+b
+[ "a", "b" ] [ "x", "y" ] 0 0
+[ "a", "b" ] a+b [ "x", "y" ] 0 0
+[ "x", index: 0, input: "x", groups: undefined ] 1
+[ "a", "b" ] a+b 0 0
+[ "x", index: 0, input: "x", groups: undefined ] 1 [ "x", "y" ]
+custom 1 1

@@ -62,8 +62,7 @@ unsafe extern "C" {
 /// %Object.prototype%, which is what [`proto_parent_tag`] was made
 /// for), and %RegExpStringIteratorPrototype% as 38, right after them so
 /// the iterator slots stay one range. %TypedArray%.prototype is 39, the
-/// abstract parent of the twelve per-kind prototypes (RFC
-/// 20260916-typedarray-intrinsic).
+/// abstract parent of the twelve per-kind prototypes.
 pub const NUM_BUILTIN_PROTOS: usize = 41;
 
 mod ctor_meta;
@@ -390,7 +389,7 @@ mod patch_bits;
 pub use patch_bits::{
     __torajs_builtin_proto_has_patch, __torajs_builtin_proto_is_deleted,
     __torajs_builtin_proto_is_shadowed, __torajs_builtin_proto_mark_deleted,
-    __torajs_builtin_proto_note_own_write,
+    __torajs_builtin_proto_note_key, __torajs_singleton_touched,
 };
 
 // Cargo-test stub for the dynobj_alloc extern. The real symbol lives

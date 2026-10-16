@@ -197,26 +197,15 @@ pub unsafe extern "C" fn __torajs_arrprops_define(
 /// asymmetry since it was written (`proto_own_probe` picks the probe
 /// by cell shape), the notify side had not.
 ///
-/// The gate keys off the method NAME, so a symbol key has nothing to
-/// report; the tag check is what keeps a Symbol cell's 16 bytes from
-/// being read as a Str's `len` + payload.
+/// The note reads the key only on a singleton hit, and a Str's `len`
+/// and payload only behind its tag check, so a Symbol key is safe.
 ///
 /// # Safety
 /// `arr_ptr` is compared, never dereferenced; `key` is a live Str or
 /// Symbol heap block.
 #[inline]
 unsafe fn note_builtin_proto_write(arr_ptr: *mut c_void, key: *const c_void) {
-    unsafe {
-        if *((key as *const u8).add(4) as *const u16) != torajs_rc::Tag::Str as u16 {
-            return;
-        }
-        let name = torajs_rc::str_wtf8::StrWtf8::of(key);
-        torajs_rc::builtin_proto::__torajs_builtin_proto_note_own_write(
-            arr_ptr,
-            name.as_ptr(),
-            name.len() as i64,
-        );
-    }
+    unsafe { torajs_rc::builtin_proto::__torajs_builtin_proto_note_key(arr_ptr, key) };
 }
 
 /// Batch exec-triple attach — `arr.index = i; arr.input = s;

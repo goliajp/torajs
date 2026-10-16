@@ -58,6 +58,7 @@ pub mod print_any;
 pub mod probe;
 mod probe_str;
 pub mod proto_chain;
+mod proto_note;
 pub mod resize;
 pub mod seal;
 pub mod set;

@@ -51,6 +51,10 @@ pub unsafe extern "C" fn __torajs_dynobj_delete(obj: *mut c_void, key: *const c_
     if obj.is_null() {
         return 0;
     }
+    // before the probe: deleting a builtin prototype's interned method
+    // finds no entry, and neither does `Object.setPrototypeOf(p, null)`
+    // on a prototype with no link entry
+    unsafe { crate::proto_note::note_delete(obj) };
     let pr = unsafe { probe(obj, key) };
     if !pr.found {
         return 0;

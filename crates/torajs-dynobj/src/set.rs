@@ -28,7 +28,7 @@ use crate::layout::{
 };
 use crate::probe::{
     Entry, Probe, bucket_flags, bucket_make_key_tagged, count, entries, entries_cap, entries_len,
-    index_ptr, key_str_bytes, probe, set_count, set_entries_len,
+    index_ptr, probe, set_count, set_entries_len,
 };
 use crate::resize::resize;
 
@@ -46,11 +46,6 @@ unsafe extern "C" {
     /// AnyValues are filtered by the 7d-A cell gate). Drops the old
     /// entry value when overwriting.
     fn __torajs_value_drop_heap(child: *mut c_void);
-
-    /// torajs-rc — builtin-prototype-singleton own-write note (RFC
-    /// 20260721 刀 11 G13): marks the (proto tag, mid) patch bit the
-    /// any-method dispatcher's primitive fast arms pre-gate on.
-    fn __torajs_builtin_proto_note_own_write(obj: *const c_void, name: *const u8, len: i64);
 
     /// torajs-anyvalue — non-zero when `obj` is a builtin
     /// `<Ctor>.prototype` singleton and `key` names a method it owns
@@ -119,7 +114,7 @@ unsafe fn dynobj_set_impl(
     if !pr.found && own_only {
         return DYNOBJ_SET_OWN_MISS;
     }
-    unsafe { note_own_write(obj, key) };
+    unsafe { crate::proto_note::note_own_write(obj, key) };
     if pr.found {
         unsafe {
             write_own_entry(
@@ -222,21 +217,6 @@ pub unsafe extern "C" fn __torajs_dynobj_set_own(
 ) -> i64 {
     let mut slot = obj;
     unsafe { dynobj_set_impl(&mut slot, key, tag, value, throw_on_refusal, true) }
-}
-
-/// A write landing on a builtin `<Ctor>.prototype` singleton is a
-/// monkey-patch — note it for the fast-arm pre-gate (RFC 20260721
-/// 刀 11 G13; one relaxed load when no singleton exists). The gate
-/// keys off the method NAME, so a symbol key has nothing to report
-/// and must not have the Str payload offsets read off its 16-byte
-/// cell.
-///
-/// # Safety
-/// `obj` is a live dynobj; `key` is a live Str or Symbol cell.
-pub(crate) unsafe fn note_own_write(obj: *mut c_void, key: *mut c_void) {
-    if let Some((data, len, true)) = unsafe { key_str_bytes(key) } {
-        unsafe { __torajs_builtin_proto_note_own_write(obj, data, len as i64) };
-    }
 }
 
 /// The write into an entry the probe found: an accessor runs its

@@ -28,10 +28,6 @@ use crate::probe::{
 };
 unsafe extern "C" {
     fn __torajs_rc_inc(p: *mut c_void);
-    /// torajs-rc — builtin-prototype-singleton own-write note (same
-    /// hook the front door's dynobj tail records; see
-    /// [`__torajs_dynobj_define_plain`]).
-    fn __torajs_builtin_proto_note_own_write(obj: *const c_void, name: *const u8, len: i64);
     /// torajs-anyvalue — the lazy §20.2.4 `prototype` mint, owned box.
     fn __torajs_closure_prototype_any(env: *mut c_void) -> u64;
     fn __torajs_anyv_rc_dec(v: u64);
@@ -260,12 +256,7 @@ unsafe fn define_plain_apply(
             crate::layout::TAG_DYNOBJ,
             "define_plain contract: receiver must be a plain dynobj"
         );
-        // Same monkey-patch note the front door records — a define
-        // landing on a builtin `<Ctor>.prototype` singleton flips
-        // the fast-arm pre-gate bit (no-op for every other dynobj).
-        if let Some((data, len, true)) = key_str_bytes(key) {
-            __torajs_builtin_proto_note_own_write(obj, data, len as i64);
-        }
+        crate::proto_note::note_own_write(obj, key);
         if entries_len(obj) == crate::probe::entries_cap(obj) {
             crate::resize::resize(obj);
         }

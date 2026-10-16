@@ -23,7 +23,7 @@
 use core::ffi::c_void;
 
 use crate::layout::{ANY_HEAP, BUCKET_TAG_MASK, DEFINE_PRESENT_VALUE, TAG_ARR_HDR};
-use crate::probe::{entries, entries_cap, entries_len, key_str_bytes, probe};
+use crate::probe::{entries, entries_cap, entries_len, probe};
 use crate::resize::resize;
 
 unsafe extern "C" {
@@ -61,10 +61,6 @@ unsafe extern "C" {
         value: u64,
         flags_byte: u64,
     ) -> i64;
-    /// torajs-rc — builtin-prototype-singleton own-write note (RFC
-    /// 20260721 刀 11 G13): marks the (proto tag, mid) patch bit the
-    /// any-method dispatcher's primitive fast arms pre-gate on.
-    fn __torajs_builtin_proto_note_own_write(obj: *const c_void, name: *const u8, len: i64);
     /// torajs-anyvalue — §10.5.6 on a Proxy, literal-descriptor face.
     fn __torajs_proxy_define_from_flags(
         recv: u64,
@@ -381,15 +377,8 @@ pub(crate) unsafe fn define_apply(
         }
         return if throw_on_refusal { 1 } else { 0 };
     }
-    // A define landing on a builtin `<Ctor>.prototype` singleton is
-    // a monkey-patch — note it for the fast-arm pre-gate (RFC
-    // 20260721 刀 11 G13; one relaxed load when no singleton exists).
-    // The gate keys off the method NAME, so a symbol key has nothing
-    // to report — and must not have the Str payload offsets read off
-    // its cell, which is why the name comes from `key_str_bytes`.
-    if let Some((data, len, true)) = unsafe { key_str_bytes(key) } {
-        unsafe { __torajs_builtin_proto_note_own_write(obj, data, len as i64) };
-    }
+    // a define landing on a builtin `<Ctor>.prototype` singleton
+    unsafe { crate::proto_note::note_own_write(obj, key) };
     // Dense-array-full guard — same shape as set.rs. Resize swaps the
     // store inside the header cell — `obj` itself stays valid.
     if unsafe { entries_len(obj) } == unsafe { entries_cap(obj) } {
