@@ -70,7 +70,14 @@ pub(crate) unsafe fn arraylike_len(obj: *mut c_void) -> Option<i64> {
         // The `.length` read answers both.
         if obj_tag == torajs_rc::Tag::Proxy as u16 || obj_tag == torajs_rc::Tag::Obj as u16 {
             __torajs_str_drop(key as *mut c_void);
-            let av = crate::len_get::__torajs_any_length_get(__torajs_anyv_box_pointer(obj));
+            let boxed = __torajs_anyv_box_pointer(obj);
+            // the Proxy arm calls its [[Get]] directly: the dispatch
+            // judge's census follows this edge to the trap's re-dispatch
+            let av = if obj_tag == torajs_rc::Tag::Proxy as u16 {
+                crate::proxy::get_named(boxed, b"length")
+            } else {
+                crate::len_get::__torajs_any_length_get(boxed)
+            };
             if __torajs_throw_check() != 0 {
                 crate::nanbox_ffi::__torajs_anyv_rc_dec(av);
                 return None;
