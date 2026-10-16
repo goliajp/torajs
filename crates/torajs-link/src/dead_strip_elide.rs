@@ -259,6 +259,11 @@ pub(crate) fn judge_and_patch<'a>(
     // the last probe assumed exactly the final shape unless an applied
     // stub drops out below; with diag its closure also carries preds
     let last = (!diag && !applied.iter().zip(&referenced).any(|(a, r)| *a && !*r)).then_some(last);
+    let shadow: Vec<bool> = applied
+        .iter()
+        .zip(&referenced)
+        .map(|(a, r)| *a && !*r)
+        .collect();
     for (a, r) in applied.iter_mut().zip(&referenced) {
         *a = *a && *r;
     }
@@ -266,13 +271,29 @@ pub(crate) fn judge_and_patch<'a>(
     if diag {
         print_verdicts(cfg, &elided, &applied, &referenced, present, dropped);
     }
-    if !elided.iter().any(|&e| e) && !applied.iter().any(|&a| a) && !dropped.any() {
+    if !elided.iter().any(|&e| e)
+        && !applied.iter().any(|&a| a)
+        && !shadow.iter().any(|&s| s)
+        && !dropped.any()
+    {
         return Ok(None);
     }
-    Ok(Some((
-        assume(cfg, &elided, &applied, dropped, false)?,
-        last,
-    )))
+    let mut assumed = assume(cfg, &elided, &applied, dropped, false)?;
+    // An unreferenced stub stays as an empty user fn — no bytes, no
+    // symtab row — so its name still shadows the archive copy in the
+    // member closure. The closure is symbol-level: dead atoms of a
+    // pulled member still import the seam, and without the name they
+    // pull the member that defines it, which every later pass then
+    // walks for nothing.
+    for (stub, _) in cfg.guarded_stubs.iter().zip(&shadow).filter(|(_, s)| **s) {
+        assumed.funcs.push(CompiledFunction {
+            name: stub.sym.clone(),
+            bytes: Vec::new(),
+            relocs: Vec::new(),
+            frame: FrameLayout::leaf_no_spill(),
+        });
+    }
+    Ok(Some((assumed, last)))
 }
 
 /// `TORAJS_LINK_ELIDE_DIAG`: what the judgment decided for each site,

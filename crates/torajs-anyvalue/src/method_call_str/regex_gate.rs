@@ -34,6 +34,7 @@ const RE_FLAG_G: i64 = 0x02;
 ///
 /// # Safety
 /// `argv` addresses `argc` valid AnyValue bit patterns.
+#[inline(never)]
 pub(crate) unsafe fn reject_non_global_regex_search(mid: i64, argv: *const u64, argc: i64) -> bool {
     if mid != ANY_METHOD_REPLACE_ALL && mid != ANY_METHOD_MATCH_ALL {
         return false;

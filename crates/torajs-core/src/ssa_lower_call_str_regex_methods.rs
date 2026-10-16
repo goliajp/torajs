@@ -23,7 +23,7 @@ use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::{LowerCtx, intern_arr_layout};
 use crate::ssa_lower_call_str_regex_emit::{
-    emit_match, emit_match_all, emit_replace, emit_search, emit_split,
+    emit_match, emit_match_all, emit_replace, emit_replace_any_dyn, emit_search, emit_split,
 };
 
 /// `s.replace(pattern, r)` / `s.replaceAll(…)` with the pattern in an
@@ -188,6 +188,7 @@ struct Lanes {
     symbol_face_may_be_rewritten: bool,
     replace_any_lane: bool,
     replace_any_fn_lane: bool,
+    replace_any_dyn_lane: bool,
 }
 
 /// Read the call site's shape once — every gate below is a pure
@@ -235,22 +236,20 @@ fn classify_lanes(ctx: &LowerCtx<'_>, args: &[ExprId], name: &str) -> Lanes {
     // today's route.
     let arg0_is_any = matches!(ctx.expr_types.get(&args[0]), Some(crate::check::Type::Any));
     let coerce_match_lane = !arg0_is_regex
-        && (matches!(name, "match" | "matchAll")
-            || (name == "search" && arg0_is_any && args.len() == 1));
-    // Rotation 262 — `replace` with an Any-typed searchValue and
-    // store evidence rides the §22.1.3.19 step-3 `@@replace` branch.
-    // The replaceValue must be a shape BOTH lanes can emit (checker
-    // String or Function — the fallback's literal-substring kernels);
+        && (matches!(name, "match" | "matchAll") || (name == "search" && arg0_is_any));
+    // Rotation 262 — `replace` / `replaceAll` with an Any-typed
+    // searchValue and store evidence rides the §22.1.3.19 step-2
+    // (§22.1.3.20 step 2.c) `@@replace` branch. The replaceValue must
+    // be a shape BOTH lanes can emit (`replace_value_is_lowerable`);
     // everything else keeps today's route.
-    let replace_symbol_lane = name == "replace"
+    let replace_symbol_lane = matches!(name, "replace" | "replaceAll")
         && !arg0_is_regex
         && arg0_is_any
-        && (args.len() == 1
-            || (args.len() == 2
-                && matches!(
-                    ctx.expr_types.get(&args[1]),
-                    Some(crate::check::Type::String) | Some(crate::check::Type::Function(..))
-                )))
+        && args.get(1).is_none_or(|&a| {
+            crate::check_type_of_call_string_match::replace_value_is_lowerable(
+                ctx.expr_types.get(&a),
+            )
+        })
         && crate::check_type_of_call_string_match::any_pattern_may_carry_matcher(ctx.ast, args[0]);
     // Does the program contain evidence that a symbol face may have
     // been rewritten on this value? Every one of the new `any`-slot
@@ -305,6 +304,19 @@ fn classify_lanes(ctx: &LowerCtx<'_>, args: &[ExprId], name: &str) -> Lanes {
         && args.len() >= 2
         && matches!(ctx.expr_types.get(&args[1]), Some(crate::check::Type::Function(ps, _))
             if ps.iter().all(|t| *t == crate::check::Type::String));
+    // Every other replaceValue over the same store-free `any` pattern
+    // (a function with other parameter types keeps its loud route).
+    let replace_any_dyn_lane = matches!(name, "replace" | "replaceAll")
+        && !arg0_is_regex
+        && !replace_symbol_lane
+        && !symbol_face_may_be_rewritten
+        && arg0_is_any
+        && !replace_any_lane
+        && !replace_any_fn_lane
+        && !matches!(
+            args.get(1).and_then(|a| ctx.expr_types.get(a)),
+            Some(crate::check::Type::Function(..))
+        );
     Lanes {
         arg0_is_regex,
         arg0_is_any,
@@ -313,6 +325,7 @@ fn classify_lanes(ctx: &LowerCtx<'_>, args: &[ExprId], name: &str) -> Lanes {
         symbol_face_may_be_rewritten,
         replace_any_lane,
         replace_any_fn_lane,
+        replace_any_dyn_lane,
     }
 }
 
@@ -344,12 +357,14 @@ pub(crate) fn try_lower(
         symbol_face_may_be_rewritten,
         replace_any_lane,
         replace_any_fn_lane,
+        replace_any_dyn_lane,
     } = classify_lanes(ctx, args, &name);
     if !arg0_is_regex
         && !coerce_match_lane
         && !replace_symbol_lane
         && !replace_any_lane
         && !replace_any_fn_lane
+        && !replace_any_dyn_lane
     {
         return None;
     }
@@ -384,9 +399,16 @@ pub(crate) fn try_lower(
     // store evidence routes here; a store-free Any pattern falls
     // through to the plain coerce lane below.
     let symbol_dispatch = if replace_symbol_lane {
-        Some(crate::ssa_lower_call_str_match_custom::lower_replace_any_pattern(ctx, recv_op, args))
+        Some(
+            crate::ssa_lower_call_str_match_custom::lower_replace_any_pattern(
+                ctx,
+                recv_op,
+                args,
+                name == "replaceAll",
+            ),
+        )
     } else if coerce_match_lane
-        && (matches!(name.as_str(), "match" | "search") || (name == "matchAll" && args.len() == 1))
+        && matches!(name.as_str(), "match" | "search" | "matchAll")
         && arg0_is_any
         && symbol_face_may_be_rewritten
     {
@@ -410,8 +432,12 @@ pub(crate) fn try_lower(
         }
         return Some(result);
     }
-    if replace_any_lane || replace_any_fn_lane {
-        let result = emit_replace_any_slot(ctx, recv_op, args, &name, replace_any_fn_lane);
+    if replace_any_lane || replace_any_fn_lane || replace_any_dyn_lane {
+        let result = if replace_any_dyn_lane {
+            emit_replace_any_dyn(ctx, recv_op, args, &name)
+        } else {
+            emit_replace_any_slot(ctx, recv_op, args, &name, replace_any_fn_lane)
+        };
         if recv_is_view {
             ctx.emit_drop_value(recv_op, Type::Str);
         }

@@ -207,22 +207,6 @@ unsafe fn str_method_ext(s: *mut u8, mid: i64, argv: *const u64, argc: i64) -> A
                 __torajs_anyv_box_i64(idx)
             }
             m if m == ANY_METHOD_MATCH_ALL => {
-                // §22.1.3.13 step 2.c — a pattern carrying a user
-                // `@@matchAll` dispatches before any coercion (the
-                // builtin RegExp face misses this probe and keeps the
-                // kernel below).
-                let mut custom_out: AnyValue = VALUE_UNDEFINED;
-                if crate::str_match_custom::__torajs_any_str_symbol_try(
-                    s as *mut c_void,
-                    arg_at(0),
-                    VALUE_UNDEFINED,
-                    1,
-                    crate::str_match_custom::WK_MATCH_ALL,
-                    &raw mut custom_out,
-                ) != 0
-                {
-                    return custom_out;
-                }
                 // RFC 20260716 刀 8 — ES §22.1.3.12 step 4.c: a
                 // non-RegExp arg coerces via `RegExpCreate(P, "g")`
                 // (the `g` flag is mandatory here because the

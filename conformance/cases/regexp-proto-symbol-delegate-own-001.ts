@@ -1,0 +1,12 @@
+const re: any = /a/g;
+re[Symbol.match] = function () { return "own-match"; };
+re[Symbol.search] = function () { return "own-search"; };
+re[Symbol.replace] = function () { return "own-replace"; };
+re[Symbol.split] = function () { return "own-split"; };
+re[Symbol.matchAll] = function () { return "own-matchAll"; };
+const P: any = RegExp.prototype;
+console.log(P[Symbol.match].call(re, "bab"));
+console.log(P[Symbol.search].call(re, "bab"));
+console.log(P[Symbol.replace].call(re, "bab", "x"));
+console.log(P[Symbol.split].call(re, "bab"));
+console.log([...P[Symbol.matchAll].call(re, "bab")].length);

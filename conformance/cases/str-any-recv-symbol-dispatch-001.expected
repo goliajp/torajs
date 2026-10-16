@@ -1,0 +1,11 @@
+M:abc S:abc R:abc:Z R:abc:7
+true,true,true,true
+b 2 aXc aYc
+b 2 aXc abW
+c 2
+match true
+search true
+replace true
+true searcher
+match tostring
+search tostring

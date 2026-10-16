@@ -21,6 +21,7 @@ use torajs_codegen::CompiledFunction;
 use torajs_codegen::frame::FrameLayout;
 use torajs_codegen::reloc::{CallTarget, Reloc, RelocKind};
 use torajs_core::ssa::{InstKind, Module, Operand};
+use torajs_link::exec::{Guard, GuardedStub};
 
 /// Mach-O names of the fifteen family arm seams (see
 /// `torajs-anyvalue/src/dispatch_seam.rs`).
@@ -141,6 +142,33 @@ pub(crate) fn append_dispatch_stubs(
             frame: FrameLayout::leaf_no_spill(),
         });
     }
+}
+
+/// The two RegExp-world seams the judgment stubs
+/// ([`crate::cmd_build_dispatch_judge_regexp_world`]): the protocol
+/// algorithms and the ctor-value build body, both rejecting under the
+/// regexp family's name (bit 9) — they are that family's text, split
+/// off by their own judgment. Offered to the link as guarded stubs
+/// with no enabler, so a stub is applied exactly when some live atom
+/// still imports its seam and costs nothing in a program that links
+/// neither caller.
+pub(crate) fn regexp_world_stubs(protocol: bool, ctor: bool) -> Vec<GuardedStub> {
+    [
+        (protocol, "___torajs_regexp_protocol_call"),
+        (ctor, "___torajs_ctor_regexp_build"),
+    ]
+    .into_iter()
+    .filter(|(on, _)| *on)
+    .map(|(_, sym)| {
+        let (bytes, relocs) = reject_stub_body(9);
+        GuardedStub {
+            sym: sym.to_string(),
+            bytes,
+            relocs,
+            guard: Guard::Symbols(Vec::new()),
+        }
+    })
+    .collect()
 }
 
 /// The absent-member settle seam (torajs-dispatch, fam 58) is entered

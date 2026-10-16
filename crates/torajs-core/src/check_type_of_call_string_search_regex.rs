@@ -49,24 +49,24 @@ pub(crate) fn try_match(
         Ok(t) => t,
         Err(e) => return Some(Err(e)),
     };
-    // Rotation 262 — §22.1.3.20 single-arg Any pattern: with store
-    // evidence the custom `@@search` may run and return anything
-    // (`any`); without it the step-4 RegExpCreate coerce lane
-    // answers a Number. Mirrors `check_type_of_call_string_match`'s
-    // gate; the SSA twin branches on the same shared fn.
-    if args.len() == 1 && matches!(a0, Type::Any) {
-        if crate::check_type_of_call_string_match::any_pattern_may_carry_matcher(ast, args[0]) {
-            return Some(Ok(Type::Any));
-        }
-        return Some(Ok(Type::Number));
-    }
-    if !matches!(a0, Type::RegExp) {
+    // Rotation 262 — §22.1.3.20 Any pattern: with store evidence the
+    // custom `@@search` may run and return anything (`any`); without
+    // it the step-4 RegExpCreate coerce lane answers a Number. The
+    // spec reads only the pattern, so trailing args change neither.
+    // Mirrors `check_type_of_call_string_match`'s gate; the SSA twin
+    // branches on the same shared fn.
+    if !matches!(a0, Type::Any | Type::RegExp) {
         return None;
     }
     for &aid in args.iter().skip(1) {
         if let Err(e) = checker.type_of(ast, aid) {
             return Some(Err(e));
         }
+    }
+    if matches!(a0, Type::Any)
+        && crate::check_type_of_call_string_match::any_pattern_may_carry_matcher(ast, args[0])
+    {
+        return Some(Ok(Type::Any));
     }
     Some(Ok(Type::Number))
 }

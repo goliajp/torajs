@@ -481,7 +481,7 @@ pub(crate) const ANY_METHOD_NO_SUCH: u64 = u64::MAX - 1;
 /// [`ANY_METHOD_NO_SUCH`] sentinel to the extern exit (which throws
 /// or answers undefined per the opt flavor). Only for name misses;
 /// a resolved-but-not-callable value is [`not_callable`].
-pub(crate) unsafe fn method_no_such() -> AnyValue {
+pub unsafe fn method_no_such() -> AnyValue {
     ANY_METHOD_NO_SUCH
 }
 

@@ -2,12 +2,13 @@
 //! through the receiver's species constructor, driven one position at
 //! a time through RegExpExec.
 
-use super::ops::{
+use crate::ops::{
     ABRUPT, Owned, OwnedStr, advance_string_index, box_number, flags_of, get, get_index, has_flag,
     last_index_length, regexp_exec, set_last_index, str_from_units, to_length,
 };
-use super::species::{construct, species_constructor};
-use crate::nanbox::{AnyValue, is_null, is_undefined};
+use crate::species::{construct, species_constructor};
+use torajs_anyvalue::nanbox::{AnyValue, is_null, is_undefined};
+use torajs_anyvalue::regexp_support as av;
 
 unsafe extern "C" {
     fn __torajs_arr_alloc_any(cap: u64) -> *mut u8;
@@ -20,7 +21,7 @@ struct Out(Owned);
 impl Out {
     unsafe fn new() -> Self {
         Out(Owned::adopt(unsafe {
-            crate::nanbox_encode::__torajs_anyv_box_from_pair(4, __torajs_arr_alloc_any(0) as i64)
+            av::__torajs_anyv_box_from_pair(4, __torajs_arr_alloc_any(0) as i64)
         }))
     }
 
@@ -28,15 +29,12 @@ impl Out {
     /// stake; `v`'s is released.
     unsafe fn push(&mut self, v: Owned) {
         unsafe {
-            let raw = crate::nanbox::as_void_ptr(self.0.get()).cast::<u8>();
+            let raw = torajs_anyvalue::nanbox::as_void_ptr(self.0.get()).cast::<u8>();
             let grown = __torajs_arr_push_any_boxed(raw, v.get());
             if grown != raw {
                 let old = core::mem::replace(
                     &mut self.0,
-                    Owned::adopt(crate::nanbox_encode::__torajs_anyv_box_from_pair(
-                        4,
-                        grown as i64,
-                    )),
+                    Owned::adopt(av::__torajs_anyv_box_from_pair(4, grown as i64)),
                 );
                 core::mem::forget(old);
             }
@@ -49,9 +47,9 @@ impl Out {
 }
 
 /// §22.2.6.14 steps 3-20.
-pub(super) unsafe fn symbol_split(rx: AnyValue, string: AnyValue, limit: AnyValue) -> AnyValue {
+pub(crate) unsafe fn symbol_split(rx: AnyValue, string: AnyValue, limit: AnyValue) -> AnyValue {
     unsafe {
-        let Some(s) = super::ops::to_string(string) else {
+        let Some(s) = crate::ops::to_string(string) else {
             return ABRUPT;
         };
         let Some(ctor) = species_constructor(rx) else {
@@ -72,8 +70,8 @@ pub(super) unsafe fn symbol_split(rx: AnyValue, string: AnyValue, limit: AnyValu
         let lim = if is_undefined(limit) {
             u32::MAX
         } else {
-            let n = crate::nanbox_ffi::__torajs_anyv_to_number(limit);
-            if super::ops::throw_pending() {
+            let n = av::__torajs_anyv_to_number(limit);
+            if crate::ops::throw_pending() {
                 return ABRUPT;
             }
             to_uint32(n)

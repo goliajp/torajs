@@ -17,7 +17,7 @@
 //!   args.len() >= 2
 //! - `Some(Ok(Type::Nullable<Array<String>>))` for match under
 //!   the same gates
-//! - `Some(Ok(Type::Any))` for single-arg `match` / `matchAll` with
+//! - `Some(Ok(Type::Any))` for `match` / `matchAll` (any arity) with
 //!   an Any-typed pattern — the custom `@@match` / `@@matchAll`
 //!   shape (`ssa_lower_call_str_match_custom` is the SSA mirror)
 //! - `Some(Err(_))` on receiver / arg type_of failure
@@ -45,31 +45,16 @@ pub(crate) fn try_match(
     if !matches!(m_name.as_str(), "match" | "matchAll") || args.is_empty() {
         return None;
     }
-    // §22.1.3.13 step 3 — a single-arg `s.match(x)` whose pattern
-    // syntactically can carry a user `@@match` types `any` (matchAll's
-    // step 2.c `@@matchAll` likewise; the SSA
-    // mirror is `ssa_lower_call_str_match_custom`). The syntactic
-    // probe runs BEFORE any type_of so a non-matching shape falls
-    // through with the cascade completely untouched.
-    if args.len() == 1 {
-        if !any_pattern_may_carry_matcher(ast, args[0]) {
-            return None;
-        }
-        let src_ty = match crate::check::receiver_type(checker, ast, *src_id) {
-            Ok(t) => t,
-            Err(e) => return Some(Err(e)),
-        };
-        if !matches!(src_ty, Type::String) {
-            return None;
-        }
-        let aty0 = match checker.type_of(ast, args[0]) {
-            Ok(t) => t,
-            Err(e) => return Some(Err(e)),
-        };
-        if !matches!(aty0, Type::Any) {
-            return None;
-        }
-        return Some(Ok(Type::Any));
+    // §22.1.3.12 step 2 (matchAll: step 2.c) — a pattern that
+    // syntactically can carry a user `@@match` / `@@matchAll` types
+    // `any` at every arity: the spec reads only the pattern, and the
+    // SSA mirror (`ssa_lower_call_str_match_custom`) dispatches with
+    // the trailing args evaluated and dropped. The syntactic probe
+    // runs BEFORE any type_of so a single-arg call of another shape
+    // falls through with the cascade completely untouched.
+    let may_carry = any_pattern_may_carry_matcher(ast, args[0]);
+    if args.len() == 1 && !may_carry {
+        return None;
     }
     let src_ty = match crate::check::receiver_type(checker, ast, *src_id) {
         Ok(t) => t,
@@ -82,13 +67,20 @@ pub(crate) fn try_match(
         Ok(t) => t,
         Err(e) => return Some(Err(e)),
     };
-    if !matches!(aty0, Type::RegExp) {
+    let custom_face = may_carry && matches!(aty0, Type::Any);
+    if args.len() == 1 && !custom_face {
+        return None;
+    }
+    if !custom_face && !matches!(aty0, Type::RegExp) {
         return None;
     }
     for &aid in &args[1..] {
         if let Err(e) = checker.type_of(ast, aid) {
             return Some(Err(e));
         }
+    }
+    if custom_face {
+        return Some(Ok(Type::Any));
     }
     Some(Ok(if m_name == "matchAll" {
         Type::Array(Box::new(Type::Array(Box::new(Type::String))))
@@ -105,11 +97,11 @@ pub(crate) fn try_match(
 /// the SSA gate (`ssa_lower_call_str_regex_methods`) so the static
 /// result type and the emitted branch agree.
 ///
-/// `s.replace(x, r)` with an Any-typed `x` and store evidence — the
-/// §22.1.3.19 step-3 `@@replace` shape (SSA mirror:
-/// `ssa_lower_call_str_match_custom::lower_replace_any_pattern`).
-/// The replacer gate (checker String or Function) matches the SSA
-/// twin so only shapes both lanes can emit leave the member-table
+/// `s.replace(x, r)` / `s.replaceAll(x, r)` with an Any-typed `x` and
+/// store evidence — the §22.1.3.19 step-2 `@@replace` shape (SSA
+/// mirror: `ssa_lower_call_str_match_custom::lower_replace_any_pattern`).
+/// The replacer gate ([`replace_value_is_lowerable`]) matches the
+/// SSA twin so only shapes both lanes can emit leave the member-table
 /// route; the custom replacer's return is arbitrary → `any`.
 pub(crate) fn try_match_replace(
     checker: &mut Checker,
@@ -124,8 +116,8 @@ pub(crate) fn try_match_replace(
     else {
         return None;
     };
-    if m_name != "replace"
-        || !matches!(args.len(), 1 | 2)
+    if !matches!(m_name.as_str(), "replace" | "replaceAll")
+        || args.is_empty()
         || !any_pattern_may_carry_matcher(ast, args[0])
     {
         return None;
@@ -145,17 +137,35 @@ pub(crate) fn try_match_replace(
         return None;
     }
     // The single-arg spelling has replaceValue = undefined; the
-    // two-arg one gates on shapes both SSA lanes can emit.
+    // others gate on shapes both SSA lanes can emit. Args past the
+    // replaceValue are read by nobody (eval-then-discard).
     if let Some(&a1) = args.get(1) {
         let aty1 = match checker.type_of(ast, a1) {
             Ok(t) => t,
             Err(e) => return Some(Err(e)),
         };
-        if !matches!(aty1, Type::String | Type::Function(..)) {
+        if !replace_value_is_lowerable(Some(&aty1)) {
             return None;
         }
     }
+    for &aid in args.iter().skip(2) {
+        if let Err(e) = checker.type_of(ast, aid) {
+            return Some(Err(e));
+        }
+    }
     Some(Ok(Type::Any))
+}
+
+/// A replaceValue the `@@replace` fallback kernels take: a Function
+/// is §22.1.3.19 step 5's functionalReplace, a String / Number /
+/// Boolean takes step 6's ToString, and an `any` one is told apart
+/// at run time. Shared by the checker gate above and its SSA twin
+/// (`ssa_lower_call_str_regex_methods`).
+pub(crate) fn replace_value_is_lowerable(ty: Option<&Type>) -> bool {
+    matches!(
+        ty,
+        Some(Type::String | Type::Number | Type::Boolean | Type::Function(..) | Type::Any)
+    )
 }
 
 /// An `any` binding can also be a hoist-widened primitive — `var

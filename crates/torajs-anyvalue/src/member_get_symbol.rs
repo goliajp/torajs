@@ -197,7 +197,7 @@ pub(crate) unsafe fn symbol_key_has(recv: AnyValue, key: *const c_void) -> bool 
 /// # Safety
 /// Cell receivers are live heap pointers; `key` is a live Symbol cell.
 #[cfg_attr(test, allow(dead_code))]
-pub(crate) unsafe fn symbol_key_get(recv: AnyValue, key: *const c_void) -> OwnedPair {
+pub unsafe fn symbol_key_get(recv: AnyValue, key: *const c_void) -> OwnedPair {
     // §10.5.1 [[Get]] on a proxy runs the `get` trap whatever the key
     // kind is. A symbol read the PROGRAM writes (`p[Symbol.x]`) already
     // trapped — it enters through the member-get cascade, which
@@ -257,7 +257,7 @@ pub(crate) unsafe fn symbol_key_get(recv: AnyValue, key: *const c_void) -> Owned
 ///
 /// A borrowed pair (a plain data property, a dict entry, a nullish
 /// answer, a getter that threw) carries no +1 and drops to nothing.
-pub(crate) struct OwnedPair {
+pub struct OwnedPair {
     tag: u64,
     payload: u64,
     owned: bool,
@@ -292,7 +292,7 @@ impl OwnedPair {
     /// transfers the reference it already holds, a borrowed one takes
     /// its own first. Either way this guard stops releasing.
     #[cfg_attr(test, allow(dead_code))]
-    pub(crate) fn into_owned_value(self) -> AnyValue {
+    pub fn into_owned_value(self) -> AnyValue {
         // SAFETY: the pair came out of `symbol_key_get`, so it is
         // either an immediate or a live cell.
         let v = unsafe {

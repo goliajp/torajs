@@ -234,8 +234,10 @@ pub(crate) fn build_link_config(
     // never enter and stub their arm seams (cmd_build_dispatch_judge).
     // TORAJS_DISPATCH_STUB_ALL / _OFF stub every family / none; _NS and
     // TORAJS_LINK_STUB_FORCE=<sym,…> force single seams (diagnostics).
+    let mut judged_stubs = Vec::new();
     if crate::cmd_build_dispatch_stubs::stub_all_enabled() {
         crate::cmd_build_dispatch_stubs::append_dispatch_stubs(&mut funcs, u16::MAX, true, true);
+        judged_stubs = crate::cmd_build_dispatch_stubs::regexp_world_stubs(true, true);
     } else if !crate::cmd_build_dispatch_stubs::stub_off() {
         let j = crate::cmd_build_dispatch_judge::judge(ssa_module);
         crate::cmd_build_dispatch_stubs::append_dispatch_stubs(
@@ -243,6 +245,10 @@ pub(crate) fn build_link_config(
             j.stub_arm_bits,
             j.stub_ns_static || crate::cmd_build_dispatch_stubs::stub_ns_forced(),
             j.stub_printers,
+        );
+        judged_stubs = crate::cmd_build_dispatch_stubs::regexp_world_stubs(
+            j.stub_regexp_protocol,
+            j.stub_ctor_regexp,
         );
         crate::cmd_build_dispatch_stubs::append_absent_settle_stub(&mut funcs, ssa_module);
     }
@@ -263,7 +269,11 @@ pub(crate) fn build_link_config(
         dead_strip,
         strip_member_symbols,
         elidable_sites: Vec::new(),
-        guarded_stubs: crate::cmd_build_elide::guarded_stubs(),
+        guarded_stubs: {
+            let mut g = crate::cmd_build_elide::guarded_stubs();
+            g.extend(judged_stubs);
+            g
+        },
         // borrowed straight off the baked static; a copy would be a
         // per-build memcpy of the whole runtime
         image: std::borrow::Cow::Borrowed(TORAJS_RUNTIME_IMAGE),

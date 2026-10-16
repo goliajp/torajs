@@ -204,19 +204,20 @@ pub(crate) fn lower_symbol_dispatch_pattern(
     Operand::Value(out)
 }
 
-/// Lower `s.replace(x, r)` with an Any-typed `x` — §22.1.3.19
-/// step 3: run GetMethod(searchValue, @@replace); when it answers a
-/// method the replacer runs as Call(replacer, searchValue,
-/// «O, replaceValue»), otherwise ToString(searchValue) takes the
-/// LITERAL substring replace kernels (`str_replace` /
-/// `str_replace_fn` — replace's
+/// Lower `s.replace(x, r)` / `s.replaceAll(x, r)` (`all`) with an
+/// Any-typed `x` — §22.1.3.19 step 2 (§22.1.3.20 step 2.c): run
+/// GetMethod(searchValue, @@replace); when it answers a method the
+/// replacer runs as Call(replacer, searchValue, «O, replaceValue»),
+/// otherwise ToString(searchValue) takes the LITERAL substring
+/// replace kernels (`str_replace[_all]` / `str_replace[_all]_fn` —
 /// step 4 never mints a RegExp, unlike match/search). The caller
-/// gated `r` to a checker String or Function shape so both lanes
-/// can emit. Answers a `Type::Any` operand.
+/// gated `r` to a shape the fallback kernels take
+/// (`replace_value_is_lowerable`). Answers a `Type::Any` operand.
 pub(crate) fn lower_replace_any_pattern(
     ctx: &mut LowerCtx<'_>,
     recv_op: Operand,
     args: &[ExprId],
+    all: bool,
 ) -> Operand {
     let raw_arg = ctx.lower_expr(args[0]);
     // A single-arg `s.replace(x)` has replaceValue = undefined
@@ -281,22 +282,57 @@ pub(crate) fn lower_replace_any_pattern(
     let arg_ty = ctx.operand_ty(&raw_arg);
     let pat_op =
         crate::ssa_lower_call_coercion::emit_to_string(ctx, args[0], raw_arg, arg_ty, false);
+    let (str_fid, fn_fid) = if all {
+        (
+            ctx.intrinsics.str_replace_all,
+            ctx.intrinsics.str_replace_all_fn,
+        )
+    } else {
+        (ctx.intrinsics.str_replace, ctx.intrinsics.str_replace_fn)
+    };
+    // Step 6 — a Number / Boolean replaceValue is ToString'd after
+    // the searchValue (an owned temp, released below); an `any` one
+    // takes step 5's IsCallable at run time.
+    let mut repl_temp = None;
+    let mut call_args = vec![recv_op, pat_op];
     let (fid, repl_arg) = match (&repl_op, &repl_ty) {
-        (Some(op), Some(Type::Closure(_))) => (ctx.intrinsics.str_replace_fn, *op),
-        (Some(op), _) => (ctx.intrinsics.str_replace, *op),
+        (Some(op), Some(Type::Any)) => {
+            call_args.push(*op);
+            (
+                ctx.intrinsics.str_replace_any_repl,
+                Operand::ConstI64(i64::from(all)),
+            )
+        }
+        (Some(op), Some(Type::Closure(_))) => (fn_fid, *op),
+        (Some(op), Some(ty @ (Type::I64 | Type::I32 | Type::F64 | Type::Bool))) => {
+            let s = crate::ssa_lower_call_coercion::emit_to_string(
+                ctx,
+                args[1],
+                *op,
+                ty.clone(),
+                false,
+            );
+            repl_temp = Some(s);
+            (str_fid, s)
+        }
+        (Some(op), _) => (str_fid, *op),
         // ToString(undefined) — the absent replaceValue substitutes
         // the literal text per the string-replacer path.
         (None, _) => {
             let lit = ctx.intern_string_literal("undefined");
-            (ctx.intrinsics.str_replace, Operand::Value(lit))
+            (str_fid, Operand::Value(lit))
         }
     };
+    call_args.push(repl_arg);
     let v = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Call(fid, vec![recv_op, pat_op, repl_arg]),
+        InstKind::Call(fid, call_args),
         Type::Str,
         None,
     );
+    if let Some(t) = repl_temp {
+        ctx.emit_drop_value(t, Type::Str);
+    }
     // The fn replacer can throw — propagate the pending throw.
     ctx.emit_throw_check(None);
     ctx.emit_drop_value(pat_op, Type::Str);

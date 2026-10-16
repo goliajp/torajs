@@ -4,11 +4,12 @@
 //! the result's `groups` object — a getter there runs, and its throw
 //! is the replacement's completion.
 
-use super::ops::{Owned, get_key, str_from_units, to_string};
-use crate::nanbox::{AnyValue, is_undefined};
+use crate::ops::{Owned, get_key, str_from_units, to_string};
+use torajs_anyvalue::nanbox::{AnyValue, is_undefined};
+use torajs_anyvalue::regexp_support as av;
 
 /// One capture: its code units, or `None` for undefined.
-pub(super) type Capture = Option<Vec<u16>>;
+pub(crate) type Capture = Option<Vec<u16>>;
 
 const DOLLAR: u16 = b'$' as u16;
 
@@ -20,7 +21,7 @@ fn digit(u: u16) -> Option<usize> {
 
 /// The expansion of `template` for one match. `None` = a `$<name>`
 /// Get or its ToString threw.
-pub(super) unsafe fn get_substitution(
+pub(crate) unsafe fn get_substitution(
     matched: &[u16],
     s: &[u16],
     position: usize,
@@ -92,17 +93,17 @@ pub(super) unsafe fn get_substitution(
 
 /// `namedCaptures` for the substitution: undefined stays absent,
 /// anything else is ? ToObject'd.
-pub(super) unsafe fn named_object(groups: AnyValue) -> Option<Option<Owned>> {
+pub(crate) unsafe fn named_object(groups: AnyValue) -> Option<Option<Owned>> {
     if is_undefined(groups) {
         return Some(None);
     }
     // ToObject: null is the one remaining value it refuses
-    if crate::nanbox::is_null(groups) {
-        unsafe { super::ops::type_error(c"cannot convert null to object") };
+    if torajs_anyvalue::nanbox::is_null(groups) {
+        unsafe { crate::ops::type_error(c"cannot convert null to object") };
         return None;
     }
-    let obj = Owned::adopt(unsafe { crate::to_object::__torajs_any_to_object(groups) });
-    if super::ops::throw_pending() {
+    let obj = Owned::adopt(unsafe { av::__torajs_any_to_object(groups) });
+    if crate::ops::throw_pending() {
         return None;
     }
     Some(Some(obj))

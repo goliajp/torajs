@@ -56,11 +56,11 @@ pub(crate) const ITER_HELPER_ZIP: u8 = 7;
 /// (`Array<Str>`, HEAP-marked) in the inner slot; rows are objects.
 pub(crate) const ITER_HELPER_ZIP_KEYED: u8 = 8;
 
-pub(crate) const UNDERLYING_OFF: usize = 8;
-pub(crate) const FN_OFF: usize = 16;
-pub(crate) const COUNTER_OFF: usize = 24;
-pub(crate) const KIND_OFF: usize = 32;
-pub(crate) const ALIVE_OFF: usize = 33;
+pub const UNDERLYING_OFF: usize = 8;
+pub const FN_OFF: usize = 16;
+pub const COUNTER_OFF: usize = 24;
+pub const KIND_OFF: usize = 32;
+pub const ALIVE_OFF: usize = 33;
 /// §27.5.3.2 "executing" state byte (third flag in the pad;
 /// `alloc_zeroed` starts it 0 = not running).
 const RUNNING_OFF: usize = 34;
@@ -188,7 +188,7 @@ pub(crate) unsafe fn iter_helper_mint(recv: AnyValue, kind: u8, fn_av: AnyValue)
 /// Fresh rc-1 helper cell of `kind` with every AnyValue slot set to
 /// undefined — the shared alloc under [`iter_helper_mint_wrap`] and
 /// the concat mint (each fills its own underlying slot after).
-pub(crate) unsafe fn iter_helper_cell_alloc(kind: u8) -> *mut u8 {
+pub unsafe fn iter_helper_cell_alloc(kind: u8) -> *mut u8 {
     unsafe {
         let layout = core::alloc::Layout::from_size_align(CELL_SIZE, 8).unwrap();
         let cell = std::alloc::alloc_zeroed(layout);

@@ -236,8 +236,10 @@ pub unsafe fn regexp_arm_impl(
     argc: i64,
 ) -> AnyValue {
     unsafe {
+        // a protocol method's object `this`, or a RegExp String
+        // Iterator step: the protocol seam's
         if crate::regexp_protocol::regexp_cell(recv).is_none() {
-            return crate::regexp_protocol::foreign_receiver(recv, mid, argv, argc);
+            return crate::dispatch_seam::__torajs_regexp_protocol_call(recv, mid, argv, argc);
         }
         crate::method_call_regexp::regexp_method(as_void_ptr(recv), mid, argv, argc)
     }

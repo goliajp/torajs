@@ -3,11 +3,12 @@
 
 use core::ffi::c_void;
 
-use super::ops::{
+use crate::ops::{
     ABRUPT, Owned, advance_string_index, box_number, flags_of, get, get_index, has_flag,
     last_index_length, regexp_exec, set_last_index, to_string,
 };
-use crate::nanbox::{AnyValue, VALUE_NULL, box_int32, is_null};
+use torajs_anyvalue::nanbox::{AnyValue, VALUE_NULL, box_int32, is_null};
+use torajs_anyvalue::regexp_support as av;
 
 unsafe extern "C" {
     fn __torajs_arr_alloc_any(cap: u64) -> *mut u8;
@@ -15,7 +16,7 @@ unsafe extern "C" {
 }
 
 /// §22.2.6.8 steps 3-6.
-pub(super) unsafe fn symbol_match(rx: AnyValue, string: AnyValue) -> AnyValue {
+pub(crate) unsafe fn symbol_match(rx: AnyValue, string: AnyValue) -> AnyValue {
     unsafe {
         let Some(s) = to_string(string) else {
             return ABRUPT;
@@ -31,7 +32,7 @@ pub(super) unsafe fn symbol_match(rx: AnyValue, string: AnyValue) -> AnyValue {
             return ABRUPT;
         }
         let units = s.units();
-        let mut a = Owned::adopt(crate::nanbox_encode::__torajs_anyv_box_from_pair(
+        let mut a = Owned::adopt(av::__torajs_anyv_box_from_pair(
             4,
             __torajs_arr_alloc_any(0) as i64,
         ));
@@ -52,14 +53,11 @@ pub(super) unsafe fn symbol_match(rx: AnyValue, string: AnyValue) -> AnyValue {
             let empty = match_str.is_empty();
             let arr = a.take();
             let grown = __torajs_arr_push_any(
-                crate::nanbox::as_void_ptr(arr),
+                torajs_anyvalue::nanbox::as_void_ptr(arr),
                 4,
                 match_str.into_raw() as u64,
             );
-            a = Owned::adopt(crate::nanbox_encode::__torajs_anyv_box_from_pair(
-                4,
-                grown as i64,
-            ));
+            a = Owned::adopt(av::__torajs_anyv_box_from_pair(4, grown as i64));
             if empty {
                 let Some(this_index) = last_index_length(rx) else {
                     return ABRUPT;
@@ -75,7 +73,7 @@ pub(super) unsafe fn symbol_match(rx: AnyValue, string: AnyValue) -> AnyValue {
 }
 
 /// §22.2.6.12 steps 3-10.
-pub(super) unsafe fn symbol_search(rx: AnyValue, string: AnyValue) -> AnyValue {
+pub(crate) unsafe fn symbol_search(rx: AnyValue, string: AnyValue) -> AnyValue {
     unsafe {
         let Some(s) = to_string(string) else {
             return ABRUPT;
@@ -84,8 +82,7 @@ pub(super) unsafe fn symbol_search(rx: AnyValue, string: AnyValue) -> AnyValue {
             return ABRUPT;
         };
         let zero = box_int32(0);
-        if !crate::nanbox_ffi::__torajs_anyv_same_value(previous.get(), zero)
-            && set_last_index(rx, zero).is_none()
+        if !av::__torajs_anyv_same_value(previous.get(), zero) && set_last_index(rx, zero).is_none()
         {
             return ABRUPT;
         }
@@ -95,7 +92,7 @@ pub(super) unsafe fn symbol_search(rx: AnyValue, string: AnyValue) -> AnyValue {
         let Some(current) = get(rx, b"lastIndex") else {
             return ABRUPT;
         };
-        if !crate::nanbox_ffi::__torajs_anyv_same_value(current.get(), previous.get())
+        if !av::__torajs_anyv_same_value(current.get(), previous.get())
             && set_last_index(rx, previous.get()).is_none()
         {
             return ABRUPT;

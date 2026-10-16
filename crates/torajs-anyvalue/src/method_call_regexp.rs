@@ -127,16 +127,19 @@ pub(crate) unsafe fn regexp_method(
                 let re_box = __torajs_anyv_box_from_pair(4, re as i64);
                 // A receiver that could tell the kernels from the spec
                 // algorithm (an own `exec`, a patched prototype, …)
-                // runs the algorithm.
-                if crate::regexp_protocol::spec_needed(re_box, m, argv, argc) {
-                    return crate::regexp_protocol::spec_run(re_box, m, argv, argc);
+                // runs the algorithm; the seam answers which.
+                let spec =
+                    crate::dispatch_seam::__torajs_regexp_protocol_call(re_box, m, argv, argc);
+                if spec != crate::regexp_protocol::KERNEL_LANE {
+                    return spec;
                 }
                 let hay = __torajs_anyv_to_str(arg_at(0));
                 // Slot 1 carries @@split's limit / @@replace's
                 // replacement; absent args pad undefined, which the
                 // Str arms' own arg_at treats as absent.
                 let argv2: [u64; 2] = [re_box, arg_at(1)];
-                let out = crate::method_call_str::str_method(hay.cast(), m, argv2.as_ptr(), 2);
+                let out =
+                    crate::method_call_str::str_method_switch(hay.cast(), m, argv2.as_ptr(), 2);
                 __torajs_str_drop(hay);
                 out
             }

@@ -60,6 +60,38 @@ unsafe extern "C" {
     pub(crate) fn __torajs_ctor_date_call() -> u64;
 }
 
+unsafe extern "C" {
+    /// The RegExp protocol seam: the §22.2.6 protocol algorithms and
+    /// the RegExp String Iterator step, behind the RegExp arm (the
+    /// iterator step and a method cell's object `this` call it
+    /// directly). Split
+    /// out because a program can hold regexes without ever calling a
+    /// protocol method through the any world (every typed
+    /// `s.replace(re, …)` lowers to a kernel), and the algorithms are
+    /// a fifth of the regex family's text; the dispatch judgment stubs
+    /// this seam in a program that never enters the RegExp world, and
+    /// in one with no protocol method id and no string symbol-dispatch
+    /// gate.
+    pub(crate) fn __torajs_regexp_protocol_call(
+        recv: AnyValue,
+        mid: i64,
+        argv: *const u64,
+        argc: i64,
+    ) -> AnyValue;
+}
+
+unsafe extern "C" {
+    /// §22.2.3.1 RegExpInitialize for a first-class RegExp constructor
+    /// value (`R(p, f)` / `new R(p, f)`): the shared build body of the
+    /// ctor-call and ctor-construct entries. Behind its own seam
+    /// because those two entries are linked into every program that
+    /// calls or constructs any builtin ctor value, while a RegExp ctor
+    /// cell exists only in a program that reaches the RegExp world;
+    /// the dispatch judgment stubs it, with the protocol seam, in every
+    /// other program, and the pattern compiler dead-strips with it.
+    pub(crate) fn __torajs_ctor_regexp_build(pattern: AnyValue, flags: AnyValue) -> AnyValue;
+}
+
 declare_arms!(
     __torajs_dispatch_str_arm,
     __torajs_dispatch_arr_arm,

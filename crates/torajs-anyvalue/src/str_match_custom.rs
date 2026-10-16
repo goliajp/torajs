@@ -20,8 +20,14 @@
 
 use core::ffi::c_void;
 
+use torajs_rc::{
+    ANY_METHOD_MATCH, ANY_METHOD_MATCH_ALL, ANY_METHOD_REPLACE, ANY_METHOD_REPLACE_ALL,
+    ANY_METHOD_SPLIT,
+};
+
 use crate::iter_any_get_method::callable_method;
 use crate::method_call_closure_dispatch::invoke_with_this;
+use crate::method_call_str::{reject_non_global_regex_search, str_method_switch};
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED, is_cell};
 use crate::nanbox_encode::__torajs_anyv_box_from_pair;
 
@@ -39,9 +45,10 @@ unsafe extern "C" {
 /// not-a-function message (torajs-core's gate passes 6 = `@@match`
 /// / 7 = `@@matchAll` / 8 = `@@replace` / 9 = `@@search` / 11 =
 /// `@@split` as the `wk_idx` operand).
+pub(crate) const WK_MATCH: i64 = 6;
 pub(crate) const WK_MATCH_ALL: i64 = 7;
-const WK_REPLACE: i64 = 8;
-const WK_SEARCH: i64 = 9;
+pub(crate) const WK_REPLACE: i64 = 8;
+pub(crate) const WK_SEARCH: i64 = 9;
 pub(crate) const WK_SPLIT: i64 = 11;
 
 /// The per-symbol GetMethod step-4 TypeError text, in the spec's
@@ -139,15 +146,20 @@ pub unsafe extern "C" fn __torajs_any_str_symbol_try(
                 // carrying the builtin) — then the method runs.
                 if crate::method_value::builtin_method_family(cell)
                     != crate::method_value::REGEXP_PROTO_FAMILY
-                    || !crate::iter_zip_shared::av_is_object(arg)
                 {
                     return 0;
                 }
                 let argv = [__torajs_anyv_box_from_pair(4, recv_str as i64), extra];
-                if !crate::regexp_protocol::spec_needed(arg, mid, argv.as_ptr(), argc) {
+                let spec = crate::dispatch_seam::__torajs_regexp_protocol_call(
+                    arg,
+                    mid,
+                    argv.as_ptr(),
+                    argc,
+                );
+                if spec == crate::regexp_protocol::KERNEL_LANE {
                     return 0;
                 }
-                *out = crate::regexp_protocol::call_through_arm(arg, mid, argv.as_ptr(), argc);
+                *out = spec;
                 return 1;
             }
         }
@@ -163,6 +175,55 @@ pub unsafe extern "C" fn __torajs_any_str_symbol_try(
         *out = call_matcher(recv_str, arg, extra, argc, tag, payload, wk_idx);
         1
     }
+}
+
+/// Step 2 of every String.prototype method whose pattern argument
+/// may carry a user symbol method (split, match, matchAll, replace,
+/// replaceAll, search) for an any-typed string receiver, ahead of the
+/// method-id switch so the arms keep only their step-4 lanes. matchAll
+/// and replaceAll first reject a non-global RegExp (step 2.b). Answers
+/// the custom method's result (undefined with a throw pending when
+/// step 2.b or the custom method threw), else the method's own arm.
+/// The caller only gates on the method id, so both of its exits stay
+/// tail calls.
+///
+/// # Safety
+/// `s` is a live Str cell; `argv` addresses `argc` valid AnyValues.
+#[inline(never)]
+pub(crate) unsafe fn str_method_step2(
+    s: *mut u8,
+    mid: i64,
+    argv: *const u64,
+    argc: i64,
+) -> AnyValue {
+    // «S, replaceValue» / «S, limit» take two arguments, the others
+    // «S»; the callee reads `extra` only when told there are two
+    let (wk_idx, n) = match mid {
+        ANY_METHOD_SPLIT => (WK_SPLIT, 2),
+        ANY_METHOD_MATCH => (WK_MATCH, 1),
+        ANY_METHOD_MATCH_ALL => (WK_MATCH_ALL, 1),
+        ANY_METHOD_REPLACE | ANY_METHOD_REPLACE_ALL => (WK_REPLACE, 2),
+        // ANY_METHOD_SEARCH, the last id the caller lets through
+        _ => (WK_SEARCH, 1),
+    };
+    if unsafe { reject_non_global_regex_search(mid, argv, argc) } {
+        return VALUE_UNDEFINED;
+    }
+    let arg_at = |i: i64| {
+        if i < argc {
+            unsafe { *argv.add(i as usize) }
+        } else {
+            VALUE_UNDEFINED
+        }
+    };
+    let mut out: AnyValue = VALUE_UNDEFINED;
+    let hit = unsafe {
+        __torajs_any_str_symbol_try(s.cast(), arg_at(0), arg_at(1), n, wk_idx, &raw mut out)
+    };
+    if hit != 0 {
+        return out;
+    }
+    unsafe { str_method_switch(s, mid, argv, argc) }
 }
 
 /// Step 3.c's `Call(matcher, arg, «S[, extra]»)` over an

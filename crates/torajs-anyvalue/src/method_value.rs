@@ -380,7 +380,7 @@ pub(crate) fn builtin_method_arity_for(mid: i64, fam: i64) -> Option<u32> {
 ///
 /// # Safety
 /// `ptr` is a live heap cell.
-pub(crate) unsafe fn builtin_method_mid(ptr: *mut c_void) -> Option<i64> {
+pub unsafe fn builtin_method_mid(ptr: *mut c_void) -> Option<i64> {
     unsafe {
         if (ptr.cast::<u8>().add(4) as *const u16).read() != Tag::Closure as u16 {
             return None;

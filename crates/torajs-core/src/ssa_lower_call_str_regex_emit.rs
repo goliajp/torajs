@@ -382,3 +382,38 @@ pub(crate) fn emit_replace(
     }
     Operand::Value(v)
 }
+
+/// `s.replace(x, r)` / `s.replaceAll(x, r)` with `x` in an `any` slot
+/// and a replaceValue no typed kernel takes (`any`, number, boolean,
+/// nullish, object, or absent). Steps 2 to 6 of §22.1.3.19 are all
+/// run-time questions here (is `x` a RegExp, is `r` callable, when is
+/// `r` ToString'd), so the call rides the any-receiver dispatcher,
+/// which answers each of them on the live values. Without store
+/// evidence for a symbol face (the caller's gate) the answer is the
+/// string replace produces; its ToString is the unbox.
+#[cold]
+#[inline(never)]
+pub(crate) fn emit_replace_any_dyn(
+    ctx: &mut LowerCtx<'_>,
+    recv_op: Operand,
+    args: &[ExprId],
+    name: &str,
+) -> Operand {
+    let recv_any = ctx.box_to_any(recv_op);
+    let out = crate::ssa_lower_any_method_call::emit_any_method_call(
+        ctx,
+        recv_any,
+        name,
+        Operand::ConstPtrNull,
+        args,
+    );
+    ctx.emit_throw_check_owned(None, Operand::Value(out), Type::Any);
+    let v = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(ctx.intrinsics.any_to_str_box, vec![Operand::Value(out)]),
+        Type::Str,
+        None,
+    );
+    ctx.emit_drop_value(Operand::Value(out), Type::Any);
+    Operand::Value(v)
+}

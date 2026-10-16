@@ -90,7 +90,7 @@ static INSTALLED_PAIR: [AtomicU64; torajs_rc::builtin_proto::NUM_BUILTIN_PROTOS]
 ///
 /// # Safety
 /// `ctor_cell` is the live interned constructor cell for `proto_tag`.
-pub(crate) unsafe fn species_replaced(proto_tag: i64, ctor_cell: *mut c_void) -> bool {
+pub unsafe fn species_replaced(proto_tag: i64, ctor_cell: *mut c_void) -> bool {
     unsafe {
         let props = crate::member_get_layout::closure_props(ctor_cell);
         if props.is_null() {

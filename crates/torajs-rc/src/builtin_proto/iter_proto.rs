@@ -57,10 +57,11 @@ pub const ITER_HELPER_KIND_REGEXP_STRING: u8 = 9;
 const SOURCE_OFF: usize = 8;
 
 /// The iterator prototypes — each hangs off %Iterator.prototype% and
-/// owns no `constructor`.
+/// owns no `constructor`. `|`, not `||`: both tests are a compare,
+/// and evaluating both keeps the callers' selects branch-free.
 pub(super) fn is_iter_proto_tag(tag: i64) -> bool {
     (ARRAY_ITER_PROTO_TAG as i64..=ITER_HELPER_PROTO_TAG as i64).contains(&tag)
-        || tag == REGEXP_STRING_ITER_PROTO_TAG as i64
+        | (tag == REGEXP_STRING_ITER_PROTO_TAG as i64)
 }
 
 /// The builtin-proto slot an iterator cell inherits from, or `-1`

@@ -5,16 +5,17 @@
 //! each result's properties are read in the order the spec lists them:
 //! `length`, `0`, `index`, the captures, `groups`.
 
-use super::ops::{
+use crate::ops::{
     ABRUPT, Owned, OwnedStr, advance_string_index, box_number, flags_of, get, get_index, has_flag,
     last_index_length, regexp_exec, set_last_index, str_from_units, to_integer_or_infinity,
     to_length, to_string,
 };
-use super::subst::{Capture, get_substitution, named_object};
-use crate::nanbox::{AnyValue, VALUE_UNDEFINED, box_int32, is_null, is_undefined};
+use crate::subst::{Capture, get_substitution, named_object};
+use torajs_anyvalue::nanbox::{AnyValue, VALUE_UNDEFINED, box_int32, is_null, is_undefined};
+use torajs_anyvalue::regexp_support as av;
 
 /// §22.2.6.11 steps 3-16.
-pub(super) unsafe fn symbol_replace(
+pub(crate) unsafe fn symbol_replace(
     rx: AnyValue,
     string: AnyValue,
     replace_value: AnyValue,
@@ -23,7 +24,7 @@ pub(super) unsafe fn symbol_replace(
         let Some(s) = to_string(string) else {
             return ABRUPT;
         };
-        let functional = crate::construct::is_callable(replace_value);
+        let functional = av::is_callable(replace_value);
         let template = if functional {
             None
         } else {
@@ -122,7 +123,11 @@ unsafe fn read_match(r: AnyValue, len_s: usize) -> Option<MatchRecord> {
         let m0 = get_index(r, 0)?;
         let matched_str = to_string(m0.get())?;
         let index = get(r, b"index")?;
-        let position = to_integer_or_infinity(index.get())?.clamp(0.0, len_s as f64) as usize;
+        // max / min, not clamp: clamp's NaN panic formats an f64 and
+        // links the whole float printer into every program
+        let position = to_integer_or_infinity(index.get())?
+            .max(0.0)
+            .min(len_s as f64) as usize;
         let mut captures = Vec::new();
         let mut capture_values = Vec::new();
         let mut n = 1;
@@ -162,15 +167,13 @@ unsafe fn call_replacer(f: AnyValue, m: &MatchRecord, s: &OwnedStr) -> Option<Ve
         if !is_undefined(m.groups.get()) {
             args.push(m.groups.get());
         }
-        let v = Owned::adopt(
-            crate::method_call_closure_dispatch::__torajs_any_call_with_this(
-                f,
-                VALUE_UNDEFINED,
-                args.as_ptr(),
-                args.len() as i64,
-            ),
-        );
-        if super::ops::throw_pending() {
+        let v = Owned::adopt(av::__torajs_any_call_with_this(
+            f,
+            VALUE_UNDEFINED,
+            args.as_ptr(),
+            args.len() as i64,
+        ));
+        if crate::ops::throw_pending() {
             return None;
         }
         Some(to_string(v.get())?.units())

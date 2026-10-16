@@ -26,6 +26,7 @@ use crate::nanbox_encode::{
     __torajs_anyv_box_from_pair, __torajs_anyv_box_i64, __torajs_anyv_box_pointer,
 };
 use crate::nanbox_ffi::{__torajs_anyv_to_number, __torajs_anyv_to_str};
+use crate::str_match_custom::str_method_step2;
 
 unsafe extern "C" {
     /// torajs-str — charAt glue (empty string for OOB).
@@ -154,6 +155,7 @@ unsafe extern "C" {
 /// expected to `__torajs_regex_drop` it after the underlying
 /// kernel call returns. Match/search pass `""`; matchAll passes
 /// `"g"` per spec step 4.c.
+#[inline(never)]
 unsafe fn coerce_regexp(av: AnyValue, flag_bytes: &[u8]) -> Option<*mut c_void> {
     // SAFETY: caller invariant on `av` (valid AnyValue bit pattern)
     // is the same as `regexp_cell`'s.
@@ -169,6 +171,11 @@ unsafe fn coerce_regexp(av: AnyValue, flag_bytes: &[u8]) -> Option<*mut c_void> 
     // SAFETY: `__torajs_anyv_to_str` returns a valid Str heap; the
     // flags alloc reads `flag_bytes` in-bounds via the passed len.
     let pat = unsafe { __torajs_anyv_to_str(av) as *const c_void };
+    // ToString threw: its placeholder must not become a pattern.
+    if unsafe { __torajs_throw_check() } != 0 {
+        unsafe { __torajs_str_drop(pat as *mut c_void) };
+        return None;
+    }
     let flags = unsafe {
         __torajs_str_alloc(flag_bytes.as_ptr(), flag_bytes.len() as i64) as *const c_void
     };
@@ -192,6 +199,35 @@ unsafe fn regexp_drop_if_coerced(orig: AnyValue, re: *mut c_void) {
 
 /// `Tag::Str` arm — id-switch onto the torajs-str glue.
 pub(crate) unsafe fn str_method(s: *mut u8, mid: i64, argv: *const u64, argc: i64) -> AnyValue {
+    // Step 2 of the six pattern-taking methods: a user @@split /
+    // @@match / @@matchAll / @@replace / @@search on the pattern runs
+    // before anything is coerced. A RegExp pattern's builtin face
+    // misses the probe and keeps its kernel lane.
+    if matches!(
+        mid,
+        ANY_METHOD_SPLIT
+            | ANY_METHOD_MATCH
+            | ANY_METHOD_MATCH_ALL
+            | ANY_METHOD_REPLACE
+            | ANY_METHOD_REPLACE_ALL
+            | ANY_METHOD_SEARCH
+    ) {
+        return unsafe { str_method_step2(s, mid, argv, argc) };
+    }
+    unsafe { str_method_switch(s, mid, argv, argc) }
+}
+
+/// [`str_method`] past step 2. The RegExp.prototype protocol methods
+/// delegate here: step 2 belongs to the String.prototype method, so
+/// `RegExp.prototype[@@match].call(re, s)` must not hand the call to
+/// an own `re[@@match]`.
+#[inline(never)]
+pub(crate) unsafe fn str_method_switch(
+    s: *mut u8,
+    mid: i64,
+    argv: *const u64,
+    argc: i64,
+) -> AnyValue {
     let arg_at = |i: i64| -> u64 {
         if i < argc {
             unsafe { *argv.add(i as usize) }
@@ -312,24 +348,6 @@ pub(crate) unsafe fn str_method(s: *mut u8, mid: i64, argv: *const u64, argc: i6
                 __torajs_anyv_box_from_pair(1, hit)
             }
             m if m == ANY_METHOD_SPLIT => {
-                // §22.1.3.23 step 2 — a separator carrying a user
-                // `@@split` dispatches with the limit passed RAW
-                // (step 2 precedes step 4's ToUint32; a RegExp
-                // separator misses this probe — its split rides the
-                // dedicated kernel below — unless an own-dict
-                // override shadows it, which is exactly step 2).
-                let mut split_out: AnyValue = VALUE_UNDEFINED;
-                if crate::str_match_custom::__torajs_any_str_symbol_try(
-                    s as *mut c_void,
-                    arg_at(0),
-                    arg_at(1),
-                    2,
-                    crate::str_match_custom::WK_SPLIT,
-                    &raw mut split_out,
-                ) != 0
-                {
-                    return split_out;
-                }
                 // A present limit argument routes through the
                 // ToUint32 + truncation lane; absent / undefined
                 // keeps the zero-cost three-way dispatch.
@@ -385,12 +403,6 @@ unsafe fn str_replace_arm(s: *mut u8, mid: i64, argv: *const u64, argc: i64) -> 
     };
     unsafe {
         let all = (mid == ANY_METHOD_REPLACE_ALL) as i64;
-        // §22.1.3.20 step 2.b precedes step 6.a — a non-global
-        // RegExp searchValue disqualifies the call before
-        // ToString(replaceValue) may run its user hook.
-        if reject_non_global_regex_search(mid, argv, argc) {
-            return VALUE_UNDEFINED;
-        }
         if let Some(re_ptr) = regexp_cell(arg_at(0)) {
             // §22.1.3.19 step 5 — the RegExp lane's functional leg:
             // the kernel reads the capture count off the cell and

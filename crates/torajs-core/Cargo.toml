@@ -63,6 +63,9 @@ torajs-anyvalue = { path = "../torajs-anyvalue" }
 # crate's build.rs snapshots staticlib paths (and the tr link needs
 # its rlib for the seam symbol).
 torajs-dispatch = { path = "../torajs-dispatch" }
+# The RegExp protocol algorithms' own member (behind the protocol and
+# ctor-build seams); built before build.rs snapshots staticlib paths.
+torajs-regexp-protocol = { path = "../torajs-regexp-protocol" }
 # Layer-1 substrate: native-error factory registry + throw_range/
 # type_error helpers. Same dual rlib+staticlib usage.
 torajs-throw = { path = "../torajs-throw" }

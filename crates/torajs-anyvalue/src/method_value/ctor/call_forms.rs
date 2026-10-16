@@ -80,48 +80,6 @@ pub(super) unsafe fn ctor_regexp_call(argv: *const u64, argc: i64) -> u64 {
             crate::nanbox_ffi::__torajs_anyv_rc_inc(pattern);
             return pattern;
         }
-        regexp_build(pattern, flags)
-    }
-}
-
-/// RegExpAlloc + RegExpInitialize over two AnyValues — the body
-/// `RegExp(…)` and `new RegExp(…)` share (§22.2.4.1 step 2 hands
-/// both to §22.2.3.1). An absent / undefined operand is the empty
-/// string, which is what makes `new RegExp()` the empty pattern.
-pub(in crate::method_value::ctor) unsafe fn regexp_build(pattern: u64, flags: u64) -> u64 {
-    use crate::nanbox::{VALUE_UNDEFINED, box_void_ptr, is_undefined};
-    unsafe {
-        use crate::regexp_protocol::ops::{Owned, get};
-        // Step 1 — IsRegExp runs first; its `@@match` Get is
-        // observable (a getter may even recompile the pattern).
-        let pattern_is_regexp = crate::is_regexp::is_regexp(pattern) != 0;
-        if __torajs_throw_check() != 0 {
-            return VALUE_UNDEFINED;
-        }
-        // Step 4 — a RegExp cell is read through its
-        // [[OriginalSource]] (`new RegExp(/b/, "y")` is `/b/y`; the
-        // stringified `/b/` would match slashes). Step 5 — any other
-        // regexp-like object answers `source` / `flags` by Get.
-        let mut owned: [Option<Owned>; 2] = [None, None];
-        if pattern_is_regexp && crate::regexp_protocol::regexp_cell(pattern).is_none() {
-            let Some(src) = get(pattern, b"source") else {
-                return VALUE_UNDEFINED;
-            };
-            if is_undefined(flags) {
-                let Some(f) = get(pattern, b"flags") else {
-                    return VALUE_UNDEFINED;
-                };
-                owned[1] = Some(f);
-            }
-            owned[0] = Some(src);
-        }
-        let p = owned[0].as_ref().map_or(pattern, Owned::get);
-        let f = owned[1].as_ref().map_or(flags, Owned::get);
-        let re = box_void_ptr(__torajs_regex_compile_any(p, f));
-        if __torajs_throw_check() != 0 {
-            crate::nanbox_ffi::__torajs_anyv_rc_dec(re);
-            return VALUE_UNDEFINED;
-        }
-        re
+        crate::dispatch_seam::__torajs_ctor_regexp_build(pattern, flags)
     }
 }

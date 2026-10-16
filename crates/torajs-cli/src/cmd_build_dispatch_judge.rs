@@ -31,6 +31,9 @@ use torajs_core::ssa::{InstKind, Module, Operand};
 use torajs_rc::any_method_family as fam;
 
 use crate::cmd_build_dispatch_judge_obj_world::{COERCION_KEEP, COERCION_PREFIXES};
+use crate::cmd_build_dispatch_judge_regexp_world::{
+    RegexpWorld, STR_SYMBOL_GATE, hands_out_regexp_ctor, is_protocol_mid, mints_regexp,
+};
 
 /// Mid-carrying dispatch intrinsics: (symbol, index of the mid in
 /// the call's operand list). Closed set — every ssa_lower site that
@@ -254,6 +257,10 @@ pub(crate) struct DispatchJudgment {
     /// proven print-quiet (no path from user code into the per-tag
     /// inspect dispatch).
     pub stub_printers: bool,
+    /// Stub the RegExp protocol seam and the RegExp ctor-value build
+    /// seam ([`crate::cmd_build_dispatch_judge_regexp_world`]).
+    pub stub_regexp_protocol: bool,
+    pub stub_ctor_regexp: bool,
 }
 
 /// Scan the lowered module and judge the stub set. Returns the
@@ -272,6 +279,8 @@ pub(crate) fn judge(module: &Module) -> DispatchJudgment {
     let mut printer_ref = false;
     let mut any_writer = false;
     let mut typed_arr_print = false;
+    let mut symbol_gate = false;
+    let (mut regexp_world, mut regexp_ctor) = (false, false);
 
     for f in &module.funcs {
         let synth_error_fn = is_synth_error_fn(&f.name);
@@ -333,6 +342,11 @@ pub(crate) fn judge(module: &Module) -> DispatchJudgment {
                         _ => fallback = true,
                     }
                 }
+                if name == STR_SYMBOL_GATE {
+                    symbol_gate = true;
+                }
+                regexp_ctor = regexp_ctor || hands_out_regexp_ctor(name, args);
+                regexp_world = regexp_world || mints_regexp(name);
                 if NS_WORLD_PREFIXES.iter().any(|p| name.starts_with(p)) {
                     ns_world = true;
                 }
@@ -381,6 +395,8 @@ pub(crate) fn judge(module: &Module) -> DispatchJudgment {
     if !ns_world && !fallback {
         ns_world = crate::cmd_build_dispatch_judge_ctor_reach::ctor_cell_reachable(module, diag);
     }
+    // computed just above unless a fallback trigger skipped it
+    let ctor_read = (ns_world || !fallback).then_some(ns_world);
     if any_writer && typed_arr_print {
         if diag {
             eprintln!("[judge] props-face keep: any writer + typed array printer");
@@ -416,22 +432,34 @@ pub(crate) fn judge(module: &Module) -> DispatchJudgment {
         observed.dedup();
         eprintln!(
             "[judge] observed={observed:?} keep={keep_bits:#017b} fallback={fallback} \
-             printer_ref={printer_ref} print_world={print_world} ns_world={ns_world}"
+             printer_ref={printer_ref} print_world={print_world} ns_world={ns_world} \
+             regexp_world={regexp_world} regexp_ctor={regexp_ctor}"
         );
     }
+    let rx = RegexpWorld {
+        world: regexp_world || regexp_ctor,
+        ctor: regexp_ctor,
+        ctor_read,
+        protocol_entry: fallback || symbol_gate || observed.iter().any(|&m| is_protocol_mid(m)),
+    }
+    .verdict(module, diag);
     if fallback || printer_ref {
         return DispatchJudgment {
-            stub_arm_bits: 0,
+            stub_arm_bits: rx.arm_bits,
             stub_ns_static: false,
             stub_printers: false,
+            stub_regexp_protocol: rx.protocol,
+            stub_ctor_regexp: rx.ctor,
         };
     }
     DispatchJudgment {
-        stub_arm_bits: fam::FAM_ALL & !keep_bits,
+        stub_arm_bits: (fam::FAM_ALL & !keep_bits) | rx.arm_bits,
         stub_ns_static: !ns_world,
         // blade-2d granularity (per-family printer domains) comes
         // later; today printers stub only for the fully quiet shape
         // (nothing observed, no family usage, no print world).
         stub_printers: !print_world && observed.is_empty() && keep_bits == 0,
+        stub_regexp_protocol: rx.protocol,
+        stub_ctor_regexp: rx.ctor,
     }
 }

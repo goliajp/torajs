@@ -154,7 +154,7 @@ pub(crate) fn ctor_entry(key: u64) -> u64 {
 ///
 /// # Safety
 /// `av` must be a live AnyValue.
-pub(crate) unsafe fn is_callable(av: AnyValue) -> bool {
+pub unsafe fn is_callable(av: AnyValue) -> bool {
     if !is_cell(av) {
         return false;
     }
@@ -182,7 +182,7 @@ pub(crate) unsafe fn is_callable(av: AnyValue) -> bool {
 ///
 /// # Safety
 /// `av` must be a live AnyValue.
-pub(crate) unsafe fn is_constructor(av: AnyValue) -> bool {
+pub unsafe fn is_constructor(av: AnyValue) -> bool {
     if !is_cell(av) {
         return false;
     }

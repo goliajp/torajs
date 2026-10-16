@@ -315,6 +315,8 @@ pub(crate) mod json_stringify_tojson;
 pub mod loose_eq;
 
 pub mod nanbox;
+#[doc(hidden)]
+pub mod regexp_support;
 pub use nanbox::*;
 
 pub(crate) mod nanbox_encode;
@@ -697,6 +699,22 @@ mod tests {
     #[unsafe(no_mangle)]
     pub extern "C" fn __torajs_ns_static_cell(id: i64) -> *mut u8 {
         crate::method_value::ns_static_cell_impl(id)
+    }
+    // The RegExp protocol and ctor-build seams: their defaults are
+    // `torajs-regexp-protocol`, which this test binary does not link;
+    // no unit test here reaches either.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn __torajs_regexp_protocol_call(
+        _recv: u64,
+        _mid: i64,
+        _argv: *const u64,
+        _argc: i64,
+    ) -> u64 {
+        crate::regexp_protocol::KERNEL_LANE
+    }
+    #[unsafe(no_mangle)]
+    pub extern "C" fn __torajs_ctor_regexp_build(_pattern: u64, _flags: u64) -> u64 {
+        crate::nanbox::VALUE_UNDEFINED
     }
     // The ctor-date seam: same bridge shape.
     #[unsafe(no_mangle)]

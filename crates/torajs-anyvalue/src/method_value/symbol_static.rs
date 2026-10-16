@@ -38,7 +38,7 @@ unsafe extern "C" {
 /// The idx-th well-known symbol singleton, for pointer-identity
 /// checks (immortal — no ledger). Index is the alphabetical
 /// [`WELL_KNOWN_NAMES`] position.
-pub(crate) fn well_known_singleton(idx: i64) -> *const c_void {
+pub fn well_known_singleton(idx: i64) -> *const c_void {
     // SAFETY: pure table read of an immortal cell (the extern is
     // already inside this module's unsafe block contract).
     unsafe { __torajs_symbol_well_known(idx) }

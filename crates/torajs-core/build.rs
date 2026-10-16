@@ -35,9 +35,9 @@ use compiler_sources::COMPILER_SOURCE_FILES;
 /// list, with a matching one-line entry in `staticlibs.rs`'s
 /// `runtime_image!` call naming `"TORAJS_<NAME>_STATICLIB_PATH"`.
 const STATICLIBS: &[&str] = &[
-    "torajs_syscall",       // Layer-0: aarch64/x86_64 raw syscall trampoline (v0.7-A1)
-    "torajs_io",            // Layer-0: 0-libc buffered stdout writer (v0.7-A3 Step 14-a)
-    "torajs_fmt",           // Layer-0: 0-libc f64 ↔ string conversion (v0.7-A4 Step 15-a/b/c)
+    "torajs_syscall",         // Layer-0: aarch64/x86_64 raw syscall trampoline (v0.7-A1)
+    "torajs_io",              // Layer-0: 0-libc buffered stdout writer (v0.7-A3 Step 14-a)
+    "torajs_fmt",             // Layer-0: 0-libc f64 ↔ string conversion (v0.7-A4 Step 15-a/b/c)
     "torajs_mem", // Layer-0: 0-libc memcpy/memmove/memcmp linker shims (v0.7-A5 Step 16-a)
     "torajs_mmalloc", // Layer-0: mmap-backed allocator + libc-compat shim (v0.7-A2)
     "torajs_rc",  // Layer-1: refcount + heap-header
@@ -71,6 +71,7 @@ const STATICLIBS: &[&str] = &[
     "torajs_abort", // Layer-0: panic-free abort helper — write(2)+abort(); replaces Rust panic infra (polish A3a)
     "torajs_print", // Layer-0: console primitives (print_bool / print_i64 / print_f64) — co-linked by torajs-link at `tr build`.
     "torajs_fnname", // Layer-1: fn-name registry runtime helper — looks up fn body vaddr in __torajs_fn_name_table[] and emits [Function: <name>] / [Function (anonymous)] for inspect (fn-name registry Phase 2 Step 4).
+    "torajs_regexp_protocol", // Layer-1: RegExp protocol algorithms + ctor build behind two seams; last, so every member it shares resolves to the archive that owns it
 ];
 
 fn main() {

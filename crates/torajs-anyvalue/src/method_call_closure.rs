@@ -314,7 +314,7 @@ pub(crate) unsafe fn dispatch(
                         return crate::nanbox::VALUE_UNDEFINED;
                     }
                     if crate::regexp_protocol::regexp_cell(this_arg).is_none() {
-                        return crate::regexp_protocol::call_through_arm(
+                        return crate::regexp_protocol::call_through_seam(
                             this_arg, *mid, argv, argc,
                         );
                     }

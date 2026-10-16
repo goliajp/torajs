@@ -127,7 +127,7 @@ pub(crate) unsafe fn proto_own_probe(proto: *mut c_void, key: *const c_void) -> 
 /// method surface with a real, non-callable entry (§10.1.8.1
 /// OrdinaryGet), while an absent key leaves the surface showing
 /// through.
-pub(crate) unsafe fn proto_own_has(proto: *mut c_void, key: *const c_void) -> bool {
+pub unsafe fn proto_own_has(proto: *mut c_void, key: *const c_void) -> bool {
     if unsafe { proto_is_arr(proto) } {
         return unsafe { __torajs_arrprops_has(proto, key) } != 0;
     }

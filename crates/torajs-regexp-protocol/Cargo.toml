@@ -1,0 +1,27 @@
+[package]
+name = "torajs-regexp-protocol"
+description = "The RegExp protocol methods (@@match / @@matchAll / @@replace / @@search / @@split) as their ECMAScript algorithms, and RegExpInitialize for a first-class RegExp constructor, for the torajs AOT TypeScript runtime. An archive member of its own behind two link seams, so a program that cannot reach them never links it."
+keywords = ["torajs", "regexp", "dead-strip"]
+categories = ["compilers"]
+documentation = "https://docs.rs/torajs-regexp-protocol"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+# Dual emit like every runtime crate: `rlib` for workspace builds,
+# `staticlib` for the in-house link pipeline. Being a SEPARATE
+# archive member is load-bearing: the link walks every member it
+# pulls, and a program whose dispatch judgment stubs both seams never
+# pulls this one.
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[dependencies]
+torajs-anyvalue = { path = "../torajs-anyvalue" }
+torajs-rc = { path = "../torajs-rc" }

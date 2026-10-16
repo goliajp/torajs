@@ -32,7 +32,7 @@ const REGEXP_PROTOCOL: [(i64, i64); 5] = [
 
 /// The RegExp proto row (`family.rs`), which is also its prototype
 /// tag (`torajs-rc/builtin_proto.rs`: RegExp = 7).
-pub(crate) const REGEXP_FAMILY: i64 = 7;
+pub const REGEXP_FAMILY: i64 = 7;
 
 /// Is `mid` one of the [`REGEXP_PROTOCOL`] methods?
 pub(crate) fn regexp_protocol_mid(mid: i64) -> bool {
@@ -289,13 +289,13 @@ unsafe fn install_regexp_protocol(proto: *mut c_void) {
 /// torajs-dynobj header mirrors: live-entry count and the dense entry
 /// array's used length (holes included — it only grows until a
 /// resize compacts it).
-pub(crate) const DYNOBJ_COUNT_OFF: usize = 8;
-pub(crate) const DYNOBJ_ENTRIES_LEN_OFF: usize = 16;
+pub const DYNOBJ_COUNT_OFF: usize = 8;
+pub const DYNOBJ_ENTRIES_LEN_OFF: usize = 16;
 
 /// The dense entry length %RegExp.prototype% had when its mint
 /// finished installing the protocol methods. Any entry a program adds
 /// later appends past it, and a delete drops the live count below it.
-pub(crate) static REGEXP_PROTO_MINT_LEN: core::sync::atomic::AtomicU32 =
+pub static REGEXP_PROTO_MINT_LEN: core::sync::atomic::AtomicU32 =
     core::sync::atomic::AtomicU32::new(u32::MAX);
 
 /// §23.1.3.44 — the method names a `with` block must NOT bring into

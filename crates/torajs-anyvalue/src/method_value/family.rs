@@ -133,7 +133,7 @@ pub(crate) fn intern_family(family: i64, mid: i64) -> i64 {
 /// a family-less mint. Callers gate on
 /// [`super::builtin_method_mid`] being `Some` first (this reads the
 /// capture slot unconditionally).
-pub(crate) unsafe fn builtin_method_family(ptr: *mut c_void) -> i64 {
+pub unsafe fn builtin_method_family(ptr: *mut c_void) -> i64 {
     unsafe { ((*(ptr.cast::<u8>().add(CLOSURE_CAP_BASE_OFF) as *const u64) >> 32) as i64) - 1 }
 }
 

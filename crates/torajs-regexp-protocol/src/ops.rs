@@ -9,12 +9,15 @@
 
 use core::ffi::c_void;
 
-use crate::iter_zip_shared::member_pair_cell;
-use crate::nanbox::{
+use torajs_anyvalue::nanbox::{
     AnyValue, VALUE_NULL, VALUE_UNDEFINED, as_void_ptr, box_double, box_int32, is_cell, is_null,
 };
-use crate::nanbox_encode::__torajs_anyv_box_from_pair;
-use crate::nanbox_ffi::{__torajs_anyv_rc_dec, __torajs_anyv_to_number, __torajs_anyv_to_str};
+use torajs_anyvalue::regexp_support as av;
+use torajs_anyvalue::regexp_support::__torajs_anyv_box_from_pair;
+use torajs_anyvalue::regexp_support::member_pair_cell;
+use torajs_anyvalue::regexp_support::{
+    __torajs_anyv_rc_dec, __torajs_anyv_to_number, __torajs_anyv_to_str,
+};
 
 unsafe extern "C" {
     fn __torajs_str_alloc(src: *const u8, len: i64) -> *mut u8;
@@ -30,6 +33,8 @@ unsafe extern "C" {
     fn __torajs_arr_mark_kind(arr: *mut c_void, chain: u64);
     fn __torajs_anyv_unbox_tag(v: AnyValue) -> i64;
     fn __torajs_anyv_unbox_value(v: AnyValue) -> i64;
+    /// torajs-str — an owned Str of the decimal digits of `n`.
+    fn __torajs_i64_to_str(n: i64) -> *mut c_void;
 }
 
 /// `ARR_KIND_HEAP` mirror — the one kind `exec` match slots hold.
@@ -139,10 +144,10 @@ pub(crate) unsafe fn key_str(name: &[u8]) -> OwnedStr {
 pub(crate) unsafe fn get_key(obj: AnyValue, key: *const c_void) -> Option<Owned> {
     unsafe {
         let (t, v) = member_pair_cell(obj, key);
-        let out = if t == crate::struct_probe::ANY_ACCESSOR_TAG {
-            crate::struct_probe::__torajs_any_accessor_get(obj, key, v)
+        let out = if t == av::ANY_ACCESSOR_TAG {
+            av::__torajs_any_accessor_get(obj, key, v)
         } else {
-            crate::payload_rc_inc(t as i64, v as i64);
+            av::payload_rc_inc(t as i64, v as i64);
             __torajs_anyv_box_from_pair(t as i64, v as i64)
         };
         let out = Owned(out);
@@ -164,7 +169,7 @@ pub(crate) unsafe fn get(obj: AnyValue, name: &[u8]) -> Option<Owned> {
 /// ? Get(O, ! ToString(𝔽(index))).
 pub(crate) unsafe fn get_index(obj: AnyValue, index: i64) -> Option<Owned> {
     unsafe {
-        let key = OwnedStr(crate::__torajs_i64_to_str(index));
+        let key = OwnedStr(__torajs_i64_to_str(index));
         get_key(obj, key.ptr())
     }
 }
@@ -176,9 +181,9 @@ pub(crate) unsafe fn set_last_index(obj: AnyValue, v: AnyValue) -> Option<()> {
         let tag = __torajs_anyv_unbox_tag(v);
         let payload = __torajs_anyv_unbox_value(v);
         // the store takes the pair over
-        crate::payload_rc_inc(tag, payload);
+        av::payload_rc_inc(tag, payload);
         let mut slot = obj;
-        crate::member_set::__torajs_any_member_set(
+        av::__torajs_any_member_set(
             &mut slot,
             key.ptr(),
             tag as u64,
@@ -251,8 +256,13 @@ pub(crate) unsafe fn flags_of(rx: AnyValue) -> Option<Vec<u16>> {
         // A RegExp cell's direct `flags` read renders its own flag
         // word; the §22.2.6.4 getter it stands for reads the eight
         // flag properties, which an own `global` accessor overrides.
-        let f = if super::regexp_cell(rx).is_some() && !super::shadowed(rx, key.ptr()) {
-            let v = Owned(crate::regexp_flags_getter::regexp_flags_getter(rx));
+        let f = if av::regexp_cell(rx).is_some() && !av::shadowed(rx, key.ptr()) {
+            // through the accessor face, the getter's one caller (it
+            // inlines there)
+            let v = Owned(
+                av::regexp_accessor_call(rx, torajs_rc::ANY_METHOD_GET_FLAGS)
+                    .unwrap_or(torajs_anyvalue::nanbox::VALUE_UNDEFINED),
+            );
             if throw_pending() {
                 return None;
             }
@@ -273,15 +283,13 @@ pub(crate) unsafe fn regexp_exec(rx: AnyValue, s: &OwnedStr) -> Option<Owned> {
     unsafe {
         let exec = get(rx, b"exec")?;
         let e = exec.get();
-        if crate::construct::is_callable(e) && !is_builtin_exec(e) {
+        if av::is_callable(e) && !is_builtin_exec(e) {
             let arg = s.boxed();
-            let r = Owned(
-                crate::method_call_closure_dispatch::__torajs_any_call_with_this(e, rx, &arg, 1),
-            );
+            let r = Owned(av::__torajs_any_call_with_this(e, rx, &arg, 1));
             if throw_pending() {
                 return None;
             }
-            if !is_null(r.get()) && !crate::iter_zip_shared::av_is_object(r.get()) {
+            if !is_null(r.get()) && !av::av_is_object(r.get()) {
                 type_error(c"RegExp exec method returned something other than an Object or null");
                 return None;
             }
@@ -298,16 +306,15 @@ unsafe fn is_builtin_exec(v: AnyValue) -> bool {
     }
     let cell = as_void_ptr(v);
     unsafe {
-        crate::method_value::builtin_method_mid(cell) == Some(torajs_rc::ANY_METHOD_EXEC)
-            && crate::method_value::builtin_method_family(cell)
-                == crate::method_value::REGEXP_PROTO_FAMILY
+        av::builtin_method_mid(cell) == Some(torajs_rc::ANY_METHOD_EXEC)
+            && av::builtin_method_family(cell) == av::REGEXP_PROTO_FAMILY
     }
 }
 
 /// §22.2.7.2 RegExpBuiltinExec behind RequireInternalSlot.
 unsafe fn builtin_exec(rx: AnyValue, s: &OwnedStr) -> Option<Owned> {
     unsafe {
-        let Some(re) = super::regexp_cell(rx) else {
+        let Some(re) = av::regexp_cell(rx) else {
             type_error(c"RegExp.prototype.exec called on an incompatible receiver");
             return None;
         };

@@ -112,7 +112,7 @@ pub(crate) const KIND_SETTER: u8 = 1;
 /// same tag with a ZERO value channel: there is no AccessorPair cell,
 /// and that zero is what routes [`__torajs_any_accessor_get`] into the
 /// struct lane.
-pub(crate) const ANY_ACCESSOR_TAG: u64 = 6;
+pub const ANY_ACCESSOR_TAG: u64 = 6;
 
 /// MethodMeta flags bit 1 — mirror of torajs-structmeta
 /// `METHOD_FLAG_TWIN_PRIMARY` (`method_call_dynobj/tail.rs` carries

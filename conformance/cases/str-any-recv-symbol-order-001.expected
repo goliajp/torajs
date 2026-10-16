@@ -1,0 +1,11 @@
+true 0
+true 0
+R:abab:x 1
+customG 2
+40
+[ "M", "abab" ]
+[ "abab", 3 ]
+[ "a", "a", "" ] [ "b", "b" ] 1 zbab zbzb
+match ts
+search ts
+matchAll ts

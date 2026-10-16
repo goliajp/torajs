@@ -1,0 +1,12 @@
+const p: any = { toString() { return "b"; } };
+p[Symbol.split] = 0;
+const r: any = (m: string) => "<" + m + ">";
+console.log("abcb".replace(p, r));
+console.log("abcb".replaceAll(p, r));
+const r2: any = 7;
+console.log("abcb".replace(p, r2));
+const re: any = /b/g;
+console.log("abcb".replace(re, r));
+const n: any = null;
+console.log("anullb".replace(n, r));
+console.log(typeof "abcb".replace(re, 1));

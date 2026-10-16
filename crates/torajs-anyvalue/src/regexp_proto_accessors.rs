@@ -81,7 +81,7 @@ fn flag_bit(mid: i64) -> Option<i64> {
 ///
 /// # Safety
 /// `recv` is a valid AnyValue.
-pub(crate) unsafe fn regexp_accessor_call(recv: AnyValue, mid: i64) -> Option<AnyValue> {
+pub unsafe fn regexp_accessor_call(recv: AnyValue, mid: i64) -> Option<AnyValue> {
     if mid == torajs_rc::ANY_METHOD_GET_FLAGS {
         return Some(unsafe { crate::regexp_flags_getter::regexp_flags_getter(recv) });
     }
