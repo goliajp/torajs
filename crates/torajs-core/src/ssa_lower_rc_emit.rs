@@ -276,19 +276,25 @@ impl<'a> LowerCtx<'a> {
     /// `a.reverse().sort()`) and per-call closure envs
     /// (`xs.map(x => ...)`) don't leak their ref.
     pub(crate) fn release_owned_temp(&mut self, eid: ExprId, op: &Operand) {
+        if let Some(ty) = self.owned_temp_ty(eid, op) {
+            self.emit_drop_value(*op, ty);
+        }
+    }
+
+    /// The type of the reference `eid`'s lowered value owns iff the
+    /// consumer settles it: [`Self::release_owned_temp`] drops it, and
+    /// a slot store moves it into the slot instead of taking a +1.
+    pub(crate) fn owned_temp_ty(&self, eid: ExprId, op: &Operand) -> Option<Type> {
         // RFC 20260915 — a pinned shared child is released by its
         // entry point, minted-closure shape included.
         if self.pins.operands.contains_key(&eid) {
-            return;
+            return None;
         }
         if !self.expr_owned_shape(eid) && !self.expr_minted_closure(eid, op) {
-            return;
+            return None;
         }
         let ty = self.operand_ty(op);
-        if ty.is_copy() {
-            return;
-        }
-        self.emit_drop_value(*op, ty);
+        (!ty.is_copy()).then_some(ty)
     }
 
     /// True when the expression's lowered value is an owned temp

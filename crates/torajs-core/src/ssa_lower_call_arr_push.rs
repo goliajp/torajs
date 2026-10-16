@@ -186,11 +186,13 @@ fn try_lower_ident_local(
     // the data pointer; the reserve guarantees it stays valid).
     if let Some(state) = ctx.prereserve.unchecked_for.get(recv_name).copied() {
         let len_next = ctx.emit_prereserved_push(state, val);
-        if elem_ty.is_refcounted() && !val_owned_from_substr {
-            ctx.emit_rc_inc(val);
-            // Chunk 733 — owned-shape arg hand-off (see try_lower_index).
-            ctx.release_owned_temp(args[0], &val);
-        }
+        crate::ssa_lower_arr_grow_kernel::take_pushed_stake(
+            ctx,
+            args[0],
+            val,
+            elem_ty,
+            val_owned_from_substr,
+        );
         // chunk 9c — fast-push spec parity: ret new length (already in SSA
         // as `len_next`, mirrors arr[#8]).
         return Some(Operand::Value(len_next));
