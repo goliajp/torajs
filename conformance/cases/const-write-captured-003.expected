@@ -1,0 +1,21 @@
+multi TypeError 1
+multi-let 2
+multi-shadow 2 1
+multi-let-group TypeError 1 1
+multi-fn TypeError 1
+multi-fn-param 3 1
+ctor-param 5
+field-vs-ctor-param TypeError 1
+ctor-local 10
+field-vs-ctor-local TypeError 1
+field-own-local 4 1
+default TypeError 1
+default-param-shadow 2 1
+arrow-default TypeError 1
+method-default TypeError 1
+const-in-default TypeError
+static-field TypeError 1
+default-nested TypeError 1
+gen-class-method TypeError function
+gen-class-shadow 1 function
+gen-sloppy-arrow function

@@ -24,7 +24,8 @@
 //! the writes inside it. Every statement list that declares a `const`
 //! is visited — the top level, a function or arrow body, a block, a
 //! `try` / `catch` / `finally` list, a switch's clauses, a class
-//! member's body — and so is a `for` whose head declares one (the
+//! member's body, a function inside a parameter default or a field
+//! initializer — and so is a `for` whose head declares one (the
 //! parser already rewrites a one-name head, and a `for (const x of
 //! …)` variable in `throw_on_const_loop_var_writes`). A program that
 //! declares no `const` is left as it was.
@@ -34,9 +35,9 @@
 
 use super::desugar_with::walk::{arrow_nodes, stmt_children_ref};
 use super::hoist_gen_fn_exprs_self_write::{
-    rewrite_writes_inside_functions, rewrite_writes_inside_functions_of_for,
+    ctor_field_inits, rewrite_writes_inside_functions, rewrite_writes_inside_functions_of_for,
 };
-use super::{Ast, Expr, ExprId, StaticInit, Stmt, SwitchCase};
+use super::{Ast, Expr, ExprId, Param, StaticInit, Stmt, SwitchCase};
 
 pub fn rewrite_const_writes_in_functions(ast: &mut Ast) {
     let stmts = std::mem::take(&mut ast.stmts);
@@ -75,7 +76,11 @@ fn visit_stmt(ast: &mut Ast, s: &Stmt) {
         visit_arrow(ast, eid);
     }
     match s {
-        Stmt::FnDecl { body, .. } | Stmt::Block(body) => visit_list(ast, body),
+        Stmt::FnDecl { params, body, .. } => {
+            visit_defaults(ast, params);
+            visit_list(ast, body);
+        }
+        Stmt::Block(body) => visit_list(ast, body),
         // The group's declarations belong to the enclosing list, which
         // has already rewritten for them.
         Stmt::Multi(list) => {
@@ -136,8 +141,12 @@ fn visit_switch(ast: &mut Ast, cases: &[SwitchCase], default: Option<&[Stmt]>) {
     }
 }
 
+/// The instance field initializers spliced into the constructor are
+/// not part of its scope (§15.7.10): a `const` the constructor
+/// declares does not reach them, so its body is visited without them.
 fn visit_class(ast: &mut Ast, s: &Stmt) {
     let Stmt::ClassDecl {
+        name,
         ctor,
         methods,
         static_methods,
@@ -148,25 +157,53 @@ fn visit_class(ast: &mut Ast, s: &Stmt) {
         return;
     };
     if let Some(c) = ctor {
-        visit_list(ast, &c.body);
+        visit_defaults(ast, &c.params);
+        let fields = ctor_field_inits(ast, name, &c.body);
+        if fields.is_empty() {
+            visit_list(ast, &c.body);
+        } else {
+            let own: Vec<Stmt> = (c.body.iter().enumerate())
+                .filter(|(i, _)| !fields.contains(i))
+                .map(|(_, s)| s.clone())
+                .collect();
+            visit_list(ast, &own);
+            for f in &c.body[fields] {
+                visit_stmt(ast, f);
+            }
+        }
     }
     for m in methods.iter().chain(static_methods) {
+        visit_defaults(ast, &m.params);
         visit_list(ast, &m.body);
     }
     for i in static_init {
-        if let StaticInit::Block(b) = i {
-            visit_list(ast, b);
+        match i {
+            StaticInit::Block(b) => visit_list(ast, b),
+            StaticInit::Field(f) => visit_stmt(ast, &Stmt::Expr(f.init)),
         }
+    }
+}
+
+/// The functions written in parameter defaults.
+fn visit_defaults(ast: &mut Ast, params: &[Param]) {
+    for d in params.iter().filter_map(|p| p.default) {
+        visit_stmt(ast, &Stmt::Expr(d));
     }
 }
 
 /// An arrow's body lives in the arena; it is lent out for the visit
 /// (the rewrite only touches arena expressions, never this node).
 fn visit_arrow(ast: &mut Ast, eid: ExprId) {
-    let body = match &mut ast.exprs[eid.0 as usize] {
-        Expr::ArrowFn { body, .. } => std::mem::take(body),
+    let (defaults, body): (Vec<ExprId>, _) = match &mut ast.exprs[eid.0 as usize] {
+        Expr::ArrowFn { params, body, .. } => (
+            params.iter().filter_map(|p| p.default).collect(),
+            std::mem::take(body),
+        ),
         _ => unreachable!("arrow_nodes answers arrow nodes"),
     };
+    for d in defaults {
+        visit_stmt(ast, &Stmt::Expr(d));
+    }
     visit_list(ast, &body);
     if let Expr::ArrowFn { body: slot, .. } = &mut ast.exprs[eid.0 as usize] {
         *slot = body;

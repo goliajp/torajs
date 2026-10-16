@@ -3,14 +3,17 @@
 
 use super::super::desugar_with::walk::{expr_children, stmt_children_ref, stmt_exprs};
 use super::super::free_vars_hoisted_names::hoist_var_names;
-use super::super::{Ast, Expr, ExprId, Param, StaticInit, Stmt};
+use super::super::{Ast, ClassCtor, Expr, ExprId, Param, StaticInit, Stmt};
+use std::ops::Range;
 
 /// One write to the self-name: the writing expression, its target
-/// ident, and the RHS (`None` for `x++`).
+/// ident, the RHS (`None` for `x++`), and whether it sits in a class
+/// body, which is strict code whatever the enclosing goal (§11.2.2).
 pub(super) struct Site {
     pub(super) eid: ExprId,
     pub(super) target: ExprId,
     pub(super) value: Option<ExprId>,
+    pub(super) in_class: bool,
 }
 
 /// `collect_stmt`'s scope rules, but a write only counts once the
@@ -79,12 +82,91 @@ pub(super) fn collect_stmt(ast: &Ast, s: &Stmt, sn: &str, out: &mut Vec<Site>) {
     }
 }
 
-/// A function's body, unless its params or body rebind the name.
+/// A function's parameter defaults and body, unless its params or
+/// body rebind the name. A default is code of the function
+/// (§10.2.11); `split_param_scope` has already renamed a body
+/// declaration a default would reach.
 fn collect_fn_body(ast: &Ast, params: &[Param], body: &[Stmt], sn: &str, out: &mut Vec<Site>) {
-    if !rebinds(params, body, sn) {
-        for b in body {
+    collect_fn_body_except(ast, params, body, 0..0, sn, out);
+}
+
+/// [`collect_fn_body`] skipping the statements at `skip`.
+fn collect_fn_body_except(
+    ast: &Ast,
+    params: &[Param],
+    body: &[Stmt],
+    skip: Range<usize>,
+    sn: &str,
+    out: &mut Vec<Site>,
+) {
+    if rebinds(params, body, sn) {
+        return;
+    }
+    for d in params.iter().filter_map(|p| p.default) {
+        collect_expr(ast, d, sn, out);
+    }
+    for (i, b) in body.iter().enumerate() {
+        if !skip.contains(&i) {
             collect_stmt(ast, b, sn, out);
         }
+    }
+}
+
+/// A constructor. The instance field initializers the parser spliced
+/// into its body run in the class body's scope (§15.7.10), where the
+/// constructor's parameters and locals do not reach, so they are
+/// collected apart from it.
+fn collect_ctor(ast: &Ast, class: &str, c: &ClassCtor, sn: &str, out: &mut Vec<Site>) {
+    let fields = ctor_field_inits(ast, class, &c.body);
+    for s in &c.body[fields.clone()] {
+        collect_stmt(ast, s, sn, out);
+    }
+    collect_fn_body_except(ast, &c.params, &c.body, fields, sn, out);
+}
+
+/// The span of a constructor body the parser filled with the class's
+/// instance field initializers: from just past the `super(...)`
+/// statement (or the top) to the end `ctor_field_init_end` records,
+/// or the whole body of a constructor synthesized only to hold them.
+/// Empty when that span does not read back as initializers.
+pub(in crate::ast) fn ctor_field_inits(ast: &Ast, class: &str, body: &[Stmt]) -> Range<usize> {
+    let start = body
+        .iter()
+        .position(|s| matches!(s, Stmt::Expr(e) if matches!(ast.get_expr(*e), Expr::Super { .. })))
+        .map_or(0, |i| i + 1);
+    let end = if ast.field_init_synth_ctors.contains(class) {
+        body.len()
+    } else {
+        match ast.ctor_field_init_end.get(class) {
+            Some(&e) => e,
+            None => return 0..0,
+        }
+    };
+    if start > end || end > body.len() || !body[start..end].iter().all(|s| is_field_init(ast, s)) {
+        return 0..0;
+    }
+    start..end
+}
+
+/// `this.<f> = init` (also keyed), a private field's install marker,
+/// or a class the initializer declared in front of itself.
+fn is_field_init(ast: &Ast, s: &Stmt) -> bool {
+    let Stmt::Expr(e) = s else {
+        return matches!(s, Stmt::ClassDecl { .. });
+    };
+    if super::super::private_brand::is_field_add(ast, *e) {
+        return true;
+    }
+    let Expr::Assign { target, .. } = ast.get_expr(*e) else {
+        return false;
+    };
+    let (Expr::Member { obj, .. } | Expr::Index { obj, .. }) = ast.get_expr(*target) else {
+        return false;
+    };
+    match ast.get_expr(*obj) {
+        Expr::This => true,
+        Expr::As { expr, .. } => matches!(ast.get_expr(*expr), Expr::This),
+        _ => false,
     }
 }
 
@@ -114,7 +196,9 @@ fn walk_scoped(
         }
     };
     match s {
-        Stmt::Block(l) | Stmt::Multi(l) => list(l, out),
+        // A `Multi` group shares the enclosing list's scope, which has
+        // already asked whether it declares the name.
+        Stmt::Block(l) => list(l, out),
         // A for-of head names a fresh per-iteration binding.
         Stmt::ForOf { var_name, .. } | Stmt::ForOfSplitIter { var_name, .. } if var_name == sn => {}
         Stmt::For {
@@ -167,7 +251,8 @@ fn walk_scoped(
 
 /// A class's members are functions (the full collector takes them);
 /// the heritage expression is evaluated in the enclosing code. A class
-/// named `sn` owns the name over its whole body.
+/// named `sn` owns the name over its whole body. Every write found
+/// here is in strict code (§11.2.2).
 fn collect_class(ast: &Ast, s: &Stmt, sn: &str, out: &mut Vec<Site>, expr: ExprCollect) {
     let Stmt::ClassDecl {
         name,
@@ -184,11 +269,12 @@ fn collect_class(ast: &Ast, s: &Stmt, sn: &str, out: &mut Vec<Site>, expr: ExprC
     if name == sn {
         return;
     }
+    let mark = out.len();
     if let Some(p) = parent {
         expr(ast, *p, sn, out);
     }
     if let Some(c) = ctor {
-        collect_fn_body(ast, &c.params, &c.body, sn, out);
+        collect_ctor(ast, name, c, sn, out);
     }
     for m in methods.iter().chain(static_methods) {
         collect_fn_body(ast, &m.params, &m.body, sn, out);
@@ -199,6 +285,9 @@ fn collect_class(ast: &Ast, s: &Stmt, sn: &str, out: &mut Vec<Site>, expr: ExprC
             StaticInit::Block(b) => collect_fn_body(ast, &[], b, sn, out),
         }
     }
+    for site in &mut out[mark..] {
+        site.in_class = true;
+    }
 }
 
 fn collect_expr(ast: &Ast, eid: ExprId, sn: &str, out: &mut Vec<Site>) {
@@ -207,11 +296,13 @@ fn collect_expr(ast: &Ast, eid: ExprId, sn: &str, out: &mut Vec<Site>) {
             eid,
             target: *target,
             value: Some(*value),
+            in_class: false,
         }),
         Expr::PostIncr { target, .. } if is_sn(ast, *target, sn) => out.push(Site {
             eid,
             target: *target,
             value: None,
+            in_class: false,
         }),
         // A named function expression's own name is a binding of
         // its own scope (§15.2.5), so it owns the writes in its body.

@@ -13,7 +13,9 @@
 //! rewrites the write sites in the body BEFORE the prep sees them —
 //! strict: `(rhs, throw)`; sloppy: `rhs` — which is what the
 //! readonly-global lane does with a write to a non-writable global,
-//! and it mints the same TypeError.
+//! and it mints the same TypeError. A class body is strict code
+//! (§11.2.2), so a write from a class inside a sloppy generator's
+//! body takes the strict form.
 //!
 //! A nested function or arrow that rebinds the name (param, var,
 //! let, function) owns the writes inside it; a block that declares
@@ -25,6 +27,7 @@ use super::{Ast, Expr, Stmt, UnaryOp};
 
 mod scope_sites;
 
+pub(super) use scope_sites::ctor_field_inits;
 use scope_sites::{
     Site, collect_expr_fns_only, collect_stmt, collect_stmt_fns_only, list_declares,
 };
@@ -108,7 +111,7 @@ fn apply_const_sites(ast: &mut Ast, sites: &[Site], name: &str) {
 fn apply_sites(ast: &mut Ast, sites: &[Site], strict: bool) {
     for site in sites {
         let i = site.eid.0 as usize;
-        ast.exprs[i] = match (strict, site.value) {
+        ast.exprs[i] = match (strict || site.in_class, site.value) {
             (true, Some(rhs)) => {
                 let right = super::readonly_globals::mint_readonly_throw(ast);
                 Expr::Sequence { left: rhs, right }
