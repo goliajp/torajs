@@ -206,6 +206,7 @@ impl Shape<'_, '_> {
     fn all_inert(&self, insts: &[Inst]) -> bool {
         insts.iter().all(|i| match &i.kind {
             InstKind::RcDecAny(Operand::Value(x)) => self.is_immediate(*x),
+            InstKind::ThrowSignal => true,
             _ => false,
         })
     }
@@ -471,6 +472,19 @@ mod tests {
         f.set_term(thrown, Terminator::Ret(Some(Operand::ConstI64(0))));
         let (w, _) = compile(&f);
         assert!(!w.contains(&BR_X17));
+    }
+
+    #[test]
+    fn a_throw_mark_on_the_propagate_edge_emits_nothing() {
+        let plain = tail_shape(false, arith_arg, nothing);
+        let mut marked = plain.clone();
+        let thrown = BlockId(2);
+        marked.set_term(thrown, Terminator::Unreachable);
+        marked.append_void(thrown, InstKind::ThrowSignal);
+        marked.set_term(thrown, Terminator::Ret(Some(Operand::ConstI64(0))));
+        let (w, _) = compile(&marked);
+        assert!(w.contains(&BR_X17), "{w:#x?}");
+        assert_eq!(w, compile(&plain).0);
     }
 
     #[test]

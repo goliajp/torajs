@@ -189,7 +189,9 @@ fn clone_callee_blocks(
     for blk in &callee.blocks {
         let new_id = block_map[&blk.id];
         let mut new_insts: Vec<Inst> = Vec::with_capacity(blk.insts.len() + 1);
-        for inst in &blk.insts {
+        // a callee `Ret` becomes a jump to the continuation, so its
+        // throw mark goes
+        for inst in blk.insts.iter().filter(|i| i.kind != InstKind::ThrowSignal) {
             let new_kind = rewrite_inst_kind(&inst.kind, value_map);
             let new_result = inst.result.map(|r| match value_map.get(&r) {
                 Some(Operand::Value(v)) => *v,

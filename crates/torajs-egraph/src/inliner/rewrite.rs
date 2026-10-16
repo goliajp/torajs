@@ -76,6 +76,10 @@ pub(super) fn rewrite_inst_kind(kind: &InstKind, map: &HashMap<ValueId, Operand>
         InstKind::GlobalRef(name) => InstKind::GlobalRef(name.clone()),
         InstKind::FnAddr(fid) => InstKind::FnAddr(*fid),
         InstKind::BoxedEntryAddr(fid) => InstKind::BoxedEntryAddr(*fid),
+        InstKind::ThrowSignal => unreachable!(
+            "InstKind::ThrowSignal reached the inliner's rewrite — the splice \
+             drops it with the callee `Ret` it marks"
+        ),
         InstKind::Identity(o) => InstKind::Identity(r(o)),
         InstKind::Neg(o) => InstKind::Neg(r(o)),
         InstKind::Ctpop(o) => InstKind::Ctpop(r(o)),

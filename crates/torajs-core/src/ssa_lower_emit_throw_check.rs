@@ -182,6 +182,7 @@ impl<'a> LowerCtx<'a> {
             }
             self.emit_drops_for_owned_locals();
             let cb2 = self.cur_block;
+            self.f.append_void(cb2, InstKind::ThrowSignal);
             let ret_ty = self.f.ret;
             let term = match ret_ty {
                 Type::Void => Terminator::Ret(None),

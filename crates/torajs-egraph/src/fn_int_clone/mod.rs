@@ -259,7 +259,9 @@ fn step(kind: &InstKind, aff: &HashMap<ValueId, Affine>) -> Option<Affine> {
 }
 
 fn inst_count(func: &Function) -> usize {
-    func.blocks.iter().map(|b| b.insts.len()).sum()
+    (func.blocks.iter().flat_map(|b| &b.insts))
+        .filter(|i| i.kind != InstKind::ThrowSignal)
+        .count()
 }
 
 #[cfg(test)]

@@ -111,6 +111,8 @@ pub(super) fn emit_plain(
         InstKind::RcIncAny(v) => super::rc::emit_rc_inc_any(bytes, v, alloc),
         InstKind::BoxAny(tag, v) => super::box_any::emit_box_any(bytes, func, inst, *tag, v, alloc),
         InstKind::RcDecAny(v) => super::rc_dec::emit_rc_dec_any(bytes, relocs, v, alloc, &[]),
+        // a marker for the `Ret` after it; no machine code
+        InstKind::ThrowSignal => {}
         InstKind::AnyIsNumber(_)
         | InstKind::AnyIsInt32(_)
         | InstKind::AnyToInt32(_)

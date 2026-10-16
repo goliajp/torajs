@@ -168,6 +168,10 @@ pub fn cost_of_kind(kind: &InstKind) -> Cost {
         // it appears in an e-class.
         InstKind::Identity(_) => Cost::ZERO,
 
+        // `ThrowSignal` marks the `Ret` after it and emits no code; it
+        // must not count against an inline budget.
+        InstKind::ThrowSignal => Cost::ZERO,
+
         // `Neg(op)` lowers to a single ALU op (aarch64
         // `sub Xd, XZR, Xn`; LLVM `sub i64 0, %x`).
         InstKind::Neg(_) => ALU_COST,

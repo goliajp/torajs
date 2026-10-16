@@ -286,6 +286,9 @@ impl Function {
             InstKind::BoxedEntryAddr(fid) => {
                 write!(w, "boxed_entry_addr {}", m.func_name(*fid))?;
             }
+            InstKind::ThrowSignal => {
+                write!(w, "throw_signal")?;
+            }
             InstKind::CallIndirect(sig, ptr, args) => {
                 write!(w, "call_indirect <sig{}> ", sig.0)?;
                 self.write_operand(w, ptr)?;

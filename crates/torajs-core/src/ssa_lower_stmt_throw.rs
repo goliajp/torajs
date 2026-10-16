@@ -216,6 +216,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) {
     } else {
         ctx.emit_drops_for_owned_locals();
         let cb = ctx.cur_block;
+        ctx.f.append_void(cb, InstKind::ThrowSignal);
         let ret_ty = ctx.f.ret;
         let term = match ret_ty {
             Type::Void => Terminator::Ret(None),

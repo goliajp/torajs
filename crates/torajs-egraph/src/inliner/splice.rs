@@ -168,7 +168,9 @@ pub fn inline_single_block_leaf(
 
     // ---- 3. Clone & rewrite callee insts.
     let mut inlined: Vec<Inst> = Vec::with_capacity(callee_blk.insts.len() + 1);
-    for inst in &callee_blk.insts {
+    // a callee `Ret` becomes a fallthrough here, so its throw mark goes
+    let body = callee_blk.insts.iter();
+    for inst in body.filter(|i| i.kind != InstKind::ThrowSignal) {
         let new_kind = rewrite_inst_kind(&inst.kind, &mapping);
         let new_result = inst.result.map(|r| match mapping.get(&r) {
             Some(Operand::Value(v)) => *v,

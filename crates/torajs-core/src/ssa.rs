@@ -368,6 +368,13 @@ pub enum InstKind {
     BoxF64(Operand),
     /// SIMD lane arithmetic over `Type::Vec` values (see `vec`).
     Vec(VecInst),
+    /// `throw_signal` — void, no operands: the `Ret` ending this block
+    /// returns because an exception is propagating out of the function,
+    /// and its value is the throw sentinel, not a result. Lowering puts
+    /// it last in the propagate block. It reads and writes nothing and
+    /// emits no machine code; passes must neither drop it nor count it
+    /// as work. The inliner discards it with the `Ret` it marks.
+    ThrowSignal,
 }
 
 #[derive(Debug, Clone, PartialEq)]

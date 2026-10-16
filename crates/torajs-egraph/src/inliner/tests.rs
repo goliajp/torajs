@@ -178,6 +178,21 @@ fn spliced_sole_site_user_body_is_dropped() {
     );
 }
 
+/// A callee's throw mark costs nothing and leaves with its `Ret`: the
+/// spliced copy falls through into the caller instead of returning.
+#[test]
+fn spliced_body_drops_the_throw_mark() {
+    let mut leaf = alu_body("loopSum", 8);
+    leaf.blocks[0].insts.push(void_inst(InstKind::ThrowSignal));
+    assert_eq!(callee_body_cost(&leaf), Cost::new(8));
+    let main = caller("main", vec![void_inst(InstKind::Call(FuncId(1), vec![]))]);
+    let mut m = module_of(vec![main, leaf]);
+    assert_eq!(inline_module(&mut m).inlined, 1);
+    let insts = &m.funcs[0].blocks[0].insts;
+    assert_eq!(insts.len(), 8);
+    assert!(!insts.iter().any(|i| i.kind == InstKind::ThrowSignal));
+}
+
 /// A compiler-minted function (`__` prefix) may sit in a metadata
 /// table by fid, so its body stays even when its one call splices.
 #[test]

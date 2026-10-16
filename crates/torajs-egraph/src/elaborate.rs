@@ -415,7 +415,8 @@ fn canonicalize_operands(kind: &InstKind, egraph: &mut Egraph) -> InstKind {
         | InstKind::StaticStrRef(_)
         | InstKind::GlobalRef(_)
         | InstKind::FnAddr(_)
-        | InstKind::BoxedEntryAddr(_) => kind.clone(),
+        | InstKind::BoxedEntryAddr(_)
+        | InstKind::ThrowSignal => kind.clone(),
     }
 }
 

@@ -412,7 +412,8 @@ fn operands(kind: &InstKind) -> Vec<Operand> {
         | InstKind::StaticStrRef(_)
         | InstKind::GlobalRef(_)
         | InstKind::FnAddr(_)
-        | InstKind::BoxedEntryAddr(_) => Vec::new(),
+        | InstKind::BoxedEntryAddr(_)
+        | InstKind::ThrowSignal => Vec::new(),
     }
 }
 

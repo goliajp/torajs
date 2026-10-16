@@ -217,7 +217,8 @@ fn window_ok(kind: &InstKind, env: &Env) -> bool {
         | InstKind::FnAddr(_)
         | InstKind::BoxedEntryAddr(_)
         | InstKind::RcInc(_)
-        | InstKind::RcIncAny(_) => true,
+        | InstKind::RcIncAny(_)
+        | InstKind::ThrowSignal => true,
         InstKind::Store(_, Operand::Value(p), _) => env.slots.contains(p),
         InstKind::Call(f, _) => env.readonly.contains(&f.0),
         _ => false,
