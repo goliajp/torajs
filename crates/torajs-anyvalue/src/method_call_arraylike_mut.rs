@@ -161,7 +161,8 @@ unsafe fn delete_at(obj: *mut c_void, k: i64) {
 }
 
 /// See module doc. `obj` is a live DynObj cell; `len` arrives from
-/// the caller's already-run length read.
+/// the caller's already-run length read, and `sort_cmp` is the
+/// comparator the caller admitted before it (sort only).
 pub(crate) unsafe fn arraylike_mut(
     obj_init: *mut c_void,
     mid: i64,
@@ -169,6 +170,7 @@ pub(crate) unsafe fn arraylike_mut(
     recv_slot: *mut u64,
     argv: *const u64,
     argc: i64,
+    sort_cmp: Option<&crate::callback_resolve::Callback>,
 ) -> AnyValue {
     let arg_at = |i: i64| -> u64 {
         if i < argc {
@@ -182,8 +184,7 @@ pub(crate) unsafe fn arraylike_mut(
         match mid {
             m if m == ANY_METHOD_POP => {
                 if len == 0 {
-                    // §23.1.3.22 step 3.b — length is Set even on
-                    // the empty exit (observable).
+                    // §23.1.3.22 step 3.b: an observable Set on the empty exit
                     set_len(&mut obj, 0);
                     VALUE_UNDEFINED
                 } else {
@@ -284,7 +285,7 @@ pub(crate) unsafe fn arraylike_mut(
                 }
             }
             m if m == ANY_METHOD_SPLICE => do_splice(&mut obj, len, argv, argc),
-            m if m == ANY_METHOD_SORT => ops::do_sort(&mut obj, len, arg_at(0)),
+            m if m == ANY_METHOD_SORT => ops::do_sort(&mut obj, len, sort_cmp),
             m if m == ANY_METHOD_FILL => ops::do_fill(&mut obj, len, argv, argc),
             m if m == ANY_METHOD_COPY_WITHIN => ops::do_copy_within(&mut obj, len, argv, argc),
             // reverse — §23.1.3.26 two-pointer swap with the four

@@ -38,12 +38,13 @@ use torajs_rc::{
     ANY_METHOD_FIND_LAST, ANY_METHOD_FIND_LAST_INDEX, ANY_METHOD_FLAT, ANY_METHOD_FLAT_MAP,
     ANY_METHOD_FOR_EACH, ANY_METHOD_INCLUDES, ANY_METHOD_INDEX_OF, ANY_METHOD_JOIN,
     ANY_METHOD_LAST_INDEX_OF, ANY_METHOD_MAP, ANY_METHOD_REDUCE, ANY_METHOD_REDUCE_RIGHT,
-    ANY_METHOD_SLICE, ANY_METHOD_SOME, ANY_METHOD_TO_REVERSED, ANY_METHOD_TO_SORTED,
-    ANY_METHOD_TO_SPLICED, ANY_METHOD_TO_STRING, ANY_METHOD_WITH,
+    ANY_METHOD_SLICE, ANY_METHOD_SOME, ANY_METHOD_SORT, ANY_METHOD_TO_REVERSED,
+    ANY_METHOD_TO_SORTED, ANY_METHOD_TO_SPLICED, ANY_METHOD_TO_STRING, ANY_METHOD_WITH,
 };
 
 use crate::method_call::to_index;
 use crate::method_call_arraylike_copy::{materialize_range, materialize_range_rev};
+use crate::method_call_arraylike_mut::{arraylike_mut, arraylike_mut_supported};
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED, is_double, is_undefined};
 use crate::nanbox_encode::{
     __torajs_anyv_box_from_pair, __torajs_anyv_box_i64, __torajs_anyv_box_pointer,
@@ -167,16 +168,15 @@ pub(crate) unsafe fn arraylike_method(
         }
     };
     unsafe {
-        // §23.1.3.34 step 1 — toSorted admits its comparator BEFORE
-        // even the length Get (unlike the HOF family, whose
-        // IsCallable check is ordered after len): a non-callable
-        // comparefn must throw before the length getter's side
-        // effects fire.
-        // §23.1.3.34 step 1 IsCallable — §7.2.3, so the comparator
-        // may be a shape with no pair of its own and a thunk gets
-        // minted. `sorted_own` owns it for as long as the walk below
-        // holds the pair.
-        let sorted_own = if mid == ANY_METHOD_TO_SORTED && !is_undefined(arg_at(0)) {
+        // §23.1.3.30 / §23.1.3.34 step 1 — sort and toSorted admit
+        // their comparator BEFORE the length Get (unlike the HOF
+        // family, whose IsCallable check follows it), so a
+        // non-callable comparefn throws before a length getter runs.
+        // IsCallable is §7.2.3: a shape with no pair of its own gets a
+        // minted thunk, which `sorted_own` keeps alive for the walk.
+        let sorted_own = if (mid == ANY_METHOD_TO_SORTED || mid == ANY_METHOD_SORT)
+            && !is_undefined(arg_at(0))
+        {
             match crate::callback_resolve::resolve(arg_at(0), VALUE_UNDEFINED) {
                 Some(c) => Some(c),
                 None => return crate::method_call::not_callable(),
@@ -198,10 +198,8 @@ pub(crate) unsafe fn arraylike_method(
         let Some(len) = arraylike_len(obj) else {
             return VALUE_UNDEFINED;
         };
-        if crate::method_call_arraylike_mut::arraylike_mut_supported(mid) {
-            return crate::method_call_arraylike_mut::arraylike_mut(
-                obj, mid, len, recv_slot, argv, argc,
-            );
+        if arraylike_mut_supported(mid) {
+            return arraylike_mut(obj, mid, len, recv_slot, argv, argc, sorted_own.as_ref());
         }
         match mid {
             m if m == ANY_METHOD_INDEX_OF || m == ANY_METHOD_INCLUDES => {

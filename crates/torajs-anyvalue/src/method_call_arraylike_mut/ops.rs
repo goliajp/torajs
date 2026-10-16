@@ -20,19 +20,18 @@ unsafe fn comparator(cmp: AnyValue) -> Result<Option<Callback>, ()> {
 }
 
 /// The `(env, entry, has_cb)` triple the sort kernels take.
-fn callback_triple(own: &Option<Callback>) -> (*mut c_void, u64, i64) {
+fn callback_triple(own: Option<&Callback>) -> (*mut c_void, u64, i64) {
     match own {
         None => (core::ptr::null_mut(), 0u64, 0i64),
         Some(c) => (c.env(), c.entry(), 1),
     }
 }
 
-pub(super) unsafe fn do_sort(obj: &mut *mut c_void, len: i64, cmp: AnyValue) -> AnyValue {
+/// `sort` over the per-index walk. `cmp` is the comparator its caller
+/// already admitted (§23.1.3.30 step 1 precedes the length read).
+pub(super) unsafe fn do_sort(obj: &mut *mut c_void, len: i64, cmp: Option<&Callback>) -> AnyValue {
     unsafe {
-        let Ok(own) = comparator(cmp) else {
-            return not_callable();
-        };
-        let (cb_env, cb_entry, has_cb) = callback_triple(&own);
+        let (cb_env, cb_entry, has_cb) = callback_triple(cmp);
         let mut tmp = __torajs_arr_alloc_any(len.clamp(0, 4096) as u64);
         let mut count: i64 = 0;
         // The staging Gets reach user getters — stop on a pending
@@ -211,12 +210,15 @@ pub unsafe extern "C" fn __torajs_arr_sort_exotic_impl(
     cmp: AnyValue,
 ) -> AnyValue {
     unsafe {
+        let Ok(own) = comparator(cmp) else {
+            return not_callable();
+        };
         if (*(arr as *const torajs_rc::HeapHeader)).flags & torajs_rc::FLAG_ARR_ANY == 0 {
-            return sort_typed_holes(arr, cmp);
+            return sort_typed_holes(arr, own.as_ref());
         }
         let len = (arr.cast::<u8>().add(crate::index_any::MIRROR_ARR_LEN_OFF) as *const u64).read();
         let mut obj = arr;
-        do_sort(&mut obj, len as i64, cmp)
+        do_sort(&mut obj, len as i64, own.as_ref())
     }
 }
 
@@ -225,12 +227,9 @@ pub unsafe extern "C" fn __torajs_arr_sort_exotic_impl(
 /// store back into every element kind (a pointer kind does not say
 /// which pointer type it holds) — so torajs-arr permutes its raw
 /// slots instead. Same answer as [`do_sort`].
-unsafe fn sort_typed_holes(arr: *mut c_void, cmp: AnyValue) -> AnyValue {
+unsafe fn sort_typed_holes(arr: *mut c_void, cmp: Option<&Callback>) -> AnyValue {
     unsafe {
-        let Ok(own) = comparator(cmp) else {
-            return not_callable();
-        };
-        let (cb_env, cb_entry, has_cb) = callback_triple(&own);
+        let (cb_env, cb_entry, has_cb) = callback_triple(cmp);
         __torajs_arr_sort_typed_holes(arr, cb_env, cb_entry, has_cb);
         if __torajs_throw_check() != 0 {
             return VALUE_UNDEFINED;
@@ -270,6 +269,14 @@ pub unsafe extern "C" fn __torajs_arr_mutate_generic(
 ) -> AnyValue {
     unsafe {
         let len = (arr.cast::<u8>().add(crate::index_any::MIRROR_ARR_LEN_OFF) as *const u64).read();
-        super::arraylike_mut(arr, mid, len as i64, core::ptr::null_mut(), argv, argc)
+        super::arraylike_mut(
+            arr,
+            mid,
+            len as i64,
+            core::ptr::null_mut(),
+            argv,
+            argc,
+            None,
+        )
     }
 }
