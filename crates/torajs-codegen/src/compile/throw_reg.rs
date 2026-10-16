@@ -5,39 +5,46 @@
 //! Three roles, decided once per module:
 //! - a *signalling* function returns from each block marked
 //!   `ThrowSignal` (a throw it propagates) with x21 = 1, set after the
-//!   epilogue; any other return leaves x21 as it found it, unless a
-//!   call it did not probe threw (see below). Only a
+//!   epilogue; any other return leaves x21 as it found it. Only a
 //!   function nothing but a direct call reaches signals: one whose
 //!   address is taken (a fn value, a closure's boxed entry, a vtable
 //!   or method-table row, a class drop fn) or that is a runtime helper
 //!   written in SSA (`__torajs_*`) may be called from the runtime or
 //!   through a pointer, whose callers read only the flag, and `main`
-//!   is called by the entry wrapper.
+//!   is called by the entry wrapper. Nor does one called where the
+//!   front end left the call without a probe and x21 may be read
+//!   after it (compile/throw_reg_lax.rs).
 //! - a *reader* calls a signalling function. x21 is no value's home in
 //!   it, since a callee that throws overwrites x21, and it reads x21 to
 //!   probe those calls.
 //! - a *guarded* reader is one that may be entered with x21 holding
 //!   something else: `main`, a function whose address is taken (or a
 //!   runtime helper), or one called by a function that is not a
-//!   reader. It saves x21 with its callee-saved registers and zeroes
-//!   it on entry.
+//!   reader; or one called where the front end left the call without
+//!   a probe and x21 may be read after it, since a reader may pass a
+//!   throw on with x21 set (compile/throw_reg_lax.rs). It saves x21
+//!   with its callee-saved registers, zeroes it on entry and puts it
+//!   back on the way out.
 //!
 //! The invariant: inside a reader x21 is 1 only while a throw is
 //! pending, so a call made with no throw pending finds it 0. It holds
 //! on entry: a guarded reader zeroes it, and an unguarded one is
-//! called only by readers. A callee that returns normally leaves x21
-//! as it found it: a non-reader preserves it as callee-saved, a
-//! guarded reader restores it, an unguarded reader keeps the invariant
-//! itself. A callee that throws may leave it 1 (a signalling one
-//! always does), and then the caller is on a throw path, which either
-//! leaves the function or reaches a `__torajs_throw_take` (catch,
-//! finally, iterator close); the reader zeroes x21 on the way there,
-//! on entry to the probe's throw edge or right after the take
-//! (compile/throw_reg_zero.rs). A reader may thus return with x21 = 1
-//! and the throw pending, a normal return included when a call it did
-//! not probe threw; the callers of an unguarded reader are readers,
-//! which count the call as one that may leave x21 set, and a guarded
-//! one restores x21 on its way out.
+//! called only by readers. A callee that leaves x21 set (a signalling
+//! one, or an unguarded reader passing a throw on) does so only with
+//! the throw pending, and a call to it is probed: the probe sends the
+//! caller down its throw edge, and on the continue edge x21 is 0. (A
+//! call the front end left without a probe is to such a callee only
+//! when no probe reads x21 after it and the caller's epilogue puts x21
+//! back, compile/throw_reg_lax.rs.)
+//! A throw path either leaves the function or reaches a
+//! `__torajs_throw_take` (catch, finally, iterator close); the reader
+//! zeroes x21 on the way there, on entry to the probe's throw edge or
+//! right after the take (compile/throw_reg_zero.rs). Any other callee
+//! leaves x21 as it found it: a non-reader preserves it as
+//! callee-saved, a guarded reader restores it. A reader may thus
+//! return with x21 = 1 only with the throw pending; the callers of an
+//! unguarded reader are readers, and a guarded one restores x21 on its
+//! way out.
 //!
 //! A probe reads x21 when the call before it is to a signalling
 //! function with nothing in between but copies, on every way in
@@ -50,6 +57,8 @@
 
 use torajs_core::ssa::{Block, FuncId, Function, InstKind, Module, Terminator};
 
+use super::throw_probe::ProbedCalls;
+use super::throw_reg_lax::{self, LaxCall};
 use crate::reg::Gpr;
 
 pub(crate) const THROW_REG: Gpr = Gpr::X21;
@@ -78,10 +87,11 @@ impl ThrowRegPlan {
         let n = module.funcs.len();
         let mut taken = vec![false; n];
         let mut signals = vec![false; n];
-        // (caller, callee) of every direct call
+        // (caller, callee) of every direct call, and the calls not probed
         let mut edges: Vec<(usize, usize)> = Vec::new();
+        let mut lax: Vec<LaxCall> = Vec::new();
         for (i, f) in module.funcs.iter().enumerate() {
-            signals[i] = scan(i, f, &mut edges, &mut taken);
+            signals[i] = scan(i, f, &mut edges, &mut lax, &mut taken);
             // a runtime helper written in SSA is called by the runtime
             taken[i] |= f.name.starts_with("__torajs_");
         }
@@ -91,28 +101,16 @@ impl ThrowRegPlan {
         for (s, t) in signals.iter_mut().zip(&taken) {
             *s &= !t;
         }
-        let mut reads = vec![false; n];
-        for &(c, g) in &edges {
-            reads[c] |= signals[g];
+        let mut guarded = vec![false; n];
+        loop {
+            let roles = assign(module, &signals, &guarded, &edges, &taken);
+            if !throw_reg_lax::settle(module, &lax, &roles, &mut signals, &mut guarded) {
+                let take = (module.funcs.iter())
+                    .position(|f| f.name == THROW_TAKE)
+                    .map(|i| FuncId(i as u32));
+                return ThrowRegPlan { roles, take };
+            }
         }
-        let mut called_by_other = vec![false; n];
-        for &(_, g) in edges.iter().filter(|&&(c, _)| !reads[c]) {
-            called_by_other[g] = true;
-        }
-        let roles = (module.funcs.iter().enumerate())
-            .map(|(i, f)| {
-                let open = f.name != "main" && !taken[i] && !called_by_other[i];
-                Role {
-                    signals: signals[i],
-                    reads: reads[i],
-                    guards: reads[i] && !open,
-                }
-            })
-            .collect();
-        let take = (module.funcs.iter())
-            .position(|f| f.name == THROW_TAKE)
-            .map(|i| FuncId(i as u32));
-        ThrowRegPlan { roles, take }
     }
 
     pub(crate) fn role(&self, f: FuncId) -> Role {
@@ -154,17 +152,64 @@ impl ThrowRegPlan {
     }
 }
 
+/// The roles, given which functions signal and which a call left
+/// without a probe makes guarded (compile/throw_reg_lax.rs).
+fn assign(
+    module: &Module,
+    signals: &[bool],
+    guarded: &[bool],
+    edges: &[(usize, usize)],
+    taken: &[bool],
+) -> Vec<Role> {
+    let n = signals.len();
+    let mut reads = vec![false; n];
+    for &(c, g) in edges {
+        reads[c] |= signals[g];
+    }
+    let mut called_by_other = vec![false; n];
+    for &(_, g) in edges.iter().filter(|&&(c, _)| !reads[c]) {
+        called_by_other[g] = true;
+    }
+    (module.funcs.iter().enumerate())
+        .map(|(i, f)| {
+            let open = f.name != "main" && !taken[i] && !called_by_other[i] && !guarded[i];
+            Role {
+                signals: signals[i],
+                reads: reads[i],
+                guards: reads[i] && !open,
+            }
+        })
+        .collect()
+}
+
 /// Whether `f`, the module's function `i`, may signal: it has a block
 /// marked `ThrowSignal`, every such block returns, and it is not
-/// `main`. Records its direct calls in `edges` and the functions whose
-/// address it takes in `taken`.
-fn scan(i: usize, f: &Function, edges: &mut Vec<(usize, usize)>, taken: &mut [bool]) -> bool {
+/// `main`. Records its direct calls in `edges` (and in `lax` those not
+/// probed) and the functions whose address it takes in `taken`.
+fn scan(
+    i: usize,
+    f: &Function,
+    edges: &mut Vec<(usize, usize)>,
+    lax: &mut Vec<LaxCall>,
+    taken: &mut [bool],
+) -> bool {
     let (mut marked, mut all_return) = (false, true);
-    for b in &f.blocks {
+    let mut probes = None;
+    for (bi, b) in f.blocks.iter().enumerate() {
         let mut signal = false;
-        for inst in &b.insts {
+        for (k, inst) in b.insts.iter().enumerate() {
             match inst.kind {
-                InstKind::Call(g, _) => edges.push((i, g.0 as usize)),
+                InstKind::Call(g, _) => {
+                    edges.push((i, g.0 as usize));
+                    if !(probes.get_or_insert_with(|| ProbedCalls::of(f))).probed(b, k) {
+                        lax.push(LaxCall {
+                            caller: i,
+                            callee: g.0 as usize,
+                            block: bi,
+                            at: k,
+                        });
+                    }
+                }
                 InstKind::FnAddr(g) | InstKind::BoxedEntryAddr(g) => taken[g.0 as usize] = true,
                 InstKind::ThrowSignal => signal = true,
                 _ => {}

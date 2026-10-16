@@ -57,6 +57,7 @@ mod terminator;
 mod throw_probe;
 mod throw_reg;
 mod throw_reg_emit;
+mod throw_reg_lax;
 mod throw_reg_zero;
 mod vec;
 

@@ -95,6 +95,10 @@ struct Chain<'a> {
 impl<'a> Chain<'a> {
     fn of(func: &'a Function) -> Self {
         let mut preds: HashMap<u32, Option<Vec<u32>>> = HashMap::default();
+        // the entry block is also entered from the caller
+        if let Some(b) = func.blocks.first() {
+            preds.insert(b.id.0, None);
+        }
         for b in &func.blocks {
             for t in targets(&b.term) {
                 let entry = preds.entry(t.0).or_insert_with(|| Some(Vec::new()));
@@ -153,4 +157,63 @@ pub(super) fn flag_refs(func: &Function) -> HashSet<ValueId> {
         .filter(|i| matches!(&i.kind, InstKind::GlobalRef(s) if s == THROW_ACTIVE_SYM))
         .filter_map(|i| i.result)
         .collect()
+}
+
+/// Whether `c` is `icmp ne (load i64 <the flag>), 0` computed in
+/// `insts`.
+pub(super) fn probes_flag(flags: &HashSet<ValueId>, insts: &[Inst], c: ValueId) -> bool {
+    let def = |v: ValueId| insts.iter().find(|i| i.result == Some(v)).map(|i| &i.kind);
+    let Some(InstKind::ICmp(IPred::Ne, Operand::Value(l), Operand::ConstI64(0))) = def(c) else {
+        return false;
+    };
+    matches!(
+        def(*l),
+        Some(InstKind::Load(Type::I64, Operand::Value(p), 0)) if flags.contains(p)
+    )
+}
+
+/// The calls of a function and whether each is probed: the code from
+/// the call on, through jumps a few blocks deep, is nothing but copies
+/// and a probe of the flag that branches. Only a call probed there may
+/// be to a function that leaves x21 set (compile/throw_reg.rs).
+pub(super) struct ProbedCalls<'a> {
+    by_id: HashMap<u32, &'a Block>,
+    flags: HashSet<ValueId>,
+}
+
+impl<'a> ProbedCalls<'a> {
+    pub(super) fn of(func: &'a Function) -> Self {
+        ProbedCalls {
+            by_id: func.blocks.iter().map(|b| (b.id.0, b)).collect(),
+            flags: flag_refs(func),
+        }
+    }
+
+    /// Whether the call `block.insts[at]` is probed.
+    pub(super) fn probed(&self, block: &'a Block, at: usize) -> bool {
+        self.probed_from(block, at + 1, 4)
+    }
+
+    fn probed_from(&self, b: &'a Block, from: usize, depth: u32) -> bool {
+        let rest = &b.insts[from..];
+        let quiet = rest.iter().all(|i| match &i.kind {
+            InstKind::Copy(..) => true,
+            InstKind::GlobalRef(s) => s == THROW_ACTIVE_SYM,
+            InstKind::Load(Type::I64, Operand::Value(p), 0) => self.flags.contains(p),
+            InstKind::ICmp(IPred::Ne, _, Operand::ConstI64(0)) => true,
+            _ => false,
+        });
+        quiet
+            && match b.term {
+                Terminator::CondBr {
+                    cond: Operand::Value(c),
+                    ..
+                } => probes_flag(&self.flags, rest, c),
+                Terminator::Br(t) => {
+                    depth > 0
+                        && (self.by_id.get(&t.0)).is_some_and(|n| self.probed_from(n, 0, depth - 1))
+                }
+                _ => false,
+            }
+    }
 }

@@ -4,10 +4,16 @@
 //! - `TIED`: x21 is 1 only while the pending-throw flag is set, as
 //!   right after a call that may leave it 1 (a signalling function, or
 //!   an unguarded reader passing a throw on): such a callee leaves x21
-//!   set only with the flag set, and only a take clears the flag. The
-//!   flag may already be set at a call (a block that propagates a
-//!   throw drops what it holds before it returns); other calls keep
-//!   the state, since they preserve x21.
+//!   set only with the flag set. A take clears the flag: one here
+//!   leaves `ZERO`. A take in a callee would clear it under an x21
+//!   the callee keeps, and none happens while `TIED` with a probe of
+//!   x21 to follow: a call that may leave x21 set is probed, or left
+//!   without a probe only where nothing after it reads x21
+//!   (compile/throw_reg_lax.rs), so `TIED` lives on a probe's throw
+//!   edge, where the calls before the take or the return only drop
+//!   what the block holds, on the entry of an unguarded reader
+//!   (below), and after such a call. Other calls keep the state, since
+//!   they preserve x21.
 //!
 //! A probe of the flag sends `TIED` on as `ZERO` along its continue
 //! edge; a join takes `TIED` if either side is; a take leaves `ZERO`,
@@ -18,20 +24,18 @@
 //! and the continue edge then takes with x21 known 0, and the path
 //! that did not throw pays nothing.
 //!
-//! An unguarded reader starts in `TIED`: its caller may call it with a
-//! throw pending (a call the front end judges unable to throw is not
-//! probed), and a take reached before any probe then zeroes x21. A
-//! normal return may be `TIED` for the same reason; the callers of an
-//! unguarded reader count its call as one that may leave x21 set, and
-//! the epilogue of a guarded one restores x21.
+//! An unguarded reader starts in `TIED`: x21 = 1 on entry only if its
+//! caller made the call on a throw path, with the flag set; a take
+//! reached before any probe then zeroes x21. A normal return may be
+//! `TIED` for the same reason; the callers of an unguarded reader
+//! count its call as one that may leave x21 set, and the epilogue of
+//! a guarded one restores x21.
 
 use torajs_core::ssa::id_hash::{HashMap, HashSet};
-use torajs_core::ssa::{
-    Block, Function, IPred, Inst, InstKind, Operand, Terminator, Type, ValueId,
-};
+use torajs_core::ssa::{Block, Function, InstKind, Operand, Terminator, ValueId};
 
 use super::landing::Landing;
-use super::throw_probe::{flag_refs, targets};
+use super::throw_probe::{flag_refs, probes_flag, targets};
 use super::throw_reg::ThrowRegPlan;
 
 const ZERO: u8 = 0;
@@ -69,6 +73,8 @@ pub(crate) fn plan(
         })
         .collect();
     let mut preds = vec![0u32; func.blocks.len()];
+    // the entry block is also entered from the caller
+    preds[0] = 1;
     for &k in succ.iter().flatten() {
         preds[k] += 1;
     }
@@ -146,17 +152,4 @@ fn ends_in_probe(flags: &HashSet<ValueId>, block: &Block) -> bool {
         .map_or(0, |k| k + 1);
     matches!(block.term, Terminator::CondBr { cond: Operand::Value(c), .. }
         if probes_flag(flags, &block.insts[since..], c))
-}
-
-/// Whether `c` is `icmp ne (load i64 <the flag>), 0` computed in
-/// `insts`.
-fn probes_flag(flags: &HashSet<ValueId>, insts: &[Inst], c: ValueId) -> bool {
-    let def = |v: ValueId| insts.iter().find(|i| i.result == Some(v)).map(|i| &i.kind);
-    let Some(InstKind::ICmp(IPred::Ne, Operand::Value(l), Operand::ConstI64(0))) = def(c) else {
-        return false;
-    };
-    matches!(
-        def(*l),
-        Some(InstKind::Load(Type::I64, Operand::Value(p), 0)) if flags.contains(p)
-    )
 }

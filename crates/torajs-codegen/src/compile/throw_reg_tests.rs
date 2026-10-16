@@ -2,9 +2,9 @@ use super::throw_reg::Role;
 use super::{ModuleFacts, compile_function_at};
 use crate::enc::{movz_imm, ret};
 use crate::reg::Gpr;
-use crate::reloc::{Reloc, RelocKind};
+use crate::reloc::{CallTarget, Reloc, RelocKind};
 use torajs_core::ssa::{
-    BinOp, BlockId, FuncId, Function, IPred, InstKind, Module, Operand, THROW_ACTIVE_SYM,
+    BinOp, BlockId, FuncId, Function, IPred, Inst, InstKind, Module, Operand, THROW_ACTIVE_SYM,
     Terminator, Type, ValueId,
 };
 
@@ -121,8 +121,16 @@ fn catcher() -> Function {
     f.append_inst(caught, InstKind::Call(TAKE, Vec::new()), Type::I64, None);
     f.set_term(caught, Terminator::Br(join));
     let r = call(&mut f, join, THROWER);
-    f.set_term(join, Terminator::Ret(Some(Operand::Value(r))));
+    ret_probed(&mut f, join, r);
     f
+}
+
+/// Probe the call that left `r` in `b`: pass a throw on, else return `r`.
+fn ret_probed(f: &mut Function, b: BlockId, r: ValueId) {
+    let thrown = propagate(f);
+    let done = f.add_block();
+    probe(f, b, thrown, done);
+    f.set_term(done, Terminator::Ret(Some(Operand::Value(r))));
 }
 
 /// `return callee(1)` with a throw of its own on another arm.
@@ -141,7 +149,7 @@ fn tail(name: &str, callee: FuncId) -> Function {
         },
     );
     let r = call(&mut f, go, callee);
-    f.set_term(go, Terminator::Ret(Some(Operand::Value(r))));
+    ret_probed(&mut f, go, r);
     f
 }
 
@@ -264,4 +272,162 @@ fn a_tail_call_keeps_the_register_protocol_on_both_sides() {
     // a callee that does not signal would hand its throw back in the
     // flag alone, to a caller that probes x21
     assert!(!leaves_by_b(TAIL_TO_TAKEN));
+}
+
+/// `callee(1)` with no probe after it, as the front end leaves a call
+/// it judges unable to throw.
+fn lax(callee: FuncId) -> Function {
+    let mut f = Function::new("lax", Type::I64);
+    let b = f.add_block();
+    f.add_param(Type::I64, "x");
+    let r = call(&mut f, b, callee);
+    f.set_term(b, Terminator::Ret(Some(Operand::Value(r))));
+    f
+}
+
+#[test]
+fn a_call_left_without_a_probe_keeps_its_callee_off_x21() {
+    let r = |signals, reads, guards| Role {
+        signals,
+        reads,
+        guards,
+    };
+    // should the call throw after all, its caller runs on with x21 set:
+    // a take in a later callee keeps x21 and clears the flag, and a
+    // later signalling call that returns normally would read as a throw
+    let mut m = module();
+    m.funcs.push(lax(THROWER));
+    let plan = ModuleFacts::of(&m).throw_reg;
+    assert_eq!(plan.role(THROWER), r(false, false, false));
+    assert_eq!(plan.role(PASSER), r(true, false, false));
+    // a reader passes a throw on with x21 set: guarded, it puts back
+    // the x21 it found
+    let mut m = module();
+    m.funcs.push(lax(PASSER));
+    let plan = ModuleFacts::of(&m).throw_reg;
+    assert_eq!(plan.role(THROWER), r(true, false, false));
+    assert_eq!(plan.role(PASSER), r(false, true, true));
+    assert_eq!(plan.role(MAIN), r(false, false, false));
+}
+
+/// Whether x21 is zeroed after the call to the take (else before it).
+fn zeroes_after_take(w: &[u32], relocs: &[Reloc]) -> bool {
+    let site = (relocs.iter())
+        .find(|r| {
+            matches!(&r.kind,
+                RelocKind::CallSite { target: CallTarget::Func(f) } if *f == TAKE)
+        })
+        .expect("a take");
+    let zero = (w.iter().position(|&x| x == movz_imm(Gpr::X21, 0, 0))).expect("a zeroing");
+    zero > site.byte_offset as usize / 4
+}
+
+/// `r = thrower(1)`, its throw edge a block of coalesced copies into
+/// a catch that takes: the branch lands past that block, so x21 is
+/// zeroed after the take instead.
+fn hollow_catcher() -> Function {
+    let mut f = Function::new("hollow_catcher", Type::I64);
+    let b = f.add_block();
+    f.add_param(Type::I64, "x");
+    let r = call(&mut f, b, THROWER);
+    let (caught, catch, cont) = (f.add_block(), f.add_block(), f.add_block());
+    probe(&mut f, b, caught, cont);
+    let j = f.append_inst(
+        caught,
+        InstKind::Copy(Type::I64, Operand::Value(r)),
+        Type::I64,
+        None,
+    );
+    f.set_term(caught, Terminator::Br(catch));
+    f.append_inst(catch, InstKind::Call(TAKE, Vec::new()), Type::I64, None);
+    f.set_term(catch, Terminator::Ret(Some(Operand::Value(j))));
+    f.set_term(cont, Terminator::Ret(Some(Operand::Value(r))));
+    f
+}
+
+#[test]
+fn a_throw_edge_through_a_hollow_block_zeroes_after_the_take() {
+    let mut m = module();
+    m.funcs.push(hollow_catcher());
+    let (w, relocs) = compiled(&m, FuncId(m.funcs.len() as u32 - 1));
+    assert_eq!(zeroes(&w), 1, "{w:#x?}");
+    assert!(zeroes_after_take(&w, &relocs), "{w:#x?}");
+}
+
+/// A take before any call or probe, then `thrower(1)`.
+fn early_taker(name: &str) -> Function {
+    let mut f = Function::new(name, Type::I64);
+    let b = f.add_block();
+    f.add_param(Type::I64, "x");
+    f.append_inst(b, InstKind::Call(TAKE, Vec::new()), Type::I64, None);
+    let r = call(&mut f, b, THROWER);
+    ret_probed(&mut f, b, r);
+    f
+}
+
+#[test]
+fn an_unguarded_reader_zeroes_after_a_take_before_any_probe() {
+    let mut m = module();
+    m.funcs.push(early_taker("early_taker"));
+    let id = FuncId(m.funcs.len() as u32 - 1);
+    assert!(!ModuleFacts::of(&m).throw_reg.role(id).guards);
+    let (w, relocs) = compiled(&m, id);
+    assert_eq!(zeroes(&w), 1, "{w:#x?}");
+    assert!(zeroes_after_take(&w, &relocs), "{w:#x?}");
+    // guarded, it is entered with x21 zeroed, and the take leaves it so
+    let mut m = module();
+    m.funcs.push(early_taker("taken_twin"));
+    let id = FuncId(m.funcs.len() as u32 - 1);
+    take_address(&mut m, id);
+    assert!(ModuleFacts::of(&m).throw_reg.role(id).guards);
+    let (w, relocs) = compiled(&m, id);
+    assert_eq!(zeroes(&w), 1, "{w:#x?}");
+    assert!(!zeroes_after_take(&w, &relocs), "{w:#x?}");
+}
+
+/// Main takes the address of `id`, as the runtime holds a boxed entry.
+fn take_address(m: &mut Module, id: FuncId) {
+    let addr = Inst {
+        result: None,
+        kind: InstKind::FnAddr(id),
+        origin: None,
+    };
+    m.funcs[MAIN.0 as usize].blocks[0].insts.insert(0, addr);
+}
+
+/// `r = callee(1)` left without a probe, then `then(1)` probed if
+/// given, else `return r`.
+fn wrapper(callee: FuncId, then: Option<FuncId>) -> Function {
+    let mut f = Function::new("wrapper", Type::I64);
+    let b = f.add_block();
+    f.add_param(Type::I64, "x");
+    let r = call(&mut f, b, callee);
+    match then {
+        Some(g) => {
+            let s = call(&mut f, b, g);
+            ret_probed(&mut f, b, s);
+        }
+        None => f.set_term(b, Terminator::Ret(Some(Operand::Value(r)))),
+    }
+    f
+}
+
+#[test]
+fn a_call_left_without_a_probe_is_harmless_when_nothing_reads_x21_after_it() {
+    // a guarded caller that returns right after puts x21 back as found
+    let mut m = module();
+    m.funcs.push(wrapper(THROWER, None));
+    let id = FuncId(m.funcs.len() as u32 - 1);
+    take_address(&mut m, id);
+    let plan = ModuleFacts::of(&m).throw_reg;
+    assert!(plan.role(THROWER).signals);
+    assert!(plan.role(id).guards);
+    // a later call that may leave x21 set is probed by reading x21
+    let mut m = module();
+    m.funcs.push(wrapper(THROWER, Some(PASSER)));
+    let id = FuncId(m.funcs.len() as u32 - 1);
+    take_address(&mut m, id);
+    let plan = ModuleFacts::of(&m).throw_reg;
+    assert!(!plan.role(THROWER).signals);
+    assert!(plan.role(PASSER).signals);
 }
