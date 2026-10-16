@@ -14,21 +14,17 @@
 //! block — the pre-declaration span is a TDZ error at runtime, never
 //! a different binding), `Stmt::Multi` shares its surrounding scope
 //! (it is a desugar expansion, not a block), and a function body is a
-//! scope of its own that the pairing deliberately does NOT thread the
-//! outer binding into — a nested function reads an outer local
-//! through the closure-capture machinery, which a syntactic walk
-//! cannot express, so such a use fails the pairing and the name keeps
-//! today's loud reject.
+//! scope of its own. A use in it with no declaration in scope belongs
+//! to the binding a closure captured into that lifted body (followed
+//! out through nested captures), or, in a top-level function, to the
+//! top-level declaration; anything else fails the pairing and the
+//! name keeps today's loud reject.
 //!
 //! The caller (`try_promote_scope_paired` in
 //! [`super::fnexpr_this_routed`]) runs knife 2's full per-binding
-//! proof on EVERY group and promotes all or none: the downstream
-//! consumers — `fnexpr_recv_locals` and the direct-call `undefined`
-//! seeding — are name-keyed, so promoting one binding of a name while
-//! another stays unpromoted would shift argv on call sites whose
-//! runtime value is the unpromoted closure. All-or-nothing keeps the
-//! name-keyed consumers sound without threading declaration identity
-//! through them.
+//! proof on every group holding a fn-expr that reads `this` and
+//! promotes all of them or none; the uses of every other group are
+//! recorded so the name-keyed consumers leave them alone.
 //!
 //! The `__cmany_` / `__smany_` twin clones need no special casing
 //! here: a twin body is an ordinary `FnDecl` to this walk, so its
@@ -37,20 +33,25 @@
 //! "guard counts sources, promotion patches copies" contract
 //! `collect_decls_split` documents, reached by a different route.
 
-use super::{Expr, ExprId, Stmt};
+use super::{Expr, ExprId, Param, Stmt, SwitchCase};
+
+mod captures;
+
+use captures::{Capture, direct_decl_inits};
 
 /// One declaration of the name, with every reachable use that
 /// lexically binds to it (tree order, deduplicated).
 pub(super) struct DeclGroup {
-    pub(super) init: ExprId,
+    /// `None` for a function parameter of the name.
+    pub(super) init: Option<ExprId>,
     pub(super) uses: Vec<ExprId>,
 }
 
 /// Pair every reachable use of `name` to its binding declaration.
 /// `None` means the census could not prove a pairing — a use with no
-/// dominating declaration (a nested function reading an outer local),
-/// a list declaring the name twice, a closure CAPTURING the name (the
-/// escape a syntactic walk cannot follow), a shared Ident node
+/// dominating declaration (a nested function reading an outer local
+/// it did not capture), a list declaring the name twice, one lifted
+/// body captured from two places, a shared Ident node
 /// reached under two different bindings (the face pre-pass clones
 /// Calls with leaf ExprIds shared), or a `UsingDecl` — and the caller
 /// keeps the loud reject.
@@ -60,10 +61,10 @@ pub(super) struct DeclGroup {
 /// an unsafe use. (The by-name single-decl path scans the arena flat,
 /// which is strictly more conservative; this walk is the half that
 /// needs positions.)
-pub(super) fn pair_decls_scoped(
-    stmts: &[Stmt],
-    exprs: &[Expr],
-    name: &str,
+pub(super) fn pair_decls_scoped<'a>(
+    stmts: &'a [Stmt],
+    exprs: &'a [Expr],
+    name: &'a str,
 ) -> Option<Vec<DeclGroup>> {
     let mut p = Pairing {
         exprs,
@@ -72,8 +73,33 @@ pub(super) fn pair_decls_scoped(
         decl_inits: std::collections::HashSet::new(),
         owner: std::collections::HashMap::new(),
         failed: false,
+        cur_fn: None,
+        unbound: Vec::new(),
+        captured_by: std::collections::HashMap::new(),
     };
     p.walk_scope_list(stmts, None);
+    // a lifted closure body only ever reads what its closure captured
+    let lifted: std::collections::HashSet<&str> = exprs
+        .iter()
+        .filter_map(|e| match e {
+            Expr::Closure { fn_name, .. } => Some(fn_name.as_str()),
+            _ => None,
+        })
+        .collect();
+    let top_fns: std::collections::HashSet<&str> = stmts
+        .iter()
+        .filter_map(|s| match s {
+            Stmt::FnDecl { name, .. } if !lifted.contains(name.as_str()) => Some(name.as_str()),
+            _ => None,
+        })
+        .collect();
+    let mut top_inits = Vec::new();
+    direct_decl_inits(stmts, name, &mut top_inits);
+    let top_group = match top_inits.as_slice() {
+        [i] => p.groups.iter().position(|d| d.init == Some(*i)),
+        _ => None,
+    };
+    p.bind_captured_uses(&top_fns, top_group);
     if p.failed { None } else { Some(p.groups) }
 }
 
@@ -90,20 +116,28 @@ struct Pairing<'a> {
     /// under two different bindings fails the pairing.
     owner: std::collections::HashMap<ExprId, usize>,
     failed: bool,
+    /// The function body being walked, while no declaration of the
+    /// name is in scope inside it.
+    cur_fn: Option<&'a str>,
+    /// Uses met with no declaration in scope, by the body they sit in:
+    /// a lifted closure body reads a captured outer binding this way.
+    unbound: Vec<(&'a str, ExprId)>,
+    /// Lifted body name -> where its captured `name` comes from.
+    captured_by: std::collections::HashMap<&'a str, Capture<'a>>,
 }
 
-impl Pairing<'_> {
+impl<'a> Pairing<'a> {
     /// Pre-scan a list's DIRECT declarations of the name (through
     /// `Multi`, which shares the surrounding scope; never through a
     /// `Block` or a function body). Zero hits inherit the outer
     /// binding; exactly one opens a new group that binds the whole
     /// list; two or more fail.
-    fn scan_direct_decls(&mut self, list: &[Stmt], found: &mut Vec<usize>) {
+    fn scan_direct_decls(&mut self, list: &'a [Stmt], found: &mut Vec<usize>) {
         for s in list {
             match s {
                 Stmt::LetDecl { name, init, .. } if name == self.name => {
                     self.groups.push(DeclGroup {
-                        init: *init,
+                        init: Some(*init),
                         uses: Vec::new(),
                     });
                     self.decl_inits.insert(*init);
@@ -120,7 +154,7 @@ impl Pairing<'_> {
 
     /// A block-scope statement list: pre-scan its own declaration,
     /// then walk under whichever binding governs.
-    fn walk_scope_list(&mut self, list: &[Stmt], cur: Option<usize>) {
+    fn walk_scope_list(&mut self, list: &'a [Stmt], cur: Option<usize>) {
         let mut found = Vec::new();
         self.scan_direct_decls(list, &mut found);
         let cur = match found.len() {
@@ -136,7 +170,7 @@ impl Pairing<'_> {
         }
     }
 
-    fn walk_stmt(&mut self, s: &Stmt, cur: Option<usize>) {
+    fn walk_stmt(&mut self, s: &'a Stmt, cur: Option<usize>) {
         if self.failed {
             return;
         }
@@ -181,16 +215,7 @@ impl Pairing<'_> {
                 cases,
                 default,
                 ..
-            } => {
-                self.walk_expr(*scrutinee, cur);
-                for c in cases {
-                    self.walk_expr(c.value, cur);
-                    self.walk_scope_list(&c.body, cur);
-                }
-                if let Some(db) = default {
-                    self.walk_scope_list(db, cur);
-                }
-            }
+            } => self.walk_switch(*scrutinee, cases, default.as_deref(), cur),
             Stmt::For {
                 init,
                 cond,
@@ -262,7 +287,9 @@ impl Pairing<'_> {
             // A function body is its own scope: the outer binding does
             // NOT thread in (a nested function reaches an outer local
             // through closure capture, which this walk cannot pair).
-            Stmt::FnDecl { body, .. } => self.walk_scope_list(body, None),
+            Stmt::FnDecl {
+                name, params, body, ..
+            } => self.walk_fn_decl(name, params, body),
             Stmt::TypeDecl { .. } | Stmt::ImportDecl { .. } => {}
             // Classes are desugared before the fn-expr knives run; a
             // surviving ClassDecl would hide uses from this walk, so
@@ -276,10 +303,71 @@ impl Pairing<'_> {
         }
     }
 
+    fn walk_switch(
+        &mut self,
+        scrutinee: ExprId,
+        cases: &'a [SwitchCase],
+        default: Option<&'a [Stmt]>,
+        cur: Option<usize>,
+    ) {
+        self.walk_expr(scrutinee, cur);
+        // The whole CaseBlock is one scope (§14.12.4): a declaration in
+        // one clause binds the selectors and every other clause too.
+        let mut found = Vec::new();
+        for c in cases {
+            self.scan_direct_decls(&c.body, &mut found);
+        }
+        if let Some(db) = default {
+            self.scan_direct_decls(db, &mut found);
+        }
+        let cur = match found.len() {
+            0 => cur,
+            1 => Some(found[0]),
+            _ => {
+                self.failed = true;
+                return;
+            }
+        };
+        for c in cases {
+            self.walk_expr(c.value, cur);
+            for s in &c.body {
+                self.walk_stmt(s, cur);
+            }
+        }
+        for s in default.unwrap_or_default() {
+            self.walk_stmt(s, cur);
+        }
+    }
+
+    fn walk_fn_decl(&mut self, name: &'a str, params: &'a [Param], body: &'a [Stmt]) {
+        let outer = self.cur_fn.replace(name);
+        let param = params.iter().any(|p| p.name == self.name).then(|| {
+            self.groups.push(DeclGroup {
+                init: None,
+                uses: Vec::new(),
+            });
+            self.groups.len() - 1
+        });
+        // a `var` of a parameter's name is the same binding,
+        // which a list scope would split in two
+        let mut redecl = Vec::new();
+        direct_decl_inits(body, self.name, &mut redecl);
+        if param.is_some() && !redecl.is_empty() {
+            self.failed = true;
+        }
+        self.walk_scope_list(body, param);
+        self.cur_fn = outer;
+    }
+
     fn record_use(&mut self, eid: ExprId, cur: Option<usize>) {
         let Some(g) = cur else {
-            // No dominating declaration — an unpaired use.
-            self.failed = true;
+            // No declaration in scope: either a lifted body reading a
+            // captured binding (resolved once every capture is known)
+            // or an unpaired use.
+            match self.cur_fn {
+                Some(f) => self.unbound.push((f, eid)),
+                None => self.failed = true,
+            }
             return;
         };
         match self.owner.get(&eid) {
@@ -296,7 +384,8 @@ impl Pairing<'_> {
         if self.failed {
             return;
         }
-        match &self.exprs[eid.0 as usize] {
+        let exprs: &'a [Expr] = self.exprs;
+        match &exprs[eid.0 as usize] {
             Expr::Ident(n) => {
                 if n == self.name {
                     self.record_use(eid, cur);
@@ -354,12 +443,14 @@ impl Pairing<'_> {
             // An un-lifted arrow body is a function scope of its own
             // (the knives run after the lift, so this arm is a
             // conservative leftover-guard, not a hot path).
-            Expr::ArrowFn { body, .. } => self.walk_scope_list(body, None),
-            Expr::Closure { captures, .. } => {
-                // A closure CAPTURING the name consumes the binding
-                // through machinery this walk cannot pair — fail.
+            Expr::ArrowFn { body, .. } => {
+                let outer = self.cur_fn.take();
+                self.walk_scope_list(body, None);
+                self.cur_fn = outer;
+            }
+            Expr::Closure { fn_name, captures } => {
                 if captures.iter().any(|c| c == self.name) {
-                    self.failed = true;
+                    self.capture(fn_name, cur);
                 }
             }
             Expr::New { args, .. } | Expr::Super { args } => {

@@ -57,6 +57,14 @@ pub(crate) fn deep_clone_expr(
         map.push((eid, new_id));
         return new_id;
     }
+    // A use of a same-name binding that is NOT the promoted fn-expr
+    // stays that in every copy; a fresh id would read as promoted.
+    if ast.fnexpr_recv_foreign_uses.contains(&eid) {
+        let new_id = ast.add_expr(clone_leaf(ast.get_expr(eid)));
+        ast.fnexpr_recv_foreign_uses.insert(new_id);
+        map.push((eid, new_id));
+        return new_id;
+    }
     let new_expr = match ast.get_expr(eid) {
         Expr::BinOp { op, left, right } => {
             let op = *op;

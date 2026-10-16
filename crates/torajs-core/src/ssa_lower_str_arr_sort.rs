@@ -117,8 +117,7 @@ pub(crate) fn try_dispatch(
             && args.first().is_some_and(|&a0| {
                 matches!(ctx.ast.get_expr(a0),
                     Expr::Closure { fn_name, .. } if ctx.ast.fnexpr_recv_fns.contains(fn_name))
-                    || matches!(ctx.ast.get_expr(a0),
-                        Expr::Ident(n) if ctx.ast.fnexpr_recv_locals.contains(n))
+                    || ctx.ast.is_fnexpr_recv_use(a0)
             });
         let route = pred::CmpRoute {
             argv_face,

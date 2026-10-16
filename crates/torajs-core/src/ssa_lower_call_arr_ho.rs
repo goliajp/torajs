@@ -360,8 +360,7 @@ fn emit_versioned(ctx: &mut LowerCtx<'_>, p: &HofLoop<'_>) -> Operand {
 fn promoted_callback(ctx: &LowerCtx<'_>, cb: ExprId, method: &str) -> bool {
     let promoted = matches!(ctx.ast.get_expr(cb),
         Expr::Closure { fn_name, .. } if ctx.ast.fnexpr_recv_fns.contains(fn_name))
-        || matches!(ctx.ast.get_expr(cb),
-            Expr::Ident(n) if ctx.ast.fnexpr_recv_locals.contains(n));
+        || ctx.ast.is_fnexpr_recv_use(cb);
     promoted
         && matches!(
             method,

@@ -131,6 +131,16 @@ pub(super) fn collect_hoisted_fnexpr_assigns(
     cands
 }
 
+/// Every `Ident(name)` node in the arena, reached or not.
+pub(super) fn ident_uses(exprs: &[Expr], name: &str) -> Vec<super::ExprId> {
+    exprs
+        .iter()
+        .enumerate()
+        .filter(|(_, e)| matches!(e, Expr::Ident(n) if n == name))
+        .map(|(i, _)| super::ExprId(i as u32))
+        .collect()
+}
+
 /// See past an `as` suffix to the value it ascribes.
 ///
 /// `const K = function () { …this… } as any` and `const K: any =
@@ -224,10 +234,27 @@ pub(super) fn collect_decls_by_name(
 /// (same bar as the `decls.len() != 1` guard, which only sees
 /// LetDecls).
 pub(super) fn name_shadowed_elsewhere(stmts: &[Stmt], name: &str) -> bool {
+    shadowed(stmts, name, true)
+}
+
+/// Does `name` have more than one binding the scope-paired census can
+/// pair: several `LetDecl`s, or one plus a parameter of the name?
+pub(super) fn needs_scope_pairing(stmts: &[Stmt], name: &str, decls: usize) -> bool {
+    decls != 1 || (name_shadowed_elsewhere(stmts, name) && !name_shadowed_by_non_param(stmts, name))
+}
+
+/// [`name_shadowed_elsewhere`] leaving out function parameters, which
+/// the scope-paired census pairs as bindings of their own.
+pub(super) fn name_shadowed_by_non_param(stmts: &[Stmt], name: &str) -> bool {
+    shadowed(stmts, name, false)
+}
+
+fn shadowed(stmts: &[Stmt], name: &str, params_count: bool) -> bool {
     for s in stmts {
         let hit = match s {
             Stmt::FnDecl { params, body, .. } => {
-                params.iter().any(|p| p.name == name) || name_shadowed_elsewhere(body, name)
+                (params_count && params.iter().any(|p| p.name == name))
+                    || shadowed(body, name, params_count)
             }
             Stmt::Try {
                 body,
@@ -237,40 +264,40 @@ pub(super) fn name_shadowed_elsewhere(stmts: &[Stmt], name: &str) -> bool {
                 ..
             } => {
                 catch_param.as_deref() == Some(name)
-                    || name_shadowed_elsewhere(body, name)
-                    || name_shadowed_elsewhere(catch_body, name)
+                    || shadowed(body, name, params_count)
+                    || shadowed(catch_body, name, params_count)
                     || finally_body
                         .as_ref()
-                        .is_some_and(|f| name_shadowed_elsewhere(f, name))
+                        .is_some_and(|f| shadowed(f, name, params_count))
             }
             Stmt::ForOf { var_name, body, .. } | Stmt::ForOfSplitIter { var_name, body, .. } => {
-                var_name == name || name_shadowed_elsewhere(std::slice::from_ref(body), name)
+                var_name == name || shadowed(std::slice::from_ref(body), name, params_count)
             }
             Stmt::For { init, body, .. } => {
                 init.as_ref()
-                    .is_some_and(|i| name_shadowed_elsewhere(std::slice::from_ref(i), name))
-                    || name_shadowed_elsewhere(std::slice::from_ref(body), name)
+                    .is_some_and(|i| shadowed(std::slice::from_ref(i), name, params_count))
+                    || shadowed(std::slice::from_ref(body), name, params_count)
             }
             Stmt::While { body, .. } | Stmt::DoWhile { body, .. } | Stmt::Labeled { body, .. } => {
-                name_shadowed_elsewhere(std::slice::from_ref(body), name)
+                shadowed(std::slice::from_ref(body), name, params_count)
             }
             Stmt::If {
                 then_branch,
                 else_branch,
                 ..
             } => {
-                name_shadowed_elsewhere(std::slice::from_ref(then_branch), name)
+                shadowed(std::slice::from_ref(then_branch), name, params_count)
                     || else_branch
                         .as_ref()
-                        .is_some_and(|e| name_shadowed_elsewhere(std::slice::from_ref(e), name))
+                        .is_some_and(|e| shadowed(std::slice::from_ref(e), name, params_count))
             }
             Stmt::Switch { cases, default, .. } => {
-                cases.iter().any(|c| name_shadowed_elsewhere(&c.body, name))
+                cases.iter().any(|c| shadowed(&c.body, name, params_count))
                     || default
                         .as_ref()
-                        .is_some_and(|d| name_shadowed_elsewhere(d, name))
+                        .is_some_and(|d| shadowed(d, name, params_count))
             }
-            Stmt::Block(inner) | Stmt::Multi(inner) => name_shadowed_elsewhere(inner, name),
+            Stmt::Block(inner) | Stmt::Multi(inner) => shadowed(inner, name, params_count),
             _ => false,
         };
         if hit {

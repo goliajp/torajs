@@ -18,7 +18,7 @@ use crate::ssa_lower_call_arr_ho::cb_face::from_face;
 pub(crate) fn from_mapfn_promoted(ctx: &LowerCtx<'_>, cb: ExprId) -> bool {
     match ctx.ast.get_expr(cb) {
         Expr::Closure { fn_name, .. } => ctx.ast.fnexpr_recv_fns.contains(fn_name),
-        Expr::Ident(n) => ctx.ast.fnexpr_recv_locals.contains(n),
+        Expr::Ident(_) => ctx.ast.is_fnexpr_recv_use(cb),
         _ => false,
     }
 }

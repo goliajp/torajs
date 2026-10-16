@@ -119,7 +119,7 @@ pub(crate) fn try_lower_with_this(
     // binding's Type::Closure sig sheds it (ssa_lower_closure hidden
     // skip), so a direct call re-inserts the slot with a boxed
     // `undefined` (strict-mode call-site `this`, §10.2.1.2).
-    let needs_this = ctx.ast.fnexpr_recv_locals.contains(callee_name);
+    let needs_this = ctx.ast.is_fnexpr_recv_use(callee);
     let gate_reachable = recv_gate_reachable(ctx, info.slot);
 
     let (user_params, ret_ty) = ctx.fn_sigs[user_sig_id.0 as usize].clone();

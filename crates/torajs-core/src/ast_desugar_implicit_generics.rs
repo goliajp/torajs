@@ -80,6 +80,7 @@ pub(crate) fn run(ast: &mut Ast) {
         fnexpr_recv_fns,
         fnexpr_recv_faces,
         fnexpr_recv_locals,
+        fnexpr_recv_foreign_uses,
         fnsig_mismatch_bindings,
         escaped_use_strict,
         objlit_computed_keys,
@@ -174,6 +175,7 @@ pub(crate) fn run(ast: &mut Ast) {
         fnexpr_recv_fns,
         fnexpr_recv_faces,
         fnexpr_recv_locals,
+        fnexpr_recv_foreign_uses,
         fnsig_mismatch_bindings,
         expr_spans,
     );

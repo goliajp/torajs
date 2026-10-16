@@ -292,8 +292,7 @@ fn emit_set_for_each(ctx: &mut LowerCtx<'_>, recv_op: Operand, args: &[ExprId]) 
     // value, where the spec says the absent thisArg is `undefined`.
     let promoted = matches!(ctx.ast.get_expr(args[0]),
         Expr::Closure { fn_name, .. } if ctx.ast.fnexpr_recv_fns.contains(fn_name))
-        || matches!(ctx.ast.get_expr(args[0]),
-            Expr::Ident(n) if ctx.ast.fnexpr_recv_locals.contains(n));
+        || ctx.ast.is_fnexpr_recv_use(args[0]);
     let mut this_temp: Option<(ExprId, Operand)> = None;
     let this_arg: Option<Operand> = if promoted {
         if let Some(&t) = args.get(1) {

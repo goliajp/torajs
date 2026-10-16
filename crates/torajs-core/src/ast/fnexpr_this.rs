@@ -70,6 +70,7 @@ pub(crate) fn run(
     fnexpr_recv_fns: &mut std::collections::HashSet<String>,
     fnexpr_recv_faces: &mut std::collections::HashSet<ExprId>,
     fnexpr_recv_locals: &mut std::collections::HashSet<String>,
+    fnexpr_recv_foreign_uses: &mut std::collections::HashSet<ExprId>,
     boxed_lane_bindings: &mut std::collections::HashSet<String>,
     spans: &mut Vec<crate::lexer::Span>,
 ) {
@@ -141,6 +142,7 @@ pub(crate) fn run(
         &mut patches,
         fnexpr_recv_faces,
         fnexpr_recv_locals,
+        fnexpr_recv_foreign_uses,
         boxed_lane_bindings,
     );
     if patches.is_empty() {

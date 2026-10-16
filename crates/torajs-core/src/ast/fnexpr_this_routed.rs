@@ -5,8 +5,8 @@
 
 use super::fnexpr_this_faces::FacePatch;
 use super::fnexpr_this_names::{
-    collect_hoisted_fnexpr_assigns, collect_this_fnexpr_decl_names, name_shadowed_elsewhere,
-    peel_as,
+    collect_hoisted_fnexpr_assigns, collect_this_fnexpr_decl_names, ident_uses,
+    name_shadowed_elsewhere, needs_scope_pairing, peel_as,
 };
 use super::fnexpr_this_shapes::UseShapes;
 use super::{Expr, ExprId, Stmt};
@@ -15,7 +15,7 @@ mod decls_split;
 mod scope_paired;
 
 use decls_split::collect_decls_split;
-use scope_paired::try_promote_scope_paired;
+use scope_paired::{ScopePaired, try_promote_scope_paired};
 
 /// Knife 2 — variable-routed faces: a face-position Ident promotes
 /// only when EVERY use of the binding program-wide is a face read
@@ -118,6 +118,7 @@ pub(super) fn promote_variable_routed(
     patches: &mut Vec<FacePatch>,
     fnexpr_recv_faces: &mut std::collections::HashSet<ExprId>,
     fnexpr_recv_locals: &mut std::collections::HashSet<String>,
+    fnexpr_recv_foreign_uses: &mut std::collections::HashSet<ExprId>,
     boxed_lane_bindings: &mut std::collections::HashSet<String>,
 ) {
     let mut faces_by_name: std::collections::HashMap<String, Vec<ExprId>> =
@@ -135,12 +136,7 @@ pub(super) fn promote_variable_routed(
     // promotes only if all of its non-face uses land in one of them.
     let shapes = UseShapes::collect(stmts, exprs, closure_argc_locals, closure_argv_locals);
     for (name, face_eids) in &faces_by_name {
-        let use_eids: Vec<ExprId> = exprs
-            .iter()
-            .enumerate()
-            .filter(|(_, e)| matches!(e, Expr::Ident(n) if n == name))
-            .map(|(i, _)| ExprId(i as u32))
-            .collect();
+        let use_eids = ident_uses(exprs, name);
         // The hoisted init-assignment's target is the ONE write the
         // profile admits — the census guarantees it is the only
         // Assign-target of this name program-wide, so exempting it
@@ -152,9 +148,7 @@ pub(super) fn promote_variable_routed(
             .filter(|e| hoist_init.is_none_or(|(t, _)| **e != *t))
             .copied()
             .collect();
-        if !mixed_calls.iter().all(|e| shapes.admits(*e, name)) {
-            continue;
-        }
+        let all_admitted = mixed_calls.iter().all(|e| shapes.admits(*e, name));
         // A binding the program WRITES is rebindable. Such a binding
         // promotes with every call on a receiver-AWARE lane, never on
         // the static seed: what makes a later unpromoted value safe is
@@ -179,31 +173,36 @@ pub(super) fn promote_variable_routed(
         // stays off, so a face read would call the RECV ABI without
         // the `__this` argv slot — the rotation-260 silent wrong.
         let rebindable = use_eids.iter().any(|e| shapes.assign_target.contains(e));
-        if rebindable && !face_eids.is_empty() {
-            continue;
-        }
+        let flat_ok = all_admitted && !(rebindable && !face_eids.is_empty());
         let mut decls: Vec<(bool, ExprId)> = Vec::new();
         let mut twin_inits: Vec<ExprId> = Vec::new();
         collect_decls_split(stmts, name, false, &mut decls, &mut twin_inits);
-        if decls.len() != 1 {
-            // 399-03 — a multiply-declared name is no longer a blanket
-            // refusal: the scope-paired census proves each binding
-            // separately and promotes all or none.
+        if needs_scope_pairing(stmts, name, decls.len()) {
+            // 399-03 — the scope-paired census proves each binding
+            // separately (doc on the callee for what `flat_ok` covers)
             try_promote_scope_paired(
-                stmts,
-                exprs,
-                fn_expr_exprs,
-                closure_argc_locals,
-                closure_argv_locals,
-                name,
-                face_eids,
-                &shapes,
-                call_faces,
-                decls.len() + twin_inits.len(),
+                ScopePaired {
+                    stmts,
+                    exprs,
+                    fn_expr_exprs,
+                    closure_argc_locals,
+                    closure_argv_locals,
+                    name,
+                    face_eids,
+                    use_eids: &use_eids,
+                    flat_ok,
+                    shapes: &shapes,
+                    call_faces,
+                    expected_decls: decls.len() + twin_inits.len(),
+                },
                 patches,
                 fnexpr_recv_faces,
                 fnexpr_recv_locals,
+                fnexpr_recv_foreign_uses,
             );
+            continue;
+        }
+        if !flat_ok {
             continue;
         }
         // Rotation 261 — a MUTABLE decl (`var f = function () {…}`,

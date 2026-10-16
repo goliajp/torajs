@@ -305,12 +305,11 @@ fn try_fn_value_call(
         .iter()
         .any(|a| matches!(ast.get_expr(*a), Expr::Spread { .. }))
     {
-        let this_using = matches!(
-            ast.get_expr(*obj), Expr::Ident(n) if ast.fnexpr_recv_locals.contains(n)
-        ) || matches!(
-            ast.get_expr(*obj), Expr::Closure { fn_name, .. }
-                if ast.fnexpr_recv_fns.contains(fn_name)
-        );
+        let this_using = ast.is_fnexpr_recv_use(*obj)
+            || matches!(
+                ast.get_expr(*obj), Expr::Closure { fn_name, .. }
+                    if ast.fnexpr_recv_fns.contains(fn_name)
+            );
         if this_using {
             return None;
         }

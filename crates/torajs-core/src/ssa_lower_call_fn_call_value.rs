@@ -80,12 +80,11 @@ pub(crate) fn try_lower(
         .iter()
         .any(|e| matches!(ctx.ast.get_expr(*e), Expr::Spread { .. }))
     {
-        let this_using = matches!(
-            ctx.ast.get_expr(obj), Expr::Ident(n) if ctx.ast.fnexpr_recv_locals.contains(n)
-        ) || matches!(
-            ctx.ast.get_expr(obj), Expr::Closure { fn_name, .. }
-                if ctx.ast.fnexpr_recv_fns.contains(fn_name)
-        );
+        let this_using = ctx.ast.is_fnexpr_recv_use(obj)
+            || matches!(
+                ctx.ast.get_expr(obj), Expr::Closure { fn_name, .. }
+                    if ctx.ast.fnexpr_recv_fns.contains(fn_name)
+            );
         if this_using {
             return None;
         }
@@ -108,7 +107,7 @@ pub(crate) fn try_lower(
     // closure_local this-entry owns the thisArg evaluation (ahead of
     // the rest args, spec order); a lane without the slot (variadic)
     // answers None and the call stays loud.
-    if matches!(ctx.ast.get_expr(obj), Expr::Ident(n) if ctx.ast.fnexpr_recv_locals.contains(n)) {
+    if ctx.ast.is_fnexpr_recv_use(obj) {
         return crate::ssa_lower_call_closure_local::try_lower_with_this(
             ctx,
             eid,
