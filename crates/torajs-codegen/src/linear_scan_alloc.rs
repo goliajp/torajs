@@ -35,6 +35,9 @@ impl Sweep<'_> {
     /// saved only (caller-saved would be clobbered by the BL). Spills
     /// when the callee pool is exhausted.
     pub(crate) fn alloc_crossing(&mut self, vid: u32, interval: Interval, is_fp: bool) -> Reg {
+        if let Some(r) = self.share_before_fresh(vid, is_fp) {
+            return r;
+        }
         let reg = if is_fp {
             self.take_callee_fpr().map(Reg::Fpr)
         } else {
@@ -63,6 +66,9 @@ impl Sweep<'_> {
         // a restore on every entry; when this value's calls run less
         // often than that, save it around them instead (RegAllocGreedy's
         // CSRFirstTimeCost)
+        if let Some(r) = self.share_before_fresh(vid, is_fp) {
+            return r;
+        }
         if self.next_callee_is_fresh(is_fp)
             && self.call_costs.save_cost(interval) < ENTRY_FREQ
             && let Some(r) = self.take_caller(is_fp)
@@ -103,6 +109,21 @@ impl Sweep<'_> {
             .unwrap_or_else(|| self.spill_at_active(vid, interval, true, false));
         self.save_around_calls(vid);
         reg
+    }
+
+    /// A callee-saved register the frame saves already whose holders
+    /// are dead wherever `vid` is live, asked for before one the frame
+    /// does not save yet: a function whose cold arms sit after the path
+    /// holds many values live across calls at once, each read again
+    /// only in its own arm, and a fresh register for each saved eight
+    /// more on every entry of a ten-statement `main`. General-purpose
+    /// registers only: sharing d8-d15 the same way made the frames
+    /// smaller but measurably slower.
+    fn share_before_fresh(&mut self, vid: u32, is_fp: bool) -> Option<Reg> {
+        if is_fp || !self.next_callee_is_fresh(is_fp) {
+            return None;
+        }
+        self.share(vid, is_fp, true)
     }
 
     fn take_caller(&mut self, is_fp: bool) -> Option<Reg> {
