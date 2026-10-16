@@ -21,7 +21,7 @@ use super::compile::{compile_bytes, flag_letters};
 use super::{__torajs_throw_syntax_error, RegExp, TAG_REGEX, str_units};
 
 /// `torajs_rc::FLAG_SUBCLASSED` mirror (flags bit 0, blade 0).
-const FLAG_SUBCLASSED: u16 = 1;
+pub(super) const FLAG_SUBCLASSED: u16 = 1;
 /// `torajs_rc::AnySlotTag::Heap` mirror.
 const ANY_HEAP: i64 = 4;
 /// `torajs_rc::AnySlotTag::Undefined` mirror (`compile_any` twin).

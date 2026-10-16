@@ -145,6 +145,11 @@ pub unsafe fn iter_arm_impl(
                 return v;
             }
             crate::method_call_mapset::arr_iter_method(ptr, mid)
+        } else if mid == torajs_rc::any_method::ANY_METHOD_ITER_RETURN
+            && crate::regexp_protocol::is_regexp_string_iter(recv)
+        {
+            // %RegExpStringIteratorPrototype% owns no `return`
+            crate::method_call::method_no_such()
         } else {
             crate::iter_helper::iter_helper_method(ptr, mid, argv, argc)
         }
@@ -230,7 +235,12 @@ pub unsafe fn regexp_arm_impl(
     argv: *const u64,
     argc: i64,
 ) -> AnyValue {
-    unsafe { crate::method_call_regexp::regexp_method(as_void_ptr(recv), mid, argv, argc) }
+    unsafe {
+        if crate::regexp_protocol::regexp_cell(recv).is_none() {
+            return crate::regexp_protocol::foreign_receiver(recv, mid, argv, argc);
+        }
+        crate::method_call_regexp::regexp_method(as_void_ptr(recv), mid, argv, argc)
+    }
 }
 
 /// BigInt arm.

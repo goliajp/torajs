@@ -131,9 +131,24 @@ pub unsafe extern "C" fn __torajs_any_str_symbol_try(
             // layout carrying the boxed-entry discriminator).
             let ct = (cell.cast::<u8>().add(4) as *const u16).read();
             if ct == torajs_rc::Tag::Closure as u16
-                && crate::method_value::builtin_method_mid(cell).is_some()
+                && let Some(mid) = crate::method_value::builtin_method_mid(cell)
             {
-                return 0;
+                // ... unless the matcher's receiver could tell the
+                // kernel lane from the method's own algorithm (an own
+                // `exec`, a patched prototype, a non-RegExp object
+                // carrying the builtin) — then the method runs.
+                if crate::method_value::builtin_method_family(cell)
+                    != crate::method_value::REGEXP_PROTO_FAMILY
+                    || !crate::iter_zip_shared::av_is_object(arg)
+                {
+                    return 0;
+                }
+                let argv = [__torajs_anyv_box_from_pair(4, recv_str as i64), extra];
+                if !crate::regexp_protocol::spec_needed(arg, mid, argv.as_ptr(), argc) {
+                    return 0;
+                }
+                *out = crate::regexp_protocol::call_through_arm(arg, mid, argv.as_ptr(), argc);
+                return 1;
             }
         }
         // §7.3.11 step 3 — a nullish matcher means "no method", which

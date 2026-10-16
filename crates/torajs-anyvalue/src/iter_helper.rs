@@ -59,7 +59,7 @@ pub(crate) const ITER_HELPER_ZIP_KEYED: u8 = 8;
 pub(crate) const UNDERLYING_OFF: usize = 8;
 pub(crate) const FN_OFF: usize = 16;
 pub(crate) const COUNTER_OFF: usize = 24;
-const KIND_OFF: usize = 32;
+pub(crate) const KIND_OFF: usize = 32;
 pub(crate) const ALIVE_OFF: usize = 33;
 /// §27.5.3.2 "executing" state byte (third flag in the pad;
 /// `alloc_zeroed` starts it 0 = not running).
@@ -268,6 +268,9 @@ unsafe fn iter_helper_step_inner(ptr: *mut c_void, out: *mut AnyValue) -> i64 {
         // step + flatten) lives with GetIteratorFlattenable.
         if kind == ITER_HELPER_FLAT_MAP {
             return crate::iter_from::iter_flat_map_step(ptr, out);
+        }
+        if kind == crate::regexp_protocol::REGEXP_STRING_ITER_KIND {
+            return crate::regexp_protocol::regexp_string_iter_step(ptr, out);
         }
         // Iterator.concat — the sequenced-items double loop (刀 5a).
         if kind == ITER_HELPER_CONCAT {

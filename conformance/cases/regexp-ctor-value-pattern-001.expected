@@ -1,0 +1,7 @@
+regexp pattern, new flags b y ["b"] 2
+regexp pattern, own flags /a+/gi
+IsRegExp getter runs first /b/g
+regexp-like object /x.z/i
+regexp-like source getter throws threw Error
+split through the default species ["a","c","d"]
+split limit recompiles the receiver ["","bb",""]

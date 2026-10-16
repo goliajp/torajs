@@ -1,0 +1,6 @@
+match [Symbol.match] false false true
+matchAll [Symbol.matchAll] false false true
+replace [Symbol.replace] false false true
+search [Symbol.search] false false true
+split [Symbol.split] false false true
+match replace exec

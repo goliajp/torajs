@@ -1,0 +1,14 @@
+tag [object RegExp String Iterator]
+spread [["a",0],["a",2]]
+for-of x
+next b 1 false 3 true 
+proto chain true true function next 0  true
+next foreign threw TypeError
+next on create threw TypeError
+lazy exec 0
+species throws threw RangeError
+tolength throws threw RangeError
+non-global once [1]
+empty matches [0,1,3,4]
+helper map ["1","2"]
+string matchAll 2

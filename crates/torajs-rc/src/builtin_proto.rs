@@ -62,7 +62,7 @@ unsafe extern "C" {
 /// %Object.prototype%, which is what [`proto_parent_tag`] was made
 /// for). %TypedArray%.prototype joined as 38, the abstract parent of
 /// the twelve per-kind prototypes (RFC 20260916-typedarray-intrinsic).
-pub const NUM_BUILTIN_PROTOS: usize = 40;
+pub const NUM_BUILTIN_PROTOS: usize = 41;
 
 mod ctor_meta;
 pub use ctor_meta::{builtin_ctor_meta, typedarray_bytes_per_element};
@@ -152,6 +152,11 @@ pub const TYPEDARRAY_PROTO_TAG: usize = 38;
 /// one after %TypedArray%.prototype.
 pub const FINREG_PROTO_TAG: usize = 39;
 
+/// `%RegExpStringIteratorPrototype%`'s slot (§22.2.9.2) — what
+/// `re[Symbol.matchAll](s)` inherits from, one link below
+/// %Iterator.prototype% like the five iterator prototypes above.
+pub const REGEXP_STRING_ITER_PROTO_TAG: usize = 40;
+
 /// The per-kind typed-array prototype slots, `Int8Array` .. `Float16Array`
 /// (20 + `torajs_buffer::typedarray::Kind`).
 pub const TYPEDARRAY_KIND_PROTO_TAGS: core::ops::RangeInclusive<i64> = 20..=31;
@@ -163,7 +168,7 @@ pub const TYPEDARRAY_KIND_PROTO_TAGS: core::ops::RangeInclusive<i64> = 20..=31;
 /// prototypes are the exception the spec makes: no clause gives them
 /// a `constructor`, and there is no constructor for one to name.
 pub fn proto_owns_constructor(tag: i64) -> bool {
-    !(ARRAY_ITER_PROTO_TAG as i64..=ITER_HELPER_PROTO_TAG as i64).contains(&tag)
+    !iter_proto::is_iter_proto_tag(tag)
 }
 
 /// A builtin prototype's own [[Prototype]] — the ONE home for the
@@ -185,7 +190,7 @@ pub fn proto_parent_tag(tag: i64) -> i64 {
     if tag == OBJECT_PROTO_TAG as i64 {
         return -1;
     }
-    if (ARRAY_ITER_PROTO_TAG as i64..=ITER_HELPER_PROTO_TAG as i64).contains(&tag) {
+    if iter_proto::is_iter_proto_tag(tag) {
         return ITERATOR_PROTO_TAG as i64;
     }
     // §23.2.7 — each `<Kind>Array.prototype`'s [[Prototype]] is

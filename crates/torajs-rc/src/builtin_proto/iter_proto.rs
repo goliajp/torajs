@@ -26,8 +26,8 @@
 use core::ffi::c_void;
 
 use super::{
-    ARRAY_ITER_PROTO_TAG, ITER_HELPER_PROTO_TAG, MAP_ITER_PROTO_TAG, SET_ITER_PROTO_TAG,
-    STRING_ITER_PROTO_TAG,
+    ARRAY_ITER_PROTO_TAG, ITER_HELPER_PROTO_TAG, MAP_ITER_PROTO_TAG, REGEXP_STRING_ITER_PROTO_TAG,
+    SET_ITER_PROTO_TAG, STRING_ITER_PROTO_TAG,
 };
 use crate::Tag;
 
@@ -48,8 +48,20 @@ unsafe fn __torajs_arr_iter_family(_iter: *const c_void) -> u32 {
 /// `torajs_arr::iter::ARR_ITER_FAMILY_STRING` mirror.
 const FAMILY_STRING: u32 = 1;
 
+/// `torajs_anyvalue::iter_helper` mirrors: the kind byte's offset and
+/// the RegExp String Iterator kind.
+pub const ITER_HELPER_KIND_OFF: usize = 32;
+pub const ITER_HELPER_KIND_REGEXP_STRING: u8 = 9;
+
 /// The MapIter / ArrIter source cell — both layouts put it at +8.
 const SOURCE_OFF: usize = 8;
+
+/// The iterator prototypes — each hangs off %Iterator.prototype% and
+/// owns no `constructor`.
+pub(super) fn is_iter_proto_tag(tag: i64) -> bool {
+    (ARRAY_ITER_PROTO_TAG as i64..=ITER_HELPER_PROTO_TAG as i64).contains(&tag)
+        || tag == REGEXP_STRING_ITER_PROTO_TAG as i64
+}
 
 /// The builtin-proto slot an iterator cell inherits from, or `-1`
 /// when `tag` is not an iterator tag.
@@ -82,7 +94,14 @@ pub unsafe fn iter_cell_proto_tag(ptr: *const c_void, tag: u16) -> i64 {
         };
     }
     if tag == Tag::IterHelper as u16 {
-        return ITER_HELPER_PROTO_TAG as i64;
+        // §22.2.9 — a RegExp String Iterator is a helper-shaped cell
+        // of its own kind, with its own prototype.
+        let kind = unsafe { ptr.cast::<u8>().add(ITER_HELPER_KIND_OFF).read() };
+        return if kind == ITER_HELPER_KIND_REGEXP_STRING {
+            REGEXP_STRING_ITER_PROTO_TAG as i64
+        } else {
+            ITER_HELPER_PROTO_TAG as i64
+        };
     }
     -1
 }

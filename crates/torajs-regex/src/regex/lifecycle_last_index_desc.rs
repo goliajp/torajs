@@ -144,6 +144,27 @@ pub unsafe extern "C" fn __torajs_regex_last_index_writable(re_ptr: *const c_voi
     (!last_index_locked(unsafe { as_regex(re_ptr) })) as i64
 }
 
+/// Whether nothing on the cell itself can tell the §22.2.6 protocol
+/// methods' spec algorithms from the native kernels: no own property
+/// bag (an own `exec`, `flags`, `global` or `constructor` lives
+/// there), no subclass prototype between the cell and
+/// %RegExp.prototype%, a writable `lastIndex`, and a numeric one (a
+/// boxed value may carry a `valueOf` the spec's ToLength calls).
+/// 1 = plain, 0 = the caller runs the spec algorithm. What the
+/// PROTOTYPE carries is the caller's half of the question.
+///
+/// # Safety
+/// `re_ptr` is a live `*RegExp`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_regex_protocol_plain(re_ptr: *const c_void) -> i64 {
+    let re = unsafe { as_regex(re_ptr) };
+    let plain = re.props.is_null()
+        && re.header.flags & super::subclass::FLAG_SUBCLASSED == 0
+        && !last_index_locked(re)
+        && re.last_index_boxed == 0;
+    plain as i64
+}
+
 /// `DEFINE_*` mirrors — torajs-dynobj `layout.rs` is the source.
 const DEFINE_FLAG_WRITABLE: u64 = 1 << 0;
 const DEFINE_FLAG_ENUMERABLE: u64 = 1 << 1;

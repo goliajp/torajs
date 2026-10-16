@@ -282,6 +282,18 @@ pub(crate) unsafe fn dispatch(
                     )
                     .unwrap_or_else(|| crate::method_call::method_no_such());
                 }
+                // §22.2.9.2.1 steps 2-3 — %RegExpStringIteratorPrototype%
+                // .next refuses any receiver that is not one of its
+                // iterators (the helper-shaped cell it shares a tag with
+                // included).
+                if *fam == torajs_rc::builtin_proto::REGEXP_STRING_ITER_PROTO_TAG as i64
+                    && !crate::regexp_protocol::is_regexp_string_iter(this_arg)
+                {
+                    __torajs_throw_type_error(
+                        c"RegExp String Iterator next called on an incompatible receiver".as_ptr(),
+                    );
+                    return crate::nanbox::VALUE_UNDEFINED;
+                }
                 // §22.2.6.8 / .9 / .11 / .12 / .15 step 2 — the RegExp
                 // protocol methods throw on a non-Object `this` before
                 // anything else. Their ids are shared with the String
@@ -290,12 +302,8 @@ pub(crate) unsafe fn dispatch(
                 // and answered: `RegExp.prototype[Symbol.search]
                 // .call(86)` returned -1.
                 //
-                // An Object that is not a RegExp cell is the generic
-                // protocol (§22.2.7.1 RegExpExec — Get `exec`, call it,
-                // check its result), which is not implemented: it would
-                // re-dispatch into the String method on
-                // "[object Object]" and answer without ever calling
-                // `exec`. It refuses loudly instead.
+                // Any other receiver runs the spec algorithm
+                // (`regexp_protocol`).
                 if *fam == crate::method_value::REGEXP_PROTO_FAMILY
                     && crate::method_value::regexp_protocol_mid(*mid)
                 {
@@ -305,15 +313,10 @@ pub(crate) unsafe fn dispatch(
                         );
                         return crate::nanbox::VALUE_UNDEFINED;
                     }
-                    let tag = (crate::nanbox::as_void_ptr(this_arg).cast::<u8>().add(4)
-                        as *const u16)
-                        .read();
-                    if tag != torajs_rc::Tag::RegExp as u16 {
-                        __torajs_throw_type_error(
-                            c"RegExp protocol method on a non-RegExp object is not supported yet"
-                                .as_ptr(),
+                    if crate::regexp_protocol::regexp_cell(this_arg).is_none() {
+                        return crate::regexp_protocol::call_through_arm(
+                            this_arg, *mid, argv, argc,
                         );
-                        return crate::nanbox::VALUE_UNDEFINED;
                     }
                     // A RegExp `this` takes its own arm; the String-
                     // generic lanes below key on the (shared) id and

@@ -39,6 +39,54 @@ pub(crate) fn regexp_protocol_mid(mid: i64) -> bool {
     REGEXP_PROTOCOL.iter().any(|&(_, m)| m == mid)
 }
 
+/// §20.2.4.2 SetFunctionName over a symbol key — each protocol
+/// method's `name` is its key's description in brackets, in
+/// [`REGEXP_PROTOCOL`] order.
+const REGEXP_PROTOCOL_NAMES: [&[u8]; 5] = [
+    b"[Symbol.match]",
+    b"[Symbol.matchAll]",
+    b"[Symbol.replace]",
+    b"[Symbol.search]",
+    b"[Symbol.split]",
+];
+
+static REGEXP_PROTOCOL_NAME_CELLS: [core::sync::atomic::AtomicU64; 5] =
+    [const { core::sync::atomic::AtomicU64::new(0) }; 5];
+
+/// The interned `name` of the reified method cell `ptr` carrying
+/// `mid`: the symbol-keyed name for a RegExp protocol method, the
+/// method-table `name` for every other one.
+///
+/// # Safety
+/// `ptr` is a live reified method cell.
+pub(crate) unsafe fn method_name_cell_of(
+    ptr: *mut c_void,
+    mid: i64,
+    name: &'static str,
+) -> *mut u8 {
+    if unsafe { super::family::builtin_method_family(ptr) } == REGEXP_FAMILY
+        && let Some(cell) = regexp_protocol_name_cell(mid)
+    {
+        return cell;
+    }
+    super::builtin_method_name_cell(mid, name)
+}
+
+/// The interned `name` of the RegExp protocol method `mid`, or `None`
+/// for any other id.
+fn regexp_protocol_name_cell(mid: i64) -> Option<*mut u8> {
+    use core::sync::atomic::Ordering;
+    let i = REGEXP_PROTOCOL.iter().position(|&(_, m)| m == mid)?;
+    let slot = &REGEXP_PROTOCOL_NAME_CELLS[i];
+    let p = slot.load(Ordering::Relaxed);
+    if p != 0 {
+        return Some(p as *mut u8);
+    }
+    let cell = super::mint_immortal_str(REGEXP_PROTOCOL_NAMES[i]);
+    slot.store(cell as u64, Ordering::Relaxed);
+    Some(cell)
+}
+
 /// Well-known-symbol method read off a native tag.
 ///
 /// `[Symbol.iterator]` — RFC 20260728-gen-forof-yieldstar F0. The
@@ -232,7 +280,23 @@ unsafe fn install_regexp_protocol(proto: *mut c_void) {
             )
         };
     }
+    REGEXP_PROTO_MINT_LEN.store(
+        unsafe { (slot.cast::<u8>().add(DYNOBJ_ENTRIES_LEN_OFF) as *const u32).read() },
+        core::sync::atomic::Ordering::Relaxed,
+    );
 }
+
+/// torajs-dynobj header mirrors: live-entry count and the dense entry
+/// array's used length (holes included — it only grows until a
+/// resize compacts it).
+pub(crate) const DYNOBJ_COUNT_OFF: usize = 8;
+pub(crate) const DYNOBJ_ENTRIES_LEN_OFF: usize = 16;
+
+/// The dense entry length %RegExp.prototype% had when its mint
+/// finished installing the protocol methods. Any entry a program adds
+/// later appends past it, and a delete drops the live count below it.
+pub(crate) static REGEXP_PROTO_MINT_LEN: core::sync::atomic::AtomicU32 =
+    core::sync::atomic::AtomicU32::new(u32::MAX);
 
 /// §23.1.3.44 — the method names a `with` block must NOT bring into
 /// scope, in the clause's creation order. `Object.keys` on the

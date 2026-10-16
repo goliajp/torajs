@@ -78,7 +78,11 @@ pub unsafe extern "C" fn __torajs_any_regexp_prop(
     let ptr = as_void_ptr(recv);
     unsafe {
         let tag = (ptr.cast::<u8>().add(4) as *const u16).read();
-        if tag == Tag::RegExp as u16 {
+        // An own `global` accessor (or one a program put on the
+        // prototype) outranks the builtin the RegExp arm answers from.
+        if tag == Tag::RegExp as u16
+            && !(!key.is_null() && crate::regexp_protocol::shadowed(recv, key))
+        {
             return match prop {
                 p if p == ANY_RPROP_SOURCE => {
                     __torajs_anyv_box_from_pair(4, __torajs_regex_get_source(ptr) as i64)

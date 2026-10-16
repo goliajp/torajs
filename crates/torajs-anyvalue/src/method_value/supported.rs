@@ -152,6 +152,8 @@ pub(crate) fn builtin_method_supported(recv: AnyValue, mid: i64) -> bool {
             || t == Tag::IterHelper as u16 =>
         {
             iter_face_supports(t, mid)
+                && !(mid == torajs_rc::any_method::ANY_METHOD_ITER_RETURN
+                    && crate::regexp_protocol::is_regexp_string_iter(recv))
         }
         // RFC 20260823-typedarray-substrate — the two buffer
         // families' own methods. Their accessors (`length`,

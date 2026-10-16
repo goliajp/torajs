@@ -1,0 +1,15 @@
+match exec throws threw Boom exec
+replace exec throws threw Boom exec
+search exec throws threw Boom exec
+match flags getter throws threw Boom flags
+match global getter throws threw Boom global
+exec returns a primitive threw TypeError 
+replace result reads ["a[cbacd]cd","exec,length,0,index,1,groups"]
+replace index getter throws threw Boom index
+replace groups null threw TypeError 
+replace named group getter "<N>bc"
+match on an object ["x","x"]
+search on an object 7
+split species throws threw Boom species
+lastIndex valueOf throws threw Boom lastIndex
+plain regexp still native [["b","b"],"axc",2,["a","c"]]

@@ -124,8 +124,14 @@ pub(crate) unsafe fn regexp_method(
                 || m == ANY_METHOD_SEARCH
                 || m == ANY_METHOD_SPLIT =>
             {
-                let hay = __torajs_anyv_to_str(arg_at(0));
                 let re_box = __torajs_anyv_box_from_pair(4, re as i64);
+                // A receiver that could tell the kernels from the spec
+                // algorithm (an own `exec`, a patched prototype, …)
+                // runs the algorithm.
+                if crate::regexp_protocol::spec_needed(re_box, m, argv, argc) {
+                    return crate::regexp_protocol::spec_run(re_box, m, argv, argc);
+                }
+                let hay = __torajs_anyv_to_str(arg_at(0));
                 // Slot 1 carries @@split's limit / @@replace's
                 // replacement; absent args pad undefined, which the
                 // Str arms' own arg_at treats as absent.

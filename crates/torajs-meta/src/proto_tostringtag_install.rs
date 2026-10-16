@@ -99,6 +99,8 @@ fn tag_for_proto(idx: i64) -> Option<&'static [u8]> {
         35 => Some(b"Map Iterator"),
         36 => Some(b"Set Iterator"),
         37 => Some(b"Iterator Helper"),
+        // §22.2.9.2.2
+        40 => Some(b"RegExp String Iterator"),
         _ => None,
     }
 }

@@ -286,6 +286,7 @@ mod reflect_apply;
 mod reflect_construct;
 mod regexp_flags_getter;
 mod regexp_proto_accessors;
+mod regexp_protocol;
 mod set_like;
 mod set_like_ops;
 mod str_iterator;
@@ -1069,13 +1070,6 @@ mod tests {
     /// reaches (shipped binary resolves libtorajs_{str,regex}.a).
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_symbol_alloc(_desc: *mut c_void) -> *mut c_void {
-        core::ptr::null_mut()
-    }
-    #[unsafe(no_mangle)]
-    pub unsafe extern "C" fn __torajs_regex_compile_or_throw(
-        _pattern: *const c_void,
-        _flags: *const c_void,
-    ) -> *mut c_void {
         core::ptr::null_mut()
     }
     #[unsafe(no_mangle)]
@@ -2197,6 +2191,7 @@ mod tests {
         __torajs_promise_race_dyn,
         __torajs_promise_resolve_any,
         __torajs_regex_compile,
+        __torajs_regex_compile_any,
         __torajs_regex_compile_inplace,
         __torajs_regex_drop,
         __torajs_regex_exec,
@@ -2205,6 +2200,7 @@ mod tests {
         __torajs_regex_has_flag,
         __torajs_regex_last_index_raw,
         __torajs_regex_last_index_store_boxed,
+        __torajs_regex_protocol_plain,
         __torajs_regex_set_last_index,
         __torajs_regex_test,
         __torajs_regex_to_string,

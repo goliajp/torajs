@@ -117,12 +117,11 @@ unsafe extern "C" {
     /// the description) and the Str release that pairs with it.
     fn __torajs_symbol_alloc(desc: *mut c_void) -> *mut c_void;
     fn __torajs_str_drop(cell: *mut c_void);
-    /// torajs-regex — §22.2.3.1 RegExpInitialize, with the pattern
-    /// parser's rejection already turned into a SyntaxError.
-    fn __torajs_regex_compile_or_throw(
-        pattern_str: *const c_void,
-        flags_str: *const c_void,
-    ) -> *mut c_void;
+    /// torajs-regex — §22.2.3.1 over two boxed operands: a RegExp
+    /// pattern contributes its source (and its flags when `flags` is
+    /// undefined), anything else is ToString'd; a rejected pattern is
+    /// a pending SyntaxError. Always a live cell (rc 1).
+    fn __torajs_regex_compile_any(pattern: u64, flags: u64) -> *mut c_void;
 }
 
 /// Monolithic resolution of the ctor-date seam — §21.4.2 Date as a

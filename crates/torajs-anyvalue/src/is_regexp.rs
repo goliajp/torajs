@@ -92,7 +92,7 @@ pub unsafe extern "C" fn __torajs_anyv_reject_regexp_needle(arg: AnyValue, which
 ///
 /// # Safety
 /// `arg` is a live AnyValue.
-unsafe fn is_regexp(arg: AnyValue) -> i64 {
+pub(crate) unsafe fn is_regexp(arg: AnyValue) -> i64 {
     unsafe {
         // Step 1 — "If argument is not an Object, return false". Not
         // `is_cell`: tr carries strings, symbols and bigints ON the

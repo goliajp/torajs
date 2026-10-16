@@ -339,7 +339,7 @@ pub(crate) unsafe fn builtin_method_name_cell_of(ptr: *mut c_void) -> Option<*mu
     }
     let mid = unsafe { builtin_method_mid(ptr) }?;
     let (name, _) = torajs_rc::any_method_meta(mid)?;
-    Some(builtin_method_name_cell(mid, name))
+    Some(unsafe { symbol_lookup::method_name_cell_of(ptr, mid, name) })
 }
 
 /// The ES-spec `length` of a reified method cell, `None` for

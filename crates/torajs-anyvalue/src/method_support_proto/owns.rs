@@ -139,7 +139,7 @@ pub(crate) fn proto_tag_family_owns(tag: i64, mid: i64) -> bool {
         // per-family iterator prototype owns exactly its `next`. The
         // helper family is INHERITED from %Iterator.prototype% one
         // link out, which is why those mids are not listed here.
-        33..=36 => mid == torajs_rc::ANY_METHOD_NEXT,
+        33..=36 | 40 => mid == torajs_rc::ANY_METHOD_NEXT,
         // §27.1.5.1-2 — %IteratorHelperPrototype% is the only one
         // that owns a `return` as well.
         37 => {
