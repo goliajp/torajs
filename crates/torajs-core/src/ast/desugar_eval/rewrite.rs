@@ -73,8 +73,28 @@ fn rewrite_stmt(s: &mut Stmt, ast: &mut Ast, in_fn: bool, home: bool, strict: &[
                     // strict by inheritance — can still seal.
                     // A Script's `var`s are global whatever its
                     // strictness (§16.1.7 has no strict branch).
-                    let sealed = form != CallForm::Script
-                        && (sw == EvalStrictness::Strict || has_use_strict_prologue(&inlined, ast));
+                    let prologue = has_use_strict_prologue(&inlined, ast);
+                    let sealed =
+                        form != CallForm::Script && (sw == EvalStrictness::Strict || prologue);
+                    // The prologue makes the text strict code under a
+                    // sloppy caller (§11.2.2), and strictness is read
+                    // off the enclosing function, so the text gets a
+                    // function of its own. Strict eval code owns its
+                    // var scope and cannot `return` or `break` out, and
+                    // an arrow keeps the caller's `this` / `arguments`.
+                    if sealed && prologue && sw != EvalStrictness::Strict {
+                        seal_var_scope(&mut inlined);
+                        let arrow = ast.add_expr(Expr::ArrowFn {
+                            params: Vec::new(),
+                            return_type: Some("void".to_string()),
+                            body: inlined,
+                        });
+                        ast.exprs[eid.0 as usize] = Expr::Call {
+                            callee: arrow,
+                            args: Vec::new(),
+                        };
+                        return;
+                    }
                     if sealed {
                         seal_var_scope(&mut inlined);
                     } else {
