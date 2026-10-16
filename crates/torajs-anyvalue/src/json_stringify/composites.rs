@@ -8,7 +8,7 @@ use core::ffi::c_void;
 
 use super::struct_expando;
 use super::*;
-use struct_slot::{SlotEntry, struct_key_listed, struct_slot_key, struct_slot_value};
+use struct_slot::{SlotEntry, SlotKey, struct_key_listed, struct_slot_key, struct_slot_value};
 
 mod struct_slot;
 
@@ -252,64 +252,7 @@ pub(super) unsafe fn write_struct(sb: *mut c_void, ptr: *mut c_void, depth: u32,
                         }
                         continue;
                     }
-                    let (name, mut value, is_accessor) = match struct_slot_value(ptr, k) {
-                        SlotEntry::Threw => break 'walk,
-                        SlotEntry::Emit { key, value, owned } => (key, value, owned),
-                    };
-                    // §25.5.2.3 step 2 — field-level toJSON hook (a
-                    // struct's Any field can hold a dynobj carrying one).
-                    // An accessor's [[Get]] result arrives OWNED — the
-                    // same ledger the hook result rides.
-                    let mut hook_owned = is_accessor;
-                    if let Some(r) = crate::json_stringify_tojson::apply_tojson(value) {
-                        if hook_owned {
-                            crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
-                        }
-                        value = r;
-                        hook_owned = true;
-                        if __torajs_throw_check() != 0 {
-                            crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
-                            break 'walk;
-                        }
-                    }
-                    // §25.5.2.2 step 3 — the field name lives in the
-                    // static layout table as raw bytes, so the call site
-                    // mints the Str the replacer's `key` argument needs.
-                    (value, hook_owned) = replacer::apply_named(
-                        st,
-                        crate::nanbox::box_void_ptr(ptr),
-                        name.ptr,
-                        name.len,
-                        value,
-                        hook_owned,
-                    );
-                    if __torajs_throw_check() != 0 {
-                        if hook_owned {
-                            crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
-                        }
-                        break 'walk;
-                    }
-                    if serializes_to_nothing(value) {
-                        if hook_owned {
-                            crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
-                        }
-                        continue;
-                    }
-                    if emitted {
-                        __torajs_jsb_push_byte(sb, b',');
-                    }
-                    emitted = true;
-                    push_indent(sb, depth + 1, st);
-                    quote_bytes(sb, name.ptr, name.len);
-                    __torajs_jsb_push_byte(sb, b':');
-                    if st.has_gap() {
-                        __torajs_jsb_push_byte(sb, b' ');
-                    }
-                    write_value(sb, value, depth + 1, st);
-                    if hook_owned {
-                        crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
-                    }
-                    if __torajs_throw_check() != 0 {
+                    if write_struct_row(sb, ptr, k, depth, st, &mut emitted) {
                         break 'walk;
                     }
                 }
@@ -342,5 +285,83 @@ pub(super) unsafe fn write_struct(sb: *mut c_void, ptr: *mut c_void, depth: u32,
             push_indent(sb, depth, st);
         }
         __torajs_jsb_push_byte(sb, b'}');
+    }
+}
+
+/// Serialize one row of K whose key `k` the walk has taken: its value
+/// through toJSON and the replacer, then the `"name":value` entry
+/// unless the value serializes to nothing. True when a step threw and
+/// the walk has to stop.
+#[inline(always)]
+unsafe fn write_struct_row(
+    sb: *mut c_void,
+    ptr: *mut c_void,
+    k: SlotKey,
+    depth: u32,
+    st: &St,
+    emitted: &mut bool,
+) -> bool {
+    unsafe {
+        let (name, mut value, is_accessor) = match struct_slot_value(ptr, k) {
+            SlotEntry::Threw => return true,
+            SlotEntry::Emit { key, value, owned } => (key, value, owned),
+        };
+        // §25.5.2.3 step 2 — field-level toJSON hook (a
+        // struct's Any field can hold a dynobj carrying one).
+        // An accessor's [[Get]] result arrives OWNED — the
+        // same ledger the hook result rides.
+        let mut hook_owned = is_accessor;
+        if let Some(r) = crate::json_stringify_tojson::apply_tojson(value) {
+            if hook_owned {
+                crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
+            }
+            value = r;
+            hook_owned = true;
+            if __torajs_throw_check() != 0 {
+                crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
+                return true;
+            }
+        }
+        // §25.5.2.2 step 3 — the field name lives in the
+        // static layout table as raw bytes, so the call site
+        // mints the Str the replacer's `key` argument needs.
+        (value, hook_owned) = replacer::apply_named(
+            st,
+            crate::nanbox::box_void_ptr(ptr),
+            name.ptr,
+            name.len,
+            value,
+            hook_owned,
+        );
+        if __torajs_throw_check() != 0 {
+            if hook_owned {
+                crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
+            }
+            return true;
+        }
+        if serializes_to_nothing(value) {
+            if hook_owned {
+                crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
+            }
+            return false;
+        }
+        if *emitted {
+            __torajs_jsb_push_byte(sb, b',');
+        }
+        *emitted = true;
+        push_indent(sb, depth + 1, st);
+        quote_bytes(sb, name.ptr, name.len);
+        __torajs_jsb_push_byte(sb, b':');
+        if st.has_gap() {
+            __torajs_jsb_push_byte(sb, b' ');
+        }
+        write_value(sb, value, depth + 1, st);
+        if hook_owned {
+            crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
+        }
+        if __torajs_throw_check() != 0 {
+            return true;
+        }
+        false
     }
 }
