@@ -240,6 +240,12 @@ unsafe fn call_resolved_symbol_method(
     // (the `.call` short-circuit shape) — own-property resolution is
     // already done, so the expando-skip flavor is correct.
     if let Some(mid) = unsafe { crate::method_value::builtin_method_mid(cell) } {
+        let fam = unsafe { crate::method_value::builtin_method_family(cell) };
+        if let Some(out) =
+            unsafe { crate::regexp_protocol::foreign_this_call(fam, mid, recv, argv, argc) }
+        {
+            return out;
+        }
         return unsafe { crate::method_call::any_method_redispatch(recv, mid, argv, argc) };
     }
     // User closure — boxed-entry call through the uniform dispatch

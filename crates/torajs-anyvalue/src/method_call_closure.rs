@@ -294,36 +294,6 @@ pub(crate) unsafe fn dispatch(
                     );
                     return crate::nanbox::VALUE_UNDEFINED;
                 }
-                // §22.2.6.8 / .9 / .11 / .12 / .15 step 2 — the RegExp
-                // protocol methods throw on a non-Object `this` before
-                // anything else. Their ids are shared with the String
-                // methods they delegate to, so without this a primitive
-                // receiver re-dispatched into `String.prototype.search`
-                // and answered: `RegExp.prototype[Symbol.search]
-                // .call(86)` returned -1.
-                //
-                // Any other receiver runs the spec algorithm
-                // (`regexp_protocol`).
-                if *fam == crate::method_value::REGEXP_PROTO_FAMILY
-                    && crate::method_value::regexp_protocol_mid(*mid)
-                {
-                    if !crate::iter_zip_shared::av_is_object(this_arg) {
-                        __torajs_throw_type_error(
-                            c"RegExp protocol method called on a non-object".as_ptr(),
-                        );
-                        return crate::nanbox::VALUE_UNDEFINED;
-                    }
-                    if crate::regexp_protocol::regexp_cell(this_arg).is_none() {
-                        return crate::regexp_protocol::call_through_seam(
-                            this_arg, *mid, argv, argc,
-                        );
-                    }
-                    // A RegExp `this` takes its own arm; the String-
-                    // generic lanes below key on the (shared) id and
-                    // would ToString the receiver instead:
-                    // `P[Symbol.search].call(/b/, "abc")` answered -1.
-                    return crate::method_call::any_method_redispatch(this_arg, *mid, argv, argc);
-                }
                 // §27.2.5.1 / §27.2.5.3 on a receiver that is not a
                 // Promise cell (`Promise.prototype.catch.call({then…})`,
                 // a primitive whose prototype grew a `then`, a

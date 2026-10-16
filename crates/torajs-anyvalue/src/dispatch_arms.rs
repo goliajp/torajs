@@ -226,22 +226,24 @@ pub unsafe fn promise_arm_impl(
 /// RegExp arm.
 ///
 /// # Safety
-/// `recv` boxes a live RegExp cell.
+/// `recv` is a live value: a RegExp cell, a RegExp String Iterator,
+/// or the receiver of a protocol method cell (see the comment below).
 pub unsafe fn regexp_arm_impl(
     recv: AnyValue,
     mid: i64,
-    _name_str: *const u8,
+    name_str: *const u8,
     _recv_slot: *mut u64,
     argv: *const u64,
     argc: i64,
 ) -> AnyValue {
     unsafe {
-        // a protocol method's object `this`, or a RegExp String
-        // Iterator step: the protocol seam's
+        // a RegExp String Iterator step, or the `this` of a protocol
+        // method cell a station invoked on a receiver it was not read
+        // from (any value, object or not): the protocol seam's
         if crate::regexp_protocol::regexp_cell(recv).is_none() {
             return crate::dispatch_seam::__torajs_regexp_protocol_call(recv, mid, argv, argc);
         }
-        crate::method_call_regexp::regexp_method(as_void_ptr(recv), mid, argv, argc)
+        crate::method_call_regexp::regexp_method(as_void_ptr(recv), mid, name_str, argv, argc)
     }
 }
 

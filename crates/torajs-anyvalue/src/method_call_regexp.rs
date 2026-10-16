@@ -63,6 +63,7 @@ const KIND_HEAP_CHAIN: u64 = 4;
 pub(crate) unsafe fn regexp_method(
     re: *mut c_void,
     mid: i64,
+    name_str: *const u8,
     argv: *const u64,
     argc: i64,
 ) -> AnyValue {
@@ -124,6 +125,13 @@ pub(crate) unsafe fn regexp_method(
                 || m == ANY_METHOD_SEARCH
                 || m == ANY_METHOD_SPLIT =>
             {
+                // ... under their symbol keys only: a symbol-keyed call
+                // arrives without a name, and `re.split(s)` by name is a
+                // miss, which the dispatcher's tail answers with a
+                // patch or the §13.3.6 TypeError.
+                if !name_str.is_null() {
+                    return method_no_such();
+                }
                 let re_box = __torajs_anyv_box_from_pair(4, re as i64);
                 // A receiver that could tell the kernels from the spec
                 // algorithm (an own `exec`, a patched prototype, …)

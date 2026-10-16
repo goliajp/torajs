@@ -25,7 +25,7 @@
 
 use core::ffi::c_void;
 
-use torajs_anyvalue::nanbox::AnyValue;
+use torajs_anyvalue::nanbox::{AnyValue, VALUE_UNDEFINED};
 use torajs_anyvalue::regexp_support as av;
 use torajs_rc::{ANY_METHOD_MATCH_ALL, ANY_METHOD_NEXT, ANY_METHOD_SPLIT};
 
@@ -34,6 +34,8 @@ unsafe extern "C" {
     /// protocol algorithms could observe (no own bag, no subclass,
     /// a plain writable numeric `lastIndex`).
     fn __torajs_regex_protocol_plain(re: *const c_void) -> i64;
+    /// torajs-throw — record a pending catchable TypeError.
+    fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
     /// torajs-regexp-protocol — the spec algorithm of a protocol
     /// method, or a RegExp String Iterator step.
     fn __torajs_regexp_protocol_run(
@@ -83,9 +85,14 @@ unsafe fn spec_needed(this: AnyValue, mid: i64, argv: *const u64, argc: i64) -> 
 /// The protocol seam's body: one RegExp String Iterator step for a
 /// `next` on one of its cells; [`av::KERNEL_LANE`] for a protocol
 /// method whose receiver cannot tell the native kernels from the
-/// algorithm (or is no Object at all); else the spec algorithm of the
-/// protocol method `mid` over the Object `recv` — its completion,
-/// undefined with a pending throw on an abrupt one.
+/// algorithm; else the spec algorithm of the protocol method `mid`
+/// over the Object `recv` — its completion, undefined with a pending
+/// throw on an abrupt one.
+///
+/// A primitive `recv` is a protocol method's `this` handed over by a
+/// station that invokes the method cell on a receiver it was not read
+/// from (`RegExp.prototype[Symbol.search].call(86)`): step 2 of each
+/// (§22.2.6.8 / .9 / .11 / .12 / .14) throws.
 ///
 /// # Safety
 /// `recv` is a live value; `argv` addresses `argc` live slots.
@@ -97,8 +104,12 @@ pub unsafe extern "C" fn __torajs_regexp_protocol_call(
     argc: i64,
 ) -> AnyValue {
     unsafe {
+        if !av::av_is_object(recv) {
+            __torajs_throw_type_error(c"RegExp protocol method called on a non-object".as_ptr());
+            return VALUE_UNDEFINED;
+        }
         let step = mid == ANY_METHOD_NEXT && av::is_regexp_string_iter(recv);
-        if !step && (!av::av_is_object(recv) || !spec_needed(recv, mid, argv, argc)) {
+        if !step && !spec_needed(recv, mid, argv, argc) {
             return av::KERNEL_LANE;
         }
         __torajs_regexp_protocol_run(recv, mid, argv, argc)

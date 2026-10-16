@@ -65,6 +65,13 @@ pub(crate) unsafe fn generic_builtin_this(
     argc: i64,
     fam: i64,
 ) -> Option<AnyValue> {
+    // `o.m("a")` with `o.m` holding `re[Symbol.match]` answered the
+    // String method's null instead of running RegExpExec over `o`.
+    if let Some(out) =
+        unsafe { crate::regexp_protocol::foreign_this_call(fam, mid, this_arg, argv, argc) }
+    {
+        return Some(out);
+    }
     // §20.2.3.5 Function.prototype.toString on a CLASS constructor —
     // tr models the class object as a dynobj (FLAG_DYNOBJ_CLASS_CTOR),
     // so no station had an fn_addr to resolve and the answer fell

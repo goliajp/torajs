@@ -102,18 +102,40 @@ pub(crate) unsafe fn regexp_string_iter_step(ptr: *mut c_void, out: *mut AnyValu
     }
 }
 
-/// A protocol method call whose receiver needs the spec algorithm,
-/// from outside the RegExp arm — straight into the protocol seam (the
-/// arm hands a non-RegExp receiver to it unchanged), which the
-/// dispatch judgment stubs in a program that never enters it.
+/// A builtin method cell of family `fam` carrying `mid`, invoked with
+/// a receiver it was not read from (`.call`, an own or inherited
+/// property holding the cell, a symbol-keyed call): `None` unless it is
+/// one of %RegExp.prototype%'s @@match / @@matchAll / @@replace /
+/// @@search / @@split. Those share their ids with the String methods
+/// they delegate to, so the receiver's own dispatch arm would answer
+/// the String method; they go to the RegExp arm instead, whatever the
+/// receiver, and the call stays behind that seam, which a program
+/// with no RegExp value stubs: a RegExp `this` runs its own method,
+/// any other value the protocol seam (step 2's TypeError for a
+/// primitive, else the spec algorithm, whose RegExpExec reads that
+/// object's `exec`).
 ///
 /// # Safety
-/// `this` is a live Object value; `argv` addresses `argc` live slots.
-pub(crate) unsafe fn call_through_seam(
-    this: AnyValue,
+/// `this` is a live value; `argv` addresses `argc` live slots.
+#[inline(never)]
+pub(crate) unsafe fn foreign_this_call(
+    fam: i64,
     mid: i64,
+    this: AnyValue,
     argv: *const u64,
     argc: i64,
-) -> AnyValue {
-    unsafe { crate::dispatch_seam::__torajs_regexp_protocol_call(this, mid, argv, argc) }
+) -> Option<AnyValue> {
+    if fam != REGEXP_PROTO_TAG || !crate::method_value::regexp_protocol_mid(mid) {
+        return None;
+    }
+    Some(unsafe {
+        crate::dispatch_seam::__torajs_dispatch_regexp_arm(
+            this,
+            mid,
+            core::ptr::null(),
+            core::ptr::null_mut(),
+            argv,
+            argc,
+        )
+    })
 }
