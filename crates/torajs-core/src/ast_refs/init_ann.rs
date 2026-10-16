@@ -30,17 +30,16 @@ pub fn lifted_closure_fn_canon(ast: &Ast, fn_name: &str) -> Option<String> {
             ..
         } if name == fn_name => {
             let mut anns: Vec<String> = Vec::with_capacity(params.len());
-            for p in params.iter().filter(|p| p.name != "__env") {
-                // A rest parameter's own ann is the ARRAY spelling
-                // (`number[]`); what makes it a rest is the flag
-                // beside it. Joining the anns alone therefore spelled
-                // `(...xs: number[]) => number` as `__fn(number[])
-                // ->(number)` — one Array parameter, arity 1 — and
-                // every consumer of this string believed it. The
-                // `__rest(` sentinel is how a rest reaches a type
-                // ann everywhere else (`parser::type_ann_fn`), and
-                // the guards downstream were already written to look
-                // for it.
+            // a promoted receiver stays out, as `closure_value_ty` keeps
+            // it out of a local's type: the call lane adds the slot back
+            let recv = ast.fnexpr_recv_fns.contains(fn_name);
+            let skip = |p: &&crate::ast::Param| p.name == "__env" || (recv && p.name == "__this");
+            for p in params.iter().filter(|p| !skip(p)) {
+                // a rest parameter's own ann is the array spelling
+                // (`number[]`) and the flag beside it makes it a rest:
+                // spelled alone, `(...xs: number[]) => number` reads as
+                // one array parameter. `__rest(` is how a rest reaches
+                // a type ann everywhere else (`parser::type_ann_fn`).
                 let a = p.type_ann.clone()?;
                 anns.push(if p.is_rest { format!("__rest({a})") } else { a });
             }

@@ -232,9 +232,9 @@ pub(super) struct Analysis<'a> {
     /// Each callback-taking iteration with the array it walks and that
     /// array's key (`hof_receivers`).
     pub(super) hof_receivers: Vec<(ExprId, ExprId, SlotKey)>,
-    /// Each call through a variadic fn face, with the callee's key and
-    /// the first position it may leave unfilled (`variadic_short`).
-    pub(super) variadic_calls: Vec<(SlotKey, usize)>,
+    /// Each call that may leave a parameter unfilled: the callee's key,
+    /// that position, whether later arguments are unknown (`variadic_short`).
+    pub(super) variadic_calls: Vec<(SlotKey, usize, bool)>,
     /// Each function value stored into a slot, with the parameters
     /// that slot's argument positions reach (`fn_value_flow`).
     pub(super) fn_flows: Vec<(SlotKey, String, Vec<String>)>,

@@ -110,17 +110,6 @@ pub(super) fn try_promote_scope_paired(
     {
         return;
     }
-    // A top-level candidate next to a same-name binding that is not
-    // one is read through a global whose closure type does not match
-    // the promoted body (`g(1)` at top level passed a boxed argument to
-    // a typed parameter), so the name keeps the loud reject.
-    if plans.len() != groups.len()
-        && plans
-            .iter()
-            .any(|(init, ..)| declared_at_top(c.stmts, c.exprs, name, *init))
-    {
-        return;
-    }
     // a by-name alias cannot tell which declaration it reads
     if !crate::ast::fnexpr_this_alias::called_alias_names(c.stmts, c.exprs, c.shapes, name)
         .is_empty()
@@ -133,18 +122,6 @@ pub(super) fn try_promote_scope_paired(
     }
     fnexpr_recv_locals.insert(name.to_string());
     fnexpr_recv_foreign_uses.extend(foreign);
-}
-
-/// Is `init` the (peeled) initializer of a top-level declaration of
-/// `name` (through `Multi`, which shares the top-level scope)?
-fn declared_at_top(stmts: &[Stmt], exprs: &[Expr], name: &str, init: ExprId) -> bool {
-    stmts.iter().any(|s| match s {
-        Stmt::LetDecl {
-            name: n, init: i, ..
-        } => n == name && peel_as(exprs, *i) == init,
-        Stmt::Multi(inner) => declared_at_top(inner, exprs, name, init),
-        _ => false,
-    })
 }
 
 /// The group's init, when it is a marked fn-expr still capturing

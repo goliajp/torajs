@@ -69,23 +69,18 @@ impl Analysis<'_> {
             }
             self.fn_value_flow(&ck, callee, scope);
             self.record_variadic_call(callee, args, &ck);
-            for (i, arg) in args.iter().enumerate() {
-                let w = self.flow(*arg, scope);
-                let pk = SlotKey::Field(Box::new(ck.clone()), PropKey::from(format!("__p{i}")));
-                self.add_constraint(pk.clone(), w);
-                // RFC 20260726-array-elem-width — a CONTAINER
-                // argument has to join the projection too, not
-                // just hand over its scalar width. The direct
-                // arm above does this; without it here, an
-                // arrow bound to a local (`let f = (xs:
-                // number[]) => xs[0]`) left the caller's array
-                // in a different class from the param reading
-                // it, so the two disagreed on element width.
-                // `fn_value_flow` at the binding's init already
-                // glued this projection onto the lifted fn's
-                // Param key, so one union reaches it.
-                self.alias_guarded(pk.clone(), *arg, scope);
-                self.fn_value_flow(&pk, *arg, scope);
+            self.flow_into_projections(&ck, args, scope);
+        } else if let Some((obj, pos)) = self.replayed_args(callee, args)
+            && let Some(ck) = self.container_key_lookup(obj, scope)
+        {
+            // `f.call(t, ...)` / `f.apply(t, ...)` on an fn value: the
+            // arguments after the receiver fill its projections as a
+            // plain indirect call's would; an `apply` array that is no
+            // literal lists none of them
+            self.fn_value_flow(&ck, obj, scope);
+            match pos {
+                Some(pos) => self.flow_into_projections(&ck, &pos, scope),
+                None => self.record_unlisted_args(&ck, 0),
             }
         }
         self.member_call_effects(eid, callee, args, scope);
@@ -96,6 +91,51 @@ impl Analysis<'_> {
         }
         for a in args {
             self.walk_expr(*a, scope);
+        }
+    }
+
+    /// Each of `args` into the `__p{i}` projection of the fn value
+    /// slot `ck`, by position. A spread stands for the arguments from
+    /// its position on, which no projection lists.
+    fn flow_into_projections(&mut self, ck: &SlotKey, args: &[ExprId], scope: &Scope) {
+        let spread = |a: &ExprId| matches!(self.ast.get_expr(*a), Expr::Spread { .. });
+        if let Some(at) = args.iter().position(spread) {
+            self.record_unlisted_args(ck, at);
+        }
+        for (i, arg) in args.iter().enumerate() {
+            let w = self.flow(*arg, scope);
+            let pk = SlotKey::Field(Box::new(ck.clone()), PropKey::from(format!("__p{i}")));
+            self.add_constraint(pk.clone(), w);
+            // a container argument joins the projection too, not just
+            // hands over its scalar width: an arrow bound to a local
+            // (`let f = (xs: number[]) => xs[0]`) otherwise read the
+            // caller's array from a different class than the param
+            // reading it, and the two disagreed on element width.
+            // `fn_value_flow` at the binding's init already glued this
+            // projection onto the lifted fn's Param key, so one union
+            // reaches it.
+            self.alias_guarded(pk.clone(), *arg, scope);
+            self.fn_value_flow(&pk, *arg, scope);
+        }
+    }
+
+    /// For `f.call(t, a, b)` and `f.apply(t, [a, b])` the function `f`
+    /// and `Some([a, b])`; for `f.apply(t, xs)`, whose arguments are
+    /// not written out, `f` and `None`.
+    fn replayed_args(
+        &self,
+        callee: ExprId,
+        args: &[ExprId],
+    ) -> Option<(ExprId, Option<Vec<ExprId>>)> {
+        let Expr::Member { obj, name } = self.ast.get_expr(callee) else {
+            return None;
+        };
+        match (name.as_str(), args.get(1).map(|a| self.ast.get_expr(*a))) {
+            ("call", _) => Some((*obj, Some(args.iter().skip(1).copied().collect()))),
+            ("apply", None) => Some((*obj, Some(Vec::new()))),
+            ("apply", Some(Expr::Array(els))) => Some((*obj, Some(els.clone()))),
+            ("apply", Some(_)) => Some((*obj, None)),
+            _ => None,
         }
     }
 }

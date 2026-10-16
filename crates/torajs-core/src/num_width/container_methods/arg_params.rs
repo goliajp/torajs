@@ -22,11 +22,13 @@ impl Analysis<'_> {
     /// land in. An object-literal method or accessor is called with its
     /// receiver threaded apart and, on the argv face, the argv pointer
     /// filled by the ABI: `__p{i}` is the i-th argument the caller
-    /// writes, which neither of those is.
+    /// writes, which neither of those is. A promoted function
+    /// expression's receiver is threaded apart the same way.
     pub(in crate::num_width) fn closure_arg_params(&self, fname: &str, eid: ExprId) -> Vec<String> {
         let objlit_method = self.ast.objlit_method_exprs.contains(&eid);
+        let recv = objlit_method || self.ast.fnexpr_recv_fns.contains(fname);
         let mut ps = self.user_params(fname);
-        ps.retain(|p| !objlit_method || (p != "__this" && p != "__torajs_argv"));
+        ps.retain(|p| !(recv && p == "__this") && !(objlit_method && p == "__torajs_argv"));
         ps
     }
 
