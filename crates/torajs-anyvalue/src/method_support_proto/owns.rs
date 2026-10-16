@@ -123,7 +123,7 @@ pub(crate) fn proto_tag_family_owns(tag: i64, mid: i64) -> bool {
             mid,
             ANY_METHOD_TO_STRING | ANY_METHOD_TO_LOCALE_STRING | ANY_METHOD_VALUE_OF
         ),
-        7 => regexp_supports(mid),
+        crate::method_value::REGEXP_PROTO_FAMILY => regexp_supports(mid),
         8 => date_supports(mid),
         // Promise.prototype owns then / catch / finally (§27.2.5).
         10 => matches!(

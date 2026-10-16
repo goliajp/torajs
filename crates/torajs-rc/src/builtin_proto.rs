@@ -89,6 +89,10 @@ pub const NUMBER_PROTO_TAG: usize = 0;
 /// the §22.1.3 generic ToString(this) coerce on borrow re-dispatch.
 pub const STRING_PROTO_TAG: usize = 3;
 
+/// %RegExp.prototype%'s slot — also the RegExp constructor cell's and
+/// the RegExp method family's tag.
+pub const REGEXP_PROTO_TAG: usize = 7;
+
 /// `Boolean.prototype`'s slot — its reified toString / valueOf
 /// brand-check thisBooleanValue (§20.3.3) on borrow re-dispatch.
 pub const BOOLEAN_PROTO_TAG: usize = 4;

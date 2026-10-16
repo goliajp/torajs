@@ -11,11 +11,11 @@
 
 use core::sync::atomic::{AtomicU64, Ordering};
 
-use torajs_rc::{FLAG_STATIC_LITERAL, Tag};
+use torajs_rc::{FLAG_STATIC_LITERAL, Tag, any_method_regexp::ANY_METHOD_GET_HAS_INDICES};
 
 use super::{
     CELL_SIZE, CLOSURE_BOXED_ENTRY_OFF, CLOSURE_CAP_BASE_OFF, CLOSURE_DROP_FN_OFF,
-    CLOSURE_FN_ADDR_OFF, CLOSURE_PROPS_OFF, bare_entry, native_entry,
+    CLOSURE_FN_ADDR_OFF, CLOSURE_PROPS_OFF, REGEXP_PROTO_FAMILY, bare_entry, native_entry,
 };
 
 static ACCESSOR_GETTER_CELLS: [AtomicU64; 24] = [const { AtomicU64::new(0) }; 24];
@@ -36,8 +36,8 @@ pub(crate) fn proto_accessor_getter_cell(proto_tag: i64, mid: i64) -> *mut u8 {
         (19 | 32, m) => 18 + (m - buf::ANY_METHOD_GET_AB_BYTE_LENGTH) as usize,
         // §22.2.6.4 `get RegExp.prototype.flags`, then the eight flag
         // getters and `source` (ids 216-224), one function object each.
-        (7, torajs_rc::ANY_METHOD_GET_FLAGS) => 4,
-        (7, m) => 9 + (m - torajs_rc::any_method_regexp::ANY_METHOD_GET_HAS_INDICES) as usize,
+        (REGEXP_PROTO_FAMILY, torajs_rc::ANY_METHOD_GET_FLAGS) => 4,
+        (REGEXP_PROTO_FAMILY, m) => 9 + (m - ANY_METHOD_GET_HAS_INDICES) as usize,
         // §23.2.3.1 / .2 / .3 / .21 — %TypedArray.prototype%'s four,
         // one distinct function object each.
         (39, buf::ANY_METHOD_GET_TA_BUFFER) => 5,

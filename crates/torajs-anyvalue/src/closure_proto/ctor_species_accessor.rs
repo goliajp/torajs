@@ -44,9 +44,9 @@ unsafe extern "C" {
 /// The builtin constructors whose spec text defines `get [@@species]`.
 pub(crate) fn owns_species(proto_tag: i64) -> bool {
     use torajs_rc::builtin_proto::{
-        ARRAY_PROTO_TAG, MAP_PROTO_TAG, SET_PROTO_TAG, TYPEDARRAY_PROTO_TAG,
+        ARRAY_PROTO_TAG, MAP_PROTO_TAG, REGEXP_PROTO_TAG, SET_PROTO_TAG, TYPEDARRAY_PROTO_TAG,
     };
-    const REGEXP: i64 = 7;
+    const REGEXP: i64 = REGEXP_PROTO_TAG as i64;
     const PROMISE: i64 = 10;
     const ARRAY_BUFFER: i64 = 19;
     proto_tag == ARRAY_PROTO_TAG as i64

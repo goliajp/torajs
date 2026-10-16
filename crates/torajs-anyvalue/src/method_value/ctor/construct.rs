@@ -131,7 +131,7 @@ pub(crate) unsafe fn ctor_construct(tag: i64, argv: *const u64, argc: i64) -> u6
             // §22.2.4.1 step 2 — with a NewTarget present the
             // identity shortcut is skipped and the pattern is always
             // rebuilt; the body itself is shared with the call form.
-            7 => crate::dispatch_seam::__torajs_ctor_regexp_build(
+            REGEXP_PROTO_FAMILY => crate::dispatch_seam::__torajs_ctor_regexp_build(
                 if argc > 0 {
                     argv.read()
                 } else {

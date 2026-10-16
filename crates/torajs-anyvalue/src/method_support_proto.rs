@@ -21,8 +21,8 @@ use crate::method_support::{
     arr_supports, closure_supports, date_supports, map_supports, num_supports, regexp_supports,
     set_supports, str_supports, weakmap_supports, weakref_supports, weakset_supports,
 };
-use crate::method_support_proto_alias::proto_cell_key;
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED};
+use crate::{method_support_proto_alias::proto_cell_key, method_value::REGEXP_PROTO_FAMILY};
 
 unsafe extern "C" {
     /// torajs-dynobj — own-property probe pair ((5, 0) = absent).
@@ -224,9 +224,9 @@ pub(crate) unsafe fn proto_tag_accessor_mid(tag: i64, key: *const c_void) -> Opt
         5 if unsafe { crate::prop_has::key_is(key, b"description") } => {
             Some(torajs_rc::ANY_METHOD_GET_DESCRIPTION)
         }
-        // §22.2.6 — `RegExp.prototype` (tag 7) owns `flags`, the
-        // eight flag booleans and `source`.
-        7 => unsafe { crate::regexp_proto_accessors::regexp_accessor_mid(key) },
+        // §22.2.6 — `RegExp.prototype` owns `flags`, the eight flag
+        // booleans and `source`.
+        REGEXP_PROTO_FAMILY => unsafe { crate::regexp_proto_accessors::regexp_accessor_mid(key) },
         // §25.1.6 / §25.3.4 — `ArrayBuffer.prototype` (tag 19) and
         // `DataView.prototype` (tag 32) own four and three.
         19 => unsafe {

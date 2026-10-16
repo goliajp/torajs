@@ -13,6 +13,7 @@ use core::ffi::c_void;
 
 use torajs_rc::Tag;
 use torajs_rc::any_method_regexp as rx;
+use torajs_rc::builtin_proto::{__torajs_get_builtin_prototype, REGEXP_PROTO_TAG};
 
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr, box_bool};
 
@@ -98,7 +99,7 @@ pub unsafe fn regexp_accessor_call(recv: AnyValue, mid: i64) -> Option<AnyValue>
     let ptr = as_void_ptr(recv);
     // SAFETY: an object value is a live cell with a header.
     if unsafe { ptr.cast::<u8>().add(4).cast::<u16>().read() } != Tag::RegExp as u16 {
-        let proto = unsafe { torajs_rc::builtin_proto::__torajs_get_builtin_prototype(7) };
+        let proto = unsafe { __torajs_get_builtin_prototype(REGEXP_PROTO_TAG as i64) };
         if !core::ptr::eq(proto.cast_const(), ptr.cast_const()) {
             unsafe {
                 __torajs_throw_type_error(

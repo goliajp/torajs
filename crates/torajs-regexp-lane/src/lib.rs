@@ -45,7 +45,7 @@ unsafe extern "C" {
 }
 
 /// %RegExp.prototype%'s builtin-prototype tag.
-const REGEXP_PROTO_TAG: i64 = 7;
+const REGEXP_PROTO_TAG: i64 = torajs_rc::builtin_proto::REGEXP_PROTO_TAG as i64;
 
 /// Whether %RegExp.prototype% still holds exactly what its mint
 /// installed: no entry created, rewritten, redefined or deleted, no

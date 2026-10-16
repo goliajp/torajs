@@ -43,7 +43,7 @@ use torajs_core::ssa::{InstKind, Module, Operand};
 
 /// %RegExp.prototype%'s builtin tag — also the RegExp ctor cell's and
 /// the RegExp method family's.
-const REGEXP_TAG: i64 = 7;
+const REGEXP_TAG: i64 = torajs_rc::builtin_proto::REGEXP_PROTO_TAG as i64;
 
 /// The RegExp protocol method ids — the `@@match` family the RegExp
 /// arm hands to the protocol seam.

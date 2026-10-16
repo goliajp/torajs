@@ -31,8 +31,8 @@ const REGEXP_PROTOCOL: [(i64, i64); 5] = [
 ];
 
 /// The RegExp proto row (`family.rs`), which is also its prototype
-/// tag (`torajs-rc/builtin_proto.rs`: RegExp = 7).
-pub const REGEXP_FAMILY: i64 = 7;
+/// tag.
+pub const REGEXP_FAMILY: i64 = torajs_rc::builtin_proto::REGEXP_PROTO_TAG as i64;
 
 /// Is `mid` one of the [`REGEXP_PROTOCOL`] methods?
 pub(crate) fn regexp_protocol_mid(mid: i64) -> bool {

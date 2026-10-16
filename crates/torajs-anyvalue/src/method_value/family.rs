@@ -163,7 +163,7 @@ pub(crate) fn recv_proto_family(recv: AnyValue) -> i64 {
         t if t == Tag::Obj as u16 || t == Tag::DynObj as u16 => 1,
         t if t == Tag::Arr as u16 => 2,
         t if t == Tag::Closure as u16 => FN_PROTO_FAMILY,
-        t if t == Tag::RegExp as u16 => 7,
+        t if t == Tag::RegExp as u16 => super::REGEXP_PROTO_FAMILY,
         t if t == Tag::Date as u16 => 8,
         t if t == Tag::Symbol as u16 => 5,
         t if t == Tag::Promise as u16 => PROMISE_PROTO_FAMILY,

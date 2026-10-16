@@ -36,7 +36,7 @@ use core::sync::atomic::{AtomicU64, Ordering};
 fn proto_tag_accessors(tag: i64) -> &'static [(i64, &'static str)] {
     match tag {
         5 => &[(torajs_rc::ANY_METHOD_GET_DESCRIPTION, "description")],
-        7 => crate::regexp_proto_accessors::REGEXP_ACCESSORS,
+        crate::method_value::REGEXP_PROTO_FAMILY => crate::regexp_proto_accessors::REGEXP_ACCESSORS,
         11 | 12 => &[(torajs_rc::ANY_METHOD_GET_SIZE, "size")],
         19 => crate::buffer_proto_accessors::ARRAYBUFFER_ACCESSORS,
         32 => crate::buffer_proto_accessors::DATAVIEW_ACCESSORS,

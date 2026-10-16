@@ -14,7 +14,7 @@ use crate::nanbox::AnyValue;
 
 use super::{
     CELL_SIZE, CLOSURE_BOXED_ENTRY_OFF, CLOSURE_CAP_BASE_OFF, CLOSURE_DROP_FN_OFF,
-    CLOSURE_FN_ADDR_OFF, CLOSURE_PROPS_OFF, bare_entry, native_entry,
+    CLOSURE_FN_ADDR_OFF, CLOSURE_PROPS_OFF, REGEXP_PROTO_FAMILY, bare_entry, native_entry,
 };
 
 /// Per-proto-tag interned `constructor` cells (rotation 131 —
@@ -227,7 +227,7 @@ unsafe extern "C" fn ctor_call_entry(env: *mut c_void, argv: *const u64, argc: i
             // §22.2.4.1 — with NewTarget undefined a RegExp argument
             // and no flags answers the argument itself; anything
             // else is what `new RegExp(…)` would build.
-            7 => call_forms::ctor_regexp_call(argv, argc),
+            REGEXP_PROTO_FAMILY => call_forms::ctor_regexp_call(argv, argc),
             _ => {
                 __torajs_throw_type_error(
                     c"this constructor cannot be called as a function through a first-class value"
@@ -379,7 +379,7 @@ fn ctor_family_tag(recv: AnyValue) -> Option<i64> {
         }
         t if t == Tag::BigInt as u16 => Some(6),
         t if t == Tag::Symbol as u16 => Some(5),
-        t if t == Tag::RegExp as u16 => Some(7),
+        t if t == Tag::RegExp as u16 => Some(REGEXP_PROTO_FAMILY),
         t if t == Tag::Date as u16 => Some(8),
         t if t == Tag::Map as u16 => Some(11),
         t if t == Tag::Set as u16 => Some(12),

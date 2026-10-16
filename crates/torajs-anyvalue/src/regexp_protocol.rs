@@ -16,7 +16,7 @@ unsafe extern "C" {
 }
 
 /// %RegExp.prototype%'s builtin-prototype tag.
-const REGEXP_PROTO_TAG: i64 = 7;
+const REGEXP_PROTO_TAG: i64 = torajs_rc::builtin_proto::REGEXP_PROTO_TAG as i64;
 
 /// The RegExp String Iterator's helper kind (`iter_helper` kinds run
 /// 0-8); torajs-rc's `iter_proto` mirrors it to name the prototype.
