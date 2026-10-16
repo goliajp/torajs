@@ -80,6 +80,10 @@ pub(crate) fn check(
         && let Some(family) = crate::builtin_proto_shadow::family_of(&obj_ty)
     {
         checker.proto_shadow.shadows(family, name)
+            || (checker.proto_shadow.shadows_regexp_arg(family, name)
+                && args.first().is_some_and(|&a| {
+                    matches!(checker.type_of(ast, a), Ok(crate::check::Type::RegExp))
+                }))
     } else {
         false
     };

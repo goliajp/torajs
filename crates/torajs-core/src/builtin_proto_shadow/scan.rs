@@ -202,6 +202,13 @@ pub(crate) fn collect_shadowed_builtin_methods(ast: &Ast) -> ShadowSet {
         &delete_targets,
     );
 
+    note_exec_writes(
+        ast,
+        &mut set,
+        &define_calls,
+        &assign_targets,
+        &delete_targets,
+    );
     super::hooks::scan_symbol_hooks(ast, &mut set);
     super::hooks::scan_namespace_statics(ast, &mut set);
     super::hooks::scan_global_writes(ast, &mut set);
@@ -314,6 +321,29 @@ fn attribute_proto_writes(
         if !attributed {
             set.widen(family);
         }
+    }
+}
+
+/// Any write, delete or `defineProperty` of a property named `exec`,
+/// whatever object it lands on (see `ShadowSet::exec_written`).
+fn note_exec_writes(
+    ast: &Ast,
+    set: &mut ShadowSet,
+    define_calls: &[(ExprId, Option<String>)],
+    assign_targets: &HashSet<ExprId>,
+    delete_targets: &HashSet<ExprId>,
+) {
+    let names_exec = |eid: &ExprId| match ast.get_expr(*eid) {
+        Expr::Member { name, .. } => name == "exec",
+        Expr::Index { index, .. } => str_literal(ast, *index).as_deref() == Some("exec"),
+        _ => false,
+    };
+    if assign_targets.iter().chain(delete_targets).any(names_exec)
+        || define_calls
+            .iter()
+            .any(|(_, k)| k.as_deref() == Some("exec"))
+    {
+        set.set_exec_written();
     }
 }
 

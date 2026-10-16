@@ -131,6 +131,10 @@ pub(crate) struct ShadowSet {
     /// both as a call and as a value, off an interned cell that the
     /// global object's own bag never reaches.
     globals: HashSet<String>,
+    /// A write, delete or `defineProperty` naming `exec` on any
+    /// object: an own `exec` on a RegExp is what §22.2.7.1 RegExpExec
+    /// calls in place of the builtin matcher.
+    exec_written: bool,
 }
 
 impl ShadowSet {
@@ -145,6 +149,7 @@ impl ShadowSet {
             && self.statics.is_empty()
             && self.statics_opaque.is_empty()
             && self.globals.is_empty()
+            && !self.exec_written
     }
 
     /// Might a value in this module carry a handler for the well-known
@@ -182,6 +187,37 @@ impl ShadowSet {
     /// here would route reads to an object nothing had written.
     pub(crate) fn writes_global(&self, name: &str) -> bool {
         crate::check_js_semantics::is_standdown_global_fn(name) && self.globals.contains(name)
+    }
+
+    /// Might a RegExp in this module answer a protocol method (@@match,
+    /// @@replace, …) other than the native kernels do? A write to
+    /// %RegExp.prototype% or to some object's `exec`, or a protocol
+    /// symbol hook — the facts behind the runtime's touched bit and
+    /// own-property test, which a typed call never consults.
+    fn regexp_protocol_touched(&self) -> bool {
+        self.all
+            || self.exec_written
+            || self.families.contains("RegExp")
+            || self.methods.iter().any(|(f, _)| *f == "RegExp")
+            || ["match", "matchAll", "replace", "search", "split", "species"]
+                .iter()
+                .any(|h| self.hook_written(h))
+    }
+
+    /// Should a typed `s.<method>(re, …)` with a RegExp-typed first
+    /// argument stand down to the dispatcher, whose String arm runs
+    /// step 2's `@@<method>` lookup and the protocol seam?
+    pub(crate) fn shadows_regexp_arg(&self, family: Family, method: &str) -> bool {
+        family == "String"
+            && matches!(
+                method,
+                "match" | "matchAll" | "replace" | "replaceAll" | "search" | "split"
+            )
+            && self.regexp_protocol_touched()
+    }
+
+    pub(super) fn set_exec_written(&mut self) {
+        self.exec_written = true;
     }
 
     pub(super) fn add_global_write(&mut self, name: &str) {
