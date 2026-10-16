@@ -131,9 +131,11 @@ pub(crate) struct ShadowSet {
     /// both as a call and as a value, off an interned cell that the
     /// global object's own bag never reaches.
     globals: HashSet<String>,
-    /// A write, delete or `defineProperty` naming `exec` on any
+    /// A write, delete or definition that may name `exec` on any
     /// object: an own `exec` on a RegExp is what §22.2.7.1 RegExpExec
-    /// calls in place of the builtin matcher.
+    /// calls in place of the builtin matcher. A `__proto__` write
+    /// counts too: it can give a RegExp a prototype other than
+    /// %RegExp.prototype%.
     exec_written: bool,
 }
 
