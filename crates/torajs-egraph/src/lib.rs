@@ -86,6 +86,7 @@ pub mod srem_counter;
 pub mod srem_fquot;
 pub mod srem_parity;
 pub mod str_append;
+pub mod str_len_fold;
 mod strip_assumes;
 mod tail_dup;
 pub mod throw_check_fold;
@@ -203,6 +204,8 @@ pub fn transform_module(mut module: Module) -> Module {
     // interval analysis / float_demote below see the recovered int
     // loops directly. `TORAJS_FREM_NARROW_OFF=1` skips (bisect gate).
     gated_pass("FREM_NARROW", &mut module, frem_narrow::narrow_frems);
+    // Index checks a string's known length answers (`str_len_fold`).
+    gated_pass("STR_LEN_FOLD", &mut module, str_len_fold::fold_checks);
     // `TORAJS_FN_INT_CLONE_OFF=1` skips (bisect gate).
     let clones = gated_pass("FN_INT_CLONE", &mut module, fn_int_clone::clone_functions)
         .map_or_else(Vec::new, |s| s.clones);
