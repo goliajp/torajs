@@ -2,6 +2,8 @@
 
 use torajs_core::ssa::{Function, Terminator};
 
+use crate::float_demote::cfg::successors;
+
 /// Retarget every edge that lands on an empty `br`-only block to
 /// whatever that block forwards to, then drop the blocks nothing
 /// reaches any more. Answers how many blocks went away.
@@ -52,6 +54,46 @@ pub(super) fn thread_empty_forwarders(func: &mut Function) -> u32 {
             }
             _ => {}
         }
+    }
+    crate::branch_fold::sweep_unreachable_blocks(func)
+}
+
+/// Move the branch of an instruction-free `cond_br` block up into the
+/// one block that reaches it, by a bare `br`, then drop the emptied
+/// block. Select formation leaves this shape where it if-converts the
+/// two tests of `a || b` that feed a branch: the folded compare ends
+/// the header, its branch waits in the join, and codegen, which fuses
+/// a compare only into its own block's branch, pays `cset` + `cbz`
+/// for it. Answers how many blocks went away.
+pub(super) fn fold_bare_branches(func: &mut Function) -> u32 {
+    let mut preds = vec![0u32; func.blocks.len()];
+    for block in &func.blocks {
+        for s in successors(&block.term) {
+            preds[s.0 as usize] += 1;
+        }
+    }
+    let mut folded = 0;
+    for b in 0..func.blocks.len() {
+        let Terminator::Br(t) = func.blocks[b].term else {
+            continue;
+        };
+        let t = t.0 as usize;
+        let target = &func.blocks[t];
+        if t == b
+            || t == 0
+            || preds[t] != 1
+            || !target.insts.is_empty()
+            || !matches!(target.term, Terminator::CondBr { .. })
+        {
+            continue;
+        }
+        let term = std::mem::replace(&mut func.blocks[t].term, Terminator::Unreachable);
+        func.blocks[b].term = term;
+        preds[t] = 0;
+        folded += 1;
+    }
+    if folded == 0 {
+        return 0;
     }
     crate::branch_fold::sweep_unreachable_blocks(func)
 }

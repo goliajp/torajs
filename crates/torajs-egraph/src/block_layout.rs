@@ -34,7 +34,7 @@ use torajs_core::ssa::dominator::DominatorTree;
 use torajs_core::ssa::loop_analysis::LoopAnalysis;
 
 mod forwarders;
-use forwarders::thread_empty_forwarders;
+use forwarders::{fold_bare_branches, thread_empty_forwarders};
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct BlockLayoutStats {
@@ -70,6 +70,7 @@ pub fn layout_module(module: &mut Module) -> BlockLayoutStats {
         // touches the cfg — and the sweep that follows then really can
         // drop them.
         stats.blocks_pruned += thread_empty_forwarders(func);
+        stats.blocks_pruned += fold_bare_branches(func);
         let dom = DominatorTree::compute(func);
         let la = LoopAnalysis::compute(func, &dom);
         // before the chain, which then lays each copy after its arm
@@ -550,6 +551,50 @@ mod tests {
         ]);
         assert_eq!(thread_empty_forwarders(&mut f), 0);
         assert_eq!(f.blocks.len(), 2);
+    }
+
+    /// The `a || b` loop test select formation leaves: the compare ends
+    /// b1, its branch waits alone in b2. The branch moves up so the
+    /// compare is its own block's tail; b4 → b2 has two predecessors
+    /// in the second function and stays.
+    ///
+    ///   b0 → b1 ; b1: %0 = cmp → b2 ; b2: %0 ? b3 : b4 ; b3: ret ; b4 → b1
+    #[test]
+    fn a_bare_branch_moves_into_its_only_predecessor() {
+        let cbr = Terminator::CondBr {
+            cond: Operand::Value(ValueId(0)),
+            then_blk: BlockId(3),
+            else_blk: BlockId(4),
+        };
+        let cmp = || {
+            inst(
+                0,
+                InstKind::ICmp(IPred::Ult, Operand::ConstI64(1), Operand::ConstI64(2)),
+            )
+        };
+        let mut f = void_fn(vec![
+            block(0, vec![], Terminator::Br(BlockId(1))),
+            block(1, vec![cmp()], Terminator::Br(BlockId(2))),
+            block(2, vec![], cbr.clone()),
+            block(3, vec![], Terminator::Ret(None)),
+            block(4, vec![], Terminator::Br(BlockId(1))),
+        ]);
+        assert_eq!(fold_bare_branches(&mut f), 1);
+        assert_eq!(f.blocks.len(), 4);
+        match f.blocks[1].term {
+            Terminator::CondBr {
+                then_blk, else_blk, ..
+            } => assert_eq!((then_blk.0, else_blk.0), (2, 3)),
+            ref other => panic!("expected a cond_br, got {other:?}"),
+        }
+        let mut g = void_fn(vec![
+            block(0, vec![cmp()], Terminator::Br(BlockId(2))),
+            block(1, vec![], Terminator::Br(BlockId(2))),
+            block(2, vec![], cbr),
+            block(3, vec![], Terminator::Ret(None)),
+            block(4, vec![], Terminator::Br(BlockId(1))),
+        ]);
+        assert_eq!(fold_bare_branches(&mut g), 0);
     }
 
     /// A guard whose fallback arm calls a kernel: the arm the lowering
