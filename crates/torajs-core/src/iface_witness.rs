@@ -29,6 +29,7 @@
 
 mod admit;
 mod body;
+mod inline;
 mod plan;
 mod settle;
 mod widen;
@@ -148,6 +149,7 @@ pub fn lit_thunk(iface: &str, face: &str) -> String {
 /// vtable slot joins), before the default / rest argument passes, which
 /// then treat the thunks' forwarding calls like any other call.
 pub fn synthesize_iface_witnesses(ast: &mut crate::ast::Ast) {
+    inline::synthesize(ast);
     let mut plans = plan::plan(ast);
     if widen::widen_written(ast, &plans) {
         plans = plan::plan(ast);
