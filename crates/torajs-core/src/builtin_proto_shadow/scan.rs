@@ -325,7 +325,7 @@ fn attribute_proto_writes(
 /// string literal, a descriptor map or `Object.assign` source that is
 /// no object literal, or one with a computed or spread member — may
 /// name `exec` too. A computed-key assignment `x[k] = v` is left to
-/// the run time: every array store has that shape.
+/// the checker's types (`typed_exec`): every array store has that shape.
 fn note_exec_writes(
     ast: &Ast,
     set: &mut ShadowSet,

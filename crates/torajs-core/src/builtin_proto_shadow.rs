@@ -64,6 +64,7 @@ use crate::ssa::id_hash::HashSet;
 /// writes this one's private fields unchanged.
 mod hooks;
 mod scan;
+mod typed_exec;
 
 pub(crate) use scan::collect_shadowed_builtin_methods;
 

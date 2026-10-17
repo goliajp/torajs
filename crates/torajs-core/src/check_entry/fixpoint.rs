@@ -83,7 +83,11 @@ fn fixpoint_with(
         let found = crate::let_widen::collect_cross_type_widen_inits(ast, Some(&c.expr_types));
         let shadowed = ShadowedNames::of_shared(ast, &c.expr_types, &program);
         let retypes = c.shadowed_reads.would_retype(&shadowed);
-        if found.is_subset(&c.cross_type_widened) && !retypes && !c.face_slot_reads.stale {
+        // a computed-key write that may give a RegExp an own `exec`
+        // stands the typed String regex calls down, which only the
+        // run's types can tell from an array store
+        let exec = c.proto_shadow.needs_typed_exec_run(ast, &c.expr_types);
+        if found.is_subset(&c.cross_type_widened) && !retypes && !c.face_slot_reads.stale && !exec {
             // no read answers otherwise under the grown set: a run
             // seeded with it would type the program the same
             c.shadowed_reads.names.extend(shadowed);
@@ -96,7 +100,12 @@ fn fixpoint_with(
         let face_slots = std::mem::take(&mut c.face_slots);
         let lets = std::mem::take(&mut c.face_mismatch_lets);
         let params = std::mem::take(&mut c.face_mismatch_params);
+        let mut shadow = std::mem::take(&mut c.proto_shadow);
+        if exec {
+            shadow.seed_exec_written();
+        }
         c = Checker::new();
+        c.proto_shadow = shadow;
         c.widen_ret_declared = widen_ret_declared;
         c.hidden_any_args = hidden.clone();
         c.cross_type_widened = seed;

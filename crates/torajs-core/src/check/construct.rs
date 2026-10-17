@@ -90,7 +90,9 @@ impl Checker {
         // RFC 20260806 — what this module might patch onto a builtin
         // prototype, so a member read of such a method answers Any and
         // the call takes the dispatcher lane instead of a kernel.
+        let seed = std::mem::take(&mut self.proto_shadow);
         self.proto_shadow = crate::builtin_proto_shadow::collect_shadowed_builtin_methods(ast);
+        self.proto_shadow.carry_exec_written(&seed);
         self.declared_privates = crate::check_private_name::declared_private_names(ast);
         crate::iface_witness::install(ast);
         // RFC 20260804-mutable-let-widen — cross-family reassigned
