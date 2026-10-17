@@ -28,16 +28,19 @@ use crate::ast::{Ast, Stmt};
 use crate::check::{Checker, DiagPush, LocalInfo, Type, stmt_diverges};
 use crate::check_type_ann::resolve_type_ann_full;
 
-pub(crate) fn check(
-    checker: &mut Checker,
-    ast: &Ast,
-    body: &[Stmt],
-    had_catch: bool,
-    catch_param: &Option<String>,
-    catch_type: &Option<String>,
-    catch_body: &[Stmt],
-    finally_body: &Option<Vec<Stmt>>,
-) {
+pub(crate) fn check(checker: &mut Checker, ast: &Ast, stmt: &Stmt) {
+    let Stmt::Try {
+        body,
+        had_catch,
+        catch_param,
+        catch_type,
+        catch_body,
+        finally_body,
+    } = stmt
+    else {
+        unreachable!("check_stmt_try::check takes a try statement");
+    };
+    let had_catch = *had_catch;
     let entry = checker.flow_entry();
     // body in a fresh scope
     checker.scopes.push(HashMap::new());

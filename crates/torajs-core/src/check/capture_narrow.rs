@@ -28,6 +28,10 @@ use super::*;
 use crate::ast::desugar_async_sm_walk::{visit_expr_children, visit_stmt_exprs};
 use crate::ast::stmt_nested_lists::for_each_nested_list;
 
+/// A closure's capture frame entries, and each capture's
+/// `nulled_anytime` as the frame starts.
+pub(crate) type CaptureFrame = (Vec<(String, LocalInfo)>, Vec<(String, bool)>);
+
 /// What a closure body's capture frame says about the binding outside
 /// it once the body is walked.
 pub(crate) struct CaptureOut {
@@ -192,7 +196,7 @@ impl Checker {
         ast: &Ast,
         eid: ExprId,
         cap_tys: &[(String, Type)],
-    ) -> (Vec<(String, LocalInfo)>, Vec<(String, bool)>) {
+    ) -> CaptureFrame {
         let frame: Vec<(String, LocalInfo)> = cap_tys
             .iter()
             .map(|(n, t)| {

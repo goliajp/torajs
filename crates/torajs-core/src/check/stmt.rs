@@ -98,27 +98,11 @@ impl Checker {
                 // [`crate::check_stmt_throw::check`].
                 crate::check_stmt_throw::check(self, ast, *eid);
             }
-            Stmt::Try {
-                body,
-                had_catch,
-                catch_param,
-                catch_type,
-                catch_body,
-                finally_body,
-            } => {
+            Stmt::Try { .. } => {
                 // 3-phase walker (body / catch with P7.2b-2 Any
                 // default / optional finally). See
                 // [`crate::check_stmt_try::check`].
-                crate::check_stmt_try::check(
-                    self,
-                    ast,
-                    body,
-                    *had_catch,
-                    catch_param,
-                    catch_type,
-                    catch_body,
-                    finally_body,
-                );
+                crate::check_stmt_try::check(self, ast, stmt);
                 self.flush_assign_narrows();
             }
             Stmt::Break(_) | Stmt::Continue(_) => {
