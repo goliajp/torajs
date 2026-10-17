@@ -41,7 +41,7 @@ pub(crate) const HEADER_WRITE_CALLS: &[&str] = &[
 /// array, large enough for the header.
 pub(super) fn frame_cell_roots(
     func: &Function,
-    defs: &HashMap<ValueId, Vec<InstKind>>,
+    defs: &HashMap<ValueId, Vec<&InstKind>>,
 ) -> HashSet<ValueId> {
     defs.iter()
         .filter(|(v, ds)| {
@@ -55,7 +55,7 @@ pub(super) fn frame_cell_roots(
 /// `cell + 40` of a frame cell: its inline data pointer, as (value,
 /// cell) pairs to seed the data-pointer map with.
 pub(super) fn inline_data_ptrs(
-    defs: &HashMap<ValueId, Vec<InstKind>>,
+    defs: &HashMap<ValueId, Vec<&InstKind>>,
     stack: &HashSet<ValueId>,
 ) -> Vec<(ValueId, ValueId)> {
     let mut out: Vec<(ValueId, ValueId)> = defs

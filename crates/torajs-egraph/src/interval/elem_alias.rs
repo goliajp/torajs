@@ -23,7 +23,7 @@ pub(super) enum AliasKind {
 pub(super) fn alias_source(
     kind: &InstKind,
     names: &[String],
-    defs: &HashMap<ValueId, Vec<InstKind>>,
+    defs: &HashMap<ValueId, Vec<&InstKind>>,
 ) -> Option<(ValueId, AliasKind)> {
     let whole_slots = |off: &Operand| match off {
         Operand::ConstI64(k) => *k >= 0,
@@ -56,7 +56,7 @@ pub(super) fn alias_source(
 /// `elem::scan_inst`, which kills a class whose alias-producing use did
 /// not land back in the same class.
 pub(super) fn classify_values(
-    defs: &HashMap<ValueId, Vec<InstKind>>,
+    defs: &HashMap<ValueId, Vec<&InstKind>>,
     roots: &[ValueId],
     names: &[String],
     seed_base: &[(ValueId, ValueId)],

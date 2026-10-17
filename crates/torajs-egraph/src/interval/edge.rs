@@ -1,7 +1,7 @@
 //! What one branch edge says: the constraints taking (or not taking)
 //! a conditional branch puts on the values its compare reads.
 
-use crate::id_hash::HashMap;
+use super::SingleDefs;
 
 use torajs_core::ssa::{FPred, IPred, InstKind, Operand, ValueId};
 
@@ -13,7 +13,7 @@ use super::transfer::{NEG_INF, NumFact, POS_INF, op_const_int};
 pub(super) fn edge_constraints(
     kind: &InstKind,
     taken: bool,
-    defs: &HashMap<ValueId, InstKind>,
+    defs: &SingleDefs<'_>,
 ) -> Option<Vec<Constraint>> {
     match kind {
         InstKind::ICmp(pred, a, b) => {
@@ -96,7 +96,7 @@ pub(super) fn int_pred(pred: FPred) -> Option<IPred> {
 }
 
 /// The i64 a single-def `sitofp` converts.
-pub(super) fn under_sitofp(v: ValueId, defs: &HashMap<ValueId, InstKind>) -> Option<ValueId> {
+pub(super) fn under_sitofp(v: ValueId, defs: &SingleDefs<'_>) -> Option<ValueId> {
     match defs.get(&v) {
         Some(InstKind::SiToFp(Operand::Value(i))) => Some(*i),
         _ => None,

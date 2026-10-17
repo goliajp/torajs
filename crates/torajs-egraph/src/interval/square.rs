@@ -18,7 +18,7 @@
 //! window check on the product sits between them in a loop copy that
 //! int_entry made).
 
-use crate::id_hash::HashMap;
+use super::SingleDefs;
 
 use torajs_core::ssa::{BinOp, Function, InstKind, Operand, ValueId};
 
@@ -55,7 +55,7 @@ pub(super) fn square_edge(
     bi: usize,
     kind: &InstKind,
     taken: bool,
-    defs: &HashMap<ValueId, InstKind>,
+    defs: &SingleDefs<'_>,
     sole_pred: &[Option<usize>],
 ) -> Option<Constraint> {
     let (pred, a, b, float) = match kind {
@@ -80,7 +80,7 @@ fn square_root(
     func: &Function,
     bi: usize,
     mut v: ValueId,
-    defs: &HashMap<ValueId, InstKind>,
+    defs: &SingleDefs<'_>,
     float: bool,
     sole_pred: &[Option<usize>],
 ) -> Option<ValueId> {

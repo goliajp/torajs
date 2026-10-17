@@ -18,6 +18,7 @@ use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{BinOp, BlockId, Function, InstKind, Operand, Terminator, Type, ValueId};
 
+use super::SingleDefs;
 use super::edge::edge_constraints;
 use super::refine::Constraint;
 use super::square::square_edge;
@@ -49,7 +50,7 @@ impl Walk<'_> {
 
 pub(super) struct Logic<'a> {
     func: &'a Function,
-    defs: &'a HashMap<ValueId, InstKind>,
+    defs: &'a SingleDefs<'a>,
     preds: Vec<Vec<BlockId>>,
     /// per block: the multi-def values it writes
     cell_defs: Vec<HashSet<ValueId>>,
@@ -62,7 +63,7 @@ pub(super) struct Logic<'a> {
 }
 
 impl<'a> Logic<'a> {
-    pub(super) fn new(func: &'a Function, defs: &'a HashMap<ValueId, InstKind>) -> Self {
+    pub(super) fn new(func: &'a Function, defs: &'a SingleDefs<'a>) -> Self {
         let n = func.blocks.len();
         let mut preds: Vec<Vec<BlockId>> = vec![Vec::new(); n];
         let mut cell_defs: Vec<HashSet<ValueId>> = vec![HashSet::default(); n];
@@ -434,17 +435,7 @@ mod tests {
     }
 
     fn constraints(f: &Function) -> Constraints {
-        let mut defs: HashMap<ValueId, InstKind> = HashMap::default();
-        let mut cells: HashSet<ValueId> = HashSet::default();
-        for inst in f.blocks.iter().flat_map(|b| &b.insts) {
-            if let Some(r) = inst.result
-                && defs.insert(r, inst.kind.clone()).is_some()
-            {
-                cells.insert(r);
-            }
-        }
-        defs.retain(|r, _| !cells.contains(r));
-        Constraints::compute(f, &defs)
+        Constraints::compute(f, &SingleDefs::of(f))
     }
 
     /// The meet of what block `b`'s entry states for `x`.

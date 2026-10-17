@@ -17,7 +17,7 @@
 //! again — and block-local evaluation kills a constraint at the cell's
 //! own def site (see `mod.rs`).
 
-use crate::id_hash::HashMap;
+use super::SingleDefs;
 
 use torajs_core::ssa::{BlockId, Function, InstKind, Operand, Terminator, ValueId};
 
@@ -161,10 +161,12 @@ fn pred_census(func: &Function) -> (Vec<u32>, Vec<Option<usize>>) {
 impl Constraints {
     /// Collect edge constraints for every conditional branch in `func`.
     /// `defs` maps single-def values to their defining instruction.
-    pub fn compute(func: &Function, defs: &HashMap<ValueId, InstKind>) -> Self {
+    pub fn compute(func: &Function, defs: &SingleDefs<'_>) -> Self {
         let n = func.blocks.len();
         let (preds, sole_pred) = pred_census(func);
         let mut at_entry: Vec<Vec<Constraint>> = vec![Vec::new(); n];
+        // a branch on anything but a compare is read through `Logic`
+        let mut logic = false;
         for (bi, block) in func.blocks.iter().enumerate() {
             let Terminator::CondBr {
                 cond: Operand::Value(c),
@@ -174,7 +176,9 @@ impl Constraints {
             else {
                 continue;
             };
-            let Some(kind) = defs.get(c) else { continue };
+            let kind = defs.get(c);
+            logic |= !matches!(kind, Some(InstKind::ICmp(..) | InstKind::FCmp(..)));
+            let Some(kind) = kind else { continue };
             for (target, taken) in [(*then_blk, true), (*else_blk, false)] {
                 if preds[target.0 as usize] != 1 {
                     continue;
@@ -186,7 +190,9 @@ impl Constraints {
                     .extend(square_edge(func, bi, kind, taken, defs, &sole_pred));
             }
         }
-        Logic::new(func, defs).extend(&mut at_entry);
+        if logic {
+            Logic::new(func, defs).extend(&mut at_entry);
+        }
         Self { at_entry }
     }
 

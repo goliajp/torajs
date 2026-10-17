@@ -10,14 +10,14 @@
 //! placeholder, inherited like any edge constraint; each round reads it
 //! as the range the previous round's facts give.
 
-use crate::id_hash::{HashMap, HashSet};
+use crate::id_hash::HashMap;
 
 use torajs_core::ssa::dominator::DominatorTree;
 use torajs_core::ssa::{BlockId, Function, Operand, ValueId};
 
 use super::refine::Constraint;
 use super::transfer::{AbsVal, NumFact};
-use crate::branch_fold::point_eval::successors;
+use crate::throw_check_fold::successors;
 
 /// The merges worth a join: a block, a cell some constraint names at
 /// the end of each of its predecessors, and those constraints per
@@ -35,47 +35,70 @@ struct Join {
 }
 
 impl Merges {
-    /// `inherited` gives the constraints valid at a block's entry that
+    /// No merge: what [`collect`](Self::collect) finds where no block
+    /// carries a constraint.
+    pub(super) fn none() -> Self {
+        Merges { joins: Vec::new() }
+    }
+
+    /// `preds` is [`reachable_preds`]. `inherited` gives, for a block
+    /// a merge is entered from, the constraints valid at its entry that
     /// name a cell or a value a square bound reads; one a block's own
     /// def of a value it names ends is not valid at the block's end.
-    pub(super) fn collect(
-        func: &Function,
-        dom: &DominatorTree,
-        mut inherited: impl FnMut(usize) -> Vec<Constraint>,
-        block_defs: &[HashSet<ValueId>],
+    /// `values` is the function's value count.
+    pub(super) fn collect<'c>(
+        preds: &Preds,
+        inherited: impl Fn(usize) -> &'c [Constraint],
+        block_defs: &[Vec<ValueId>],
+        values: usize,
     ) -> Self {
         // every value some block defines: a cell, not a value fixed at its def
-        let defined: HashSet<ValueId> = block_defs.iter().flatten().copied().collect();
+        let mut defined = vec![false; values];
+        for v in block_defs.iter().flatten() {
+            defined[v.0 as usize] = true;
+        }
+        let at_end = |p: usize| {
+            let defs = &block_defs[p];
+            inherited(p)
+                .iter()
+                .filter(move |c| !c.killed_by(|v| defs.contains(&v)))
+        };
+        // per value, how many of a merge's predecessors name it at their
+        // end, and the predecessor that counted it last
+        let mut named = vec![0usize; values];
+        let mut counted = vec![usize::MAX; values];
+        let mut turn = 0;
         let mut joins = Vec::new();
-        for (bi, ps) in reachable_preds(func, dom).iter().enumerate() {
+        for (bi, ps) in preds.per_block().enumerate() {
             if ps.len() < 2 {
                 continue;
             }
-            let at_end: Vec<Vec<Constraint>> = ps
-                .iter()
-                .map(|&p| {
-                    let defs = &block_defs[p];
-                    inherited(p)
-                        .into_iter()
-                        .filter(|c| !c.killed_by(|v| defs.contains(&v)))
-                        .collect()
-                })
-                .collect();
-            let named: Vec<HashSet<ValueId>> = at_end[1..]
-                .iter()
-                .map(|cs| cs.iter().map(Constraint::value).collect())
-                .collect();
-            let mut cells: Vec<ValueId> = at_end[0]
-                .iter()
+            for &p in ps {
+                turn += 1;
+                for c in at_end(p) {
+                    let v = c.value().0 as usize;
+                    if counted[v] != turn {
+                        counted[v] = turn;
+                        named[v] += 1;
+                    }
+                }
+            }
+            let mut cells: Vec<ValueId> = at_end(ps[0])
                 .map(Constraint::value)
-                .filter(|v| defined.contains(v))
-                .filter(|v| named.iter().all(|n| n.contains(v)))
+                .filter(|v| defined[v.0 as usize] && named[v.0 as usize] == ps.len())
                 .collect();
+            for &p in ps {
+                for c in at_end(p) {
+                    named[c.value().0 as usize] = 0;
+                }
+            }
             cells.sort_by_key(|v| v.0);
             cells.dedup();
             if cells.is_empty() {
                 continue;
             }
+            let at_end: Vec<Vec<Constraint>> =
+                ps.iter().map(|&p| at_end(p).copied().collect()).collect();
             for cell in cells {
                 joins.push(Join {
                     block: BlockId(bi as u32),
@@ -159,18 +182,47 @@ fn reads_of(cs: &[Constraint], cell: ValueId) -> Vec<Constraint> {
     cs.iter().filter(own).copied().collect()
 }
 
-/// Per block, the reachable blocks it is entered from.
-fn reachable_preds(func: &Function, dom: &DominatorTree) -> Vec<Vec<usize>> {
-    let mut preds: Vec<Vec<usize>> = vec![Vec::new(); func.blocks.len()];
+/// Per block, the reachable blocks it is entered from, one edge each.
+pub(super) struct Preds {
+    /// block `b`'s are `from[start[b]..start[b + 1]]`, in block order
+    start: Vec<u32>,
+    from: Vec<usize>,
+}
+
+impl Preds {
+    /// Each block's predecessors, in block order.
+    pub(super) fn per_block(&self) -> impl Iterator<Item = &[usize]> {
+        self.start
+            .windows(2)
+            .map(|w| &self.from[w[0] as usize..w[1] as usize])
+    }
+}
+
+pub(super) fn reachable_preds(func: &Function, dom: &DominatorTree) -> Preds {
+    let n = func.blocks.len();
+    let reachable = |b: &torajs_core::ssa::Block| dom.is_reachable(b.id);
+    let mut start = vec![0u32; n + 1];
+    for block in func.blocks.iter().filter(|b| reachable(b)) {
+        for s in successors(&block.term) {
+            start[s.0 as usize + 1] += 1;
+        }
+    }
+    for b in 0..n {
+        start[b + 1] += start[b];
+    }
+    let mut fill = start.clone();
+    let mut from = vec![0usize; start[n] as usize];
     for (bi, block) in func.blocks.iter().enumerate() {
-        if !dom.is_reachable(block.id) {
+        if !reachable(block) {
             continue;
         }
         for s in successors(&block.term) {
-            preds[s.0 as usize].push(bi);
+            let at = &mut fill[s.0 as usize];
+            from[*at as usize] = bi;
+            *at += 1;
         }
     }
-    preds
+    Preds { start, from }
 }
 
 /// The constraints valid at each block's entry; `slots[b]` names the
@@ -189,6 +241,11 @@ impl Inherited {
     /// Whether block `b`'s list holds a merge placeholder.
     pub(super) fn has_merges(&self, b: BlockId) -> bool {
         !self.slots[b.0 as usize].is_empty()
+    }
+
+    /// The joins block `b`'s placeholders stand for.
+    pub(super) fn slots(&self, b: BlockId) -> &[usize] {
+        &self.slots[b.0 as usize]
     }
 
     /// Block `b`'s constraints with every merge placeholder read as the

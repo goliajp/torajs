@@ -45,7 +45,7 @@ mod decide;
 pub(crate) mod point_eval;
 pub mod sum_facts;
 
-use crate::id_hash::{HashMap, HashSet};
+use crate::id_hash::HashMap;
 use std::cell::OnceCell;
 
 use torajs_core::ssa::{
@@ -54,7 +54,7 @@ use torajs_core::ssa::{
 
 use crate::interval::refine::{Constraint, Constraints};
 use crate::interval::transfer::{NumFact, POS_INF, op_const_int};
-use crate::interval::{FactCache, Seed};
+use crate::interval::{FactCache, Seed, SingleDefs};
 use decide::decide;
 use point_eval::{PointEval, successors};
 use torajs_core::ssa::dominator::DominatorTree;
@@ -217,19 +217,9 @@ fn shifted_bound(src: &Sources<'_>, vd: (usize, usize)) -> Option<NumFact> {
 fn edge_range(src: &Sources<'_>, v: ValueId, bi: usize) -> Option<NumFact> {
     let func = src.func;
     src.pe.single_def(v)?;
-    let edges = src.edges.get_or_init(|| {
-        let mut defs: HashMap<ValueId, InstKind> = HashMap::default();
-        let mut multi: HashSet<ValueId> = HashSet::default();
-        for inst in func.blocks.iter().flat_map(|b| &b.insts) {
-            if let Some(r) = inst.result
-                && defs.insert(r, inst.kind.clone()).is_some()
-            {
-                multi.insert(r);
-            }
-        }
-        defs.retain(|r, _| !multi.contains(r));
-        Constraints::compute(func, &defs)
-    });
+    let edges = src
+        .edges
+        .get_or_init(|| Constraints::compute(func, &SingleDefs::of(func)));
     // a single-def value is never redefined below its edge
     edges
         .inherited(func.blocks[bi].id, src.dom)

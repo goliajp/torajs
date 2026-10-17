@@ -28,6 +28,7 @@ use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{BinOp, Function, InstKind, Operand, Type, ValueId};
 
+use super::SingleDefs;
 use super::transfer::{AbsVal, NumFact};
 
 /// Steps of one counter a program run is taken never to exceed.
@@ -45,7 +46,7 @@ impl Horizon {
     /// with the counters' bounds among them (see [`thresholds`]).
     pub(super) fn new(
         func: &Function,
-        single: &HashMap<ValueId, InstKind>,
+        single: &SingleDefs<'_>,
         cells: &HashSet<ValueId>,
     ) -> (Self, Vec<i128>) {
         let counters = collect(func, single, cells);
@@ -77,7 +78,7 @@ struct Counter {
 /// small constant steps of the cell itself.
 fn collect(
     func: &Function,
-    single: &HashMap<ValueId, InstKind>,
+    single: &SingleDefs<'_>,
     cells: &HashSet<ValueId>,
 ) -> HashMap<ValueId, Counter> {
     let mut out: HashMap<ValueId, Counter> = HashMap::default();
@@ -118,7 +119,7 @@ fn collect(
 }
 
 /// `op` is a single-def `cell + x`, `x + cell` or `cell - x`.
-fn steps_from(op: &Operand, cell: ValueId, single: &HashMap<ValueId, InstKind>) -> bool {
+fn steps_from(op: &Operand, cell: ValueId, single: &SingleDefs<'_>) -> bool {
     let Operand::Value(t) = op else { return false };
     let c = Operand::Value(cell);
     match single.get(t) {

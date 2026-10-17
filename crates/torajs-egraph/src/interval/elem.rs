@@ -134,12 +134,21 @@ pub(super) fn analyze(func: &Function, callee_names: &[String], header: bool) ->
     if callee_names.is_empty() {
         return None;
     }
+    // with no allocation call there is no root but a frame cell
+    let allocates = || {
+        func.blocks.iter().flat_map(|b| &b.insts).any(|i| {
+            matches!(&i.kind, InstKind::Call(f, _) if ALLOC_CALLS.contains(&name_of(callee_names, *f)))
+        })
+    };
+    if !header && !allocates() {
+        return None;
+    }
 
-    let mut defs: HashMap<ValueId, Vec<InstKind>> = HashMap::default();
+    let mut defs: HashMap<ValueId, Vec<&InstKind>> = HashMap::default();
     for block in &func.blocks {
         for inst in &block.insts {
             if let Some(r) = inst.result {
-                defs.entry(r).or_default().push(inst.kind.clone());
+                defs.entry(r).or_default().push(&inst.kind);
             }
         }
     }
