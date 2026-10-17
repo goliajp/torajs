@@ -222,11 +222,9 @@ impl<'a> Analysis<'a> {
         // User class method broadcast: receiver joins every owner
         // class; args flow into every owner's params (conservative —
         // static dispatch needs types the analysis doesn't have).
-        let mut class_hit = false;
         for c in self.classes.clone() {
             let f = format!("__cm_{c}__{name}");
             if let Some(ps) = self.method_arg_params(&f) {
-                class_hit = true;
                 let ck = SlotKey::Class(c.clone());
                 self.mark_containerish(&ck);
                 self.uf.union(&recv, &ck);
@@ -244,8 +242,10 @@ impl<'a> Analysis<'a> {
         // `__p{i}` projections (the member-callee mirror of the F1
         // indirect Param edges). Builtin container methods keep their
         // dedicated wiring above; projections nobody populated are
-        // dead keys.
-        if !class_hit && !BUILTIN_MEMBER_METHODS.contains(&name.as_str()) {
+        // dead keys. A class owning a method of the name does not make
+        // the receiver an instance: an object's own function member of
+        // that name takes the same arguments.
+        if !BUILTIN_MEMBER_METHODS.contains(&name.as_str()) {
             let fk = SlotKey::Field(Box::new(recv.clone()), PropKey::from(name));
             self.record_variadic_call(callee, args, &fk);
             for (i, a) in args.iter().enumerate() {
