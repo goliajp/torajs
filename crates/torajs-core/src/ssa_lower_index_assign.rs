@@ -50,13 +50,18 @@ pub(crate) enum WriteBack {
 /// a kept value (`c = (t[0] = [4,5])`) stole the slot's only stake
 /// and the refcount underflowed at teardown — the face rotation 323
 /// explicitly left as a borrow.
+///
+/// A statement-position assignment (`d[k] = v;`, a `for` step, the
+/// last operand of a discarded comma) mints nothing, as the
+/// Ident-target lane does: its only consumer would be the discarding
+/// release, and the pair's net is no change to the count.
 pub(crate) fn mint_index_assign_value(
     ctx: &mut crate::ssa_lower::LowerCtx<'_>,
     eid: ExprId,
     v: &Operand,
 ) {
     let ty = ctx.operand_ty(v);
-    if ty.is_refcounted() {
+    if ty.is_refcounted() && ctx.discarded_stmt_expr != Some(eid) {
         ctx.emit_owned_result_inc(*v, ty);
         ctx.owned_member_reads.insert(eid);
     }
