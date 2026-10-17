@@ -144,6 +144,12 @@ impl Checker {
                 // A narrow may not move the binding out of the lane
                 // its slot lives in — see `narrow_within_lane`.
                 info.ty = crate::check::narrow_within_lane(&prev, inner_ty);
+                if matches!(prev, Type::Nullable(_))
+                    && !matches!(info.ty, Type::Nullable(_))
+                    && info.null_declared.is_none()
+                {
+                    info.null_declared = Some(prev.clone());
+                }
                 return Some(prev);
             }
         }

@@ -43,6 +43,12 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, name: &str, params: &[Para
     }
     let saved_scopes = std::mem::replace(&mut checker.scopes, vec![HashMap::new()]);
     let saved_return = checker.expected_return.replace(*ret_ty);
+    // a top-level function's body holds every write to its locals;
+    // a nested one's may not
+    let saved_root = std::mem::replace(
+        &mut checker.narrows.root,
+        checker.ret_owner.is_none().then(|| name.to_string()),
+    );
     let saved_owner = checker.ret_owner.replace(name.to_string());
     checker.toplevel_captures.push(Default::default());
     let saved_class = checker.current_class.take();
@@ -159,6 +165,7 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, name: &str, params: &[Para
     checker.hoisted_closure_lets = saved_hoists;
     checker.expected_return = saved_return;
     checker.ret_owner = saved_owner;
+    checker.narrows.root = saved_root;
     checker.scopes = saved_scopes;
     checker.toplevel_captures.pop();
     checker.current_class = saved_class;

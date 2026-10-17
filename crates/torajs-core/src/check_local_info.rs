@@ -81,6 +81,10 @@ pub(crate) struct LocalInfo {
     /// branches both fill the binding on. A write is checked against
     /// it, and a possibly-null one puts the binding back to it.
     pub(crate) flow_declared: Option<Type>,
+    /// The `T | null` a null narrow first replaced. A closure reads the
+    /// binding whenever it is called, so it captures this type when a
+    /// write could undo the narrow (`check/capture_narrow.rs`).
+    pub(crate) null_declared: Option<Type>,
 }
 
 impl LocalInfo {
@@ -100,6 +104,7 @@ impl LocalInfo {
             ann: None,
             decl: None,
             flow_declared: None,
+            null_declared: None,
         }
     }
 }

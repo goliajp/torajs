@@ -10,10 +10,13 @@ use crate::ast::{Ast, BinOp, Expr, ExprId, PropKey, Stmt};
 use crate::lexer::Span;
 
 mod branch_end;
+mod capture_narrow;
 mod construct;
 mod diag;
 pub(crate) mod face_slots;
 mod flow_join;
+#[cfg(test)]
+mod flow_tests;
 mod narrows;
 mod process_on;
 mod promise_static;
@@ -34,6 +37,7 @@ mod union_tests;
 pub(crate) use branch_end::End;
 pub(crate) use diag::DiagPush;
 pub use diag::{Diagnostic, Severity};
+pub(crate) use flow_join::FlowState;
 pub(crate) use narrows::GuardSave;
 pub use type_def::{Lit, StructFields, Type};
 

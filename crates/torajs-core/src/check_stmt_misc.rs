@@ -21,8 +21,8 @@
 
 use std::collections::HashMap;
 
-use crate::ast::{Ast, Stmt};
-use crate::check::{Checker, DiagPush, Type};
+use crate::ast::{Ast, ExprId, Stmt, SwitchCase};
+use crate::check::{Checker, DiagPush, FlowState, Type, stmt_diverges};
 
 /// `true` when a `case undefined:` / `case null:` clause CAN be
 /// selected under this scrutinee, whatever the checker's type for
@@ -117,69 +117,25 @@ pub(crate) fn check_switch(checker: &mut Checker, ast: &Ast, stmt: &Stmt) {
             .collect()
     };
     let saved_hoists = crate::check_hoist_closure_lets::enter(checker, ast, &block);
-    for (i, c) in cases.iter().enumerate() {
-        if i == *default_at {
-            let body = default.as_deref().unwrap_or_default();
-            check_clause_body(checker, ast, body, clause_narrow(None));
+    // A clause is entered from the head (the case values are read
+    // before any body runs) and, when the clause above it in source
+    // order can fall through, from that clause's end as well.
+    let entry = checker.flow_entry();
+    let mut above: Option<FlowState> = None;
+    for (clause, body) in clause_order(cases, default.as_deref(), *default_at) {
+        checker.restore_flow(&entry);
+        if let Some(i) = clause {
+            check_case_value(checker, ast, cases[i].value, &scrut_ty);
         }
-        match checker.type_of(ast, c.value) {
-            // `any` on either side is the type whose runtime value is
-            // unknown, so nothing can be said about it here.
-            Ok(t)
-                if t == scrut_ty
-                    || t == Type::Any
-                    || scrut_ty == Type::Any
-                    // A `T | undefined` scrutinee has three faces a
-                    // clause can equal: the T, `undefined`, and
-                    // `null` — the lattice spells the last two as
-                    // one slot but IsStrictlyEqual keeps them apart.
-                    // Warning "never selected" on `case undefined:`
-                    // under exactly the type that exists to carry
-                    // undefined said the opposite of the truth.
-                    || matches!(&scrut_ty, Type::Nullable(inner)
-                        if t == Type::Undefined || t == Type::Null || t == **inner)
-                    || nullish_clause_is_reachable(&scrut_ty, &t) => {}
-            // §14.12.4 selects a clause with IsStrictlyEqual, and that
-            // predicate is TOTAL: across types it answers `false`, it is
-            // not undefined for them. So no pair of types is an error
-            // here — a cross-type clause is simply one that never gets
-            // selected, and §14.12.4 moves to the next.
-            //
-            // The refusal that used to stand here had the reasoning
-            // right and stopped halfway: it opened a hole for `any` on
-            // exactly this ground ("any is comparable to everything")
-            // and then refused every other cross-type pair. Which is
-            // band B in
-            // `docs/language-spec/ch1-type-runtime-boundary.md` — a
-            // runtime answer treated as a compile-time error.
-            //
-            // TypeScript does flag part of this — `case 0:` under a
-            // string scrutinee is TS2678 "not comparable" (`case null:`
-            // is not). That diagnostic has value and is kept; what is
-            // dropped is the REFUSAL. This is exactly the row ch1 §4
-            // draws between the two: tsc reports and produces no
-            // executable, tr reports AND emits the behaviour the spec
-            // asks for. The undeclared-identifier path has been shaped
-            // this way for a while — a warning, and the program runs.
-            //
-            // The typed spelling is where tr is AHEAD here, not behind:
-            // with the scrutinee's type in hand, "never selected" is
-            // decidable at compile time, while an engine that erased the
-            // type has to run the comparison to find out. What must not
-            // be skipped is the clause EXPRESSION — CaseClauseIsSelected
-            // evaluates it before comparing, so a side effect in a
-            // never-matching case is observable (the fixture pins this).
-            Ok(t) => checker.errors.push_warn(format!(
-                "switch case value type {t:?} can never equal scrutinee \
-                 {scrut_ty:?} — this clause is never selected"
-            )),
-            Err(e) => checker.errors.push_err(e),
+        let start = match above.take() {
+            Some(end) => checker.join_flow(&entry, &end),
+            None => entry.clone(),
+        };
+        checker.restore_flow(&start);
+        check_clause_body(checker, ast, body, clause_narrow(clause));
+        if body.last().is_none_or(|s| !stmt_diverges(s)) {
+            above = Some(checker.flow_at(&entry));
         }
-        check_clause_body(checker, ast, &c.body, clause_narrow(Some(i)));
-    }
-    if *default_at == cases.len() {
-        let body = default.as_deref().unwrap_or_default();
-        check_clause_body(checker, ast, body, clause_narrow(None));
     }
     checker.hoisted_closure_lets = saved_hoists;
     checker.scopes.pop();
@@ -187,6 +143,79 @@ pub(crate) fn check_switch(checker: &mut Checker, ast: &Ast, stmt: &Stmt) {
     // names it: what a returning clause leaves behind is not joined
     if let Some((name, _, _)) = &narrows {
         checker.mark_loose(name);
+    }
+}
+
+/// The clauses in source order: the case index (`None` for the
+/// default, an empty body when there is none) and the body.
+fn clause_order<'a>(
+    cases: &'a [SwitchCase],
+    default: Option<&'a [Stmt]>,
+    default_at: usize,
+) -> Vec<(Option<usize>, &'a [Stmt])> {
+    let mut order: Vec<(Option<usize>, &[Stmt])> = cases
+        .iter()
+        .enumerate()
+        .map(|(i, c)| (Some(i), c.body.as_slice()))
+        .collect();
+    order.insert(default_at, (None, default.unwrap_or_default()));
+    order
+}
+
+/// A case value against the scrutinee's type.
+fn check_case_value(checker: &mut Checker, ast: &Ast, value: ExprId, scrut_ty: &Type) {
+    match checker.type_of(ast, value) {
+        // `any` on either side is the type whose runtime value is
+        // unknown, so nothing can be said about it here.
+        Ok(t)
+            if t == *scrut_ty
+                || t == Type::Any
+                || *scrut_ty == Type::Any
+                // A `T | undefined` scrutinee has three faces a
+                // clause can equal: the T, `undefined`, and
+                // `null` — the lattice spells the last two as
+                // one slot but IsStrictlyEqual keeps them apart.
+                // Warning "never selected" on `case undefined:`
+                // under exactly the type that exists to carry
+                // undefined said the opposite of the truth.
+                || matches!(scrut_ty, Type::Nullable(inner)
+                    if t == Type::Undefined || t == Type::Null || t == **inner)
+                || nullish_clause_is_reachable(scrut_ty, &t) => {}
+        // §14.12.4 selects a clause with IsStrictlyEqual, and that
+        // predicate is TOTAL: across types it answers `false`, it is
+        // not undefined for them. So no pair of types is an error
+        // here — a cross-type clause is simply one that never gets
+        // selected, and §14.12.4 moves to the next.
+        //
+        // The refusal that used to stand here had the reasoning
+        // right and stopped halfway: it opened a hole for `any` on
+        // exactly this ground ("any is comparable to everything")
+        // and then refused every other cross-type pair. Which is
+        // band B in
+        // `docs/language-spec/ch1-type-runtime-boundary.md` — a
+        // runtime answer treated as a compile-time error.
+        //
+        // TypeScript does flag part of this — `case 0:` under a
+        // string scrutinee is TS2678 "not comparable" (`case null:`
+        // is not). That diagnostic has value and is kept; what is
+        // dropped is the REFUSAL. This is exactly the row ch1 §4
+        // draws between the two: tsc reports and produces no
+        // executable, tr reports AND emits the behaviour the spec
+        // asks for. The undeclared-identifier path has been shaped
+        // this way for a while — a warning, and the program runs.
+        //
+        // The typed spelling is where tr is AHEAD here, not behind:
+        // with the scrutinee's type in hand, "never selected" is
+        // decidable at compile time, while an engine that erased the
+        // type has to run the comparison to find out. What must not
+        // be skipped is the clause EXPRESSION — CaseClauseIsSelected
+        // evaluates it before comparing, so a side effect in a
+        // never-matching case is observable (the fixture pins this).
+        Ok(t) => checker.errors.push_warn(format!(
+            "switch case value type {t:?} can never equal scrutinee \
+             {scrut_ty:?} — this clause is never selected"
+        )),
+        Err(e) => checker.errors.push_err(e),
     }
 }
 

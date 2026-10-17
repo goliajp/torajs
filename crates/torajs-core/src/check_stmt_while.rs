@@ -12,7 +12,7 @@
 //!   `q = q.next` against `T | null`). Polarity-false (`x === null`)
 //!   wouldn't enter the loop, so no narrow.
 //! - **DoWhile** — body runs first (no narrow); condition typechecks
-//!   after.
+//!   after, from the end of the body joined with every `continue`.
 //!
 //! Chunk 782 adds the member-path mirror (`while (o.cb)` narrows
 //! `o.cb` for the body), under the same region rule: a write to the
@@ -21,8 +21,9 @@
 //! under the narrow.
 
 use crate::ast::{Ast, ExprId, Stmt};
-use crate::check::{Checker, DiagPush, Type, js_truthy_acceptable};
+use crate::check::{Checker, DiagPush, Type, js_truthy_acceptable, stmt_diverges};
 use crate::check_assigns_to::{Guarded, Region, binding_hit, member_hit, scan};
+use crate::check_stmt_diverges::continues_out;
 
 pub(crate) fn check_while(checker: &mut Checker, ast: &Ast, cond: ExprId, body: &Stmt) {
     checker.enter_loop(ast, &[cond], body);
@@ -91,7 +92,17 @@ pub(crate) fn member_region(ast: &Ast, s: &Stmt, key: &(String, String)) -> Regi
 
 pub(crate) fn check_do_while(checker: &mut Checker, ast: &Ast, body: &Stmt, cond: ExprId) {
     checker.enter_loop(ast, &[cond], body);
+    let entry = checker.flow_entry();
     checker.check_stmt(ast, body);
+    // a `continue` reaches the condition from inside the body
+    if continues_out(body) {
+        let end = checker.flow_at(&entry);
+        checker.join_region_exit(ast, &entry, &[body]);
+        if !stmt_diverges(body) {
+            let joined = checker.join_flow(&checker.flow_at(&entry), &end);
+            checker.restore_flow(&joined);
+        }
+    }
     checker.note_unmodeled_guard(ast, cond);
     match checker.type_of(ast, cond) {
         Ok(t) if js_truthy_acceptable(&t) => {}

@@ -39,6 +39,7 @@ pub(crate) fn check_arrow_fn(
     let saved_scopes = std::mem::replace(&mut checker.scopes, vec![HashMap::new()]);
     let saved_return = checker.expected_return.replace(*ret_ty);
     let saved_owner = checker.ret_owner.take();
+    let saved_root = checker.narrows.root.take();
     checker.toplevel_captures.push(Default::default());
     for (p, ty) in params.iter().zip(param_tys.iter()) {
         if let Err(e) = checker.declare(p.name.clone(), LocalInfo::plain(ty.clone())) {
@@ -50,6 +51,7 @@ pub(crate) fn check_arrow_fn(
     }
     checker.expected_return = saved_return;
     checker.ret_owner = saved_owner;
+    checker.narrows.root = saved_root;
     checker.scopes = saved_scopes;
     checker.toplevel_captures.pop();
     Ok(fn_ty)
@@ -127,7 +129,7 @@ pub(crate) fn check_closure(
     let mut cap_tys: Vec<(String, Type)> = Vec::with_capacity(captures.len());
     for cap in &captures {
         if let Some(info) = checker.lookup(cap) {
-            cap_tys.push((cap.clone(), info.ty));
+            cap_tys.push((cap.clone(), checker.capture_ty(ast, cap, &info)));
         } else if checker.globals.contains_key(cap) {
             // K.3/K.4/K.6 promoted data global (or hoisted fn) — not a
             // capture: the body ident resolves through the same globals
@@ -232,6 +234,8 @@ pub(crate) fn check_closure_body(
     let saved_scopes = std::mem::replace(&mut checker.scopes, vec![HashMap::new()]);
     let saved_return = checker.expected_return.replace(ret_ty);
     let saved_owner = checker.ret_owner.replace(fn_name.clone());
+    // a closure body is not where its captures' writes are counted
+    let saved_root = checker.narrows.root.take();
     // §15.5.5 (RFC 20260810) — the fn-expression's self-name binds
     // the closure itself inside the body, in a scope of its OWN
     // between the enclosing environment and the body (the spec's
@@ -306,6 +310,7 @@ pub(crate) fn check_closure_body(
     checker.self_name_active = saved_self_name;
     checker.expected_return = saved_return;
     checker.ret_owner = saved_owner;
+    checker.narrows.root = saved_root;
     checker.scopes = saved_scopes;
     checker.toplevel_captures.pop();
     if checker.speculative_depth == 0 {
