@@ -18,6 +18,7 @@ mod flow_join;
 #[cfg(test)]
 mod flow_tests;
 mod narrows;
+mod null_narrow;
 mod process_on;
 mod promise_static;
 mod scope_moves;
