@@ -25,6 +25,14 @@ use super::transfer::{AbsVal, NumFact};
 /// The stamp of something that has not happened yet.
 const NEVER: u32 = u32::MAX;
 
+/// The next stamp; it never reaches [`NEVER`], which every check reads
+/// as not yet.
+fn tick(now: &mut u32) -> u32 {
+    *now += 1;
+    debug_assert!(*now != NEVER, "the move stamps ran out");
+    *now
+}
+
 struct BlockMemo {
     /// its first instruction's index in the per-instruction tables
     first: u32,
@@ -135,14 +143,12 @@ impl Memo {
 
     /// The fact of `v` moved.
     pub(super) fn moved(&mut self, v: ValueId) {
-        self.now += 1;
-        self.moved_at[v.0 as usize] = self.now;
+        self.moved_at[v.0 as usize] = tick(&mut self.now);
     }
 
     /// Some element point moved.
     pub(super) fn elems_moved(&mut self) {
-        self.now += 1;
-        self.elems_at = self.now;
+        self.elems_at = tick(&mut self.now);
     }
 
     /// The round about to start reads the merge ranges `merged`: stamp
@@ -159,8 +165,7 @@ impl Memo {
                 .iter()
                 .any(|&j| first || self.merged[j] != merged[j])
             {
-                self.now += 1;
-                b.merges_at = self.now;
+                b.merges_at = tick(&mut self.now);
             }
         }
         self.merged.clear();

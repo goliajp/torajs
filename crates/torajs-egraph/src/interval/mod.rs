@@ -40,17 +40,16 @@ pub mod run;
 pub mod square;
 mod state;
 pub mod transfer;
+mod walk;
 mod widen;
 
 pub use cache::{FactCache, Seed};
 pub use def_shapes::SingleDefs;
 pub use transfer::{AbsVal, NumFact};
 
-use std::cell::Cell;
-
 use crate::id_hash::{HashMap, HashSet};
 
-use torajs_core::ssa::{BlockId, Function, InstKind, Module, Operand, Type, ValueId};
+use torajs_core::ssa::{BlockId, Function, Module, Operand, Type, ValueId};
 
 use def_shapes::def_shapes;
 use live::Live;
@@ -58,7 +57,7 @@ use memo::Memo;
 use refine::{Constraint, Constraints};
 use state::State;
 use torajs_core::ssa::dominator::DominatorTree;
-use transfer::eval_inst;
+use walk::Walk;
 use widen::step;
 
 /// Ascending rounds that widen through the thresholds; past it a
@@ -179,74 +178,21 @@ pub fn analyze_function_with(
         memo.merges_read(&merged, &inherited);
         let mut changed = false;
 
+        let mut walk = Walk {
+            func,
+            slot: &slot,
+            squares: &squares,
+            elems: &elems,
+            elem_state: &elem_state,
+            merged: &merged,
+            state: &mut state,
+            contrib: &mut contrib,
+            live: &mut live,
+            memo: &mut memo,
+            roots: &mut roots,
+        };
         for &bid in dom.reverse_postorder() {
-            let bi = bid.0 as usize;
-            let block = &func.blocks[bi];
-            if !squares[bi] && memo.unmoved(bi) {
-                for (j, ev) in memo.cell_defs(bi) {
-                    let r = block.insts[j].result.expect("a cell def has a result");
-                    let e = contrib[slot[r.0 as usize] as usize].get_or_insert(AbsVal::Bottom);
-                    *e = e.join(ev);
-                }
-                continue;
-            }
-            // the block's constraints are entered once an instruction
-            // has to be evaluated, with the cell defs before it killed
-            let mut entered = squares[bi];
-            if entered {
-                live.enter(bid, &merged);
-                square::live_roots(live.all(), &state, &mut roots);
-            }
-            for (j, inst) in block.insts.iter().enumerate() {
-                let Some(r) = inst.result else { continue };
-                let elem_root = match elems.reads.is_empty() {
-                    true => None,
-                    false => elems.reads.get(&r),
-                };
-                let k = slot[r.0 as usize];
-                let ev = match memo.reuse(bi, j, &inst.kind, elem_root.is_some()) {
-                    // a single def's state is the value it was last given
-                    Some(_) if k == u32::MAX => continue,
-                    Some(ev) => ev,
-                    None => {
-                        if !entered {
-                            live.enter(bid, &merged);
-                            for d in block.insts[..j].iter().filter_map(|i| i.result) {
-                                if slot[d.0 as usize] != u32::MAX {
-                                    live.kill(d);
-                                }
-                            }
-                            entered = true;
-                        }
-                        let ty = func.values[r.0 as usize].ty;
-                        let (ev, read) = eval_at(&inst.kind, ty, &state, &live);
-                        // The load of a tracked element answers with the
-                        // element point rather than the opaque default.
-                        // Only for numeric results — a pointer element
-                        // carries no interval and no consumer wants one.
-                        let ev = match elem_root {
-                            Some(root) if matches!(ty, Type::I64 | Type::F64) => {
-                                elem_state.get(root).copied().unwrap_or(AbsVal::Bottom)
-                            }
-                            _ => ev,
-                        };
-                        memo.record(bi, j, ev, read);
-                        ev
-                    }
-                };
-                if k != u32::MAX {
-                    let e = contrib[k as usize].get_or_insert(AbsVal::Bottom);
-                    *e = e.join(ev);
-                    if entered {
-                        live.kill(r);
-                    }
-                } else if state.get(&r) != Some(&ev) {
-                    state.insert(r, ev);
-                    memo.moved(r);
-                    changed = true;
-                }
-            }
-            memo.walked(bi);
+            changed |= walk.block(bid);
         }
 
         for (root, ws) in &elems.writes {
@@ -299,33 +245,6 @@ pub fn analyze_function_with(
     }
 
     state.into_facts()
-}
-
-/// What `kind` yields at the current point of the block `live` holds,
-/// and whether it read an operand's fact to say so.
-fn eval_at(kind: &InstKind, ty: Type, state: &State, live: &Live) -> (AbsVal, bool) {
-    let read = Cell::new(false);
-    let env = |op: &Operand| {
-        read.set(true);
-        lookup(op, state, live.for_operand(op))
-    };
-    let is_even = |op: &Operand| live.is_even(op);
-    let ev = eval_inst(kind, ty, &env, &is_even);
-    let ev = if ev == AbsVal::Bottom
-        && !matches!(
-            kind,
-            InstKind::Copy(..)
-                | InstKind::Identity(_)
-                | InstKind::BinOp(..)
-                | InstKind::SiToFp(_)
-                | InstKind::FpToSi(_)
-                | InstKind::FpToInt32(_)
-        ) {
-        opaque_for(ty)
-    } else {
-        ev
-    };
-    (ev, read.get())
 }
 
 fn opaque_for(ty: Type) -> AbsVal {
@@ -405,7 +324,9 @@ fn bound_range(f: NumFact, c: &Constraint, state: &State, live: &[Constraint]) -
 #[cfg(test)]
 mod tests {
     use super::*;
-    use torajs_core::ssa::{BinOp, Block, BlockId, FPred, IPred, Inst, Terminator, ValueInfo};
+    use torajs_core::ssa::{
+        BinOp, Block, BlockId, FPred, IPred, Inst, InstKind, Terminator, ValueInfo,
+    };
 
     fn inst(result: u32, kind: InstKind) -> Inst {
         Inst {
