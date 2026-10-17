@@ -4,10 +4,10 @@
 //!
 //! `const w: W = { t: v }` with `v: any` and `W = { t: T }` lays the
 //! literal out as `W`, whose slot `t` every reader loads as a `T`
-//! cell. The value crosses as any other annotated object slot takes an
-//! `any` (`ssa_lower_checked_cast::obj`), except that a struct or class
-//! cell of another layout is not refused: left as is, the slot held the
-//! box's bits and the first read through it dereferenced them.
+//! cell, and whose release walks it as one. The value crosses as any
+//! other annotated object slot takes an `any`
+//! (`ssa_lower_checked_cast::obj`): a cell its readers cannot read
+//! as a `T` is refused there as it is everywhere else.
 
 use crate::ast::{ExprId, PropKey};
 use crate::ssa::{FuncId, Operand, StructId, Type};
@@ -65,7 +65,7 @@ pub(super) fn cast_member(
     let ann = field_ann(ctx, owner, field)?;
     let token = ctx.park_owned_temp(eid, &v);
     let cast = match slot {
-        Type::Obj(sid) => ctx.checked_cast_obj_member(v, sid, &ann),
+        Type::Obj(sid) => ctx.checked_cast_obj(v, sid, &ann, CastSlot::Store),
         Type::Arr(_) => ctx.checked_cast_obj_arr(v, slot, &ann, CastSlot::Store),
         _ => None,
     };

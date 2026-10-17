@@ -1,14 +1,15 @@
 // A struct whose field is typed with a wider class, seen through a
 // struct type whose same field is typed with a narrower one. The field
-// is one slot under two static types: a cell of unknown layout stored
-// through the wide view comes back out through the narrow view, and
-// the narrow class's release frees it once the struct is gone. The
-// leaked cell is smaller than the narrow class and lives in a smaller
-// size class, so a free sized by the narrow class hands its block to
-// the wrong class; the narrow cells allocated right after it would
-// then overrun the empty cells minted beside it. The wider class sits
-// in the narrow one's size class, so nothing else makes the narrow
-// class free by the cell.
+// is one slot under two static types: a cell stored through the wide
+// view comes back out through the narrow view, and the narrow class's
+// release frees it once the struct is gone. A cell of another class,
+// smaller than the narrow one, written into the field through `any`
+// would be read and released at the field's layout, and a free sized by
+// the narrow class would hand its block to the wrong size class; the
+// write refuses it with a TypeError instead, as a `let` of the class
+// does, and the narrow cells allocated after each refusal are intact.
+// bun stores it as it is (`seen 64 refused 0`), so this case is checked
+// against its .expected.
 class N {
   a: number
   b: number
@@ -51,11 +52,14 @@ function peek(p: P): N {
 }
 
 let seen = 0
+let refused = 0
 for (let i = 0; i < 64; i++) {
   let o: N | null = null
-  {
+  try {
     const s: S = { k: takeOut(i), tag: i }
     o = peek(s)
+  } catch (e) {
+    if (e instanceof TypeError) refused++
   }
   if (o !== null) seen++
   o = null
@@ -69,4 +73,4 @@ let okKept = 0
 for (let i = 0; i < kept.length; i++) {
   if (kept[i] instanceof X) okKept++
 }
-console.log('seen', seen, 'kept', okKept)
+console.log('seen', seen, 'refused', refused, 'kept', okKept)

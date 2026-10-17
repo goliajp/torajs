@@ -168,6 +168,36 @@ impl<'a> Scan<'a> {
         }
     }
 
+    /// Whether storing `value` into `target` casts into an object
+    /// layout: an `any` value into a slot of an object type, or an
+    /// object literal, laid out at the slot's declared type, with an
+    /// `any` member that type gives an object type
+    /// (`obj_cast::lit_casts_member`).
+    pub(crate) fn store_casts(&self, target: ExprId, value: ExprId) -> bool {
+        use super::obj_cast::{class_field_ann, lit_casts_member, lit_into_binding_casts};
+        let (ast, types) = (self.ast, self.expr_types);
+        if types.get(&value) == Some(&crate::check::Type::Any)
+            && (super::obj_cast::object_ty(types.get(&target))
+                || matches!(ast.get_expr(target), Expr::Ident(n) if self.obj_slots.contains(n)))
+        {
+            return true;
+        }
+        match ast.get_expr(target) {
+            Expr::Ident(n) => lit_into_binding_casts(ast, types, n, value),
+            Expr::Member { obj, name } => class_field_ann(ast, types, *obj, name)
+                .is_some_and(|a| lit_casts_member(ast, types, &a, value)),
+            _ => false,
+        }
+    }
+
+    /// Whether a call through `callee` passes an object literal laid
+    /// out at a parameter's declared type with an `any` member that
+    /// type gives an object type (`obj_cast::lit_arg_casts_member`).
+    pub(crate) fn args_cast(&self, callee: ExprId, args: &[ExprId]) -> bool {
+        matches!(self.ast.get_expr(callee), Expr::Ident(n)
+            if super::obj_cast::lit_arg_casts_member(self.ast, self.expr_types, n, args))
+    }
+
     /// A binding takes the forms its init can answer, or the ones a
     /// written `T | null` / `T | undefined` says outright — the same
     /// split `record_binding_flags` makes.
@@ -189,6 +219,9 @@ impl<'a> Scan<'a> {
             self.direct |= any_init;
         } else if type_ann.is_some_and(|a| super::obj_cast::cast_binding_ann(self.ast, a)) {
             self.direct |= any_init;
+        }
+        if let Some(a) = type_ann {
+            self.direct |= super::obj_cast::lit_casts_member(self.ast, self.expr_types, a, init);
         }
         if f != 0 {
             self.nullish.insert(name.to_string(), f);

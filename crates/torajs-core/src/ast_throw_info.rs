@@ -106,6 +106,7 @@ impl Scan<'_> {
             Expr::Elision => {}
             Expr::Call { callee, args } => {
                 crate::ast_throw_info_call::scan_call(self, *callee, args);
+                self.direct |= self.args_cast(*callee, args);
             }
             Expr::BinOp { op, left, right } => {
                 // Band B — the checker decided this pair can only throw
@@ -173,14 +174,7 @@ impl Scan<'_> {
                     self.direct = true;
                 }
                 self.code_write |= self.keyed_write_carries_code(*target, *value);
-                // an `any` value into an object-typed slot is cast
-                if self.expr_types.get(value) == Some(&crate::check::Type::Any)
-                    && (obj_cast::object_ty(self.expr_types.get(target))
-                        || matches!(ast.get_expr(*target),
-                            Expr::Ident(n) if self.obj_slots.contains(n)))
-                {
-                    self.direct = true;
-                }
+                self.direct |= self.store_casts(*target, *value);
                 self.expr(*target);
                 self.expr(*value);
             }
@@ -226,9 +220,11 @@ impl Scan<'_> {
                 self.under(*cond, false, |sc| sc.expr(*else_branch));
             }
             Expr::Spread { expr } => crate::ast_throw_info_call::scan_spread(self, *expr),
-            Expr::TypeOf { expr } | Expr::Delete { expr } | Expr::As { expr, .. } => {
+            Expr::As { expr, ty_ann } => {
+                self.direct |= obj_cast::lit_casts_member(ast, self.expr_types, ty_ann, *expr);
                 self.expr(*expr)
             }
+            Expr::TypeOf { expr } | Expr::Delete { expr } => self.expr(*expr),
             Expr::InstanceOf { expr, rhs } => {
                 self.expr(*expr);
                 self.expr(*rhs);

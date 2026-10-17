@@ -1,0 +1,11 @@
+arg true cannot store object into `T`
+assign local true cannot store object into `T`
+assign global true cannot store object into `T`
+assign captured true cannot store object into `T`
+nested arg true cannot store object into `T`
+ctor field true cannot store object into `T`
+1
+arg fields ok
+3
+assign global fields ok
+string

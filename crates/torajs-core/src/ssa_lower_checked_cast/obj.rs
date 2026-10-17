@@ -87,10 +87,10 @@ impl LowerCtx<'_> {
         (self.binding_ann(name, global)).is_some_and(|a| self.casts_obj_slot(&a))
     }
 
-    /// `v`, an `any` value `value` stores into the field `field` of the
-    /// class instance `obj`, cast when the field's type is an object
-    /// layout; an owned temporary's stake goes, and the field takes the
-    /// cast's.
+    /// `v`, an `any` value `value` stores into the field `field` of
+    /// `obj` (a class instance, or a receiver the program annotated with
+    /// an object type), cast when the field's type is an object layout;
+    /// an owned temporary's stake goes, and the field takes the cast's.
     pub(crate) fn cast_stored_obj(
         &mut self,
         field_ty: Type,
@@ -102,7 +102,7 @@ impl LowerCtx<'_> {
         let Type::Obj(sid) = field_ty else {
             return None;
         };
-        let ann = self.field_ann(obj, field)?;
+        let ann = self.member_field_ann(obj, field)?;
         let cast = self.checked_cast_obj(v, sid, &ann, CastSlot::Store)?;
         if self.expr_transfers_ownership(value) {
             self.emit_drop_value(v, Type::Any);
@@ -151,33 +151,6 @@ impl LowerCtx<'_> {
         ann: &str,
         slot: CastSlot,
     ) -> Option<Operand> {
-        self.cast_obj_slot(op, sid, ann, slot, false)
-    }
-
-    /// [`Self::checked_cast_obj`] into the member of an object literal
-    /// whose declared type gives it the layout `sid`: a struct or class
-    /// cell of any layout crosses, and only another value is checked
-    /// (`torajs-anyvalue::anyv_cast::keep`). Such a slot is read and
-    /// released through more than one static view (`type S = { k: W }`
-    /// read as `{ k: N }`), and the release frees a cell by its own size.
-    /// A slot no plan tests takes what [`Self::checked_cast_obj`] does.
-    pub(crate) fn checked_cast_obj_member(
-        &mut self,
-        op: Operand,
-        sid: StructId,
-        ann: &str,
-    ) -> Option<Operand> {
-        self.cast_obj_slot(op, sid, ann, CastSlot::Store, true)
-    }
-
-    fn cast_obj_slot(
-        &mut self,
-        op: Operand,
-        sid: StructId,
-        ann: &str,
-        slot: CastSlot,
-        cells_as_is: bool,
-    ) -> Option<Operand> {
         if self.operand_ty(&op) != Type::Any || compiler_made(ann) {
             return None;
         }
@@ -199,19 +172,7 @@ impl LowerCtx<'_> {
             self.emit_throw_check(None);
             return Some(v);
         }
-        let ty = Type::Obj(sid);
-        if !cells_as_is {
-            return Some(self.emit_plan_cast(op, ty, ann, &site));
-        }
-        let plan = super::plan::compile(&self.plan_tables(), ty, ann);
-        let kernel = match plan.members {
-            true => crate::ssa_lower_intrinsics_any_cast::MEMBERS_KEEP_CAST,
-            false => crate::ssa_lower_intrinsics_any_cast::KEEP_CAST,
-        };
-        let kernel = *(self.fn_table.get(kernel)).expect("the member casts are declared");
-        let v = self.emit_cast_call(kernel, op, ty, plan, &site);
-        self.emit_throw_check(None);
-        Some(v)
+        Some(self.emit_plan_cast(op, Type::Obj(sid), ann, &site))
     }
 
     /// Whether [`Self::checked_cast_obj`] casts an `any` value into an

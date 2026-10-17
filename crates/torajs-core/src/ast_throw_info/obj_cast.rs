@@ -33,6 +33,108 @@ pub(crate) fn cast_binding_ann(ast: &Ast, ann: &str) -> bool {
         || elem_ann(base).is_some_and(|e| cast_binding_ann(ast, &e))
 }
 
+/// Whether the object literal `lit`, lowered against the annotation
+/// `ann`, holds an `any` member that the annotation gives an object
+/// type or an array of them, at any depth: the lowering casts that
+/// member into its slot (`ssa_lower_object_lit::declared`).
+pub(crate) fn lit_casts_member(
+    ast: &Ast,
+    expr_types: &HashMap<ExprId, Type>,
+    ann: &str,
+    lit: ExprId,
+) -> bool {
+    let Expr::ObjectLit { fields } = ast.get_expr(lit) else {
+        return false;
+    };
+    let owner = strip_nullable(ann.trim()).trim();
+    let anns: Vec<(Vec<u8>, String)> =
+        match crate::ast_collect_fn_closure_init::inlobj_fields(owner) {
+            Some(f) => (f.into_iter())
+                .map(|(k, _, a)| (k.into_bytes(), a))
+                .collect(),
+            None => match instance_fields(ast, owner) {
+                Some(f) => (f.into_iter())
+                    .map(|(k, a)| (k.as_wtf8().as_bytes().to_vec(), a))
+                    .collect(),
+                None => return false,
+            },
+        };
+    fields.iter().any(|(k, v)| {
+        let key = k.as_wtf8().as_bytes();
+        let Some((_, a)) = anns.iter().find(|(n, _)| n == key) else {
+            return false;
+        };
+        match expr_types.get(v) {
+            Some(Type::Any) => cast_binding_ann(ast, a),
+            _ => lit_casts_member(ast, expr_types, a, *v),
+        }
+    })
+}
+
+/// Whether the object literal `lit` holds an `any` member at any
+/// depth: the one shape [`lit_casts_member`] can answer yes for.
+fn lit_has_any_member(ast: &Ast, expr_types: &HashMap<ExprId, Type>, lit: ExprId) -> bool {
+    let Expr::ObjectLit { fields } = ast.get_expr(lit) else {
+        return false;
+    };
+    (fields.iter()).any(|(_, v)| {
+        expr_types.get(v) == Some(&Type::Any) || lit_has_any_member(ast, expr_types, *v)
+    })
+}
+
+/// Whether the object literal `lit` assigned to the binding `name`
+/// holds a member [`lit_casts_member`] casts against the annotation
+/// of that binding (`ssa_lower_assign_ident` pins the literal to it).
+/// Every parameter and `let` of the name anywhere in the program is
+/// read: a closure's write reaches the binding it captures.
+pub(crate) fn lit_into_binding_casts(
+    ast: &Ast,
+    expr_types: &HashMap<ExprId, Type>,
+    name: &str,
+    lit: ExprId,
+) -> bool {
+    if !lit_has_any_member(ast, expr_types, lit) {
+        return false;
+    }
+    let casts = |a: Option<&String>| a.is_some_and(|a| lit_casts_member(ast, expr_types, a, lit));
+    let param = |ps: &[crate::ast::Param]| {
+        (ps.iter()).any(|p| p.name == name && casts(p.type_ann.as_ref()))
+    };
+    let mut hit = false;
+    crate::ast::walk_stmts(&ast.stmts, &mut |s| match s {
+        Stmt::LetDecl {
+            name: n, type_ann, ..
+        } if n == name => hit |= casts(type_ann.as_ref()),
+        Stmt::FnDecl { params, .. } => hit |= param(params),
+        _ => {}
+    });
+    hit || (ast.exprs.iter()).any(|e| matches!(e, Expr::ArrowFn { params, .. } if param(params)))
+}
+
+/// Whether a call of the module function `callee` passes, as one of
+/// `args`, an object literal with a member [`lit_casts_member`] casts
+/// against the parameter's annotation (`ssa_lower_call_terminal` pins
+/// the literal to it).
+pub(crate) fn lit_arg_casts_member(
+    ast: &Ast,
+    expr_types: &HashMap<ExprId, Type>,
+    callee: &str,
+    args: &[ExprId],
+) -> bool {
+    if !(args.iter()).any(|a| lit_has_any_member(ast, expr_types, *a)) {
+        return false;
+    }
+    let Some(params) = ast.stmts.iter().find_map(|s| match s {
+        Stmt::FnDecl { name, params, .. } if name == callee => Some(params),
+        _ => None,
+    }) else {
+        return false;
+    };
+    (args.iter().zip(params)).any(|(a, p)| {
+        (p.type_ann.as_deref()).is_some_and(|t| lit_casts_member(ast, expr_types, t, *a))
+    })
+}
+
 /// Whether a binding of checker type `t` is an object layout.
 pub(crate) fn object_ty(t: Option<&Type>) -> bool {
     match t {
@@ -43,7 +145,8 @@ pub(crate) fn object_ty(t: Option<&Type>) -> bool {
 }
 
 /// Whether the function `name`, declared at `span` returning `ret`,
-/// returns an `any` value into an object return type it wrote.
+/// returns an `any` value into an object return type it wrote, or an
+/// object literal with a member [`lit_casts_member`] casts.
 pub(crate) fn returns_any_into_obj(
     ast: &Ast,
     name: &str,
@@ -64,7 +167,8 @@ pub(crate) fn returns_any_into_obj(
     let mut hit = false;
     crate::ast::walk_stmts(body, &mut |s| {
         if let Stmt::Return(Some(e)) = s
-            && expr_types.get(e) == Some(&Type::Any)
+            && (expr_types.get(e) == Some(&Type::Any)
+                || ret.is_some_and(|r| lit_casts_member(ast, expr_types, r, *e)))
         {
             hit = true;
         }

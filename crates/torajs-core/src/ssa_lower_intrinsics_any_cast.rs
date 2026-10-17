@@ -74,28 +74,6 @@ pub(crate) fn declare_on_demand(
     declare_as_is(module, fn_table, ast);
 }
 
-/// The object casts into an object literal's member
-/// (`ssa_lower_object_lit::declared`), which the emitter finds by name;
-/// [`MEMBERS_KEEP_CAST`] only where a plan may have an optional member.
-/// Declared after the functions named by their own index (a regex
-/// matcher), so a program that casts no such member names them as
-/// before.
-pub(crate) fn declare_keep(
-    module: &mut Module,
-    fn_table: &mut HashMap<String, FuncId>,
-    ast: &crate::ast::Ast,
-) {
-    let params = [Type::Any, Type::I64, Type::Ptr, Type::Str];
-    declare_intrinsic(module, fn_table, KEEP_CAST, &params, Type::Ptr);
-    if !ast.optional_members.none() {
-        declare_intrinsic(module, fn_table, MEMBERS_KEEP_CAST, &params, Type::Ptr);
-    }
-}
-
-pub(crate) const KEEP_CAST: &str = "__torajs_anyv_cast_obj_keep";
-/// [`KEEP_CAST`] for a plan with an optional member.
-pub(crate) const MEMBERS_KEEP_CAST: &str = "__torajs_anyv_cast_obj_members_keep";
-
 /// The object cast of a plan with an optional member among its fields,
 /// which the emitters find by name (`ssa_lower_checked_cast::plan_emit`,
 /// the boxed entries' parameter casts). Only a program that writes an

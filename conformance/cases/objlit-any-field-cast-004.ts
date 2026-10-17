@@ -1,7 +1,11 @@
 // An `any` member of an object literal whose declared type is an
-// object layout, holding a struct or class cell of another layout: the
-// member takes the cell as it is (a class instance keeps its identity
-// and its class); a dynamic object of the layout's fields is copied.
+// object layout takes what a `let` of that type takes: an instance of
+// the class keeps its identity, a dynamic object of the layout's fields
+// is copied, and a cell of another layout (an instance of another
+// class, a literal without the fields) is refused with a TypeError,
+// since the member is read and released at its declared layout. bun
+// keeps any of them as it is (`true:false:true true:false:false` on the
+// first line), so this case is checked against its .expected.
 class W {
   a: number
   b: number

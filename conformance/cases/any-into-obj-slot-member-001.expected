@@ -1,0 +1,15 @@
+member true cannot store object into `T`
+store true cannot store object into `T`
+return true cannot return object from function returning `T`
+unread member true cannot store object into `T`
+member number true cannot store number into `T`
+member missing field true cannot store object into `T`
+string
+member fields ok
+member wider class true cannot store object into `W`
+3
+member class ok
+string
+store fields ok
+1
+unread member fields ok
