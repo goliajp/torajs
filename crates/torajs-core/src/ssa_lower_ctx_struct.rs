@@ -456,7 +456,7 @@ pub(crate) struct LowerCtx<'a> {
     /// slot repr for the reader's declared layout (probe gD:
     /// Any-boxed undefined written, `load str` + STR sentinel
     /// compared → eq answers false).
-    pub(crate) let_declared_obj_layout: Option<crate::ssa::StructId>,
+    pub(crate) let_declared_obj_layout: Option<crate::ssa_lower_object_lit::declared::DeclaredObj>,
     /// RFC 20260705 chunk 555 — take-once redispatch hint: a
     /// try_lower dispatcher that already lowered a receiver and then
     /// declined (`ssa_lower_str::try_lower_method_call`'s `None`

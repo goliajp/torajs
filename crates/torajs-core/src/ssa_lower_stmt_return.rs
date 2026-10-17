@@ -73,7 +73,7 @@ fn lower_return_value(ctx: &mut LowerCtx, eid: crate::ast::ExprId) -> Operand {
         if let Expr::ObjectLit { .. } = ctx.ast.get_expr(eid)
             && let Type::Obj(sid) = ctx.f.ret
         {
-            ctx.let_declared_obj_layout = Some(sid);
+            ctx.pin_declared_obj(sid, ctx.written_ret_ann().as_deref());
         }
         let v = ctx.lower_expr(eid);
         ctx.let_declared_obj_layout = None;

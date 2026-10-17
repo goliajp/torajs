@@ -293,7 +293,8 @@ fn store_rhs(
         if let Type::Obj(inner_sid) = field_ty
             && matches!(ctx.ast.get_expr(value), Expr::ObjectLit { .. })
         {
-            ctx.let_declared_obj_layout = Some(inner_sid);
+            let ann = ctx.member_field_ann(obj, field);
+            ctx.pin_declared_obj(inner_sid, ann.as_deref());
         }
         let v = ctx.lower_expr(value);
         ctx.let_declared_obj_layout = None;

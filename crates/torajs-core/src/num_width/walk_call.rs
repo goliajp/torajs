@@ -27,6 +27,9 @@ impl Analysis<'_> {
                     let w = self.flow(*arg, scope);
                     let pk = SlotKey::Param(fname.clone(), pname.clone());
                     self.add_constraint(pk.clone(), w);
+                    for ann in self.binding_anns(&pk) {
+                        self.any_member_seed(*arg, &pk, &ann);
+                    }
                     self.alias_guarded(pk.clone(), *arg, scope);
                     self.fn_value_flow(&pk, *arg, scope);
                 }

@@ -111,21 +111,63 @@ impl Analysis<'_> {
         self.seed_number_faces(key, Some(ann), &mut seen);
     }
 
+    /// [`Self::any_object_seed`] for the members of the object literal
+    /// `lit` written into the slot `key` of the object type `ann`: a
+    /// member handed an `any` value is cast into the type the field
+    /// declares (`ssa_lower_object_lit::declared`), at any depth of
+    /// nested literals. Any other value seeds nothing.
+    pub(super) fn any_member_seed(&mut self, lit: ExprId, key: &SlotKey, ann: &str) {
+        let Expr::ObjectLit { fields } = self.ast.get_expr(lit) else {
+            return;
+        };
+        let declared = self.object_fields(crate::check_type_ann::strip_nullable(ann).trim());
+        for (name, v) in fields.clone() {
+            let Some((_, fann)) = declared.iter().find(|(k, _)| *k == name) else {
+                continue;
+            };
+            let fk = SlotKey::Field(Box::new(key.clone()), name);
+            if self.expr_types.get(&v) == Some(&crate::check::Type::Any) {
+                self.any_object_seed(v, &fk, fann);
+            } else {
+                self.any_member_seed(v, &fk, fann);
+            }
+        }
+    }
+
+    /// The annotation the program wrote for the field `name` of the
+    /// receiver `obj`: a class instance's declaration, or the field the
+    /// receiver's own written annotation declares
+    /// (`ast_throw_info::written_ann`).
+    pub(super) fn member_field_ann(
+        &self,
+        obj: ExprId,
+        name: &str,
+        scope: &super::Scope,
+    ) -> Option<String> {
+        if let Some(ann) =
+            crate::ast_throw_info::class_field_ann(self.ast, self.expr_types, obj, name)
+        {
+            return Some(ann);
+        }
+        let binding = |n: &str| self.binding_anns(&self.resolve(n, scope)?).pop();
+        let class_of = |e| crate::ast_throw_info::class_of(self.expr_types, e);
+        let owner = crate::ast_throw_info::written_ann(self.ast, obj, &binding, &class_of)?;
+        let fields = self.object_fields(crate::check_type_ann::strip_nullable(&owner).trim());
+        (fields.into_iter())
+            .find(|(k, _)| k.as_wtf8().as_bytes() == name.as_bytes())
+            .map(|(_, a)| a)
+    }
+
     /// The fields of the object type `ann`: an object type literal's,
     /// or a declared non-generic type's (a class's among them).
     pub(super) fn object_fields(&self, ann: &str) -> Vec<(PropKey, String)> {
         let inline = crate::ast_collect_fn_closure_init::parse_inlobj_field_anns(ann)
             .map(|fs| fs.into_iter().map(|(f, a)| (PropKey::from(f), a)).collect());
+        // the same declaration the cast at the write reads, so a field the
+        // cast checks is one the walk seeds
         inline
             .or_else(|| {
-                self.ast.stmts.iter().find_map(|s| match s {
-                    Stmt::TypeDecl {
-                        name,
-                        type_params,
-                        fields,
-                    } if name == ann && type_params.is_empty() => Some(fields.clone()),
-                    _ => None,
-                })
+                crate::ast_throw_info::obj_cast::decl_fields(self.ast, ann).map(|(_, fs)| fs)
             })
             .unwrap_or_default()
     }

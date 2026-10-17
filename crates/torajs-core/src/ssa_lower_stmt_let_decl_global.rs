@@ -44,7 +44,7 @@ pub(crate) fn try_lower_global_let(
     let Some(slot_ty) = ctx.globals.get(name).copied() else {
         return false;
     };
-    let init_val = lower_global_init_val(ctx, init, slot_ty);
+    let init_val = lower_global_init_val(ctx, init, slot_ty, type_ann);
     // Chunk 698 — general-path mirror: an `Array<Any>` init bound
     // to a typed `Array<T>` global decode-copies into a fresh typed
     // block (the global slot takes the fresh cell's only stake, so
@@ -183,7 +183,12 @@ pub(crate) enum BindSite {
 /// an `any` slot (dynobj lane), or the general expression — the head
 /// of [`try_lower_global_let`], split at the function cap (rotation
 /// 636); body verbatim.
-fn lower_global_init_val(ctx: &mut LowerCtx, init: ExprId, slot_ty: Type) -> Operand {
+fn lower_global_init_val(
+    ctx: &mut LowerCtx,
+    init: ExprId,
+    slot_ty: Type,
+    type_ann: Option<&String>,
+) -> Operand {
     if let Expr::Array(els) = ctx.ast.get_expr(init)
         && els.is_empty()
         && matches!(slot_ty, Type::Arr(_))
@@ -226,7 +231,7 @@ fn lower_global_init_val(ctx: &mut LowerCtx, init: ExprId, slot_ty: Type) -> Ope
         if let Type::Obj(sid) = slot_ty
             && matches!(ctx.ast.get_expr(init), Expr::ObjectLit { .. })
         {
-            ctx.let_declared_obj_layout = Some(sid);
+            ctx.pin_declared_obj(sid, type_ann.map(String::as_str));
         }
         ctx.lower_expr(init)
     }

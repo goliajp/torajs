@@ -19,6 +19,7 @@
 use core::ffi::{c_char, c_void};
 
 mod as_is;
+mod keep;
 mod members;
 mod obj;
 mod plan;

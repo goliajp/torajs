@@ -3,15 +3,18 @@
 //! Moved out of [`super`] whole.
 
 use super::any_slot;
+use super::declared;
 use crate::ast::{Expr, ExprId, PropKey};
 use crate::ssa::{Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
+#[allow(clippy::too_many_arguments)] // one member's lowering, all of it borrowed state
 pub(super) fn lower_regular_field(
     ctx: &mut LowerCtx<'_>,
     name: &PropKey,
     eid: ExprId,
     declared_field_ty: Option<Type>,
+    owner_ann: Option<&str>,
     field_tys: &mut Vec<(PropKey, Type)>,
     field_vals: &mut Vec<Operand>,
     parked: &mut Vec<usize>,
@@ -21,10 +24,20 @@ pub(super) fn lower_regular_field(
     if let Some(Type::Obj(inner_sid)) = declared_field_ty
         && matches!(ctx.ast.get_expr(eid), Expr::ObjectLit { .. })
     {
-        ctx.let_declared_obj_layout = Some(inner_sid);
+        let ann = owner_ann.and_then(|o| declared::field_ann(ctx, o, name));
+        ctx.pin_declared_obj(inner_sid, ann.as_deref());
     }
     let v = ctx.lower_expr(eid);
     ctx.let_declared_obj_layout = None;
+    let cast = match (declared_field_ty, owner_ann) {
+        (Some(slot), Some(owner)) => declared::cast_member(ctx, (eid, v), slot, (owner, name)),
+        _ => None,
+    };
+    if let Some(c) = cast {
+        let ty = ctx.operand_ty(&c);
+        parked.push(ctx.push_throw_temp(c, ty));
+        return place(name, ty, c, field_tys, field_vals);
+    }
     let v = any_slot::box_heap_value(ctx, eid, v, declared_field_ty);
     if let Some((op, ty)) = ctx.throw_temp_of(eid, &v) {
         parked.push(ctx.push_throw_temp(op, ty));
@@ -101,6 +114,18 @@ pub(super) fn lower_regular_field(
         // (immediates stay no-ops). Raw inc kept for plain heap types.
         ctx.emit_owned_result_inc(v, ty);
     }
+    place(name, ty, v, field_tys, field_vals);
+}
+
+/// The member `name` set to `v` of type `ty`, a later spelling of a
+/// name replacing the earlier one in place.
+fn place(
+    name: &PropKey,
+    ty: Type,
+    v: Operand,
+    field_tys: &mut Vec<(PropKey, Type)>,
+    field_vals: &mut Vec<Operand>,
+) {
     if let Some(pos) = field_tys.iter().position(|(k, _)| k == name) {
         field_tys[pos] = (name.clone(), ty);
         field_vals[pos] = v;

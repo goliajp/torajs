@@ -48,7 +48,12 @@ pub unsafe extern "C" fn __torajs_anyv_cast_obj_members(
 /// # Safety
 /// `at.cell` is the fresh cell being built, with its header written;
 /// `v` is a live object cell.
-unsafe fn member(plan: &Plan, v: AnyValue, g: AnyValue, at: &Field) -> Result<u64, Fail> {
+pub(super) unsafe fn member(
+    plan: &Plan,
+    v: AnyValue,
+    g: AnyValue,
+    at: &Field,
+) -> Result<u64, Fail> {
     debug_assert_eq!(plan.u8(at.node), OPT);
     if is_undefined(g) && !unsafe { plan.owns(v, at) } {
         unsafe { plan.mark_absent(at) };

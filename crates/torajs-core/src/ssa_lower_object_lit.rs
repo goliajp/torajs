@@ -1,6 +1,4 @@
-//! `Expr::ObjectLit { fields }` lowering pulled out of
-//! [`crate::ssa_lower::lower_expr_inner`]'s match arm as chunk-75
-//! of the decomp (chunks 1-74 = ... + `Expr::PostIncr`).
+//! `Expr::ObjectLit { fields }` lowering.
 //!
 //! Lowers each field; spread members (sentinel name `__spread__`)
 //! are unfolded by reading each source-struct field offset and
@@ -16,7 +14,6 @@
 //!    discipline (same shape as the array-literal fix; without it,
 //!    two struct lits sharing a refcounted Obj field
 //!    `{x:a}; {x:a}` would double-walk-drop the shared element).
-//!    (chunk 572: non-inc shapes need no move marker — all no-ops).
 //! 2. **W4 field-width widen** — the literal's field widths come
 //!    from its alias class (the Anon origin key unions with the
 //!    receiving slot during analysis): `{x:1}` with a later
@@ -46,13 +43,10 @@
 //!    methods exist AND we're inside a `__new_<C>` factory of a
 //!    known class). Then per-field Store at
 //!    `OBJ_HEADER_SIZE + i*8`.
-//!
-//! Returns `Operand` directly (terminal arm — caller's
-//! `Expr::ObjectLit` match arm bottoms out here).
 
 use crate::ast::ExprId;
 use crate::ast::PropKey;
-use crate::ssa::{InstKind, Operand, StructId, Type};
+use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::{LowerCtx, OBJ_HEADER_SIZE};
 
 pub(crate) fn lower(
@@ -85,7 +79,8 @@ pub(crate) fn lower(
     // field value would otherwise consume it inside
     // `lower_field_entries` and pin the OUTER declared layout onto
     // the inner literal.
-    let declared_hint = ctx.let_declared_obj_layout.take();
+    let declared = ctx.let_declared_obj_layout.take();
+    let declared_hint = declared.as_ref().map(|d| d.sid);
     // RFC 20260710-optional-undefined-repr C1 — fields initialized
     // with an undefined LITERAL (frontend-distinguished from null)
     // must land the per-type undefined sentinel in the slot, not the
@@ -102,7 +97,7 @@ pub(crate) fn lower(
         .map(|(n, _)| n.clone())
         .collect();
     let (mut field_tys, mut field_vals, parked, spreads, spread_absent) =
-        lower_field_entries(ctx, &fields, declared_hint);
+        lower_field_entries(ctx, &fields, declared.as_ref());
     // Every field is lowered; nothing below can throw before the
     // stores transfer the owned values into the object.
     for t in parked {
@@ -230,7 +225,7 @@ type FieldEntries = (
 fn lower_field_entries(
     ctx: &mut LowerCtx<'_>,
     entries: &[(PropKey, ExprId)],
-    declared_hint: Option<StructId>,
+    declared: Option<&declared::DeclaredObj>,
 ) -> FieldEntries {
     // Chunk 785 — the outer declared layout also pins NESTED object
     // literals: a field whose declared type is a struct passes its
@@ -241,7 +236,8 @@ fn lower_field_entries(
     // (recursion covers arbitrary depth — each objlit re-enters
     // `lower` and forwards its own declared layout).
     let declared_fields: Option<Vec<(PropKey, Type)>> =
-        declared_hint.map(|sid| ctx.struct_layouts[sid.0 as usize].clone());
+        declared.map(|d| ctx.struct_layouts[d.sid.0 as usize].clone());
+    let owner_ann = declared.and_then(|d| d.ann.as_deref());
     let mut field_tys: Vec<(PropKey, Type)> = Vec::new();
     let mut field_vals: Vec<Operand> = Vec::new();
     // Rotation 549 — an owned field value (call product, nested
@@ -293,6 +289,7 @@ fn lower_field_entries(
             n,
             *eid,
             declared_field_ty,
+            owner_ann,
             &mut field_tys,
             &mut field_vals,
             &mut parked,
@@ -308,9 +305,9 @@ pub(crate) mod absent;
 mod alloc;
 use alloc::{alloc_obj, init_header, write_class_tag, write_vtable_ptr};
 mod any_slot;
+pub(crate) mod declared;
 pub(crate) mod optional_number;
 mod order;
-// Phase 2, the W4 field-width widen.
 mod regular_field;
 mod slot_fit;
 use regular_field::lower_regular_field;

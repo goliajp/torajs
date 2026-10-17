@@ -237,7 +237,7 @@ fn lower_global_assign(
         panic!("ssa-lower: assignment to refcount global `{name}` is not yet supported (K.6)");
     }
     crate::ssa_lower_binop::str_check::defer_rhs(ctx, &name, value);
-    let v = lower_assign_rhs(ctx, slot_ty, value);
+    let v = lower_assign_rhs(ctx, slot_ty, value, (&name, true));
     // Chunk 558 — mutable Str globals; chunk 730 (RFC
     // 20260709-closure-global) — mutable Closure globals ride the
     // same sequence (a fresh `(x) => ...` rhs is an owned env mint
@@ -328,7 +328,7 @@ fn lower_local_assign(ctx: &mut LowerCtx<'_>, name: String, value: ExprId) -> Op
         None => panic!("ssa-lower: assign to unknown ident `{name}`"),
     };
     crate::ssa_lower_binop::str_check::defer_rhs(ctx, &name, value);
-    let v = lower_assign_rhs(ctx, snapshot.ty, value);
+    let v = lower_assign_rhs(ctx, snapshot.ty, value, (&name, false));
     let v_ty = ctx.operand_ty(&v);
     // Same carve-out as the global lane: a view into a Str slot is
     // copied out and takes no share.
@@ -377,7 +377,13 @@ fn lower_local_assign(ctx: &mut LowerCtx<'_>, name: String, value: ExprId) -> Op
 /// on the foreign layout), descriptor walks, any-member dispatch —
 /// needs the dynobj shape. The init and reassign forms of the same
 /// expression must land in the same lane.
-fn lower_assign_rhs(ctx: &mut LowerCtx<'_>, slot_ty: Type, value: ExprId) -> Operand {
+/// `binding` is the assigned name, and whether it is a module global.
+fn lower_assign_rhs(
+    ctx: &mut LowerCtx<'_>,
+    slot_ty: Type,
+    value: ExprId,
+    (name, global): (&str, bool),
+) -> Operand {
     // Rotation 630 — an EMPTY array literal mints its block at the
     // SLOT's layout: the assignment face of the anchored empty mint
     // in `ssa_lower_array::lower_no_spread_element`. `lower_empty`
@@ -423,7 +429,8 @@ fn lower_assign_rhs(ctx: &mut LowerCtx<'_>, slot_ty: Type, value: ExprId) -> Ope
     if let Type::Obj(sid) = slot_ty
         && matches!(ctx.ast.get_expr(value), Expr::ObjectLit { .. })
     {
-        ctx.let_declared_obj_layout = Some(sid);
+        let ann = ctx.binding_ann(name, global);
+        ctx.pin_declared_obj(sid, ann.as_deref());
     }
     ctx.lower_expr(value)
 }

@@ -46,6 +46,22 @@ impl LowerCtx<'_> {
         crate::ast_throw_info::class_field_ann(self.ast, self.expr_types, obj, field)
     }
 
+    /// The annotation the program wrote for the field `field` of the
+    /// receiver `obj`: a class instance's declaration, or the field the
+    /// receiver's own written annotation (`ast_throw_info::written_ann`)
+    /// declares, so a binding typed by a declared or literal object type
+    /// answers as a class instance does. `None` where a step is the
+    /// compiler's inference.
+    pub(crate) fn member_field_ann(&self, obj: ExprId, field: &str) -> Option<String> {
+        if let Some(ann) = self.field_ann(obj, field) {
+            return Some(ann);
+        }
+        let binding = |n: &str| self.binding_ann(n, !self.locals.contains_key(n));
+        let class_of = |e| crate::ast_throw_info::class_of(self.expr_types, e);
+        let owner = crate::ast_throw_info::written_ann(self.ast, obj, &binding, &class_of)?;
+        crate::ssa_lower_object_lit::declared::field_ann(self, &owner, &field.into())
+    }
+
     /// The element annotation of the array the call taking `arg`
     /// appends to, as the checker traced it when it admitted the call
     /// (`ast_throw_info::written_ann`).

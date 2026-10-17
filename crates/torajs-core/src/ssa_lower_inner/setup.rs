@@ -81,6 +81,7 @@ pub(super) fn build_intrinsics_and_boxed_entries(
         arr_layouts,
         struct_layouts,
     );
+    crate::ssa_lower_intrinsics_any_cast::declare_keep(module, fn_table, ast);
     (intrinsics, boxed_entries)
 }
 

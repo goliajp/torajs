@@ -234,7 +234,7 @@ impl Plan {
 ///
 /// # Safety
 /// `p` is a live `Tag::Obj` cell.
-unsafe fn class_instance(p: *mut c_void) -> bool {
+pub(super) unsafe fn class_instance(p: *mut c_void) -> bool {
     let tag = unsafe { p.cast::<u8>().add(OBJ_CLASS_TAG_OFF).cast::<u32>().read() };
     let row = unsafe { __torajs_struct_layout_lookup(tag) };
     !row.is_null() && unsafe { row.cast::<u8>().add(4).cast::<u32>().read() } & 1 != 0

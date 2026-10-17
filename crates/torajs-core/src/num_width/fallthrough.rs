@@ -49,14 +49,19 @@ pub(super) fn seed_and_walk_fn(
         let rk = SlotKey::Ret(name.clone());
         a.seed_any_face(&rk, r, !widen_clone);
         let mut any_rets = Vec::new();
+        let mut lit_rets = Vec::new();
         crate::ast::walk_stmts(body, &mut |s| match s {
             Stmt::Return(Some(e)) if a.expr_types.get(e) == Some(&crate::check::Type::Any) => {
                 any_rets.push(*e)
             }
+            Stmt::Return(Some(e)) => lit_rets.push(*e),
             _ => {}
         });
         for e in any_rets {
             a.any_object_seed(e, &rk, r);
+        }
+        for e in lit_rets {
+            a.any_member_seed(e, &rk, r);
         }
         seed_fallthrough_return(a, rk, r, name, body, tables, fallthrough_fns);
     }

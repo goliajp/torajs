@@ -43,7 +43,7 @@ impl crate::ssa_lower::LowerCtx<'_> {
         if let crate::ast::Expr::ObjectLit { .. } = self.ast.get_expr(inner)
             && let Some(Type::Obj(sid)) = self.aliases.get(ty_ann)
         {
-            self.let_declared_obj_layout = Some(*sid);
+            self.pin_declared_obj(*sid, Some(ty_ann));
         }
         let inner_op = self.lower_expr(inner);
         self.let_declared_obj_layout = None;

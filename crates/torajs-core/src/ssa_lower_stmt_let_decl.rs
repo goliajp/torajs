@@ -124,7 +124,7 @@ pub(crate) fn lower(
     if let Type::Obj(sid) = ty
         && matches!(ctx.ast.get_expr(init), Expr::ObjectLit { .. })
     {
-        ctx.let_declared_obj_layout = Some(sid);
+        ctx.pin_declared_obj(sid, type_ann.map(String::as_str));
     }
     // A member of an alias class that holds a split product as views
     // (`let last: string[] = []` later rebound to a split product,

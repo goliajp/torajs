@@ -49,6 +49,8 @@ impl<'a> Analysis<'a> {
                         )
                     {
                         self.any_object_seed(value, &fk, &ann);
+                    } else if let Some(ann) = self.member_field_ann(*obj, name, scope) {
+                        self.any_member_seed(value, &fk, &ann);
                     }
                     let w = self.flow(value, scope);
                     self.add_container_constraint(fk.clone(), w);

@@ -42,6 +42,7 @@ use crate::ssa_lower_call_terminal_coerce::coerce_args;
 use crate::ssa_lower_call_terminal_headless::{
     factory_relay_argv, headless_slots, insert_headless_slots, pack_headless_argv,
 };
+use crate::ssa_lower_object_lit::declared::param_ann;
 
 pub(crate) fn emit(
     ctx: &mut LowerCtx<'_>,
@@ -115,7 +116,8 @@ pub(crate) fn emit(
                 if let Some(Type::Obj(sid)) = expected
                     && matches!(ctx.ast.get_expr(*a), crate::ast::Expr::ObjectLit { .. })
                 {
-                    ctx.let_declared_obj_layout = Some(*sid);
+                    let ann = param_ann(ctx, (callee, target), i);
+                    ctx.pin_declared_obj(*sid, ann.as_deref());
                 }
                 let v = ctx.lower_expr(*a);
                 ctx.let_declared_obj_layout = None;

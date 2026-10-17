@@ -35,25 +35,28 @@ use super::CastSlot;
 
 impl LowerCtx<'_> {
     /// `op`, an `any` value returned, cast into an object return type
-    /// the program wrote; the value's own stake goes. A return type a
-    /// callback's context seeded is not one the program wrote, and
-    /// keeps its own lanes.
+    /// the program wrote ([`Self::written_ret_ann`]); the value's own
+    /// stake goes.
     pub(crate) fn cast_returned_obj(&mut self, op: Operand) -> Option<Operand> {
-        let (Type::Obj(sid), Some(ann)) = (self.f.ret, self.ret_ann.clone()) else {
+        let (Type::Obj(sid), Some(ann)) = (self.f.ret, self.written_ret_ann()) else {
             return None;
         };
-        // a return type spelled as an object literal's shape is also what
-        // the compiler infers for a function returning one; an inferred
-        // one is not sound for an object later given accessors, and such
-        // a return keeps the value
-        let inferred_shape = strip_nullable(&ann).trim().starts_with("__inlobj(")
-            && !self.scans.written_ret_fns.contains(&self.f.name);
-        if self.ast.contextual_ret_fns.contains(&self.f.name) || inferred_shape {
-            return None;
-        }
         let v = self.checked_cast_obj(op, sid, &ann, CastSlot::Return)?;
         self.emit_drop_value(op, Type::Any);
         Some(v)
+    }
+
+    /// The return type the program wrote for the function being
+    /// lowered. A return type a callback's context seeded is not one,
+    /// and neither is one spelled as an object literal's shape that the
+    /// compiler inferred from a returned literal: an inferred one is not
+    /// sound for an object later given accessors.
+    pub(crate) fn written_ret_ann(&self) -> Option<String> {
+        let ann = self.ret_ann.clone()?;
+        let inferred_shape = strip_nullable(&ann).trim().starts_with("__inlobj(")
+            && !self.scans.written_ret_fns.contains(&self.f.name);
+        let contextual = self.ast.contextual_ret_fns.contains(&self.f.name);
+        (!(contextual || inferred_shape)).then_some(ann)
     }
 
     /// `v`, an `any` value assigned to the binding `name` (a module
@@ -148,6 +151,33 @@ impl LowerCtx<'_> {
         ann: &str,
         slot: CastSlot,
     ) -> Option<Operand> {
+        self.cast_obj_slot(op, sid, ann, slot, false)
+    }
+
+    /// [`Self::checked_cast_obj`] into the member of an object literal
+    /// whose declared type gives it the layout `sid`: a struct or class
+    /// cell of any layout crosses, and only another value is checked
+    /// (`torajs-anyvalue::anyv_cast::keep`). Such a slot is read and
+    /// released through more than one static view (`type S = { k: W }`
+    /// read as `{ k: N }`), and the release frees a cell by its own size.
+    /// A slot no plan tests takes what [`Self::checked_cast_obj`] does.
+    pub(crate) fn checked_cast_obj_member(
+        &mut self,
+        op: Operand,
+        sid: StructId,
+        ann: &str,
+    ) -> Option<Operand> {
+        self.cast_obj_slot(op, sid, ann, CastSlot::Store, true)
+    }
+
+    fn cast_obj_slot(
+        &mut self,
+        op: Operand,
+        sid: StructId,
+        ann: &str,
+        slot: CastSlot,
+        cells_as_is: bool,
+    ) -> Option<Operand> {
         if self.operand_ty(&op) != Type::Any || compiler_made(ann) {
             return None;
         }
@@ -169,7 +199,19 @@ impl LowerCtx<'_> {
             self.emit_throw_check(None);
             return Some(v);
         }
-        Some(self.emit_plan_cast(op, Type::Obj(sid), ann, &site))
+        let ty = Type::Obj(sid);
+        if !cells_as_is {
+            return Some(self.emit_plan_cast(op, ty, ann, &site));
+        }
+        let plan = super::plan::compile(&self.plan_tables(), ty, ann);
+        let kernel = match plan.members {
+            true => crate::ssa_lower_intrinsics_any_cast::MEMBERS_KEEP_CAST,
+            false => crate::ssa_lower_intrinsics_any_cast::KEEP_CAST,
+        };
+        let kernel = *(self.fn_table.get(kernel)).expect("the member casts are declared");
+        let v = self.emit_cast_call(kernel, op, ty, plan, &site);
+        self.emit_throw_check(None);
+        Some(v)
     }
 
     /// Whether [`Self::checked_cast_obj`] casts an `any` value into an

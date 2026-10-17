@@ -194,6 +194,8 @@ impl<'a> Analysis<'a> {
             && self.expr_types.get(&init) == Some(&crate::check::Type::Any)
         {
             self.any_object_seed(init, &key, ann);
+        } else if let Some(ann) = type_ann {
+            self.any_member_seed(init, &key, ann);
         }
         self.add_constraint(key.clone(), w);
         self.alias_guarded(key.clone(), init, scope);
@@ -213,9 +215,12 @@ impl<'a> Analysis<'a> {
                     let w = self.flow(*value, scope);
                     self.assign_to_name(&n, w, scope);
                     if let Some(k) = self.resolve(&n, scope) {
-                        if self.expr_types.get(value) == Some(&crate::check::Type::Any) {
-                            for ann in self.binding_anns(&k) {
+                        let any = self.expr_types.get(value) == Some(&crate::check::Type::Any);
+                        for ann in self.binding_anns(&k) {
+                            if any {
                                 self.any_object_seed(*value, &k, &ann);
+                            } else {
+                                self.any_member_seed(*value, &k, &ann);
                             }
                         }
                         self.alias_guarded(k.clone(), *value, scope);
