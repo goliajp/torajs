@@ -258,11 +258,20 @@ pub(crate) unsafe fn flags_of(rx: AnyValue) -> Option<Vec<u16>> {
     }
 }
 
-/// §22.1.3.13 / .20 step 2.b.i-iii: whether ToString(flags) contains
-/// "g", after RequireObjectCoercible(flags) — a boxed boolean, or
-/// undefined with the throw pending.
+/// §22.1.3.13 / .20 steps 2.a-b over a RegExp: true when IsRegExp
+/// (§22.1.1.10, whose `@@match` read a RegExp can answer falsy) says
+/// no, else whether ToString(flags) contains "g", after
+/// RequireObjectCoercible(flags) — a boxed boolean, or undefined with
+/// the throw pending.
 pub(crate) unsafe fn flags_have_g(rx: AnyValue) -> AnyValue {
     unsafe {
+        if av::is_regexp(rx) == 0 {
+            return if throw_pending() {
+                VALUE_UNDEFINED
+            } else {
+                torajs_anyvalue::nanbox::box_bool(true)
+            };
+        }
         let Some(f) = flags_value(rx) else {
             return VALUE_UNDEFINED;
         };

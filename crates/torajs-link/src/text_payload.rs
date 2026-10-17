@@ -12,7 +12,10 @@
 //! A loud-reject stub (a judged-away entry that only tail-branches
 //! into the reject landing pad) never runs in a correctly judged
 //! program and has no timing to keep, so it packs on instruction
-//! alignment; the next function still opens a fetch line.
+//! alignment; the next function still opens a fetch line. So does an
+//! answer-0 stub ([`ANSWER_ZERO_STUB`]): a judged-away entry whose
+//! callers take 0 as "nothing here", two instructions with no
+//! neighbour to move.
 
 use torajs_codegen::CompiledFunction;
 use torajs_codegen::reloc::{CallTarget, RelocKind};
@@ -29,16 +32,21 @@ pub const TEXT_FN_ALIGN: u32 = 64;
 /// pointer-answering twin).
 const REJECT_PAD_PREFIX: &str = "___torajs_dispatch_stub_reject";
 
+/// The body of an answer-0 stub: `movz x0, #0` + `ret`.
+pub const ANSWER_ZERO_STUB: [u8; 8] = [0x00, 0x00, 0x80, 0xD2, 0xC0, 0x03, 0x5F, 0xD6];
+
 /// `f`'s placement: its byte length, and whether it is a reject stub
-/// (`movz x7, #fam` + `b <pad>`), which packs.
+/// (`movz x7, #fam` + `b <pad>`) or an answer-0 stub, which pack.
 pub(crate) fn text_slot(f: &CompiledFunction) -> (u32, bool) {
-    let stub = f.bytes.len() == 8
-        && matches!(
-            f.relocs.as_slice(),
-            [r] if r.byte_offset == 4
-                && matches!(&r.kind, RelocKind::CallSite { target: CallTarget::Extern(pad) }
-                    if pad.starts_with(REJECT_PAD_PREFIX))
-        );
+    let zero = f.bytes == ANSWER_ZERO_STUB && f.relocs.is_empty();
+    let stub = zero
+        || f.bytes.len() == 8
+            && matches!(
+                f.relocs.as_slice(),
+                [r] if r.byte_offset == 4
+                    && matches!(&r.kind, RelocKind::CallSite { target: CallTarget::Extern(pad) }
+                        if pad.starts_with(REJECT_PAD_PREFIX))
+            );
     (f.bytes.len() as u32, stub)
 }
 
@@ -149,6 +157,18 @@ mod tests {
         assert_eq!(text_slot(&fn_with(12, pad, 8)), (12, false));
         assert_eq!(text_slot(&fn_with(8, "___torajs_rc_dec", 4)), (8, false));
         assert_eq!(text_slot(&fn_with(8, pad, 0)), (8, false));
+    }
+
+    /// The answer-0 stub packs only with its exact bytes and no reloc.
+    #[test]
+    fn an_answer_zero_stub_packs() {
+        let mut f = fn_with(8, "___torajs_rc_dec", 4);
+        f.bytes = ANSWER_ZERO_STUB.to_vec();
+        assert_eq!(text_slot(&f), (8, false));
+        f.relocs.clear();
+        assert_eq!(text_slot(&f), (8, true));
+        f.bytes[0] = 0x20;
+        assert_eq!(text_slot(&f), (8, false));
     }
 
     #[test]

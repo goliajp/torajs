@@ -703,14 +703,19 @@ mod tests {
     // The RegExp protocol and ctor-build seams: their defaults are
     // `torajs-regexp-lane` and `torajs-regexp-protocol`, which this
     // test binary does not link; no unit test here reaches either.
+    // A GET_FLAGS ask answers 0, "carry on", as for a global RegExp.
     #[unsafe(no_mangle)]
     pub extern "C" fn __torajs_regexp_protocol_call(
         _recv: u64,
-        _mid: i64,
+        mid: i64,
         _argv: *const u64,
         _argc: i64,
     ) -> u64 {
-        crate::regexp_protocol::KERNEL_LANE
+        if mid == torajs_rc::ANY_METHOD_GET_FLAGS {
+            0
+        } else {
+            crate::regexp_protocol::KERNEL_LANE
+        }
     }
     #[unsafe(no_mangle)]
     pub extern "C" fn __torajs_ctor_regexp_build(_pattern: u64, _flags: u64) -> u64 {

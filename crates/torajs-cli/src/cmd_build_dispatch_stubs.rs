@@ -157,7 +157,20 @@ pub(crate) fn append_dispatch_stubs(
 /// The algorithms seam's one importer is the protocol seam's default
 /// body (torajs-regexp-lane): with that seam stubbed nothing imports
 /// it, so it is offered only beside a live protocol seam.
-pub(crate) fn regexp_world_stubs(protocol: bool, algorithms: bool, ctor: bool) -> Vec<GuardedStub> {
+///
+/// With `protocol_zero` the protocol seam's stub answers 0 rather than
+/// rejecting: the String.prototype.matchAll / replaceAll step 2 gate
+/// asks it about every Object search value, and outside the RegExp
+/// world no Object can answer IsRegExp yes
+/// ([`crate::cmd_build_dispatch_judge_regexp_world`]), so 0, "carry
+/// on", is the answer. Inside the world a stubbed seam keeps the loud
+/// reject: there the judgment has proven no caller reaches it.
+pub(crate) fn regexp_world_stubs(
+    protocol: bool,
+    protocol_zero: bool,
+    algorithms: bool,
+    ctor: bool,
+) -> Vec<GuardedStub> {
     [
         (protocol, "___torajs_regexp_protocol_call"),
         (algorithms && !protocol, "___torajs_regexp_protocol_run"),
@@ -166,7 +179,11 @@ pub(crate) fn regexp_world_stubs(protocol: bool, algorithms: bool, ctor: bool) -
     .into_iter()
     .filter(|(on, _)| *on)
     .map(|(_, sym)| {
-        let (bytes, relocs) = reject_stub_body(9);
+        let (bytes, relocs) = if protocol_zero && sym == "___torajs_regexp_protocol_call" {
+            zero_stub_body()
+        } else {
+            reject_stub_body(9)
+        };
         GuardedStub {
             sym: sym.to_string(),
             bytes,
@@ -217,6 +234,15 @@ pub(crate) fn reject_stub_body_ptr(fam_id: u32) -> (Vec<u8>, Vec<Reloc>) {
     stub_body_to(fam_id, "___torajs_dispatch_stub_reject_ptr")
 }
 
+/// A stub that answers 0, the same 8 bytes as [`reject_stub_body`] and
+/// packed like it.
+fn zero_stub_body() -> (Vec<u8>, Vec<Reloc>) {
+    (
+        torajs_link::text_payload::ANSWER_ZERO_STUB.to_vec(),
+        Vec::new(),
+    )
+}
+
 /// The stubbed entries above that answer a pointer.
 const PTR_RETURNING: [&str; 2] = [NS_STATIC_SEAM, "___torajs_date_to_iso_string"];
 
@@ -249,4 +275,27 @@ pub(crate) fn stub_ns_forced() -> bool {
 /// stubs), for isolating a suspected wrong judgment in the field.
 pub(crate) fn stub_off() -> bool {
     std::env::var_os("TORAJS_DISPATCH_STUB_OFF").is_some_and(|v| v != "0")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn protocol_stub(protocol_zero: bool) -> GuardedStub {
+        regexp_world_stubs(true, protocol_zero, false, false)
+            .into_iter()
+            .find(|s| s.sym == "___torajs_regexp_protocol_call")
+            .unwrap()
+    }
+
+    /// The protocol seam answers 0 only when asked to: inside the
+    /// RegExp world a stubbed seam keeps the loud reject.
+    #[test]
+    fn protocol_stub_answers_zero_only_outside_the_world() {
+        let zero = protocol_stub(true);
+        assert_eq!(zero.bytes, torajs_link::text_payload::ANSWER_ZERO_STUB);
+        assert!(zero.relocs.is_empty());
+        let loud = protocol_stub(false);
+        assert_eq!((loud.bytes, loud.relocs.len()), (reject_stub_body(9).0, 1));
+    }
 }

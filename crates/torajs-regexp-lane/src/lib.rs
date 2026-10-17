@@ -90,14 +90,14 @@ unsafe fn spec_needed(this: AnyValue, mid: i64, argv: *const u64, argc: i64) -> 
 /// `g` bit mirror (torajs-regex parser).
 const RE_FLAG_G: i64 = 0x02;
 
-/// String.prototype.matchAll / replaceAll (`string_mid`) step 2.b over
-/// the RegExp `re`: ? ToString(? Get(re, "flags")) must contain "g",
-/// else a TypeError. A RegExp whose read cannot observe more than its
-/// own flag bits answers from the bits. Nonzero when the call is
-/// abandoned with a throw pending.
+/// String.prototype.matchAll / replaceAll (`string_mid`) steps 2.a-b
+/// over the Object `re`: unless IsRegExp answers no, ? ToString(?
+/// Get(re, "flags")) must contain "g", else a TypeError. A RegExp whose
+/// reads cannot observe more than its own flag bits answers from the
+/// bits. Nonzero when the call is abandoned with a throw pending.
 ///
 /// # Safety
-/// `re` boxes a live RegExp cell.
+/// `re` is a live Object.
 unsafe fn step_2b(re: AnyValue, string_mid: i64) -> AnyValue {
     unsafe {
         let global = match av::regexp_cell(re) {
@@ -138,7 +138,8 @@ unsafe fn step_2b(re: AnyValue, string_mid: i64) -> AnyValue {
 /// (§22.2.6.8 / .9 / .11 / .12 / .14) throws.
 ///
 /// [`ANY_METHOD_GET_FLAGS`] names no method here: it asks [`step_2b`]
-/// over the RegExp `recv`, with the String method's id in `argc`.
+/// over the Object `recv`, RegExp or not, with the String method's id
+/// in `argc`.
 ///
 /// # Safety
 /// `recv` is a live value; `argv` addresses `argc` live slots.

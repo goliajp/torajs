@@ -1,0 +1,13 @@
+falsy-match replaceAll xbx
+falsy-match matchAll 1
+non-global TypeError
+object no-g TypeError
+match,flags
+object g custom xax b
+flags
+object no-match plain xax
+null flags TypeError
+undefined flags matchAll TypeError
+abrupt @@match RangeError
+flags
+xzx 1

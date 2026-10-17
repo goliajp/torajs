@@ -167,6 +167,69 @@ impl CtorHandout {
     }
 }
 
+/// How a callee can hand the program the `@@match` symbol, which is
+/// what lets an Object that is no RegExp answer §22.1.1.10 IsRegExp
+/// yes (String.prototype.matchAll / replaceAll step 2.a). Without it
+/// no such Object exists, and outside the RegExp world the protocol
+/// seam's step 2 ask needs no body.
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) enum MatchSymbolSource {
+    None,
+    /// `__torajs_symbol_well_known`: `@@match` itself unless the
+    /// index operand names another symbol.
+    WellKnown,
+    /// Mints a symbol of another kind, which a `constructor` read
+    /// turns into the Symbol constructor.
+    Mint,
+    /// A proxy (its traps receive keys), or a builtin constructor,
+    /// prototype or method cell handed out from a tag operand.
+    Handout,
+}
+
+/// `WELL_KNOWN_SYMBOL_NAMES` index of `match`.
+const WK_MATCH: i64 = 6;
+
+/// %Symbol.prototype%'s builtin tag (torajs-rc's prototype slot order).
+const SYMBOL_TAG: i64 = 5;
+
+impl MatchSymbolSource {
+    pub(crate) fn of(name: &str, handout: CtorHandout) -> Self {
+        match name {
+            "__torajs_symbol_well_known" => Self::WellKnown,
+            "__torajs_symbol_iterator"
+            | "__torajs_symbol_async_iterator"
+            | "__torajs_symbol_to_primitive"
+            | "__torajs_symbol_for"
+            | "__torajs_symbol_for_any"
+            | "__torajs_symbol_alloc" => Self::Mint,
+            _ if name.starts_with("__torajs_proxy") || !matches!(handout, CtorHandout::Never) => {
+                Self::Handout
+            }
+            _ => Self::None,
+        }
+    }
+
+    /// Fold one call with `args` into `seen` (direct, minted).
+    pub(crate) fn observe(self, handout: CtorHandout, args: &[Operand], seen: &mut (bool, bool)) {
+        let not_tag =
+            |i: usize, tag: i64| matches!(args.get(i), Some(Operand::ConstI64(t)) if *t != tag);
+        match self {
+            Self::None => {}
+            Self::WellKnown => {
+                seen.0 |= !not_tag(0, WK_MATCH);
+                seen.1 = true;
+            }
+            Self::Mint => seen.1 = true,
+            Self::Handout => {
+                seen.0 |= match handout {
+                    CtorHandout::TagAt(i) => !(not_tag(i, REGEXP_TAG) && not_tag(i, SYMBOL_TAG)),
+                    _ => true,
+                };
+            }
+        }
+    }
+}
+
 /// What the judgment scan saw of the RegExp world.
 pub(crate) struct RegexpWorld {
     /// Any way into the world.
@@ -185,6 +248,10 @@ pub(crate) struct RegexpWorld {
     /// pattern may be any object carrying a RegExp-family method
     /// cell) and no [`unplain_mid`].
     pub(crate) plain_candidate: bool,
+    /// The program may hold `@@match` ([`MatchSymbolSource`]): an
+    /// Object that is no RegExp may then reach the protocol seam's
+    /// step 2 ask, whose answer runs in the algorithms.
+    pub(crate) match_symbol: bool,
 }
 
 /// The stubs the RegExp world's judgment adds to the dispatch
@@ -196,6 +263,11 @@ pub(crate) struct RegexpVerdict {
     /// Iterator step, and none of those exists outside it.
     pub(crate) arm_bits: u16,
     pub(crate) protocol: bool,
+    /// The protocol seam's stub answers 0 instead of rejecting: only
+    /// outside the world, where no Object can answer IsRegExp yes and
+    /// the String.prototype.matchAll / replaceAll step 2 gate is a
+    /// caller the stub can meet.
+    pub(crate) protocol_answers_zero: bool,
     /// The algorithms behind the protocol seam: with it, and alone when
     /// every protocol call the program makes is over a plain RegExp
     /// ([`RegexpWorld::all_plain`]) — the seam's own lane judgment then
@@ -208,15 +280,20 @@ pub(crate) struct RegexpVerdict {
 impl RegexpWorld {
     pub(crate) fn verdict(&self, module: &Module, diag: bool) -> RegexpVerdict {
         let (arm_bits, protocol, ctor) = if !self.world {
-            (torajs_rc::any_method_family::FAM_REGEXP, true, true)
+            (
+                torajs_rc::any_method_family::FAM_REGEXP,
+                !self.match_symbol,
+                true,
+            )
         } else if self.ctor || self.protocol_entry {
             // all plain: the algorithms, the only constructor of a
             // RegExp through the build seam besides a ctor value, are
             // stubbed too
-            let plain = self.all_plain(module, diag);
+            let plain = !self.match_symbol && self.all_plain(module, diag);
             return RegexpVerdict {
                 arm_bits: 0,
                 protocol: !self.protocol_entry,
+                protocol_answers_zero: false,
                 algorithms: !self.protocol_entry || plain,
                 ctor: plain,
             };
@@ -229,6 +306,7 @@ impl RegexpWorld {
         RegexpVerdict {
             arm_bits,
             protocol,
+            protocol_answers_zero: !self.world,
             algorithms: protocol,
             ctor,
         }

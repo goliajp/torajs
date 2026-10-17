@@ -260,6 +260,9 @@ pub(crate) struct DispatchJudgment {
     /// and the RegExp ctor-value build seam
     /// ([`crate::cmd_build_dispatch_judge_regexp_world`]).
     pub stub_regexp_protocol: bool,
+    /// The protocol seam's stub answers 0 rather than rejecting
+    /// ([`crate::cmd_build_dispatch_judge_regexp_world::RegexpVerdict`]).
+    pub regexp_protocol_answers_zero: bool,
     pub stub_regexp_algorithms: bool,
     pub stub_ctor_regexp: bool,
 }
@@ -315,6 +318,8 @@ pub(crate) fn judge(module: &Module) -> DispatchJudgment {
     let mut typed_arr_print = false;
     let mut symbol_gate = false;
     let (mut regexp_world, mut regexp_ctor) = (false, false);
+    // (`@@match` reached directly, some symbol minted)
+    let mut match_symbol = (false, false);
 
     let mut memo = CalleeMemo::new(module);
     for f in &module.funcs {
@@ -354,6 +359,7 @@ pub(crate) fn judge(module: &Module) -> DispatchJudgment {
                 }
                 symbol_gate |= facts.symbol_gate;
                 regexp_ctor = regexp_ctor || facts.ctor_handout.hands_out(args);
+                (facts.match_symbol).observe(facts.ctor_handout, args, &mut match_symbol);
                 regexp_world |= facts.mints_regexp;
                 ns_world |= facts.ns_world;
                 if facts.fallback {
@@ -438,6 +444,8 @@ pub(crate) fn judge(module: &Module) -> DispatchJudgment {
         ctor_read,
         protocol_entry: unseen || symbol_gate || observed.iter().any(|&m| enters_protocol(m)),
         plain_candidate: !unseen && !symbol_gate && !observed.iter().any(|&m| unplain_mid(m)),
+        // a minted symbol's `constructor` read is the Symbol ctor
+        match_symbol: match_symbol.0 || (match_symbol.1 && (ns_world || fallback)),
     }
     .verdict(module, diag);
     if fallback || printer_ref {
@@ -446,6 +454,7 @@ pub(crate) fn judge(module: &Module) -> DispatchJudgment {
             stub_ns_static: false,
             stub_printers: false,
             stub_regexp_protocol: rx.protocol,
+            regexp_protocol_answers_zero: rx.protocol_answers_zero,
             stub_regexp_algorithms: rx.algorithms,
             stub_ctor_regexp: rx.ctor,
         };
@@ -458,6 +467,7 @@ pub(crate) fn judge(module: &Module) -> DispatchJudgment {
         // (nothing observed, no family usage, no print world).
         stub_printers: !print_world && observed.is_empty() && keep_bits == 0,
         stub_regexp_protocol: rx.protocol,
+        regexp_protocol_answers_zero: rx.protocol_answers_zero,
         stub_regexp_algorithms: rx.algorithms,
         stub_ctor_regexp: rx.ctor,
     }
