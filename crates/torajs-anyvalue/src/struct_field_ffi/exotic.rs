@@ -35,22 +35,24 @@ unsafe extern "C" {
     fn __torajs_obj_proto_borrowed(cell: *const c_void) -> u64;
 }
 
-/// Whether the declared accessor member `name` of the instance `p` is
-/// no own accessor any more — deleted (its deletion record is set,
-/// §10.1.10), or replaced by the ordinary property a store after the
-/// delete created: 1 or 0. The typed read of an object-literal
-/// accessor a delete of the program can reach asks it before calling
-/// the getter in the layout slot.
+/// What the declared accessor member `name` of the instance `p` is
+/// now: 0 while it is an own accessor, 1 once deleted (its deletion
+/// record is set, §10.1.10), 2 once replaced by the ordinary property
+/// a store after the delete created. A typed read, store or spread of
+/// an object-literal accessor a delete of the program can reach asks
+/// it before calling the accessor in the layout slot.
 ///
 /// # Safety
 /// `p` is a live `Tag::Obj` cell; `name` is a live Str cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_obj_member_deleted(p: *mut c_void, name: *const c_void) -> i64 {
+    use crate::struct_probe::AccessorState;
     let k = unsafe { torajs_rc::str_wtf8::StrWtf8::of(name) };
-    i64::from(
-        unsafe { crate::struct_probe::accessor_state(p, k.as_bytes()) }
-            != crate::struct_probe::AccessorState::Live,
-    )
+    match unsafe { crate::struct_probe::accessor_state(p, k.as_bytes()) } {
+        AccessorState::Live => 0,
+        AccessorState::Deleted => 1,
+        AccessorState::Replaced => 2,
+    }
 }
 
 /// §10.1.8.1 [[Get]] of the deleted declared member `name` of the

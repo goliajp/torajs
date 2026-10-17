@@ -29,7 +29,7 @@
 
 pub(crate) mod accessor_argv;
 pub(crate) mod accessor_slot;
-mod deleted_accessor;
+pub(crate) mod deleted_accessor;
 pub(crate) use deleted_accessor::declare as declare_deletable_accessor;
 pub(crate) mod exotic_read;
 pub(crate) mod shadow_read;

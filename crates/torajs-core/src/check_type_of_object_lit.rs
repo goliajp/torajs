@@ -178,15 +178,27 @@ pub(crate) fn check(
                 // A setter is not a source of data — its property already
                 // came from the paired getter, and a lone setter reads
                 // `undefined` (recorded gap: it drops out here instead).
-                let (sn, st) = match accessor_slot(sn) {
+                // An accessor a delete of the program can reach may be
+                // gone (§10.1.10), contributing no key, or replaced by a
+                // data property of any value: the member is an optional
+                // `any`, as `ssa_lower_object_lit_spread` copies it.
+                let (sn, st, deletable) = match accessor_slot(sn) {
                     Some(("__setter_", _)) => continue,
                     Some(("__getter_", prop)) => {
                         let Type::Function(_, ret) = st else {
                             return Err(format!("accessor `{prop}` is not a getter closure"));
                         };
-                        (PropKey::from(prop), (**ret).clone())
+                        use crate::ast::named_prop_census::shadow_names::SlotKind;
+                        let key = PropKey::from(prop);
+                        match checker
+                            .shadowed_reads
+                            .retypes(&key.lossy(), SlotKind::Accessor)
+                        {
+                            true => (key, Type::Any, true),
+                            false => (key, (**ret).clone(), false),
+                        }
                     }
-                    _ => (sn.clone(), st.clone()),
+                    _ => (sn.clone(), st.clone(), false),
                 };
                 if omit.iter().any(|o| sn == *o) {
                     continue;
@@ -194,12 +206,13 @@ pub(crate) fn check(
                 // §7.3.25 copies only the keys the source owns: an
                 // optional member it lacks keeps the earlier value, and
                 // stays optional when nothing before spelled it
-                let maybe = src_fields.is_optional(&sn);
+                let maybe = deletable || src_fields.is_optional(&sn);
                 if !maybe {
                     optional.retain(|o| *o != sn);
                 }
                 if let Some(pos) = field_tys.iter().position(|(k, _)| *k == sn) {
                     let st = match maybe && field_tys[pos].1 != st {
+                        true if deletable => Type::Any,
                         true => Type::union_of([field_tys[pos].1.clone(), st]),
                         false => st,
                     };

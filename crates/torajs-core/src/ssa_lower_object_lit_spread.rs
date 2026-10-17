@@ -51,6 +51,7 @@ pub(crate) fn unfold_spread(
         // accessor contributes the getter's RESULT as a DATA property.
         // Loading the `__getter_b` slot would have copied the getter
         // CLOSURE across instead of calling it.
+        let mut deletable = false;
         let (name, ty, val) = match crate::check_type_of_object_lit::accessor_slot(sn) {
             // A setter is not a source of data: its property already came
             // from the paired getter. (Recorded gap: a LONE setter should
@@ -66,13 +67,23 @@ pub(crate) fn unfold_spread(
                         sn.lossy()
                     );
                 };
-                let ret = ctx.fn_sigs[sig_id.0 as usize].1;
-                // Owned already — the getter returns its own value, so no
-                // rc_inc (unlike the borrowed field load below).
-                let lane =
-                    crate::ssa_lower_call_struct_method_dispatch::objlit_slot::emit_getter_call;
-                let v = lane(ctx, Some(eid), src_op, off, sig_id);
-                (PropKey::from(prop), ret, v)
+                let key = PropKey::from(prop);
+                if crate::ssa_lower_member_obj_field::deleted_accessor::reaches(ctx, &key.lossy()) {
+                    let fields = (&mut *field_tys, &mut *field_vals);
+                    let src = (eid, src_op, before);
+                    let v = deletable_getter(ctx, src, (&key, off, sig_id), fields, absent);
+                    // the member may be absent whatever the source's type says
+                    deletable = true;
+                    (key, Type::Any, v)
+                } else {
+                    let ret = ctx.fn_sigs[sig_id.0 as usize].1;
+                    // Owned already — the getter returns its own value, so no
+                    // rc_inc (unlike the borrowed field load below).
+                    let lane =
+                        crate::ssa_lower_call_struct_method_dispatch::objlit_slot::emit_getter_call;
+                    let v = lane(ctx, Some(eid), src_op, off, sig_id);
+                    (key, ret, v)
+                }
             }
             _ => {
                 if omit.contains(sn) {
@@ -91,7 +102,7 @@ pub(crate) fn unfold_spread(
                 }
             }
         };
-        if !may_be_absent(ctx, eid, &name) {
+        if !deletable && !may_be_absent(ctx, eid, &name) {
             absent.retain(|(n, _)| *n != name);
         }
         if let Some(pos) = field_tys.iter().position(|(k, _)| *k == name) {
@@ -145,23 +156,7 @@ fn maybe_absent(
             (st, Some((field_vals[pos], st)))
         }
         Some(pos) => {
-            // an `undefined` the literal spelled lowers to the null pointer
-            let undef = before
-                .iter()
-                .rev()
-                .find(|(k, _)| k == name)
-                .is_some_and(|(_, e)| matches!(ctx.expr_types.get(e), Some(CType::Undefined)));
-            let boxed = match field_tys[pos].1 {
-                Type::Any => field_vals[pos],
-                _ if undef && field_vals[pos] == Operand::ConstPtrNull => {
-                    crate::ssa_lower_object_lit::absent::any_undef(ctx)
-                }
-                // an optional `number` member's f64 may be its sentinel
-                Type::F64 if ctx.undefable_f64_fields.contains(name) => {
-                    ctx.box_f64_or_undef(field_vals[pos])
-                }
-                _ => ctx.box_to_any(field_vals[pos]),
-            };
+            let boxed = prev_as_any(ctx, before, name, (field_tys[pos].1, field_vals[pos]));
             (Type::Any, Some((boxed, Type::Any)))
         }
     };
@@ -240,6 +235,135 @@ fn maybe_absent(
         .f
         .append_inst(merge, InstKind::Load(ty, Operand::Value(slot), 0), ty, None);
     (ty, Operand::Value(v))
+}
+
+/// The earlier member `name`'s value `v` of slot type `ty`, boxed to
+/// the owned `any` a member that takes the any lane keeps.
+fn prev_as_any(
+    ctx: &mut LowerCtx<'_>,
+    before: &[(PropKey, ExprId)],
+    name: &PropKey,
+    (ty, v): (Type, Operand),
+) -> Operand {
+    // an `undefined` the literal spelled lowers to the null pointer
+    let undef = before
+        .iter()
+        .rev()
+        .find(|(k, _)| k == name)
+        .is_some_and(|(_, e)| matches!(ctx.expr_types.get(e), Some(CType::Undefined)));
+    match ty {
+        Type::Any => v,
+        _ if undef && v == Operand::ConstPtrNull => {
+            crate::ssa_lower_object_lit::absent::any_undef(ctx)
+        }
+        // an optional `number` member's f64 may be its sentinel
+        Type::F64 if ctx.undefable_f64_fields.contains(name) => ctx.box_f64_or_undef(v),
+        _ => ctx.box_to_any(v),
+    }
+}
+
+/// The contribution of the source accessor `name` (getter slot at
+/// `off`, signature `sig`) that a delete of the program can reach, as
+/// an owned `any`. §7.3.25 CopyDataProperties copies only the keys the
+/// source owns: a deleted member contributes nothing, so the earlier
+/// member's value stays (or the key stays absent, recorded in `absent`
+/// as for an optional member); a data property a store after the delete
+/// created contributes its value; a live accessor its getter's answer.
+fn deletable_getter(
+    ctx: &mut LowerCtx<'_>,
+    (src_eid, src, before): (ExprId, Operand, &[(PropKey, ExprId)]),
+    (name, off, sig): (&PropKey, u64, crate::ssa::SigId),
+    (field_tys, field_vals): (&mut Vec<(PropKey, Type)>, &mut Vec<Operand>),
+    absent: &mut Vec<(PropKey, Operand)>,
+) -> Operand {
+    use crate::ssa_lower_member_obj_field::deleted_accessor as del;
+    let prev = field_tys.iter().position(|(k, _)| k == name);
+    let prev = prev.map(|pos| prev_as_any(ctx, before, name, (field_tys[pos].1, field_vals[pos])));
+    let kept = prev.unwrap_or_else(|| crate::ssa_lower_object_lit::absent::any_undef(ctx));
+    let slot = ctx.alloca_in_entry(Type::Any, Some("__spread_field"));
+    let lacks_slot = ctx.alloca_in_entry(Type::I64, Some("__spread_lacks"));
+    let blk = ctx.cur_block;
+    ctx.f
+        .append_void(blk, InstKind::Store(kept, Operand::Value(slot), 0));
+    let zero = Operand::ConstI64(0);
+    ctx.f
+        .append_void(blk, InstKind::Store(zero, Operand::Value(lacks_slot), 0));
+    let gone = del::branch_gone(ctx, src, &name.lossy());
+    let deleted_blk = ctx.f.add_block();
+    let replaced_blk = ctx.f.add_block();
+    let done = ctx.f.add_block();
+    let is_deleted = ctx.f.append_inst(
+        gone.gone_blk,
+        InstKind::ICmp(IPred::Eq, gone.state, Operand::ConstI64(del::STATE_DELETED)),
+        Type::Bool,
+        None,
+    );
+    ctx.f.set_term(
+        gone.gone_blk,
+        Terminator::CondBr {
+            cond: Operand::Value(is_deleted),
+            then_blk: deleted_blk,
+            else_blk: replaced_blk,
+        },
+    );
+    let one = Operand::ConstI64(1);
+    ctx.f.append_void(
+        deleted_blk,
+        InstKind::Store(one, Operand::Value(lacks_slot), 0),
+    );
+    ctx.f.set_term(deleted_blk, Terminator::Br(done));
+
+    ctx.cur_block = replaced_blk;
+    if let Some(v) = prev {
+        ctx.emit_drop_value(v, Type::Any);
+    }
+    let v = del::own_value(ctx, src, gone.name_str);
+    let blk = ctx.cur_block;
+    ctx.f
+        .append_void(blk, InstKind::Store(v, Operand::Value(slot), 0));
+    ctx.f.set_term(blk, Terminator::Br(done));
+
+    ctx.cur_block = gone.own_blk;
+    if let Some(v) = prev {
+        ctx.emit_drop_value(v, Type::Any);
+    }
+    // the getter's answer is owned
+    let lane = crate::ssa_lower_call_struct_method_dispatch::objlit_slot::emit_getter_call;
+    let v = lane(ctx, Some(src_eid), src, off, sig);
+    let v = del::box_getter_answer(ctx, v);
+    let blk = ctx.cur_block;
+    ctx.f
+        .append_void(blk, InstKind::Store(v, Operand::Value(slot), 0));
+    ctx.f.set_term(blk, Terminator::Br(done));
+
+    ctx.cur_block = done;
+    let lacks = ctx.f.append_inst(
+        done,
+        InstKind::Load(Type::I64, Operand::Value(lacks_slot), 0),
+        Type::I64,
+        None,
+    );
+    match prev {
+        None => absent.push((name.clone(), Operand::Value(lacks))),
+        Some(_) => {
+            if let Some(entry) = absent.iter_mut().find(|(n, _)| n == name) {
+                let both = ctx.f.append_inst(
+                    done,
+                    InstKind::BinOp(BinOp::And, entry.1, Operand::Value(lacks)),
+                    Type::I64,
+                    None,
+                );
+                entry.1 = Operand::Value(both);
+            }
+        }
+    }
+    let v = ctx.f.append_inst(
+        done,
+        InstKind::Load(Type::Any, Operand::Value(slot), 0),
+        Type::Any,
+        None,
+    );
+    Operand::Value(v)
 }
 
 /// Whether `prev` is a lowered `null` a pointer slot of type `st` holds
