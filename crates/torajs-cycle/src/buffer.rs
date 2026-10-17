@@ -20,7 +20,8 @@ use core::ptr;
 use std::sync::atomic::{AtomicPtr, AtomicU32, Ordering};
 
 use crate::layout::{
-    COLOR_PURPLE, FLAG_BUFFERED, HeapHeader, has_walkable_children, nan_box_is_cell_like, set_color,
+    CLASS_LAYOUT_FLAG_NAMED, COLOR_PURPLE, FLAG_BUFFERED, HeapHeader, has_walkable_children,
+    is_class_obj, layout_for_class_obj, nan_box_is_cell_like, set_color,
 };
 
 /// Floor of the buffer length at which `cycle_buffer` triggers a
@@ -209,6 +210,26 @@ pub unsafe extern "C" fn __torajs_cycle_buffer(p: *mut c_void) {
     if G_BUFFER_LEN.load(Ordering::Relaxed) >= G_THRESHOLD.load(Ordering::Relaxed) {
         unsafe { crate::collect::__torajs_cycle_collect() };
     }
+}
+
+/// [`__torajs_cycle_buffer`] for a cell nominated on behalf of a holder
+/// that went away while the cell's own refcount did not move: the
+/// payload of a capture box whose stake dropped but which survives.
+/// An anonymous struct is never a candidate root, the same gate
+/// `__torajs_obj_drop_rc` applies: its typed drop frees it without
+/// the buffer scrub, so a buffered one would leave a dangling entry
+/// for the next collect to read.
+///
+/// # Safety
+/// `p` is a live heap cell with a valid `HeapHeader`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_cycle_buffer_payload(p: *mut c_void) {
+    if unsafe { is_class_obj(p) }
+        && unsafe { (*layout_for_class_obj(p)).flags } & CLASS_LAYOUT_FLAG_NAMED == 0
+    {
+        return;
+    }
+    unsafe { __torajs_cycle_buffer(p) }
 }
 
 /// Scrub `p` from the cycle root buffer before its memory is freed

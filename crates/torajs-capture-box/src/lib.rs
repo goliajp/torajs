@@ -43,10 +43,11 @@ unsafe extern "C" {
     /// cell, immediates are no-ops (RFC 20260710 C4, Any-typed
     /// promoted captures).
     fn __torajs_anyv_rc_dec(v: u64);
-    /// Cycle-candidate registration. Cheap: gated on the header's
-    /// walkable-children tag and a BUFFERED flag, so a repeat or a
-    /// leaf costs one call and two loads.
-    fn __torajs_cycle_buffer(p: *mut c_void);
+    /// Cycle-candidate registration for a box payload. Cheap: gated
+    /// on the header's walkable-children tag and a BUFFERED flag, so a
+    /// repeat or a leaf costs one call and a few loads; anonymous
+    /// structs are refused (their typed drop never scrubs the buffer).
+    fn __torajs_cycle_buffer_payload(p: *mut c_void);
 }
 
 const BOX_SIZE: usize = 16;
@@ -173,7 +174,7 @@ pub unsafe extern "C" fn __torajs_capture_box_drop_heap(slot_ptr: *mut c_void) {
             // decremented by anyone, so nothing ever nominates it.
             let content = *(slot_ptr as *const i64);
             if content != 0 {
-                __torajs_cycle_buffer(content as *mut c_void);
+                __torajs_cycle_buffer_payload(content as *mut c_void);
             }
             return;
         }
@@ -237,7 +238,7 @@ mod tests {
     /// (real provider is the torajs-cycle staticlib). The rc-mechanics
     /// tests all use a zero payload, which never reaches it.
     #[unsafe(no_mangle)]
-    extern "C" fn __torajs_cycle_buffer(_p: *mut c_void) {}
+    extern "C" fn __torajs_cycle_buffer_payload(_p: *mut c_void) {}
 
     #[test]
     fn drop_heap_zero_payload_round_trip() {
