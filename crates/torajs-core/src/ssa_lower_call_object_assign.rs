@@ -226,6 +226,9 @@ pub(crate) fn try_lower(
             ctx.f.set_term(end, Terminator::Br(next_blk));
             ctx.cur_block = next_blk;
         }
+        // every member was copied with its own +1, so a fresh source
+        // (`Object.assign(t, { a: 1 })`) is released here
+        ctx.release_owned_temp(*src_eid, &source_op);
     }
     // RFC 20260705 owned-result invariant: ES answers the target;
     // the pass-through result carries its own ref (dedicated path,
