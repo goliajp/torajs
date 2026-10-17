@@ -58,7 +58,8 @@ pub(crate) fn check(
     // the same shape.
     if let Some(path) = crate::check_assigns_to::member_path(ast, *obj)
         && let Some(narrowed) = checker
-            .member_narrows
+            .narrows
+            .member
             .get(&(path, name.to_string()))
             .cloned()
     {

@@ -52,7 +52,8 @@ impl Checker {
     /// it FROM. `q = {x: 1}; if (q === null) {} else { q.x }` was
     /// refused outright — a program with no null in it anywhere.
     pub(crate) fn assign_declared_ty(&self, name: &str, live_ty: &Type) -> Type {
-        self.assign_narrows
+        self.narrows
+            .assign
             .get(name)
             .cloned()
             .unwrap_or_else(|| live_ty.clone())
@@ -82,10 +83,11 @@ impl Checker {
         );
         if narrowable {
             self.apply_narrow(name, (*inner).clone());
-            self.assign_narrows
+            self.narrows
+                .assign
                 .entry(name.to_string())
                 .or_insert(declared);
-        } else if let Some(d) = self.assign_narrows.remove(name) {
+        } else if let Some(d) = self.narrows.assign.remove(name) {
             self.apply_narrow(name, d);
         }
     }
@@ -138,7 +140,7 @@ impl Checker {
         if matches!(
             value_ty,
             Type::Null | Type::Undefined | Type::Nullable(_) | Type::Void | Type::Any
-        ) && let Some(d) = self.assign_narrows.remove(name)
+        ) && let Some(d) = self.narrows.assign.remove(name)
         {
             self.apply_narrow(name, d);
         }
@@ -151,10 +153,10 @@ impl Checker {
     /// so the by-name restore always lands on the narrowed binding,
     /// never a shadow.
     pub(crate) fn flush_assign_narrows(&mut self) {
-        if self.assign_narrows.is_empty() {
+        if self.narrows.assign.is_empty() {
             return;
         }
-        let entries: Vec<(String, Type)> = self.assign_narrows.drain().collect();
+        let entries: Vec<(String, Type)> = self.narrows.assign.drain().collect();
         for (name, declared) in entries {
             self.restore_narrow(&name, declared);
         }

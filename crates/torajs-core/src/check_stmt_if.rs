@@ -44,7 +44,7 @@ pub(crate) fn check(
     let narrow = checker.collect_null_narrow(ast, cond);
     // RFC 20260710 C5 — member-path guard (`if (o.cb) { o.cb() }`):
     // parallels the binding narrow; the entry lives in
-    // `member_narrows` (assignments to the receiver or the member
+    // `narrows.member` (assignments to the receiver or the member
     // invalidate it, see check_type_of_assign).
     let member_narrow = checker.collect_member_narrow(ast, cond);
     // `typeof x === "tag"` on a union binding: each branch sees its

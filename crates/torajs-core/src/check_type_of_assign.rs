@@ -34,7 +34,8 @@ pub(crate) fn check(
             // every member-path narrow rooted at it (chunk 789:
             // keys are canonical paths, so "h" kills "h.o.cb" too).
             checker
-                .member_narrows
+                .narrows
+                .member
                 .retain(|(recv, _), _| !crate::check_assigns_to::path_overlaps(recv, &name));
             crate::check_assign_ident::check(checker, ast, target, name, value)
         }
@@ -51,7 +52,7 @@ pub(crate) fn check(
             // "h.o.p"-rooted keys).
             if let Some(path) = crate::check_assigns_to::member_path(ast, obj) {
                 let full = format!("{path}.{field}");
-                checker.member_narrows.retain(|(recv, f), _| {
+                checker.narrows.member.retain(|(recv, f), _| {
                     !(recv == &path && f == &field)
                         && !crate::check_assigns_to::path_overlaps(recv, &full)
                 });
@@ -80,12 +81,14 @@ pub(crate) fn check(
             // the same base (it may alias any of them).
             if let Some(tp) = crate::check_assigns_to::member_path(ast, target) {
                 checker
-                    .member_narrows
+                    .narrows
+                    .member
                     .retain(|(recv, _), _| !crate::check_assigns_to::path_overlaps(recv, &tp));
             } else if let Some(bp) = crate::check_assigns_to::member_path(ast, obj) {
                 let base = format!("{bp}[");
                 checker
-                    .member_narrows
+                    .narrows
+                    .member
                     .retain(|(recv, _), _| !recv.starts_with(&base));
             }
             crate::check_assign_target::check_index(checker, ast, eid, obj, index, value)

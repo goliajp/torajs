@@ -13,6 +13,7 @@ mod branch_end;
 mod construct;
 mod diag;
 pub(crate) mod face_slots;
+mod narrows;
 mod process_on;
 mod promise_static;
 mod scope_moves;
@@ -464,19 +465,8 @@ pub(crate) struct Checker {
     /// named-fn / legacy-arrow bodies push an empty set). Read by
     /// the any-widen alias (`check_type_of_call/any_widen.rs`).
     pub(crate) toplevel_captures: Vec<std::collections::HashSet<String>>,
-    /// Straight-line assignment-narrowing ledger — `name → declared
-    /// (pre-narrow) type` for bindings narrowed by a statement-level
-    /// `b = <non-null>` assign (see check_assign_narrow.rs). Flushed
-    /// (restored to declared) at every compound-statement boundary,
-    /// so a narrow never crosses a branch join or a loop back-edge.
-    pub(crate) assign_narrows: HashMap<String, Type>,
-    /// RFC 20260710 C5 — member-path truthiness narrows minted by an
-    /// `if (o.cb) ...` guard: `(receiver ident, field name)` → the
-    /// field's Nullable inner type. `check_type_of_member` consults
-    /// this before the declared field type; any assignment to the
-    /// receiver or the member invalidates its entry
-    /// (`check_type_of_assign`).
-    pub(crate) member_narrows: HashMap<(String, String), Type>,
+    /// Flow-narrowing ledgers (see `check/narrows.rs`).
+    pub(crate) narrows: narrows::Narrows,
 }
 
 // `is_array_method_name` lives in [`crate::check_method_name`]

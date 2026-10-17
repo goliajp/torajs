@@ -70,8 +70,7 @@ impl Checker {
             unresolved_captures: HashMap::new(),
             widen_clone_origin: HashMap::new(),
             toplevel_captures: Vec::new(),
-            assign_narrows: HashMap::new(),
-            member_narrows: HashMap::new(),
+            narrows: Default::default(),
         }
     }
 
