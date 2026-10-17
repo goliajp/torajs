@@ -374,6 +374,8 @@ pub(crate) fn infer_expr_ann_with(
             exprs, *callee, args, params, binds, fn_sigs,
         ),
         Expr::Ternary { .. } => ternary::ternary_ann(exprs, eid, &recur),
+        // `v as any` holds a value of any kind, whatever `v` is.
+        Expr::As { ty_ann, .. } if ty_ann == "any" => Some("any".into()),
         // Heterogeneous literals widen to `any[]` (mirrors the
         // checker's T-10.c anchor widening — answering the first
         // element's type for `["use", x]` stamps a `string[]` ret the

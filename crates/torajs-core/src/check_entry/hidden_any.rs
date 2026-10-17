@@ -90,6 +90,7 @@ fn settle_with(
         retype_any(&mut r.stmts, &inits);
         retype_returns_any(&mut r.stmts, &rets);
         spell_fields_any(r, &fields);
+        reinfer::reinfer_returns(ast, r);
         round = Some(check_round(r, &args, &ShadowedNames::default())?);
     }
 }
@@ -126,7 +127,7 @@ fn scalar_values(types: &HashMap<ExprId, Type>, found: &HashSet<ExprId>) -> Hash
 /// resolve by name, so a same-named binding elsewhere can widen a field
 /// too, which costs the typed lane, never an answer.
 fn objects_given_any(ast: &Ast, types: &HashMap<ExprId, Type>) -> HashSet<ExprId> {
-    let mut lits: HashMap<String, ExprId> = HashMap::new();
+    let mut lits: HashMap<String, Vec<ExprId>> = HashMap::new();
     crate::ast::walk_stmts(&ast.stmts, &mut |s| {
         if let Stmt::LetDecl {
             name,
@@ -136,7 +137,7 @@ fn objects_given_any(ast: &Ast, types: &HashMap<ExprId, Type>) -> HashSet<ExprId
         } = s
             && matches!(ast.get_expr(*init), Expr::ObjectLit { .. })
         {
-            lits.insert(name.clone(), *init);
+            lits.entry(name.clone()).or_default().push(*init);
         }
     });
     let mut out = HashSet::new();
@@ -149,20 +150,21 @@ fn objects_given_any(ast: &Ast, types: &HashMap<ExprId, Type>) -> HashSet<ExprId
         else {
             continue;
         };
-        let lit = match ast.get_expr(*obj) {
-            Expr::Ident(n) => lits.get(n).map(|l| ast.get_expr(*l)),
-            _ => None,
-        };
-        let Some(Expr::ObjectLit { fields }) = lit else {
+        let Expr::Ident(n) = ast.get_expr(*obj) else {
             continue;
         };
-        out.extend(
-            (fields.iter())
-                .filter(|(k, v)| {
-                    k == f && matches!(types.get(v), Some(Type::Struct(_) | Type::ClassRef(_)))
-                })
-                .map(|(_, v)| *v),
-        );
+        for l in lits.get(n).into_iter().flatten() {
+            let Expr::ObjectLit { fields } = ast.get_expr(*l) else {
+                continue;
+            };
+            out.extend(
+                (fields.iter())
+                    .filter(|(k, v)| {
+                        k == f && matches!(types.get(v), Some(Type::Struct(_) | Type::ClassRef(_)))
+                    })
+                    .map(|(_, v)| *v),
+            );
+        }
     }
     out
 }
@@ -228,4 +230,5 @@ fn retype_returns_any(stmts: &mut [Stmt], fns: &HashSet<String>) {
 }
 
 mod fn_slots;
+mod reinfer;
 mod retypable;
