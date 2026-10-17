@@ -16,17 +16,21 @@ pub type Seed<'a> = Option<&'a HashMap<ValueId, NumFact>>;
 pub struct FactCache {
     names: Vec<String>,
     /// index-aligned with `Module::funcs`: the body analyzed and the
-    /// facts it gave
-    entries: Vec<(Function, HashMap<ValueId, NumFact>)>,
+    /// facts it gave, `None` for a declaration (no reader asks for one)
+    entries: Vec<Option<(Function, HashMap<ValueId, NumFact>)>>,
 }
 
 impl FactCache {
-    /// `facts` is what [`super::analyze_module`] gave for `module`.
-    pub fn new(module: &Module, facts: Vec<HashMap<ValueId, NumFact>>) -> Self {
-        FactCache {
-            names: module.funcs.iter().map(|f| f.name.clone()).collect(),
-            entries: module.funcs.iter().cloned().zip(facts).collect(),
-        }
+    /// `facts` is what [`super::analyze_module_with`] gave for
+    /// `module` under `names`, its function names.
+    pub fn new(module: &Module, names: Vec<String>, facts: Vec<HashMap<ValueId, NumFact>>) -> Self {
+        let entries = module
+            .funcs
+            .iter()
+            .zip(facts)
+            .map(|(f, fm)| (!f.is_declaration()).then(|| (f.clone(), fm)))
+            .collect();
+        FactCache { names, entries }
     }
 
     /// `module`'s function names, and `cache` when it was built under
@@ -51,7 +55,7 @@ impl FactCache {
     /// The facts for `module.funcs[idx]` when that body is the one
     /// analyzed.
     pub fn get(&self, idx: usize, func: &Function) -> Option<&HashMap<ValueId, NumFact>> {
-        let (body, facts) = self.entries.get(idx)?;
+        let (body, facts) = self.entries.get(idx)?.as_ref()?;
         (body == func).then_some(facts)
     }
 }

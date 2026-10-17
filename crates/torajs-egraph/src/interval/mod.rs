@@ -71,6 +71,11 @@ const NARROW_ROUNDS: usize = 2;
 /// Analyze every function body. Index-aligned with `module.funcs`.
 pub fn analyze_module(module: &Module) -> Vec<HashMap<ValueId, NumFact>> {
     let names: Vec<String> = module.funcs.iter().map(|f| f.name.clone()).collect();
+    analyze_module_with(module, &names)
+}
+
+/// [`analyze_module`] under `names`, the module's function names.
+pub fn analyze_module_with(module: &Module, names: &[String]) -> Vec<HashMap<ValueId, NumFact>> {
     module
         .funcs
         .iter()
@@ -78,7 +83,7 @@ pub fn analyze_module(module: &Module) -> Vec<HashMap<ValueId, NumFact>> {
             if f.is_declaration() {
                 HashMap::default()
             } else {
-                analyze_function_with(f, &names)
+                analyze_function_with(f, names)
             }
         })
         .collect()
