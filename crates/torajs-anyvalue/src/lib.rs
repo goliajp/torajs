@@ -1006,6 +1006,10 @@ mod tests {
     }
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_str_drop(_s: *mut c_void) {}
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_str_too_long() -> *mut u8 {
+        core::ptr::null_mut()
+    }
     /// Chunk C — to_primitive's pending-throw probe + TypeError
     /// recorder resolve from libtorajs_throw.a in the shipped
     /// binary; unit tests never exercise a throwing coercion.

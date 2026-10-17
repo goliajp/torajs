@@ -11,9 +11,9 @@ use torajs_rc::Tag;
 
 use super::{
     __torajs_anyv_box_pointer, BOUND_ARGC_OFF, BOUND_ARGS_OFF, BOUND_KIND_OFF, BOUND_LEN_OFF,
-    BOUND_NAME_OFF, BOUND_TARGET_OFF, BOUND_THIS_OFF, CLOSURE_BOXED_ENTRY_OFF, CLOSURE_DROP_FN_OFF,
-    CLOSURE_FN_ADDR_OFF, CLOSURE_PROPS_OFF, CLOSURE_TRACE_FN_OFF, bound_drop, bound_entry,
-    bound_layout, bound_trace, native_entry,
+    BOUND_NAME_OFF, BOUND_NAME_PREFIXES_OFF, BOUND_TARGET_OFF, BOUND_THIS_OFF,
+    CLOSURE_BOXED_ENTRY_OFF, CLOSURE_DROP_FN_OFF, CLOSURE_FN_ADDR_OFF, CLOSURE_PROPS_OFF,
+    CLOSURE_TRACE_FN_OFF, bound_drop, bound_entry, bound_layout, bound_trace, native_entry,
 };
 use crate::nanbox::AnyValue;
 
@@ -29,7 +29,8 @@ use crate::nanbox::AnyValue;
 /// # Safety
 /// `target` is a live AnyValue the caller has already staked
 /// (kind 1) or a packed builtin id (kind 0); `partials` points at
-/// `n` borrowed AnyValue slots; `name` is NULL or an owned Str.
+/// `n` borrowed AnyValue slots; `name.0` is NULL or an owned Str,
+/// read with `name.1` more `bound ` in front of it.
 pub(super) unsafe fn mint_bound(
     kind: u64,
     target: u64,
@@ -37,7 +38,7 @@ pub(super) unsafe fn mint_bound(
     partials: *const u64,
     n: usize,
     len: f64,
-    name: *mut u8,
+    name: (*mut u8, u64),
 ) -> AnyValue {
     unsafe {
         let cell = std::alloc::alloc_zeroed(bound_layout(n));
@@ -57,7 +58,8 @@ pub(super) unsafe fn mint_bound(
         *(cell.add(BOUND_THIS_OFF) as *mut u64) = this_arg;
         *(cell.add(BOUND_ARGC_OFF) as *mut u64) = n as u64;
         *(cell.add(BOUND_LEN_OFF) as *mut f64) = len;
-        *(cell.add(BOUND_NAME_OFF) as *mut u64) = name as u64;
+        *(cell.add(BOUND_NAME_OFF) as *mut u64) = name.0 as u64;
+        *(cell.add(BOUND_NAME_PREFIXES_OFF) as *mut u64) = name.1;
         for i in 0..n {
             let av = *partials.add(i);
             crate::nanbox_ffi::__torajs_anyv_rc_inc(av);
@@ -97,7 +99,7 @@ pub(crate) unsafe fn callback_thunk(av: AnyValue, this_arg: AnyValue) -> Option<
             core::ptr::null(),
             0,
             0.0,
-            core::ptr::null_mut(),
+            (core::ptr::null_mut(), 0),
         ))
     }
 }

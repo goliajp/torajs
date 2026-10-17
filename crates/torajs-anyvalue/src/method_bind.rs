@@ -41,21 +41,26 @@
 //!               off the TARGET at bind time
 //!   offset 88 — bound name (owned Str cell, `bound <target>`) —
 //!               steps 8-14, likewise read at bind time
-//!   offset 96+ — bound args (AnyValue each, held ref on cells)
+//!   offset 96 — extra `bound ` prefixes owed in front of the name
+//!               (see [`BOUND_NAME_PREFIXES_OFF`])
+//!   offset 104+ — bound args (AnyValue each, held ref on cells)
 //!
 //! `length` and `name` are resolved ONCE, when the cell is minted,
 //! because that is when the spec reads them: a target whose `name`
 //! getter throws makes `.bind()` itself throw (§20.2.3.2 step 13),
 //! and a `defineProperty` on the target AFTER the bind changes
 //! nothing about the bound function. Resolving them lazily got both
-//! backwards, and the second one silently.
+//! backwards, and the second one silently. Only the spelling of a
+//! name shared with an unrenamed bound target waits for a read: the
+//! value is fixed at mint, the joined string is built on demand.
 //!
 //! Unlike the interned method cells this cell is OWNED — rc-managed,
 //! dropped through `drop_fn` like any synthesized closure env.
 
 use core::ffi::c_void;
 
-use crate::method_call::{MAX_BOXED_ARGS, not_callable};
+use crate::STR_HDR_SIZE;
+use crate::method_call::not_callable;
 use crate::method_value::{builtin_method_family, builtin_method_mid, native_entry};
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED};
 use crate::nanbox_encode::__torajs_anyv_box_pointer;
@@ -75,6 +80,9 @@ unsafe extern "C" {
     fn __torajs_throw_check() -> i64;
     /// torajs-str — the `bound ` prefix join and its release.
     fn __torajs_str_alloc(p: *const u8, len: i64) -> *mut u8;
+    /// torajs-str — the RangeError for a Str past the length limit,
+    /// answering an empty Str.
+    fn __torajs_str_too_long() -> *mut u8;
     fn __torajs_str_drop(p: *mut c_void);
 }
 
@@ -88,6 +96,14 @@ const CLOSURE_TRACE_FN_OFF: usize = 40;
 // joined it). Same-crate child: every private item here stays
 // reachable through `super::`.
 pub(crate) mod mint;
+// The call path, split out the same way when walking the chain made
+// it outgrow the parent.
+mod entry;
+use entry::bound_entry;
+// `name`: made at bind time, spelled on read.
+mod name;
+use name::bind_time_name;
+pub(crate) use name::bound_cell_name;
 
 const BOUND_KIND_OFF: usize = 48;
 const BOUND_TARGET_OFF: usize = 56;
@@ -95,7 +111,16 @@ const BOUND_THIS_OFF: usize = 64;
 const BOUND_ARGC_OFF: usize = 72;
 const BOUND_LEN_OFF: usize = 80;
 const BOUND_NAME_OFF: usize = 88;
-const BOUND_ARGS_OFF: usize = 96;
+/// Binding a bound function whose `name` is still its intrinsic one
+/// shares the target's name cell and counts one more `bound ` prefix
+/// here instead of materializing the joined string. A chain of N
+/// binds would otherwise hold N names of growing length — O(N^2)
+/// bytes for an O(N) chain. The full string is spelled on read.
+const BOUND_NAME_PREFIXES_OFF: usize = 96;
+const BOUND_ARGS_OFF: usize = 104;
+/// The longest Str the runtime can hold, in code units; the same
+/// limit as `torajs_str::max_len::STR_MAX_LEN`.
+const STR_MAX_LEN: usize = (1 << 31) - 1;
 
 fn bound_layout(argc: usize) -> core::alloc::Layout {
     core::alloc::Layout::from_size_align(BOUND_ARGS_OFF + argc * 8, 8).unwrap()
@@ -141,7 +166,7 @@ pub(crate) unsafe fn bind_cell(ptr: *mut c_void, argv: *const u64, argc: i64) ->
         }
         let name = bind_time_name(kind, target);
         if __torajs_throw_check() != 0 {
-            __torajs_str_drop(name as *mut c_void);
+            __torajs_str_drop(name.0 as *mut c_void);
             if kind == 1 {
                 __torajs_value_drop_heap(target as *mut c_void);
             }
@@ -205,6 +230,22 @@ pub(crate) unsafe fn bound_cell_meta(ptr: *mut c_void) -> Option<(u64, u64, usiz
     }
 }
 
+/// The bound cell a kind-1 `target` points at, when it is one — a
+/// class object or a Proxy target is a different cell shape, and
+/// [`bound_cell_meta`] may only look at a closure.
+///
+/// # Safety
+/// `target` is a live kind-1 target pointer.
+unsafe fn bound_target_cell(target: u64) -> Option<*mut u8> {
+    unsafe {
+        let p = target as *mut c_void;
+        if (p.cast::<u8>().add(4) as *const u16).read() != torajs_rc::Tag::Closure as u16 {
+            return None;
+        }
+        bound_cell_meta(p).map(|_| p.cast::<u8>())
+    }
+}
+
 /// §20.2.3.2 steps 5-7 resolved against the target, with the partial
 /// count already subtracted — the whole of what the bound function's
 /// `length` will ever answer.
@@ -229,47 +270,12 @@ unsafe fn bind_time_length(kind: u64, target: u64, partials: usize) -> f64 {
     }
 }
 
-/// §20.2.3.2 steps 8-14 — `"bound "` prepended to `Get(Target,
-/// "name")`, a non-String target name counting as `""`. Answers an
-/// owned Str cell.
-///
-/// # Safety
-/// As [`bind_time_length`].
-unsafe fn bind_time_name(kind: u64, target: u64) -> *mut u8 {
-    unsafe {
-        let tname: *mut u8 = if kind == 0 {
-            let (mid, _) = unpack_builtin_target(target);
-            let name = torajs_rc::any_method_meta(mid).map_or("", |(n, _)| n);
-            __torajs_str_alloc(name.as_ptr(), name.len() as i64)
-        } else {
-            crate::name_get::bound_target_name_str(target)
-        };
-        let prefix = __torajs_str_alloc(c"bound ".as_ptr() as *const u8, 6);
-        let joined = crate::__torajs_str_concat(prefix as *const u8, tname as *const u8);
-        __torajs_str_drop(prefix as *mut c_void);
-        // Fresh target names drop; an interned method-name cell
-        // no-ops on the static flag.
-        __torajs_str_drop(tname as *mut c_void);
-        joined as *mut u8
-    }
-}
-
 /// The bound function's resolved `length` / `name`, read at mint.
 ///
 /// # Safety
 /// `ptr` is a live bound cell (`bound_cell_meta` answered `Some`).
 pub(crate) unsafe fn bound_cell_length(ptr: *mut c_void) -> f64 {
     unsafe { *((ptr as *const u8).add(BOUND_LEN_OFF) as *const f64) }
-}
-
-/// # Safety
-/// As [`bound_cell_length`]. The answer is a fresh stake.
-pub(crate) unsafe fn bound_cell_name(ptr: *mut c_void) -> *mut u8 {
-    unsafe {
-        let s = *((ptr as *const u8).add(BOUND_NAME_OFF) as *const u64) as *mut u8;
-        torajs_rc::__torajs_rc_inc(s as *mut c_void);
-        s
-    }
 }
 
 /// Raw view of a bound cell's partial-argument block — the construct
@@ -280,71 +286,6 @@ pub(crate) unsafe fn bound_cell_name(ptr: *mut c_void) -> *mut u8 {
 /// `ptr` is a live bound cell (`bound_cell_meta` answered `Some`).
 pub(crate) unsafe fn bound_args_ptr(ptr: *mut c_void) -> *const u64 {
     unsafe { (ptr as *const u8).add(BOUND_ARGS_OFF) as *const u64 }
-}
-
-/// Boxed dual entry of a bound cell — concatenate the partial
-/// arguments with the call's own and dispatch the target.
-unsafe extern "C" fn bound_entry(env: *mut c_void, argv: *const u64, argc: i64) -> u64 {
-    unsafe {
-        let cell = env.cast::<u8>();
-        let kind = *(cell.add(BOUND_KIND_OFF) as *const u64);
-        let target = *(cell.add(BOUND_TARGET_OFF) as *const u64);
-        let bound_this = *(cell.add(BOUND_THIS_OFF) as *const u64);
-        let bn = *(cell.add(BOUND_ARGC_OFF) as *const u64) as usize;
-        let cn = argc.max(0) as usize;
-        let total = bn + cn;
-
-        let dispatch = |buf: *const u64, n: i64| -> AnyValue {
-            if kind == 0 {
-                // Same target shape `.call` / `.apply` build, so the
-                // family-generic gate runs identically on both paths.
-                let (mid, fam) = unpack_builtin_target(target);
-                crate::method_call_closure::dispatch(
-                    &crate::method_call_closure::CallTarget::Builtin(mid, fam),
-                    bound_this,
-                    buf,
-                    n,
-                )
-            } else {
-                // §10.4.1.1 step 5 is `Call(target, boundThis, args)`
-                // — the ordinary call, on whatever the target is. So
-                // this is the explicit-`this` kernel and nothing
-                // else: it holds all three of §7.2.3's callable
-                // shapes, routes the bound this through the receiver
-                // channel (a recv-first target takes it in argv[0],
-                // RFC 20260717-objlit-anylane-recv knife 2d; a plain
-                // closure drops it), and runs a callable Proxy's
-                // `apply` trap. Spelling the dispatch out here named
-                // the closure and the class and missed the proxy —
-                // `p.bind(null, 5)()` returned undefined instead of
-                // running the trap.
-                crate::method_call_closure_dispatch::__torajs_any_call_with_this(
-                    target, bound_this, buf, n,
-                )
-            }
-        };
-
-        // Argument slots stay BORROWED end to end — the bound args
-        // are the cell's own references, the tail is the caller's.
-        if total > MAX_BOXED_ARGS {
-            let mut big = vec![VALUE_UNDEFINED; total];
-            for (i, slot) in big.iter_mut().enumerate().take(bn) {
-                *slot = *(cell.add(BOUND_ARGS_OFF + i * 8) as *const u64);
-            }
-            for i in 0..cn {
-                big[bn + i] = *argv.add(i);
-            }
-            return dispatch(big.as_ptr(), total as i64);
-        }
-        let mut buf = [VALUE_UNDEFINED; MAX_BOXED_ARGS];
-        for (i, slot) in buf.iter_mut().enumerate().take(bn) {
-            *slot = *(cell.add(BOUND_ARGS_OFF + i * 8) as *const u64);
-        }
-        for i in 0..cn.min(MAX_BOXED_ARGS - bn) {
-            buf[bn + i] = *argv.add(i);
-        }
-        dispatch(buf.as_ptr(), total.min(MAX_BOXED_ARGS) as i64)
-    }
 }
 
 /// drop_fn of a bound cell — the universal Closure drop arm calls
