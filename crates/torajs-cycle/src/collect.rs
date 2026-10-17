@@ -411,19 +411,17 @@ mod tests {
 
     fn cells(n: usize) -> Vec<Cell> {
         let mut v: Vec<Cell> = (0..n)
-            .map(|_| {
-                Cell {
-                    hdr: HeapHeader {
-                        refcount: 0,
-                        type_tag: TAG_ARR,
-                        flags: (ARR_KIND_HEAP << ARR_ELEM_KIND_SHIFT) | COLOR_PURPLE,
-                    },
-                    len: 1,
-                    cap_head: 1,
-                    props: 0,
-                    data: core::ptr::null_mut(),
-                    slot: 0,
-                }
+            .map(|_| Cell {
+                hdr: HeapHeader {
+                    refcount: 0,
+                    type_tag: TAG_ARR,
+                    flags: (ARR_KIND_HEAP << ARR_ELEM_KIND_SHIFT) | COLOR_PURPLE,
+                },
+                len: 1,
+                cap_head: 1,
+                props: 0,
+                data: core::ptr::null_mut(),
+                slot: 0,
             })
             .collect();
         for c in v.iter_mut() {

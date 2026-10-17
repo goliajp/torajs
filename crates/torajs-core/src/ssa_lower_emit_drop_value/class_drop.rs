@@ -312,12 +312,10 @@ fn emit_walk(
     }
     // the worklist's own instance goes on with its last own-sid field
     let layout = &cx.layouts[sid as usize];
-    let next = (cx.worklist.as_ref())
-        .filter(|wl| wl.sid == sid)
-        .map(|wl| {
-            let own = |fty: &Type| matches!(fty, Type::Obj(s) if s.0 == sid);
-            (layout.iter().rposition(|(_, fty)| own(fty)), wl.next)
-        });
+    let next = (cx.worklist.as_ref()).filter(|wl| wl.sid == sid).map(|wl| {
+        let own = |fty: &Type| matches!(fty, Type::Obj(s) if s.0 == sid);
+        (layout.iter().rposition(|(_, fty)| own(fty)), wl.next)
+    });
     if let Some((None, slot)) = next {
         f.append_void(cur, InstKind::Store(Operand::ConstPtrNull, slot, 0));
     }
