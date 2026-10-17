@@ -117,19 +117,25 @@ pub(crate) fn check_switch(checker: &mut Checker, ast: &Ast, stmt: &Stmt) {
             .collect()
     };
     let saved_hoists = crate::check_hoist_closure_lets::enter(checker, ast, &block);
-    // A clause is entered from the head (the case values are read
-    // before any body runs) and, when the clause above it in source
-    // order can fall through, from that clause's end as well.
+    // §14.12.4 reads the case values in source order until one is
+    // selected, so a case clause is entered from the head after its
+    // own value and every one above it, the default after all of
+    // them; and, when
+    // the clause above it in source order can fall through, from that
+    // clause's end as well.
     let entry = checker.flow_entry();
+    let mut heads = Vec::with_capacity(cases.len());
+    for c in cases {
+        check_case_value(checker, ast, c.value, &scrut_ty);
+        heads.push(checker.flow_at(&entry));
+    }
+    let all_read = checker.flow_at(&entry);
     let mut above: Option<FlowState> = None;
     for (clause, body) in clause_order(cases, default.as_deref(), *default_at) {
-        checker.restore_flow(&entry);
-        if let Some(i) = clause {
-            check_case_value(checker, ast, cases[i].value, &scrut_ty);
-        }
+        let head = clause.map_or(&all_read, |i| &heads[i]);
         let start = match above.take() {
-            Some(end) => checker.join_flow(&entry, &end),
-            None => entry.clone(),
+            Some(end) => checker.join_flow(head, &end),
+            None => head.clone(),
         };
         checker.restore_flow(&start);
         check_clause_body(checker, ast, body, clause_narrow(clause));

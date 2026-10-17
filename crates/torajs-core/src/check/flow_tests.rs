@@ -189,3 +189,88 @@ fn a_do_while_condition_is_also_reached_by_continue() {
          return s }\n",
     );
 }
+
+const ONE: &str = "function one(x: Node | null): number { return 1 }\n";
+
+#[test]
+fn a_case_value_write_reaches_the_clauses_after_it() {
+    let lazy = "let q: Node | null = a;\nif (q === null) q = mk();\n";
+    refused(&format!(
+        "{ONE}function h(a: Node | null, k: number): number {{\n{lazy}\
+         switch (k) {{ case one(q = null): return g(q); }}\nreturn 0 }}\n"
+    ));
+    // a later clause is entered after every case value above it ran
+    refused(&format!(
+        "{ONE}function h(a: Node | null, k: number): number {{\n{lazy}\
+         switch (k) {{ case one(q = null): return 0; case 2: return g(q); }}\nreturn 0 }}\n"
+    ));
+    refused(&format!(
+        "{ONE}function h(a: Node | null, k: number): number {{\n{lazy}\
+         switch (k) {{ default: return g(q); case one(q = null): return 0; }}\n}}\n"
+    ));
+    // a clause above the write is not entered through it
+    accepted(&format!(
+        "{ONE}function h(a: Node | null, k: number): number {{\n{lazy}\
+         switch (k) {{ case 2: return g(q); case one(q = null): return 0; }}\nreturn 0 }}\n"
+    ));
+}
+
+#[test]
+fn a_closure_keeps_a_narrow_no_later_write_undoes() {
+    // lazy initialization, nothing written after the closure
+    accepted(
+        "function h(a: Node | null): number {\n\
+         let q: Node | null = a;\n\
+         if (q === null) q = mk();\n\
+         const f = (): number => g(q);\n\
+         return f() }\n",
+    );
+    // a null write before the closure is not one after it
+    accepted(
+        "function h(): number {\n\
+         let q: Node | null = null;\n\
+         q = mk();\n\
+         return [1].map((x: number): number => g(q))[0] }\n",
+    );
+    // a later write of a non-null value keeps it non-null
+    accepted(
+        "function h(a: Node | null): number {\n\
+         let q: Node | null = a;\n\
+         if (q === null) q = mk();\n\
+         const f = (): number => g(q);\n\
+         q = mk();\n\
+         return f() }\n",
+    );
+    // a loop that writes only non-null values
+    accepted(
+        "function h(a: Node): number {\n\
+         let q: Node | null = a;\n\
+         const fs: (() => number)[] = [];\n\
+         for (let i = 0; i < 2; i++) { q = mk(); fs.push((): number => g(q)) }\n\
+         return fs[0]() }\n",
+    );
+}
+
+#[test]
+fn a_closure_in_a_closure_sees_writes_around_both() {
+    // created inside another closure, which escapes before the write
+    refused(
+        "function h(a: Node): number {\n\
+         let q: Node | null = a;\n\
+         const w = (): (() => number) => {\n\
+         if (q === null) return (): number => 0;\n\
+         return (): number => g(q) };\n\
+         const f = w();\n\
+         q = null;\n\
+         return f() }\n",
+    );
+    // written inside a closure created before it
+    refused(
+        "function h(a: Node): number {\n\
+         let q: Node | null = a;\n\
+         const z = (): void => { q = null };\n\
+         const f = (): number => g(q);\n\
+         z();\n\
+         return f() }\n",
+    );
+}

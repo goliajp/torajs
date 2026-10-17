@@ -7,6 +7,7 @@
 //! frames. Re-exported from `crate::check` so the canonical
 //! `crate::check::LocalInfo` import path keeps working.
 
+use crate::ast::ExprId;
 use crate::check::Type;
 
 #[derive(Debug, Clone)]
@@ -85,6 +86,16 @@ pub(crate) struct LocalInfo {
     /// binding whenever it is called, so it captures this type when a
     /// write could undo the narrow (`check/capture_narrow.rs`).
     pub(crate) null_declared: Option<Type>,
+    /// The values of the possibly-null stores into the binding walked
+    /// so far.
+    pub(crate) null_stores: Vec<ExprId>,
+    /// A possibly-null store into the binding can run at any time: it
+    /// sits in a closure, or the binding is top-level and a function
+    /// body writes it.
+    pub(crate) nulled_anytime: bool,
+    /// A closure reads the binding at its non-null narrow, so a
+    /// possibly-null store into it is refused from here on.
+    pub(crate) pinned: bool,
 }
 
 impl LocalInfo {
@@ -105,6 +116,9 @@ impl LocalInfo {
             decl: None,
             flow_declared: None,
             null_declared: None,
+            null_stores: Vec::new(),
+            nulled_anytime: false,
+            pinned: false,
         }
     }
 }

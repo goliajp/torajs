@@ -198,6 +198,7 @@ pub(crate) fn check(
         crate::check_assignable::in_declared_order(checker, ast, &target_ty, value, value_ty);
     let decl = (info.ann.as_deref(), info.decl.as_ref());
     admit_store(checker, (ast, &name), decl, &target_ty, (&value_ty, value))?;
+    checker.note_store(&name, value, &value_ty)?;
     // See the global arm above — the literal is typed by the slot.
     crate::check_stmt_let_decl::apply_contextual_array_ann_store(checker, ast, value, &target_ty);
     // A possibly-null value kills an existing narrow right here

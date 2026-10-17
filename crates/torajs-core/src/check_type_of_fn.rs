@@ -39,7 +39,6 @@ pub(crate) fn check_arrow_fn(
     let saved_scopes = std::mem::replace(&mut checker.scopes, vec![HashMap::new()]);
     let saved_return = checker.expected_return.replace(*ret_ty);
     let saved_owner = checker.ret_owner.take();
-    let saved_root = checker.narrows.root.take();
     checker.toplevel_captures.push(Default::default());
     for (p, ty) in params.iter().zip(param_tys.iter()) {
         if let Err(e) = checker.declare(p.name.clone(), LocalInfo::plain(ty.clone())) {
@@ -51,7 +50,6 @@ pub(crate) fn check_arrow_fn(
     }
     checker.expected_return = saved_return;
     checker.ret_owner = saved_owner;
-    checker.narrows.root = saved_root;
     checker.scopes = saved_scopes;
     checker.toplevel_captures.pop();
     Ok(fn_ty)
@@ -129,7 +127,7 @@ pub(crate) fn check_closure(
     let mut cap_tys: Vec<(String, Type)> = Vec::with_capacity(captures.len());
     for cap in &captures {
         if let Some(info) = checker.lookup(cap) {
-            cap_tys.push((cap.clone(), checker.capture_ty(ast, cap, &info)));
+            cap_tys.push((cap.clone(), checker.capture_ty(ast, eid, cap, &info)));
         } else if checker.globals.contains_key(cap) {
             // K.3/K.4/K.6 promoted data global (or hoisted fn) — not a
             // capture: the body ident resolves through the same globals
@@ -227,15 +225,21 @@ pub(crate) fn check_closure_body(
     checker.toplevel_captures.push(top_caps);
     // a captured census slot stays that slot inside the closure, and a
     // captured union keeps its declared members and loose mark
-    let cap_outer: HashMap<String, LocalInfo> = cap_tys
+    let cap_frame: Vec<(String, LocalInfo)> = cap_tys
         .iter()
-        .filter_map(|(n, _)| Some((n.clone(), checker.lookup(n)?)))
+        .map(|(n, t)| {
+            let outer = checker.lookup(n);
+            let info = checker.capture_frame_info(ast, eid, n, outer.as_ref(), t.clone());
+            (n.clone(), info)
+        })
+        .collect();
+    let inherited: Vec<(String, bool)> = cap_frame
+        .iter()
+        .map(|(n, i)| (n.clone(), i.nulled_anytime))
         .collect();
     let saved_scopes = std::mem::replace(&mut checker.scopes, vec![HashMap::new()]);
     let saved_return = checker.expected_return.replace(ret_ty);
     let saved_owner = checker.ret_owner.replace(fn_name.clone());
-    // a closure body is not where its captures' writes are counted
-    let saved_root = checker.narrows.root.take();
     // §15.5.5 (RFC 20260810) — the fn-expression's self-name binds
     // the closure itself inside the body, in a scope of its OWN
     // between the enclosing environment and the body (the spec's
@@ -256,21 +260,9 @@ pub(crate) fn check_closure_body(
         active = Some(sn.clone());
         checker.scopes.push(HashMap::new());
     }
-    for (cap_name, cap_ty) in &cap_tys {
-        let _ = checker.declare(
-            cap_name.clone(),
-            LocalInfo {
-                fn_slot: cap_outer.get(cap_name).and_then(|i| i.fn_slot.clone()),
-                union: cap_outer
-                    .get(cap_name)
-                    .map(|i| i.union.clone())
-                    .unwrap_or_default(),
-                held_any: cap_outer.get(cap_name).is_some_and(|i| i.held_any),
-                ann: cap_outer.get(cap_name).and_then(|i| i.ann.clone()),
-                decl: cap_outer.get(cap_name).and_then(|i| i.decl.clone()),
-                ..LocalInfo::plain(cap_ty.clone())
-            },
-        );
+    let cap_scope = checker.scopes.len() - 1;
+    for (cap_name, info) in cap_frame {
+        let _ = checker.declare(cap_name, info);
     }
     for (p, ty) in real_params.iter().zip(param_tys.iter()) {
         // 刀 1 (RFC 20260815-fn-value-rest-spread) — the signature
@@ -310,8 +302,9 @@ pub(crate) fn check_closure_body(
     checker.self_name_active = saved_self_name;
     checker.expected_return = saved_return;
     checker.ret_owner = saved_owner;
-    checker.narrows.root = saved_root;
+    let cap_out = checker.capture_frame_out(cap_scope, &inherited);
     checker.scopes = saved_scopes;
+    checker.apply_capture_out(cap_out);
     checker.toplevel_captures.pop();
     if checker.speculative_depth == 0 {
         checker

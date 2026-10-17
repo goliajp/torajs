@@ -23,9 +23,9 @@ use super::*;
 pub(crate) struct Narrows {
     pub(crate) assign: HashMap<String, Type>,
     pub(crate) member: HashMap<(String, String), Type>,
-    /// The top-level function whose own body is being walked, where
-    /// every write to its locals is (`capture_narrow`).
-    pub(crate) root: Option<String>,
+    /// The names a function or class body stores into
+    /// (`capture_narrow`), worked out on first use.
+    pub(crate) fn_body_writes: std::cell::OnceCell<std::collections::HashSet<String>>,
 }
 
 /// What [`Checker::open_guard`] displaced (`None`: no such binding).
