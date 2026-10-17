@@ -378,6 +378,12 @@ impl<'a> Analysis<'a> {
                     && ns == "Math"
                 {
                     W::F64
+                } else if let Some((f, _)) = self.replayed_args(callee, args)
+                    && let Some(k) = self.container_key_lookup(f, scope)
+                {
+                    // `f.call(t, ...)` / `f.apply(t, ...)` on an fn value
+                    // answers what `f` returns, as a plain indirect call
+                    W::Num(vec![(SlotKey::Field(Box::new(k), "__ret".into()), false)])
                 } else {
                     match self.container_key_lookup(eid, scope) {
                         Some(k) => W::Num(vec![(k, false)]),

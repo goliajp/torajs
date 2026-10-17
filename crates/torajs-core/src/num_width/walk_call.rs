@@ -122,9 +122,9 @@ impl Analysis<'_> {
     /// For `f.call(t, a, b)` and `f.apply(t, [a, b])` the function `f`
     /// and `Some([a, b])`; for `f.apply(t, xs)`, whose arguments are
     /// not written out, `f` and `None`. A receiver the checker typed as
-    /// something other than a function (`o.call(a, b)` on an object
-    /// with a method of that name) calls its own method.
-    fn replayed_args(
+    /// something that is certainly not a function (`o.call(a, b)` on an
+    /// object with a method of that name) calls its own method.
+    pub(super) fn replayed_args(
         &self,
         callee: ExprId,
         args: &[ExprId],
@@ -145,13 +145,39 @@ impl Analysis<'_> {
     }
 }
 
-/// Whether a value the checker typed `t` may be a function.
+/// Whether a value the checker typed `t` may be a function. Only a type
+/// that is certainly not one answers false: a type parameter, `any`, or
+/// any shape not listed here may stand for a function value.
 fn may_be_fn(t: &crate::check::Type) -> bool {
     use crate::check::Type;
     match t {
-        Type::Function(..) | Type::Any => true,
         Type::Nullable(t) => may_be_fn(t),
         Type::Union(ts) => ts.iter().any(may_be_fn),
-        _ => false,
+        Type::Number
+        | Type::String
+        | Type::Boolean
+        | Type::Void
+        | Type::Never
+        | Type::BigInt
+        | Type::Symbol
+        | Type::Null
+        | Type::Undefined
+        | Type::Literal(_)
+        | Type::WeakRef
+        | Type::WeakMap
+        | Type::WeakSet
+        | Type::Map(..)
+        | Type::Set
+        | Type::MapIter(_)
+        | Type::ArrIter
+        | Type::Array(_)
+        | Type::Dict(..)
+        | Type::RegExp
+        | Type::Date
+        | Type::Promise(_)
+        | Type::Struct(_)
+        | Type::ClassRef(_)
+        | Type::Object(_) => false,
+        _ => true,
     }
 }
