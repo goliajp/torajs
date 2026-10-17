@@ -131,6 +131,9 @@ pub unsafe extern "C" fn __torajs_dynobj_dict_get(recv: u64, key: *const c_void)
 ///
 /// # Safety
 /// `obj` is a live dynobj; otherwise as [`__torajs_dynobj_dict_get`].
+// cold: the cached-entry answer then falls through to its `ret` instead
+// of taking a branch, one taken branch fewer per hit in a hot loop
+#[cold]
 #[inline(never)]
 unsafe fn get_walk(obj: *mut c_void, key: *const c_void) -> u64 {
     match unsafe { own_number(obj, key) } {
@@ -153,6 +156,7 @@ unsafe fn get_walk(obj: *mut c_void, key: *const c_void) -> u64 {
 ///
 /// # Safety
 /// As [`__torajs_dynobj_dict_get`].
+#[cold]
 #[inline(never)]
 unsafe fn get_generic(recv: u64, key: *const c_void) -> u64 {
     unsafe {
@@ -231,6 +235,7 @@ unsafe fn store_own(e: *mut Entry, v: u64) {
 /// `obj` is the live dynobj `*recv_slot` holds, no module namespace;
 /// otherwise as
 /// [`__torajs_dynobj_dict_set`].
+#[cold]
 #[inline(never)]
 unsafe fn set_walk(
     recv_slot: *mut u64,
@@ -251,6 +256,7 @@ unsafe fn set_walk(
 ///
 /// # Safety
 /// As [`__torajs_dynobj_dict_set`].
+#[cold]
 #[inline(never)]
 unsafe fn set_generic(recv_slot: *mut u64, key: *mut c_void, v: u64, throw_on_refusal: bool) {
     unsafe {
