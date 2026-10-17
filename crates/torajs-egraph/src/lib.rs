@@ -237,8 +237,6 @@ pub fn transform_module(mut module: Module) -> Module {
         gated_pass("FLOAT_DEMOTE", &mut module, |m| {
             float_demote::demote_floats(m, facts)
         });
-    }
-    if let Some(facts) = &mut interval_facts {
         fact_folds::fact_folds(&mut module, facts);
     }
     // Parity-compare strength reduction — a srem-by-2^k whose every
