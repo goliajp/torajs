@@ -234,6 +234,14 @@ pub(crate) fn check(
             .filter(|(k, t)| else_members.get(k) == Some(t))
             .collect(),
     };
+    // `if (o.f === null) return` with no else: the code after the `if`
+    // runs only where the test was false, as a binding's narrow does
+    if let Some((key, inner, false)) = &member_narrow
+        && then_div
+        && else_branch.is_none()
+    {
+        checker.apply_member_narrow(key, inner.clone());
+    }
     if let Some((name, inner, _)) = &narrow {
         let falls_through = !(then_div && else_div);
         if falls_through && (then_div || then_holds) && (else_div || else_holds) {
