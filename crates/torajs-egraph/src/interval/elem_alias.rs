@@ -65,10 +65,18 @@ pub(super) fn classify_values(
     let mut base: HashMap<ValueId, ValueId> = seed_base.iter().copied().collect();
     let mut ordered: Vec<ValueId> = defs.keys().copied().collect();
     ordered.sort_by_key(|v| v.0);
+    // a value with a def that names no source never joins a class
+    let sourced: Vec<(ValueId, Vec<(ValueId, AliasKind)>)> = ordered
+        .iter()
+        .filter_map(|v| {
+            let srcs = defs[v].iter().map(|d| alias_source(d, names, defs));
+            Some((*v, srcs.collect::<Option<Vec<_>>>()?))
+        })
+        .collect();
     let mut moving = true;
     while moving {
         moving = false;
-        for v in &ordered {
+        for (v, srcs) in &sourced {
             if class.contains_key(v) || base.contains_key(v) {
                 continue;
             }
@@ -77,17 +85,16 @@ pub(super) fn classify_values(
             // never saw.
             let mut agreed: Option<(ValueId, bool)> = None;
             let mut ok = true;
-            for d in &defs[v] {
-                let seen = match alias_source(d, names, defs) {
+            for (src, kind) in srcs {
+                let seen = match kind {
                     // A copy of a data pointer stays a data pointer;
                     // a copy of the array stays the array.
-                    Some((src, AliasKind::Same)) => class
-                        .get(&src)
+                    AliasKind::Same => class
+                        .get(src)
                         .map(|r| (*r, false))
-                        .or_else(|| base.get(&src).map(|r| (*r, true))),
-                    Some((src, AliasKind::DataPtr)) => class.get(&src).map(|r| (*r, true)),
-                    Some((src, AliasKind::Advanced)) => base.get(&src).map(|r| (*r, true)),
-                    None => None,
+                        .or_else(|| base.get(src).map(|r| (*r, true))),
+                    AliasKind::DataPtr => class.get(src).map(|r| (*r, true)),
+                    AliasKind::Advanced => base.get(src).map(|r| (*r, true)),
                 };
                 match (seen, agreed) {
                     (Some(x), None) => agreed = Some(x),

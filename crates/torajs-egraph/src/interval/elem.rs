@@ -51,7 +51,9 @@
 
 use crate::id_hash::{HashMap, HashSet};
 
-use torajs_core::ssa::{BinOp, FuncId, Function, InstKind, Operand, Terminator, ValueId};
+use torajs_core::ssa::{
+    BinOp, FuncId, Function, InstKind, Operand, Terminator, ValueId, visit_value_operands,
+};
 
 use super::elem_alias::classify_values;
 use super::elem_header;
@@ -236,6 +238,14 @@ fn scan_inst(
     writes: &mut HashMap<ValueId, Vec<Operand>>,
     reads: &mut HashMap<ValueId, ValueId>,
 ) {
+    // an instruction naming no tracked value neither admits nor kills
+    let mut named = false;
+    visit_value_operands(kind, |v| {
+        named |= class.contains_key(&v) || base.contains_key(&v);
+    });
+    if !named {
+        return;
+    }
     // Operands this instruction is allowed to name; everything else it
     // mentions is an escape.
     let mut consumed: Vec<ValueId> = Vec::new();
@@ -343,14 +353,12 @@ fn scan_inst(
         _ => {}
     }
 
-    for op in operands(kind) {
-        if let Some(v) = val(&op)
-            && !consumed.contains(&v)
-        {
+    visit_value_operands(kind, |v| {
+        if !consumed.contains(&v) {
             kill.extend(class.get(&v).copied());
             kill.extend(base.get(&v).copied());
         }
-    }
+    });
     for rep in kill {
         live.remove(&rep);
     }
@@ -364,65 +372,6 @@ fn record_write(writes: &mut HashMap<ValueId, Vec<Operand>>, rep: ValueId, op: O
         None => {
             writes.entry(rep).or_default().push(Operand::ConstPtrNull);
         }
-    }
-}
-
-/// Every operand an instruction mentions.
-fn operands(kind: &InstKind) -> Vec<Operand> {
-    match kind {
-        InstKind::BinOp(_, a, b)
-        | InstKind::ICmp(_, a, b)
-        | InstKind::FCmp(_, a, b)
-        | InstKind::LoadDyn(_, a, b)
-        | InstKind::LoadDynScaled8(_, a, b)
-        | InstKind::LoadU8Dyn(a, b)
-        | InstKind::LoadU16Dyn(a, b) => vec![*a, *b],
-        InstKind::Call(_, args) => args.clone(),
-        InstKind::CallIndirect(_, callee, args) => {
-            let mut v = vec![*callee];
-            v.extend(args.iter().cloned());
-            v
-        }
-        InstKind::Load(_, a, _)
-        | InstKind::RcInc(a)
-        | InstKind::RcIncAny(a)
-        | InstKind::RcDecAny(a)
-        | InstKind::BoxAny(_, a)
-        | InstKind::AnyIsNumber(a)
-        | InstKind::AnyIsInt32(a)
-        | InstKind::AnyToInt32(a)
-        | InstKind::BoxInt32(a)
-        | InstKind::BoxF64(a) => vec![*a],
-        InstKind::AnyToF64(a, b) => vec![*a, *b],
-        InstKind::Store(a, b, _) => vec![*a, *b],
-        InstKind::StoreDyn(a, b, c)
-        | InstKind::StoreDynScaled8(a, b, c)
-        | InstKind::CtpopRangeSum(a, b, c) => vec![*a, *b, *c],
-        InstKind::Vec(vi) => vi.operands().into_iter().flatten().copied().collect(),
-        InstKind::Select(_, a, b, c) => vec![*a, *b, *c],
-        InstKind::SiToFp(a)
-        | InstKind::FpToSi(a)
-        | InstKind::FpToInt32(a)
-        | InstKind::ZExtBoolToI64(a)
-        | InstKind::ZExtI32ToI64(a)
-        | InstKind::BitCastF64ToI64(a)
-        | InstKind::BitCastI64ToF64(a)
-        | InstKind::IntToPtr(a)
-        | InstKind::PtrToInt(a)
-        | InstKind::TruncI64ToBool(a)
-        | InstKind::Identity(a)
-        | InstKind::Neg(a)
-        | InstKind::Ctpop(a)
-        | InstKind::Cttz(a)
-        | InstKind::Copy(_, a) => vec![*a],
-        InstKind::Alloca(_)
-        | InstKind::AllocaBytes(_)
-        | InstKind::StringRef(_)
-        | InstKind::StaticStrRef(_)
-        | InstKind::GlobalRef(_)
-        | InstKind::FnAddr(_)
-        | InstKind::BoxedEntryAddr(_)
-        | InstKind::ThrowSignal => Vec::new(),
     }
 }
 
