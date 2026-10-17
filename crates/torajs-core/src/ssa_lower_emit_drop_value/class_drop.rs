@@ -314,9 +314,9 @@ fn emit_walk(
     let layout = &cx.layouts[sid as usize];
     let next = (cx.worklist.as_ref())
         .filter(|wl| wl.sid == sid)
-        .and_then(|wl| {
+        .map(|wl| {
             let own = |fty: &Type| matches!(fty, Type::Obj(s) if s.0 == sid);
-            Some((layout.iter().rposition(|(_, fty)| own(fty)), wl.next))
+            (layout.iter().rposition(|(_, fty)| own(fty)), wl.next)
         });
     if let Some((None, slot)) = next {
         f.append_void(cur, InstKind::Store(Operand::ConstPtrNull, slot, 0));

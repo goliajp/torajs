@@ -409,10 +409,10 @@ mod tests {
         slot: u64,
     }
 
-    fn cells(n: usize) -> Vec<Box<Cell>> {
-        let mut v: Vec<Box<Cell>> = (0..n)
+    fn cells(n: usize) -> Vec<Cell> {
+        let mut v: Vec<Cell> = (0..n)
             .map(|_| {
-                Box::new(Cell {
+                Cell {
                     hdr: HeapHeader {
                         refcount: 0,
                         type_tag: TAG_ARR,
@@ -423,7 +423,7 @@ mod tests {
                     props: 0,
                     data: core::ptr::null_mut(),
                     slot: 0,
-                })
+                }
             })
             .collect();
         for c in v.iter_mut() {
@@ -438,7 +438,7 @@ mod tests {
 
     // cell i holds cell i+1, the last holds the first; each cell is
     // referenced once, by its predecessor
-    fn ring(n: usize) -> Vec<Box<Cell>> {
+    fn ring(n: usize) -> Vec<Cell> {
         let mut v = cells(n);
         for i in 0..n {
             let next = ptr(&v[(i + 1) % n]) as u64;

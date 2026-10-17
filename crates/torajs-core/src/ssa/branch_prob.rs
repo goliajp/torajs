@@ -137,10 +137,9 @@ pub fn cold_arms(func: &Function) -> Vec<(BlockId, BlockId, f64)> {
             Some((calling_arm(), P_SLOW_PATH))
         } else if cond.is_some_and(|c| is_int_pair_test(c, &defs)) {
             Some((e, P_SLOW_PATH))
-        } else if let Some(hole) = cond.and_then(|c| hole_arm(func, &arms.blocks, c, &defs, t, e)) {
-            Some((hole, P_SLOW_PATH))
         } else {
-            None
+            cond.and_then(|c| hole_arm(func, &arms.blocks, c, &defs, t, e))
+                .map(|hole| (hole, P_SLOW_PATH))
         };
         if let Some((cold, p)) = arm {
             out.push((b.id, cold, p));
