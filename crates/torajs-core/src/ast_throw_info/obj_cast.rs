@@ -129,6 +129,63 @@ pub(crate) fn decl_fields<'a>(
     })
 }
 
+/// The fields of the declared type `name` names, each with its
+/// annotation as the type spells it: an instance of a generic
+/// declaration (`W<string>`) writes its type arguments in place of the
+/// parameters (`w: W<U>` reads `w: W<string>`). Where the arguments do
+/// not line up with the parameters, [`decl_fields`]'.
+pub(crate) fn instance_fields(ast: &Ast, name: &str) -> Option<Vec<(crate::ast::PropKey, String)>> {
+    let name = name.trim();
+    let args = name
+        .split_once('<')
+        .and_then(|(bare, rest)| Some((bare.trim(), rest.strip_suffix('>')?)));
+    if let Some((bare, args)) = args {
+        let args = split_type_args(args);
+        let inst = ast.stmts.iter().find_map(|s| match s {
+            Stmt::TypeDecl {
+                name: n,
+                type_params,
+                fields,
+            } if n == bare && type_params.len() == args.len() => Some((type_params, fields)),
+            _ => None,
+        });
+        if let Some((params, fields)) = inst {
+            let subst: Vec<(String, String)> = (params.iter().cloned())
+                .zip(args.iter().map(|a| a.trim().to_string()))
+                .collect();
+            let spell = |a: &str| crate::ssa_lower_generics_monomorph::substitute_in_ann(a, &subst);
+            return Some(
+                (fields.iter())
+                    .map(|(k, a)| (k.clone(), spell(a)))
+                    .collect(),
+            );
+        }
+    }
+    decl_fields(ast, name).map(|(_, fields)| fields)
+}
+
+/// The type arguments of an argument list (`string, Map<K, V>`), split
+/// at its top-level commas; the `>` of a function type's `->` closes
+/// nothing.
+fn split_type_args(args: &str) -> Vec<&str> {
+    let (mut parts, mut depth, mut last, mut prev) = (Vec::new(), 0i32, 0usize, 0u8);
+    for (i, &b) in args.as_bytes().iter().enumerate() {
+        match b {
+            b'>' if prev == b'-' => {}
+            b'(' | b'<' | b'[' | b'{' => depth += 1,
+            b')' | b'>' | b']' | b'}' => depth -= 1,
+            b',' if depth == 0 => {
+                parts.push(&args[last..i]);
+                last = i + 1;
+            }
+            _ => {}
+        }
+        prev = b;
+    }
+    parts.push(&args[last..]);
+    parts
+}
+
 /// Whether the annotation `ann` spells one of `params`.
 pub(crate) fn names_type_param(ann: &str, params: &[String]) -> bool {
     !params.is_empty()
@@ -231,5 +288,32 @@ mod tests {
         assert_eq!(names("W<number>"), ["inner"]);
         assert_eq!(names("Inner"), ["b"]);
         assert!(names("V<number>").is_empty());
+    }
+
+    #[test]
+    fn a_generic_instance_spells_its_fields_with_its_type_arguments() {
+        let src = "type T = { x: number }; type W<U, V> = { t: T; u: U; v: Map<U, V> }; \
+                   type N<U> = { w: W<U, (a: U) => U> };";
+        let tokens = crate::lexer::tokenize(src).expect("tokenize");
+        let ast = crate::parser::parse(src, &tokens).expect("parse");
+        let anns = |ty: &str| -> Vec<(String, String)> {
+            (instance_fields(&ast, ty).unwrap_or_default().into_iter())
+                .map(|(k, a)| (k.lossy().to_string(), a))
+                .collect()
+        };
+        let w = anns("W<string, Map<number, boolean>>");
+        assert_eq!(w[0], ("t".into(), "T".into()));
+        assert_eq!(w[1], ("u".into(), "string".into()));
+        assert_eq!(w[2].0, "v");
+        assert!(!names_type_param(&w[2].1, &["U".into(), "V".into()]));
+        let n = anns("N<string>");
+        assert_eq!(n.len(), 1);
+        assert!(n[0].1.starts_with("W<string") && !n[0].1.contains('U'));
+        // the arguments do not line up: the fields every instance shares
+        assert_eq!(anns("W<string>"), [("t".to_string(), "T".to_string())]);
+        assert_eq!(
+            split_type_args("a, (x: b) -> c, M<d, e>"),
+            ["a", " (x: b) -> c", " M<d, e>"]
+        );
     }
 }

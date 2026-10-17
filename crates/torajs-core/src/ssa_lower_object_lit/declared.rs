@@ -33,7 +33,7 @@ impl LowerCtx<'_> {
 
 /// The annotation the object type `owner` gives its field `field`: an
 /// object type literal's, or a declared type's (a generic instance's
-/// fields that do not name a type parameter).
+/// with its type arguments written in).
 pub(crate) fn field_ann(ctx: &LowerCtx<'_>, owner: &str, field: &PropKey) -> Option<String> {
     let owner = crate::check_type_ann::strip_nullable(owner.trim()).trim();
     let name = field.as_wtf8().as_bytes();
@@ -42,7 +42,7 @@ pub(crate) fn field_ann(ctx: &LowerCtx<'_>, owner: &str, field: &PropKey) -> Opt
             .find(|(k, _, _)| k.as_bytes() == name)
             .map(|(_, _, a)| a);
     }
-    let (_, fields) = crate::ast_throw_info::obj_cast::decl_fields(ctx.ast, owner)?;
+    let fields = crate::ast_throw_info::obj_cast::instance_fields(ctx.ast, owner)?;
     (fields.into_iter())
         .find(|(k, _)| k == field)
         .map(|(_, a)| a)

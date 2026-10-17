@@ -159,16 +159,15 @@ impl Analysis<'_> {
     }
 
     /// The fields of the object type `ann`: an object type literal's,
-    /// or a declared non-generic type's (a class's among them).
+    /// or a declared type's (a class's among them; a generic
+    /// instance's with its type arguments written in).
     pub(super) fn object_fields(&self, ann: &str) -> Vec<(PropKey, String)> {
         let inline = crate::ast_collect_fn_closure_init::parse_inlobj_field_anns(ann)
             .map(|fs| fs.into_iter().map(|(f, a)| (PropKey::from(f), a)).collect());
         // the same declaration the cast at the write reads, so a field the
         // cast checks is one the walk seeds
         inline
-            .or_else(|| {
-                crate::ast_throw_info::obj_cast::decl_fields(self.ast, ann).map(|(_, fs)| fs)
-            })
+            .or_else(|| crate::ast_throw_info::obj_cast::instance_fields(self.ast, ann))
             .unwrap_or_default()
     }
 
