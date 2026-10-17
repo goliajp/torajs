@@ -1,0 +1,4 @@
+0 true true
+true false NaN
+Infinity -Infinity 345.25 NaN
+1.7976931348623157e+308 -9007199254439492
