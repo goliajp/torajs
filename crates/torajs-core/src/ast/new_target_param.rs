@@ -137,11 +137,12 @@ pub(crate) const REGISTER: &str = "__torajs_new_target_register";
 /// `construct_new_target.rs`). Runs after `promote_this_fn_values`,
 /// which mints the value faces.
 ///
-/// A function with a parameter default or a rest parameter keeps the
-/// call channel: the face forwards each parameter by name, which a
-/// call-site default or a spread would misrepresent. A body that reads
-/// `arguments` is handed the face's own (`...arguments`), so its length
-/// and indices are the construct's rather than the declared count.
+/// The face forwards each parameter by name, a rest parameter spread.
+/// A body that reads `arguments`, and a function with a parameter
+/// default, is handed the face's own (`...arguments`): its length and
+/// indices are the construct's rather than the declared count, and a
+/// default is evaluated where the argument is absent rather than taking
+/// the face's `undefined`.
 pub fn synthesize_new_target_ctor_faces(ast: &mut Ast) {
     let mut faces: Vec<Stmt> = Vec::new();
     let mut registers: Vec<Stmt> = Vec::new();
@@ -170,12 +171,11 @@ pub fn synthesize_new_target_ctor_faces(ast: &mut Ast) {
         else {
             continue;
         };
-        if params.iter().any(|p| p.default.is_some() || p.is_rest)
-            || params.first().is_some_and(|p| p.name == "__env")
-        {
+        if params.first().is_some_and(|p| p.name == "__env") {
             continue;
         }
-        let reads_args = super::arguments_object_walkers::body_has_any_arguments_touch(ast, body);
+        let reads_args = super::arguments_object_walkers::body_has_any_arguments_touch(ast, body)
+            || params.iter().any(|p| p.default.is_some());
         let (params, return_type, span) = (params.clone(), return_type.clone(), *span);
         let ctor_face = format!("__ntctor_{name}");
         let callee = ast.add_expr(Expr::Ident(name.clone()));
@@ -190,7 +190,14 @@ pub fn synthesize_new_target_ctor_faces(ast: &mut Ast) {
         } else {
             params
                 .iter()
-                .map(|p| ast.add_expr(Expr::Ident(p.name.clone())))
+                .map(|p| {
+                    let id = ast.add_expr(Expr::Ident(p.name.clone()));
+                    if p.is_rest {
+                        ast.add_expr(Expr::Spread { expr: id })
+                    } else {
+                        id
+                    }
+                })
                 .collect()
         };
         let call = ast.add_expr(Expr::Call { callee, args });
@@ -202,8 +209,17 @@ pub fn synthesize_new_target_ctor_faces(ast: &mut Ast) {
         }];
         // An untyped JS parameter has no annotation to copy; the face
         // takes it as `any`, as the value faces do.
-        face_params.extend(params.into_iter().map(|p| Param {
-            type_ann: p.type_ann.or_else(|| Some("any".into())),
+        // A default stays with the function itself. A face that passes
+        // `...arguments` on takes each user parameter as `any`, so an
+        // absent argument reaches the function as absent rather than as
+        // the typed slot's zero.
+        face_params.extend(params.into_iter().enumerate().map(|(i, p)| Param {
+            type_ann: if reads_args && i >= 2 {
+                Some("any".into())
+            } else {
+                p.type_ann.or_else(|| Some("any".into()))
+            },
+            default: None,
             ..p
         }));
         faces.push(Stmt::FnDecl {
