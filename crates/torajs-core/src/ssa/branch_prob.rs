@@ -40,6 +40,10 @@
 //!    Not when an operand is a call's answer: the generic kernels box
 //!    a double whenever an input was not an int (`+s` on a numeric
 //!    string), so the else arm is the one that runs.
+//! 7. **Hole test** — `icmp eq|ne (load …), null` whose null arm only
+//!    spells `undefined` (the generic or string undefined cell) and
+//!    joins: the slot of a pointer element is NULL only where the
+//!    program grew an array past a gap and reads the gap.
 //!
 //! Every other branch predicts nothing, and nothing splits on it: the
 //! lowerer emits many conditionals no rule reads (loop versioning on a
@@ -65,8 +69,10 @@ use crate::ssa::{
 
 mod bounds;
 mod defs;
+mod hole;
 use bounds::{length_cells, out_of_bounds_arm};
 use defs::{Defs, single_defs, value_def};
+use hole::hole_arm;
 
 /// Odds of an arm that runs only when an exception is in flight or
 /// the program is about to trap.
@@ -131,6 +137,8 @@ pub fn cold_arms(func: &Function) -> Vec<(BlockId, BlockId, f64)> {
             Some((calling_arm(), P_SLOW_PATH))
         } else if cond.is_some_and(|c| is_int_pair_test(c, &defs)) {
             Some((e, P_SLOW_PATH))
+        } else if let Some(hole) = cond.and_then(|c| hole_arm(func, &arms.blocks, c, &defs, t, e)) {
+            Some((hole, P_SLOW_PATH))
         } else {
             None
         };
@@ -289,6 +297,8 @@ fn is_int_pair_test(cond: &InstKind, defs: &Defs) -> bool {
 mod tests {
     use super::*;
     use crate::ssa::{Block, FuncId, Inst, Type, ValueId};
+    use crate::ssa_lower_binop_null_undef::UNDEF_CELL_SYM;
+    use crate::ssa_lower_intrinsics_str_b::STR_UNDEF_CELL_SYM;
 
     fn func(blocks: Vec<Block>) -> Function {
         Function {
@@ -381,5 +391,51 @@ mod tests {
             block(4, vec![], Terminator::Unreachable),
         ]);
         assert!(cold_arms(&f).contains(&(BlockId(0), BlockId(1), P_NEVER)));
+    }
+
+    /// A typed element read: the slot word, tested against NULL, whose
+    /// null arm (`then` on `eq`, `else` on `ne`) only spells undefined.
+    fn hole_read(pred: IPred, null_arm: Vec<Inst>) -> Function {
+        let read = vec![
+            inst(2, InstKind::LoadDynScaled8(Type::Ptr, v(0), v(1))),
+            inst(3, InstKind::ICmp(pred, v(2), Operand::ConstPtrNull)),
+        ];
+        let elem = vec![inst(4, InstKind::Copy(Type::Ptr, v(2)))];
+        let (t, e) = if pred == IPred::Eq { (1, 2) } else { (2, 1) };
+        func(vec![
+            block(0, read, cond_br(3, t, e)),
+            block(1, null_arm, Terminator::Br(BlockId(3))),
+            block(2, elem, Terminator::Br(BlockId(3))),
+            block(3, vec![], Terminator::Ret(None)),
+        ])
+    }
+
+    fn undef_cell(sym: &str) -> Vec<Inst> {
+        vec![
+            inst(5, InstKind::GlobalRef(sym.to_string())),
+            inst(4, InstKind::Copy(Type::Ptr, v(5))),
+        ]
+    }
+
+    #[test]
+    fn the_hole_arm_of_an_element_read_is_cold() {
+        for sym in [UNDEF_CELL_SYM, STR_UNDEF_CELL_SYM] {
+            for pred in [IPred::Eq, IPred::Ne] {
+                let f = hole_read(pred, undef_cell(sym));
+                assert_eq!(cold_arms(&f), vec![(BlockId(0), BlockId(1), P_SLOW_PATH)]);
+            }
+        }
+    }
+
+    /// A null arm that does anything besides spell undefined, or spells
+    /// some other global, is user code's null test: no prediction.
+    #[test]
+    fn a_null_arm_that_does_more_predicts_nothing() {
+        let mut more = undef_cell(UNDEF_CELL_SYM);
+        more.push(call());
+        let other = undef_cell("___torajs_throw_active");
+        for arm in [more, other] {
+            assert!(cold_arms(&hole_read(IPred::Eq, arm)).is_empty());
+        }
     }
 }
