@@ -128,29 +128,30 @@ pub(crate) fn emit_rc_dec(f: &mut ssa::Function, blk: BlockId, p: Operand) -> Op
 }
 
 /// Notify the WeakRef registry only while something observes
-/// (the inline `torajs_rc::__torajs_weakref_active` read). Answers
-/// the block the caller continues in.
+/// (the inline `torajs_rc::__torajs_weakref_active` read, or the
+/// worklist's one read). Answers the block the caller continues in.
 pub(crate) fn emit_weakref_notify(
     f: &mut ssa::Function,
     cx: &Cx<'_>,
     blk: BlockId,
     p: Operand,
 ) -> BlockId {
-    let active_ptr = f.append_inst(
-        blk,
-        InstKind::GlobalRef(ssa::WEAKREF_ACTIVE_SYM.to_string()),
-        Type::Ptr,
-        None,
-    );
-    let active = f.append_inst(
-        blk,
-        InstKind::Load(Type::I64, Operand::Value(active_ptr), 0),
-        Type::I64,
-        None,
-    );
+    let active = match cx.worklist.as_ref().and_then(|wl| wl.active) {
+        Some(active) => active,
+        None => {
+            let ptr = f.append_inst(
+                blk,
+                InstKind::GlobalRef(ssa::WEAKREF_ACTIVE_SYM.to_string()),
+                Type::Ptr,
+                None,
+            );
+            let load = InstKind::Load(Type::I64, Operand::Value(ptr), 0);
+            Operand::Value(f.append_inst(blk, load, Type::I64, None))
+        }
+    };
     let observed = f.append_inst(
         blk,
-        InstKind::ICmp(IPred::Ne, Operand::Value(active), Operand::ConstI64(0)),
+        InstKind::ICmp(IPred::Ne, active, Operand::ConstI64(0)),
         Type::Bool,
         None,
     );

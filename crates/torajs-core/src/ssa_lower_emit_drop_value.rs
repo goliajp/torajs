@@ -50,6 +50,7 @@ pub(crate) mod class_drop;
 pub(crate) mod class_drop_arr;
 pub(crate) mod class_drop_cells;
 pub(crate) mod class_drop_setup;
+pub(crate) mod class_drop_worklist;
 pub(crate) mod leaf_arr;
 mod obj;
 

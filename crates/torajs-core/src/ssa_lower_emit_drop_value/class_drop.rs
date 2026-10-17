@@ -47,6 +47,7 @@ use crate::ssa_lower_emit_drop_value::class_drop_cells::{
     emit_is_null, emit_is_undef, emit_rc_dec, emit_tag_in_set, emit_weakref_notify,
 };
 use crate::ssa_lower_emit_drop_value::class_drop_setup::ClassDropFn;
+use crate::ssa_lower_emit_drop_value::class_drop_worklist::{self as worklist, Worklist};
 
 /// What a release expansion reads besides the function it writes into.
 pub(crate) struct Cx<'a> {
@@ -64,6 +65,8 @@ pub(crate) struct Cx<'a> {
     /// allocated; it branches to the release once the body is built
     pub prelude: BlockId,
     pub cold: RefCell<Vec<ColdLeg>>,
+    /// set when the sid's instances hold the sid (`class_drop_worklist`)
+    pub worklist: Option<Worklist>,
 }
 
 /// a leg off the hot path, emitted once the body is complete
@@ -117,7 +120,7 @@ pub(crate) fn populate_class_drop_bodies(
         let p = f.add_param(Type::Ptr, "p");
         let prelude = f.add_block();
         let entry = f.add_block();
-        let cx = Cx {
+        let mut cx = Cx {
             layouts: struct_layouts,
             arr_layouts,
             class_sids: &class_sids,
@@ -126,10 +129,21 @@ pub(crate) fn populate_class_drop_bodies(
             intr: intrinsics,
             prelude,
             cold: RefCell::new(Vec::new()),
+            worklist: None,
         };
+        let (sid, p) = (d.sid.0, Operand::Value(p));
         let mut stack = Vec::new();
-        let after = emit_release(&mut f, &cx, entry, Operand::Value(p), d.sid.0, &mut stack);
-        f.set_term(after, Terminator::Ret(None));
+        if worklist::holds_own_sid(&cx, sid) {
+            let is_class = class_sids.contains(&sid);
+            cx.worklist = Some(worklist::alloc(&mut f, prelude, sid, d.fid, p, is_class));
+            let wl = cx.worklist.as_ref().expect("just set");
+            worklist::emit_loop(&mut f, wl, entry, |f, head, c, pop| {
+                emit_release(f, &cx, head, c, sid, &mut stack, Some(pop))
+            });
+        } else {
+            let after = emit_release(&mut f, &cx, entry, p, sid, &mut stack, None);
+            f.set_term(after, Terminator::Ret(None));
+        }
         for leg in cx.cold.take() {
             leg(&mut f);
         }
@@ -149,10 +163,16 @@ pub(crate) fn emit_release_value(
     stack: &mut Vec<u32>,
 ) -> BlockId {
     let drop_fid = match ty {
+        Type::Obj(s) if cx.worklist.as_ref().is_some_and(|wl| wl.sid == s.0) => {
+            let wl = cx.worklist.as_ref().expect("checked");
+            return worklist::emit_push(f, cx, wl, blk, val);
+        }
         Type::Obj(s) if cx.drop_fids.contains_key(&s.0) => {
             return emit_call_unless_null(f, blk, val, cx.drop_fids[&s.0]);
         }
-        Type::Obj(s) if !stack.contains(&s.0) => return emit_release(f, cx, blk, val, s.0, stack),
+        Type::Obj(s) if !stack.contains(&s.0) => {
+            return emit_release(f, cx, blk, val, s.0, stack, None);
+        }
         Type::Arr(id) => {
             return crate::ssa_lower_emit_drop_value::class_drop_arr::emit_release_arr(
                 f, cx, blk, val, id, stack,
@@ -190,8 +210,11 @@ fn emit_call_unless_null(
 }
 
 /// Release one reference of `val`, an instance of `sid` or nullish,
-/// starting in `blk`; answers the block every leg rejoins in. `stack`
-/// holds the sids being expanded around this one.
+/// starting in `blk`; answers the block every leg rejoins in. Given
+/// `skip_to`, the legs that release nothing of the cell's own (nullish,
+/// a foreign tag, references remaining) leave for it instead, and the
+/// answered block is reached from the walk alone. `stack` holds the
+/// sids being expanded around this one.
 fn emit_release(
     f: &mut ssa::Function,
     cx: &Cx<'_>,
@@ -199,6 +222,7 @@ fn emit_release(
     val: Operand,
     sid: u32,
     stack: &mut Vec<u32>,
+    skip_to: Option<BlockId>,
 ) -> BlockId {
     let layout = &cx.layouts[sid as usize];
     let is_class = cx.class_sids.contains(&sid);
@@ -217,8 +241,9 @@ fn emit_release(
     emit_free(f, cx, free_blk, val, sid);
     let after = f.add_block();
     f.set_term(free_blk, Terminator::Br(after));
-    branch(f, blk, is_null, after, undef_blk);
-    branch(f, undef_blk, is_undef, after, tag_blk);
+    let skip = skip_to.unwrap_or(after);
+    branch(f, blk, is_null, skip, undef_blk);
+    branch(f, undef_blk, is_undef, skip, tag_blk);
     let (obj_drop_rc, cycle_buffer, buffer_slow) = (
         cx.intr.obj_drop_rc,
         cx.intr.cycle_buffer,
@@ -228,10 +253,10 @@ fn emit_release(
         let foreign_blk = f.add_block();
         branch(f, tag_blk, known, dec_blk, foreign_blk);
         f.append_void(foreign_blk, InstKind::Call(obj_drop_rc, vec![val]));
-        f.set_term(foreign_blk, Terminator::Br(after));
+        f.set_term(foreign_blk, Terminator::Br(skip));
     });
     let Some((buffered, word)) = buffered else {
-        branch(f, dec_blk, is_zero, walk_blk, after);
+        branch(f, dec_blk, is_zero, walk_blk, skip);
         return after;
     };
     // references remain: a candidate cycle root; a fields-all-scalar
@@ -248,7 +273,7 @@ fn emit_release(
             f.append_void(buffer_blk, InstKind::Call(cycle_buffer, vec![val]));
             buffer_blk
         };
-        f.set_term(end, Terminator::Br(after));
+        f.set_term(end, Terminator::Br(skip));
         let defer_blk = f.add_block();
         branch(f, walk_end, buffered, defer_blk, free_blk);
         emit_colour_black(f, defer_blk, val, word);
@@ -285,14 +310,30 @@ fn emit_walk(
     if cx.class_sids.contains(&sid) {
         cur = emit_weakref_notify(f, cx, cur, val);
     }
+    // the worklist's own instance goes on with its last own-sid field
+    let layout = &cx.layouts[sid as usize];
+    let next = (cx.worklist.as_ref())
+        .filter(|wl| wl.sid == sid)
+        .and_then(|wl| {
+            let own = |fty: &Type| matches!(fty, Type::Obj(s) if s.0 == sid);
+            Some((layout.iter().rposition(|(_, fty)| own(fty)), wl.next))
+        });
+    if let Some((None, slot)) = next {
+        f.append_void(cur, InstKind::Store(Operand::ConstPtrNull, slot, 0));
+    }
     stack.push(sid);
-    for (i, (_, fty)) in cx.layouts[sid as usize].iter().enumerate() {
+    for (i, (_, fty)) in layout.iter().enumerate() {
         if fty.is_copy() {
             continue;
         }
         let off = OBJ_HEADER_SIZE + i as u64 * 8;
         let field = Operand::Value(f.append_inst(cur, InstKind::Load(*fty, val, off), *fty, None));
-        cur = emit_release_value(f, cx, cur, field, *fty, stack);
+        match next {
+            Some((Some(last), slot)) if last == i => {
+                f.append_void(cur, InstKind::Store(field, slot, 0))
+            }
+            _ => cur = emit_release_value(f, cx, cur, field, *fty, stack),
+        }
     }
     stack.pop();
     let has = emit_has_props(f, cur, val);

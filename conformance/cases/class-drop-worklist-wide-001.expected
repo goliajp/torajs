@@ -1,0 +1,12 @@
+wide 90301 92111
+kept 92111 1 true
+chain 47999 39999
+shared 2101 41
+after 41 399
+weak true 4
+wide 90301 92111
+kept 92111 1 true
+chain 47999 39999
+shared 2101 41
+after 41 399
+weak true 8
