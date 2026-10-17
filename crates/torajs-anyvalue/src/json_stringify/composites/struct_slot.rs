@@ -137,7 +137,15 @@ pub(super) unsafe fn struct_slot_key(
 /// `ptr` is a live `Tag::Obj` cell; `k` is [`struct_slot_key`]'s
 /// answer for one of its slots.
 pub(super) unsafe fn struct_key_listed(ptr: *mut c_void, k: &SlotKey) -> bool {
-    unsafe { __torajs_obj_field_is_nonenumerable(ptr, k.ptr, k.len as u32) == 0 }
+    // an accessor a store replaced is listed by the expando walk
+    unsafe {
+        __torajs_obj_field_is_nonenumerable(ptr, k.ptr, k.len as u32) == 0
+            && !(k.accessor
+                && crate::struct_probe::accessor_state(
+                    ptr,
+                    core::slice::from_raw_parts(k.ptr, k.len),
+                ) == crate::struct_probe::AccessorState::Replaced)
+    }
 }
 
 /// `? Get(holder, key)` for a key [`struct_slot_key`] put in K.

@@ -35,16 +35,22 @@ unsafe extern "C" {
     fn __torajs_obj_proto_borrowed(cell: *const c_void) -> u64;
 }
 
-/// Whether the declared member `name` of the instance `p` is deleted
-/// (its deletion record is set, §10.1.10): 1 or 0. The typed read of an
-/// object-literal accessor a delete of the program can reach asks it
-/// before calling the getter in the layout slot.
+/// Whether the declared accessor member `name` of the instance `p` is
+/// no own accessor any more — deleted (its deletion record is set,
+/// §10.1.10), or replaced by the ordinary property a store after the
+/// delete created: 1 or 0. The typed read of an object-literal
+/// accessor a delete of the program can reach asks it before calling
+/// the getter in the layout slot.
 ///
 /// # Safety
 /// `p` is a live `Tag::Obj` cell; `name` is a live Str cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_obj_member_deleted(p: *mut c_void, name: *const c_void) -> i64 {
-    i64::from(unsafe { crate::struct_probe::declared_field_deleted(p, name) })
+    let k = unsafe { torajs_rc::str_wtf8::StrWtf8::of(name) };
+    i64::from(
+        unsafe { crate::struct_probe::accessor_state(p, k.as_bytes()) }
+            != crate::struct_probe::AccessorState::Live,
+    )
 }
 
 /// §10.1.8.1 [[Get]] of the deleted declared member `name` of the
@@ -60,6 +66,13 @@ pub unsafe extern "C" fn __torajs_obj_deleted_member_get(
     p: *mut c_void,
     name: *const c_void,
 ) -> AnyValue {
+    // a replaced member's own property is the dict entry
+    let k = unsafe { torajs_rc::str_wtf8::StrWtf8::of(name) };
+    if unsafe { crate::struct_probe::accessor_state(p, k.as_bytes()) }
+        == crate::struct_probe::AccessorState::Replaced
+    {
+        return unsafe { __torajs_obj_field_get_exotic_impl(p, name) };
+    }
     let root = unsafe { __torajs_obj_proto_borrowed(p) };
     let proto = if is_cell(root) {
         root

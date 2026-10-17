@@ -7,7 +7,7 @@ use core::ffi::c_void;
 use super::{
     __torajs_anyv_unbox_tag, __torajs_anyv_unbox_value, __torajs_dynobj_iter_key,
     __torajs_dynobj_iter_len, __torajs_dynobj_iter_value, __torajs_is_undef_cell,
-    DYNOBJ_HOLE_SENTINEL, OBJ_HDR_FLAG_EXOTIC_FIELD, struct_props,
+    __torajs_struct_accessor_find, DYNOBJ_HOLE_SENTINEL, OBJ_HDR_FLAG_EXOTIC_FIELD, struct_props,
 };
 
 /// The shadow value of the DECLARED field named by `name` (RFC
@@ -84,4 +84,72 @@ pub(crate) unsafe fn slot_or_shadow(
     } else {
         (type_tag, raw)
     }
+}
+
+/// `torajs_dynobj::layout::DYNOBJ_ACCESSOR_ATTRS_SENTINEL` mirror — the
+/// value word of an accessor's attribute-only sidecar.
+const DYNOBJ_ACCESSOR_ATTRS_SENTINEL: u64 = 0x12;
+
+/// [`__torajs_obj_accessor_state`]: the declared accessor is an own
+/// accessor (no sidecar, or an attribute-only one).
+pub const ACCESSOR_LIVE: i64 = 0;
+/// Deleted (§10.1.10): the sidecar holds the HOLE, no own property.
+pub const ACCESSOR_DELETED: i64 = 1;
+/// Replaced: a store after the delete created an ordinary own data
+/// property under the name, and the sidecar entry IS that property —
+/// an expando like any other, in the key order its creation gave it.
+pub const ACCESSOR_REPLACED: i64 = 2;
+
+/// What the object-literal accessor member `name` of `cell` is now —
+/// [`ACCESSOR_LIVE`], [`ACCESSOR_DELETED`] or [`ACCESSOR_REPLACED`].
+/// The one judgment every own face asks before it runs the getter or
+/// setter in the layout slot, lists the layout name, or describes it.
+///
+/// The sidecar's value word decides: an accessor keeps no value, so
+/// anything there beside its attribute-only sentinel and the HOLE —
+/// `undefined` included — is the property that replaced it. Bytes
+/// spelling and the header-bit gate as
+/// [`super::__torajs_obj_field_is_deleted`]; an untouched instance
+/// answers LIVE for one header read. DELETED and REPLACED are only
+/// ever answered for a name the layout declares as an accessor, so a
+/// caller may ask about any name: LIVE then means "no accessor record".
+///
+/// # Safety
+/// `cell` is a live `Tag::Obj` heap pointer; `name` points at
+/// `name_len` readable bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_obj_accessor_state(
+    cell: *const c_void,
+    name: *const u8,
+    name_len: u32,
+) -> i64 {
+    let flags = unsafe { cell.cast::<u8>().add(6).cast::<u16>().read() };
+    if flags & OBJ_HDR_FLAG_EXOTIC_FIELD == 0 {
+        return ACCESSOR_LIVE;
+    }
+    let props = unsafe { struct_props(cell) };
+    if props.is_null() {
+        return ACCESSOR_LIVE;
+    }
+    let want = unsafe { core::slice::from_raw_parts(name, name_len as usize) };
+    let n = unsafe { __torajs_dynobj_iter_len(props) };
+    for i in 0..n {
+        let key = unsafe { __torajs_dynobj_iter_key(props, i) };
+        if key.is_null() || unsafe { crate::str_wtf8::StrWtf8::of(key) }.as_bytes() != want {
+            continue;
+        }
+        let state = match unsafe { __torajs_dynobj_iter_value(props, i) } {
+            DYNOBJ_ACCESSOR_ATTRS_SENTINEL => return ACCESSOR_LIVE,
+            DYNOBJ_HOLE_SENTINEL => ACCESSOR_DELETED,
+            _ => ACCESSOR_REPLACED,
+        };
+        let layout = unsafe { super::layout_of(cell) };
+        let declared = !layout.is_null()
+            && unsafe {
+                __torajs_struct_accessor_find(layout, name, name_len, 0) != u32::MAX
+                    || __torajs_struct_accessor_find(layout, name, name_len, 1) != u32::MAX
+            };
+        return if declared { state } else { ACCESSOR_LIVE };
+    }
+    ACCESSOR_LIVE
 }

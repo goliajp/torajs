@@ -248,13 +248,9 @@ pub(crate) unsafe fn put_rows(
         if unsafe { core::slice::from_raw_parts(kp, klen) } == b"constructor" {
             continue;
         }
-        // a deleted field (or one the literal left out) is no own
-        // property
-        if kind.is_none()
-            && unsafe {
-                crate::struct_field_attrs::__torajs_obj_field_is_deleted(cell, kp, klen as u32)
-            } != 0
-        {
+        // a deleted member (or one the literal left out, or an accessor
+        // a store replaced, which prints as an expando) is no own row
+        if unsafe { crate::struct_field_attrs::layout_member_gone(cell, kp, klen as u32) } {
             continue;
         }
         let key_cell = unsafe { mint_key(kp, klen) };

@@ -39,6 +39,8 @@ use core::ffi::c_void;
 
 use torajs_rc::Tag;
 
+mod accessor_state;
+pub(crate) use accessor_state::{AccessorState, accessor_state};
 mod field_read;
 pub(crate) use field_read::{
     declared_accessor_sidecar, declared_field_deleted, deleted_field_write_gate, expando_own_has,
@@ -147,6 +149,10 @@ pub(crate) unsafe fn resolve(ptr: *mut c_void, prop: &[u8], kind: u8) -> Option<
         }
         let idx = __torajs_struct_accessor_find(layout, prop.as_ptr(), prop.len() as u32, kind);
         if idx != u32::MAX {
+            // deleted or replaced: no own accessor left (§10.1.10)
+            if accessor_state(ptr, prop) != AccessorState::Live {
+                return None;
+            }
             let info = __torajs_struct_field_info(layout, idx);
             let env = ptr
                 .cast::<u8>()

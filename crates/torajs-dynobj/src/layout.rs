@@ -227,6 +227,15 @@ pub const TAG_DATAVIEW_HDR: u16 = 29;
 /// filters it like any other non-heap value.
 pub const DYNOBJ_HOLE_SENTINEL: u64 = 0x1A;
 
+/// The value word of an attribute-only sidecar on a DECLARED accessor
+/// member (`defineProperty(o, "acc", { enumerable: false })`): the
+/// accessor keeps no value, and every other word under its name —
+/// `undefined` included — is an ordinary property that replaced the
+/// deleted accessor. Same construction as [`DYNOBJ_HOLE_SENTINEL`]
+/// without the undefined bit, so it collides with neither that nor
+/// any encoder product.
+pub const DYNOBJ_ACCESSOR_ATTRS_SENTINEL: u64 = 0x12;
+
 /// Heap-header `flags` bit (u16 @6) marking a DynObj created with a
 /// null prototype (`Object.create(null)` semantics — e.g. a regex
 /// match's `.groups` dict per spec §22.2.7.8). Print surfaces render

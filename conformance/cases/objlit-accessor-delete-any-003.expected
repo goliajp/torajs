@@ -1,0 +1,13 @@
+1 j {
+  get: [Function: m],
+  set: undefined,
+  enumerable: false,
+  configurable: true,
+}
+undefined false
+undefined true j,m undefined
+42 42 j,m
+TypeError
+3 3
+TypeError
+undefined false

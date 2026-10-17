@@ -100,8 +100,15 @@ unsafe extern "C" {
         name_len: u32,
         out: *mut u64,
     ) -> i64;
-    /// torajs-dynobj — entry removal; drops the deletion record on revive.
-    fn __torajs_obj_declared_field_revive(obj: *mut c_void, key: *mut c_void);
+    /// torajs-dynobj — drops the deletion record on revive; over a
+    /// deleted accessor it stores a fresh data entry instead and
+    /// answers 1 (`(tag, value)` transferred).
+    fn __torajs_obj_declared_field_revive(
+        obj: *mut c_void,
+        key: *mut c_void,
+        tag: u64,
+        value: u64,
+    ) -> i64;
     fn __torajs_dynobj_has(obj: *const c_void, key: *const c_void) -> i32;
     fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
 }
@@ -118,7 +125,8 @@ pub(crate) unsafe fn declared_field_deleted(ptr: *const c_void, key: *const c_vo
 /// Does the layout of `ptr` declare `key` (data field or accessor)?
 /// Deletion-blind on purpose: this is the sidecar invariant's question
 /// ("a declared name in the `+24` dict can only be a sidecar"), not
-/// the own-property one.
+/// the own-property one — so an accessor an ordinary property replaced
+/// answers no: its dict entry is that property.
 ///
 /// # Safety
 /// `ptr` is a live `Tag::Obj` heap pointer; `key` a live Str cell.
@@ -132,8 +140,9 @@ pub(crate) unsafe fn struct_layout_declares(ptr: *const c_void, key: *const c_vo
     let (b, n) = (k.as_ptr(), k.len());
     unsafe {
         __torajs_struct_field_find(layout, b, n) != u32::MAX
-            || __torajs_struct_accessor_find(layout, b, n, 0) != u32::MAX
-            || __torajs_struct_accessor_find(layout, b, n, 1) != u32::MAX
+            || ((__torajs_struct_accessor_find(layout, b, n, 0) != u32::MAX
+                || __torajs_struct_accessor_find(layout, b, n, 1) != u32::MAX)
+                && super::accessor_state(ptr, k.as_bytes()) != super::AccessorState::Replaced)
     }
 }
 
@@ -183,8 +192,9 @@ pub(crate) unsafe fn expando_own_has(ptr: *const c_void, key: *const c_void) -> 
 /// 20260915): refused on a non-extensible instance (the refusal
 /// consumes the payload per `throw_on_refusal`), otherwise the
 /// deletion record goes and the caller's ordinary declared-field
-/// store follows — default attributes, no sidecar. `Some(0)` = refused;
-/// `None` = not deleted, or revived: go on.
+/// store follows — default attributes, no sidecar. A deleted accessor
+/// takes the store as a new data property instead (`Some(1)`).
+/// `Some(0)` = refused; `None` = not deleted, or revived: go on.
 ///
 /// # Safety
 /// `ptr` is a live `Tag::Obj` heap pointer; `key` a live Str cell;
@@ -210,7 +220,10 @@ pub(crate) unsafe fn deleted_field_write_gate(
     } {
         return Some(0);
     }
-    unsafe { __torajs_obj_declared_field_revive(ptr, key.cast_mut()) };
+    // a deleted accessor comes back as a data property, stored there
+    if unsafe { __torajs_obj_declared_field_revive(ptr, key.cast_mut(), tag, value) } != 0 {
+        return Some(1);
+    }
     None
 }
 

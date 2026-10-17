@@ -1,0 +1,18 @@
+false undefined
+true {"k":1,"n":5}
+{
+  value: 5,
+  writable: true,
+  enumerable: true,
+  configurable: true,
+}
+k,n 1,5 [["k",1],["n",5]]
+{
+  k: 1,
+  n: 5,
+}
+6 6
+true undefined undefined false k
+true undefined
+undefined true k,n {"k":1}
+s s k,n

@@ -1275,7 +1275,19 @@ mod tests {
     pub unsafe extern "C" fn __torajs_obj_declared_field_revive(
         _obj: *mut c_void,
         _key: *mut c_void,
-    ) {
+        _tag: u64,
+        _value: u64,
+    ) -> i64 {
+        0
+    }
+    /// No layout ⇒ no declared accessor to delete or replace.
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_obj_accessor_state(
+        _cell: *const c_void,
+        _name: *const u8,
+        _name_len: u32,
+    ) -> i64 {
+        0
     }
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_struct_field_find(

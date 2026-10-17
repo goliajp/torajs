@@ -277,12 +277,9 @@ pub(crate) unsafe fn struct_keys_with_expandos(
             continue;
         }
         // a deleted field (or one the literal that built the cell left
-        // out) is no own property on any surface
+        // out, or an accessor a store replaced) is no layout name
         let k = unsafe { crate::str_wtf8::StrWtf8::of(key) };
-        if unsafe {
-            crate::struct_field_attrs::__torajs_obj_field_is_deleted(cell, k.as_ptr(), k.len())
-        } != 0
-        {
+        if unsafe { crate::struct_field_attrs::layout_member_gone(cell, k.as_ptr(), k.len()) } {
             dropped_static = true;
             continue;
         }

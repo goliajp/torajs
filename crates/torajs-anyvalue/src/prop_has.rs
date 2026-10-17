@@ -178,7 +178,10 @@ pub(crate) unsafe fn struct_has_own(ptr: *const c_void, key: *const c_void) -> i
         let idx = unsafe { __torajs_struct_accessor_find(layout, name_bytes, name_len, kind) };
         idx != u32::MAX
     };
-    (has_half(ACC_GETTER) || has_half(ACC_SETTER)) as i64
+    // a replaced accessor answered above, as the expando it is now
+    ((has_half(ACC_GETTER) || has_half(ACC_SETTER))
+        && unsafe { crate::struct_probe::accessor_state(ptr, k.as_bytes()) }
+            == crate::struct_probe::AccessorState::Live) as i64
 }
 
 /// Read a module namespace's field through the object so a binding

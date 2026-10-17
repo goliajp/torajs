@@ -58,6 +58,10 @@ const OBJ_HDR_FLAG_EXOTIC_FIELD: u16 = 1 << 15;
 /// mere dynamic property never put there.
 const OBJ_HDR_FLAG_EXPANDO: u16 = 1 << 12;
 
+/// torajs-meta `ACCESSOR_DELETED` / `ACCESSOR_REPLACED` mirrors.
+const ACCESSOR_DELETED: i64 = 1;
+const ACCESSOR_REPLACED: i64 = 2;
+
 unsafe extern "C" {
     /// torajs-rc — a struct cell's first expando attach (r502): the
     /// instance's drop seams are guarded on this entry's liveness.
@@ -86,6 +90,9 @@ unsafe extern "C" {
         tag: u64,
         value: u64,
     ) -> i64;
+    /// torajs-meta — what a declared accessor member is now: live,
+    /// deleted, or replaced by an ordinary property.
+    fn __torajs_obj_accessor_state(cell: *const c_void, name: *const u8, name_len: u32) -> i64;
     // torajs-rc integrity levels.
     fn __torajs_obj_is_frozen(p: *const c_void) -> bool;
     fn __torajs_obj_is_sealed_marked(p: *const c_void) -> bool;
@@ -99,8 +106,14 @@ pub(crate) enum Declared {
     Field,
     /// An accessor member, carried under synthetic `__getter_v` /
     /// `__setter_v` slots. Its attributes take the same sidecar a data
-    /// field's do; replacing its faces does not.
-    Accessor,
+    /// field's do; replacing its faces does not. `deleted`: its
+    /// sidecar is a deletion record (§10.1.10), no own property left.
+    Accessor { deleted: bool },
+    /// An accessor member that was deleted and then created again as an
+    /// ordinary property (torajs-meta `__torajs_obj_accessor_state`):
+    /// the dict entry is that property, an expando like any other —
+    /// except that removing it would bring the layout's accessor back.
+    Replaced,
 }
 
 /// Classify `key` against `obj`'s toolchain-emitted layout metadata —
@@ -131,7 +144,12 @@ pub(crate) unsafe fn struct_declares(obj: *const c_void, key: *const c_void) -> 
         if __torajs_struct_accessor_find(layout, data, len, 0) != u32::MAX
             || __torajs_struct_accessor_find(layout, data, len, 1) != u32::MAX
         {
-            return Declared::Accessor;
+            return match __torajs_obj_accessor_state(obj, data, len) {
+                ACCESSOR_REPLACED => Declared::Replaced,
+                state => Declared::Accessor {
+                    deleted: state == ACCESSOR_DELETED,
+                },
+            };
         }
     }
     Declared::No
@@ -156,8 +174,9 @@ pub(crate) unsafe fn struct_receiver_define(
     throw_on_refusal: bool,
 ) -> Option<i64> {
     unsafe { crate::define_struct_shadow::settle_absent(obj) };
-    match unsafe { struct_declares(obj, key) } {
-        Declared::No => {
+    let declared = unsafe { struct_declares(obj, key) };
+    match unsafe { crate::define_struct_shadow::forget_deleted_accessor(obj, key, declared) } {
+        Declared::No | Declared::Replaced => {
             Some(unsafe { struct_define(obj, key, tag, value, flags_byte, throw_on_refusal) })
         }
         Declared::Field => Some(unsafe {
@@ -178,10 +197,15 @@ pub(crate) unsafe fn struct_receiver_define(
         // synthetic layout slots that the compiled read dispatches
         // through, so replacing them is another mechanism; that one
         // keeps the dispatcher's loud no-op.
-        Declared::Accessor if flags_byte & DEFINE_PRESENT_VALUE == 0 => Some(unsafe {
-            redefine_declared_field(obj, key, tag, value, flags_byte, throw_on_refusal)
-        }),
-        Declared::Accessor => None,
+        Declared::Accessor { deleted } if flags_byte & DEFINE_PRESENT_VALUE == 0 || deleted => {
+            let ok = unsafe {
+                redefine_declared_field(obj, key, tag, value, flags_byte, throw_on_refusal)
+            };
+            // the sidecar holds attributes only, and says so
+            unsafe { crate::define_struct_shadow::mark_accessor_attrs(obj, key) };
+            Some(ok)
+        }
+        Declared::Accessor { .. } => None,
     }
 }
 
@@ -239,7 +263,10 @@ unsafe fn current_field_attrs(obj: *mut c_void, key: *mut c_void) -> u64 {
 ///
 /// The `-1` answer is what a caller that has not yet classified the
 /// key needs: `delete` asks this one question and reads both halves
-/// of it, routing a `-1` to the expando dict instead.
+/// of it, routing a `-1` to the expando dict instead. `-2` is an
+/// accessor member an ordinary property replaced ([`Declared::Replaced`]):
+/// an expando to every face, which `delete` turns back into a deletion
+/// record rather than removing.
 ///
 /// One judgment, one implementation. The default is not a constant —
 /// frozen ⇒ non-writable, sealed ⇒ non-configurable, an Error's
@@ -256,7 +283,10 @@ pub unsafe extern "C" fn __torajs_obj_declared_field_attrs(
 ) -> i64 {
     match unsafe { struct_declares(obj, key) } {
         Declared::No => -1,
-        Declared::Field | Declared::Accessor => (unsafe { current_field_attrs(obj, key) }) as i64,
+        Declared::Replaced => -2,
+        Declared::Field | Declared::Accessor { .. } => {
+            (unsafe { current_field_attrs(obj, key) }) as i64
+        }
     }
 }
 

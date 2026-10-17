@@ -11,9 +11,10 @@ use crate::prop_delete::{BUCKET_FLAG_CONFIGURABLE, refuse, refuse_non_configurab
 unsafe extern "C" {
     /// torajs-dynobj — the live attributes of a DECLARED class member
     /// (its redefine sidecar when one exists, else the layout default
-    /// the integrity level moves), or -1 when the layout declares
-    /// nothing under the key. See that fn's doc for why the question
-    /// is asked rather than restated here.
+    /// the integrity level moves), -1 when the layout declares nothing
+    /// under the key, -2 for an accessor an ordinary property replaced.
+    /// See that fn's doc for why the question is asked rather than
+    /// restated here.
     fn __torajs_obj_declared_field_attrs(obj: *mut c_void, key: *mut c_void) -> i64;
     /// torajs-dynobj — record a declared field's deletion in its
     /// sidecar (RFC 20260915-declared-field-delete).
@@ -77,6 +78,12 @@ pub(crate) unsafe fn struct_delete(
     }
     if unsafe { refuse_non_configurable(props, key, throw_on_refusal) } {
         return 0;
+    }
+    // The property that replaced a deleted accessor (-2) goes back to
+    // being a deletion record: removing the entry would bring the
+    // layout's accessor back.
+    if attrs == -2 {
+        return unsafe { __torajs_obj_declared_field_delete(ptr, key as *mut c_void) };
     }
     unsafe { __torajs_dynobj_delete(props as *mut c_void, key) };
     1

@@ -282,8 +282,7 @@ unsafe fn accessor_half(
 /// accessor is an ordinary own property (§10.4), so both flags start
 /// out set, exactly like the data-field arm, and move for the same two
 /// reasons: `Object.freeze` / `seal`, and a `defineProperty` that left
-/// a sidecar. `undefined` when neither half exists (the key is simply
-/// not a member).
+/// a sidecar. `undefined` when neither half exists or no longer does.
 ///
 /// # Safety
 /// `cell` is a live `Tag::Obj` heap pointer; `layout` is its live
@@ -296,6 +295,10 @@ unsafe fn struct_accessor_descriptor(
     prop_len: u32,
     key: *const c_void,
 ) -> u64 {
+    use crate::struct_field_attrs::{__torajs_obj_accessor_state, ACCESSOR_LIVE};
+    if unsafe { __torajs_obj_accessor_state(cell, prop, prop_len) } != ACCESSOR_LIVE {
+        return VALUE_UNDEFINED_IMM;
+    }
     let (get_t, get_v) = unsafe { accessor_half(cell, layout, prop, prop_len, ACC_GETTER) };
     let (set_t, set_v) = unsafe { accessor_half(cell, layout, prop, prop_len, ACC_SETTER) };
     if get_t == ANY_UNDEF && set_t == ANY_UNDEF {
@@ -394,9 +397,14 @@ pub(crate) unsafe fn struct_cell_descriptor(cell: *const c_void, key: *const c_v
         // RFC 20260714-objlit-accessor — the plain name never matches
         // an accessor, which the layout carries under a synthetic slot
         // (`__getter_v` / `__setter_v`). Answer the accessor
-        // descriptor before conceding `undefined`.
+        // descriptor before conceding `undefined`. A deletion record
+        // owns nothing; a replaced accessor is its expando entry.
         let acc = unsafe { struct_accessor_descriptor(cell, layout, key_bytes, key_len, key) };
-        if acc != VALUE_UNDEFINED_IMM {
+        if acc != VALUE_UNDEFINED_IMM
+            || unsafe {
+                crate::struct_field_attrs::__torajs_obj_field_is_deleted(cell, key_bytes, key_len)
+            } != 0
+        {
             return acc;
         }
         return unsafe { expando_descriptor(cell, key) };

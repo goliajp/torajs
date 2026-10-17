@@ -21,8 +21,11 @@ use core::ffi::c_void;
 use crate::obj_own_keys_struct::struct_props;
 
 mod shadow;
-pub use shadow::__torajs_obj_field_shadow;
 pub(crate) use shadow::slot_or_shadow;
+pub use shadow::{
+    __torajs_obj_accessor_state, __torajs_obj_field_shadow, ACCESSOR_DELETED, ACCESSOR_LIVE,
+    ACCESSOR_REPLACED,
+};
 
 unsafe extern "C" {
     fn __torajs_struct_layout_lookup(class_tag: u32) -> *const c_void;
@@ -250,9 +253,45 @@ pub(crate) unsafe fn layout_declares(cell: *const c_void, key: *const c_void) ->
     let (bytes, len) = (k.as_ptr(), k.len());
     unsafe {
         __torajs_struct_field_find(layout, bytes, len) != u32::MAX
-            || __torajs_struct_accessor_find(layout, bytes, len, 0) != u32::MAX
-            || __torajs_struct_accessor_find(layout, bytes, len, 1) != u32::MAX
+            || ((__torajs_struct_accessor_find(layout, bytes, len, 0) != u32::MAX
+                || __torajs_struct_accessor_find(layout, bytes, len, 1) != u32::MAX)
+                // a replaced accessor's entry is the property itself
+                && __torajs_obj_accessor_state(cell, bytes, len) != ACCESSOR_REPLACED)
     }
+}
+
+/// Is the declared member `name` no own property of `cell` any more:
+/// deleted, left out by the literal that built the cell, or an
+/// accessor an ordinary property replaced (whose dict entry then lists
+/// itself, in its own key order)? The layout-name walks skip it.
+///
+/// # Safety
+/// `cell` is a live `Tag::Obj` heap pointer whose layout declares
+/// `name`; `name` points at `name_len` readable bytes.
+pub(crate) unsafe fn layout_member_gone(
+    cell: *const c_void,
+    name: *const u8,
+    name_len: u32,
+) -> bool {
+    unsafe {
+        __torajs_obj_field_is_deleted(cell, name, name_len) != 0
+            || __torajs_obj_accessor_state(cell, name, name_len) == ACCESSOR_REPLACED
+    }
+}
+
+/// The layout row of `cell` (NULL for an anonymous struct interned too
+/// late).
+///
+/// # Safety
+/// `cell` is a live `Tag::Obj` heap pointer.
+unsafe fn layout_of(cell: *const c_void) -> *const c_void {
+    let class_tag = unsafe {
+        cell.cast::<u8>()
+            .add(OBJ_CLASS_TAG_OFF)
+            .cast::<u32>()
+            .read()
+    };
+    unsafe { __torajs_struct_layout_lookup(class_tag) }
 }
 
 /// The sidecar attributes recorded for `key` on `cell`, or `None` when

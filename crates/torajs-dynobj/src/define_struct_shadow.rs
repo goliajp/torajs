@@ -25,12 +25,18 @@ use crate::accessor::VALUE_UNDEFINED;
 use crate::define::define_apply;
 use crate::layout::{
     DEFINE_FLAG_CONFIGURABLE, DEFINE_FLAG_ENUMERABLE, DEFINE_FLAG_WRITABLE, DEFINE_PRESENT_VALUE,
-    DYNOBJ_HOLE_SENTINEL,
+    DYNOBJ_ACCESSOR_ATTRS_SENTINEL, DYNOBJ_HOLE_SENTINEL,
 };
 use crate::probe::{entries, probe};
 
 /// `torajs_rc::FLAG_OBJ_EXOTIC_FIELD` mirror (see `define_struct`).
 const OBJ_HDR_FLAG_EXOTIC_FIELD: u16 = 1 << 15;
+
+/// `torajs_rc::FLAG_OBJ_EXPANDO` mirror (see `define_struct`).
+const OBJ_HDR_FLAG_EXPANDO: u16 = 1 << 12;
+
+/// `torajs_rc::FLAG_NON_EXTENSIBLE` mirror (see `define_struct`).
+const OBJ_HDR_FLAG_NON_EXTENSIBLE: u16 = 1 << 8;
 
 unsafe extern "C" {
     fn __torajs_obj_props_attach(cell: *mut u8, props: *mut c_void);
@@ -140,34 +146,128 @@ pub unsafe extern "C" fn __torajs_obj_declared_field_delete(
     1
 }
 
-/// A store that creates a deleted declared field again (§10.1.9.2 step
-/// 2.c.i; the caller has run the extensible gate): the deletion record
-/// is dropped, which brings back the layout's default attributes, and
-/// the store that follows fills the slot. When no declared name keeps
-/// an entry in the dict the exotic-field bit comes down, so the cell's
-/// typed stores are one store again.
+/// A store that creates a deleted declared member again (§10.1.9.2
+/// step 2.c.i; the caller has run the extensible gate).
+///
+/// A data FIELD: the deletion record is dropped, which brings back the
+/// layout's default attributes, and the store that follows fills the
+/// slot — answers 0 and leaves `(tag, value)` with the caller. When no
+/// declared name keeps an entry in the dict the exotic-field bit comes
+/// down, so the cell's typed stores are one store again.
+///
+/// An ACCESSOR: CreateDataProperty, never the accessor the layout slot
+/// still holds. The deletion record goes and an ordinary writable,
+/// enumerable, configurable data entry takes its place at the end of
+/// the key order; that entry is the property from now on (torajs-meta
+/// `__torajs_obj_accessor_state` answers REPLACED for it), so its value
+/// word is the plain value, `undefined` too. Answers 1; `(tag, value)`
+/// transfers in.
 ///
 /// # Safety
 /// `obj` is a live `Tag::Obj` heap pointer carrying a deletion record
-/// for `key`; `key` is a live key cell.
+/// for `key`; `key` is a live key cell; `(tag, value)` the caller's
+/// owned payload.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_obj_declared_field_revive(obj: *mut c_void, key: *mut c_void) {
+pub unsafe extern "C" fn __torajs_obj_declared_field_revive(
+    obj: *mut c_void,
+    key: *mut c_void,
+    tag: u64,
+    value: u64,
+) -> i64 {
     // a member the literal that built the cell left out has no record
     if unsafe { __torajs_obj_absent_clear(obj, key) } != 0 {
-        return;
+        return 0;
     }
-    let props = unsafe { *(obj.cast::<u8>().add(crate::layout::CELL_PROPS_OFF) as *const u64) }
-        as *mut c_void;
+    let props_slot =
+        unsafe { obj.cast::<u8>().add(crate::layout::CELL_PROPS_OFF) } as *mut *mut c_void;
+    let props = unsafe { *props_slot };
     unsafe { crate::delete::__torajs_dynobj_delete(props, key) };
+    if matches!(
+        unsafe { crate::define_struct::struct_declares(obj, key) },
+        crate::define_struct::Declared::Accessor { .. }
+    ) {
+        unsafe {
+            define_apply(
+                props_slot,
+                key,
+                tag,
+                value,
+                DEFINE_FLAG_WRITABLE
+                    | DEFINE_FLAG_ENUMERABLE
+                    | DEFINE_FLAG_CONFIGURABLE
+                    | DEFINE_PRESENT_VALUE,
+                false,
+            );
+            *obj.cast::<u8>().add(6).cast::<u16>() |= OBJ_HDR_FLAG_EXPANDO;
+        }
+        return 1;
+    }
     let n = unsafe { crate::iter::__torajs_dynobj_iter_len(props) };
+    // a replaced accessor's entry counts: the bit is what tells the
+    // layout faces the accessor is gone
     let declared = (0..n).any(|i| {
         let k = unsafe { crate::iter::__torajs_dynobj_iter_key(props, i) };
         !k.is_null()
-            && unsafe { crate::define_struct::__torajs_obj_declared_field_attrs(obj, k) } >= 0
+            && unsafe { crate::define_struct::__torajs_obj_declared_field_attrs(obj, k) } != -1
     });
     if !declared {
         let flags = unsafe { obj.cast::<u8>().add(6).cast::<u16>() };
         unsafe { *flags &= !OBJ_HDR_FLAG_EXOTIC_FIELD };
+    }
+    0
+}
+
+/// `defineProperty` over a DELETED declared accessor: the member is
+/// absent (§10.1.6.3 step 2), so on an extensible instance its deletion
+/// record goes and the define proceeds as for an undeclared key —
+/// creating an ordinary property at the end of the key order, which is
+/// the dict entry from then on. A non-extensible instance keeps the
+/// record and refuses in `redefine_declared_field`, whatever the
+/// descriptor carries.
+///
+/// # Safety
+/// `obj` is a live `Tag::Obj` heap pointer; `key` a live key cell;
+/// `declared` is what `struct_declares` answered for them.
+pub(crate) unsafe fn forget_deleted_accessor(
+    obj: *mut c_void,
+    key: *mut c_void,
+    declared: crate::define_struct::Declared,
+) -> crate::define_struct::Declared {
+    let extensible =
+        unsafe { obj.cast::<u8>().add(6).cast::<u16>().read() } & OBJ_HDR_FLAG_NON_EXTENSIBLE == 0;
+    if !matches!(
+        declared,
+        crate::define_struct::Declared::Accessor { deleted: true }
+    ) || !extensible
+    {
+        return declared;
+    }
+    let props = unsafe { *(obj.cast::<u8>().add(crate::layout::CELL_PROPS_OFF) as *const u64) };
+    unsafe { crate::delete::__torajs_dynobj_delete(props as *mut c_void, key) };
+    crate::define_struct::Declared::No
+}
+
+/// An attribute-only redefine of a live declared accessor left its
+/// sidecar's value word at the `undefined` filler a data field's
+/// sidecar uses; an accessor's says [`DYNOBJ_ACCESSOR_ATTRS_SENTINEL`]
+/// instead, because under its name `undefined` is a value an ordinary
+/// property that replaced it can hold. A deletion record stays.
+///
+/// # Safety
+/// `obj` is a live `Tag::Obj` heap pointer; `key` a live key cell.
+pub(crate) unsafe fn mark_accessor_attrs(obj: *mut c_void, key: *mut c_void) {
+    let props = unsafe { *(obj.cast::<u8>().add(crate::layout::CELL_PROPS_OFF) as *const u64) }
+        as *mut c_void;
+    if props.is_null() {
+        return;
+    }
+    let pr = unsafe { probe(props, key) };
+    if !pr.found {
+        return;
+    }
+    let ent = unsafe { entries(props).add(pr.entry as usize) };
+    if unsafe { (*ent).value_anyv } == VALUE_UNDEFINED {
+        unsafe { (*ent).value_anyv = DYNOBJ_ACCESSOR_ATTRS_SENTINEL };
     }
 }
 

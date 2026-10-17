@@ -135,9 +135,7 @@ pub unsafe extern "C" fn __torajs_anyv_struct_keys(v: u64, include_nonenum: i64)
         let (kp, klen) = unsafe { slot_key(name.ptr, name.len) };
         if unsafe { error_prop_skip(cell, layout, i, (kp, klen), include_nonenum) }
             || (include_nonenum == 0 && unsafe { field_hidden_by_sidecar(cell, kp, klen) })
-            || unsafe {
-                crate::struct_field_attrs::__torajs_obj_field_is_deleted(cell, kp, klen as u32) != 0
-            }
+            || unsafe { crate::struct_field_attrs::layout_member_gone(cell, kp, klen as u32) }
         {
             continue;
         }
@@ -190,8 +188,10 @@ pub unsafe extern "C" fn __torajs_anyv_struct_keys(v: u64, include_nonenum: i64)
 /// # Safety
 /// `cell` is a live `Tag::Obj` heap pointer; `kp`/`klen` name a field.
 unsafe fn field_hidden_by_sidecar(cell: *const c_void, kp: *const u8, klen: usize) -> bool {
+    // a replaced accessor's dict entry lists itself in the expando lane
     unsafe {
         crate::struct_field_attrs::__torajs_obj_field_is_nonenumerable(cell, kp, klen as u32) != 0
+            || crate::struct_field_attrs::layout_member_gone(cell, kp, klen as u32)
     }
 }
 
