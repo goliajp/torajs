@@ -199,7 +199,7 @@ pub(super) fn entry_fact(
         if lp.contains(&block.id) {
             continue;
         }
-        if !super::point_eval::successors(&block.term).contains(&lp.header) {
+        if !super::point_eval::successors(&block.term).any(|s| s == lp.header) {
             continue;
         }
         saw_pred = true;

@@ -257,7 +257,6 @@ impl<'a> PointEval<'a> {
             return false;
         }
         let mut stack: Vec<usize> = successors(&self.func.blocks[from.0].term)
-            .into_iter()
             .filter_map(|t| self.block_index(t.0))
             .collect();
         let mut visited = vec![false; self.func.blocks.len()];

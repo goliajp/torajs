@@ -156,7 +156,7 @@ pub(crate) fn cell_bound_after_loop(
             continue;
         }
         let defines = block.insts.iter().any(|i| i.result == Some(cell));
-        if defines && !super::point_eval::successors(&block.term).contains(&lp.header) {
+        if defines && !super::point_eval::successors(&block.term).any(|s| s == lp.header) {
             return None;
         }
     }
