@@ -19,7 +19,10 @@
 //!
 //! A cell qualifies when every def is either `cell + k` / `cell - k`
 //! with a small constant `k` (directly, or through a copy of that
-//! single-def sum) or a copy of some other operand (an init).
+//! single-def sum) or a copy of some other operand (an init). A copy of
+//! `cell + x` for any other `x` is a step of unknown size, so the cell
+//! is no counter: read as an init, it would raise the cell's own bound
+//! by a horizon every round of the ascent.
 
 use crate::id_hash::{HashMap, HashSet};
 
@@ -101,7 +104,9 @@ fn collect(
             match (step, &inst.kind) {
                 (Some(k), _) if k > 0 => entry.up = entry.up.max(k as i128),
                 (Some(k), _) => entry.down = entry.down.max(-(k as i128)),
-                (None, InstKind::Copy(_, op)) => entry.inits.push(*op),
+                (None, InstKind::Copy(_, op)) if !steps_from(op, c, single) => {
+                    entry.inits.push(*op)
+                }
                 (None, _) => {
                     refused.insert(c);
                 }
@@ -110,6 +115,17 @@ fn collect(
     }
     out.retain(|c, k| !refused.contains(c) && !k.inits.is_empty() && (k.up > 0 || k.down > 0));
     out
+}
+
+/// `op` is a single-def `cell + x`, `x + cell` or `cell - x`.
+fn steps_from(op: &Operand, cell: ValueId, single: &HashMap<ValueId, InstKind>) -> bool {
+    let Operand::Value(t) = op else { return false };
+    let c = Operand::Value(cell);
+    match single.get(t) {
+        Some(InstKind::BinOp(BinOp::Add, a, b)) => *a == c || *b == c,
+        Some(InstKind::BinOp(BinOp::Sub, a, _)) => *a == c,
+        _ => false,
+    }
 }
 
 /// `cell ± k` for a small nonzero constant `k`, as the signed step.
@@ -269,6 +285,18 @@ mod tests {
     fn a_def_that_is_not_a_step_or_a_copy_is_not_a_counter() {
         let mul = inst(0, InstKind::BinOp(BinOp::Mul, v(0), Operand::ConstI64(2)));
         let f = counter_fn(0, IPred::Slt, add(1), vec![mul]);
+        let facts = analyze_function(&f);
+        assert!(facts[&ValueId(0)].hi > HORIZON_STEPS);
+    }
+
+    #[test]
+    fn a_copy_of_the_cell_plus_an_unknown_is_not_a_counter() {
+        // %0 = copy (%0 + %9): the step is the parameter's size
+        let jump = vec![
+            inst(6, InstKind::BinOp(BinOp::Add, v(0), v(9))),
+            inst(0, InstKind::Copy(Type::I64, v(6))),
+        ];
+        let f = counter_fn(0, IPred::Slt, add(1), jump);
         let facts = analyze_function(&f);
         assert!(facts[&ValueId(0)].hi > HORIZON_STEPS);
     }
