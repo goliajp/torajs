@@ -251,6 +251,17 @@ fn try_match_assign(
         if matches!(target_ty, Type::Null | Type::Undefined) {
             return Some(nullish_to_object(checker, ast, eid, &args[1..]));
         }
+        // A RegExp target takes the runtime walk over a view of the
+        // cell, whose own-property bag holds what no layout names; the
+        // call answers the target itself, still a RegExp.
+        if matches!(target_ty, Type::RegExp) {
+            for src_id in &args[1..] {
+                if let Err(e) = checker.type_of(ast, *src_id) {
+                    return Some(Err(e));
+                }
+            }
+            return Some(Ok(Type::RegExp));
+        }
         let Type::Struct(t_fields) = &target_ty else {
             return Some(Err(format!(
                 "Object.assign target must be a struct, got {target_ty:?}"

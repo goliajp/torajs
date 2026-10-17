@@ -133,6 +133,19 @@ pub(crate) fn try_lower(
         }
         return Some(walk_target);
     }
+    // A RegExp target: the walk writes through a view of the cell and
+    // the call answers the cell. An owned temp target hands its
+    // reference to the answer (released through the view if a source
+    // throws); a borrowed one takes a +1.
+    if matches!(target_ty, Type::RegExp) {
+        let owned = ctx.owned_temp_ty(args[0], &target_op).is_some();
+        let view = ctx.box_to_any(target_op);
+        assign_any_sources(ctx, &args[1..], &view, owned);
+        if !owned {
+            ctx.emit_owned_result_inc(target_op, target_ty);
+        }
+        return Some(target_op);
+    }
     let Type::Obj(t_sid) = target_ty else {
         panic!("ssa-lower: Object.assign target must be a struct, got {target_ty:?}");
     };
