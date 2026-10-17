@@ -26,6 +26,12 @@ pub unsafe extern "C" fn __torajs_iter_helper_drop(cell: *mut c_void) {
             crate::__torajs_cycle_buffer(cell);
             return;
         }
+        // Scrub from the root buffer before the memory goes away: a
+        // cell buffered above that later normal-drops to zero would
+        // leave a dangling candidate. Done before the slots go, so a
+        // chain released newest first meets each cell at the
+        // buffer's tail. No-op when never buffered.
+        crate::__torajs_cycle_unbuffer(cell);
         let p = cell.cast::<u8>();
         crate::nanbox_ffi::__torajs_anyv_rc_dec((p.add(UNDERLYING_OFF) as *const u64).read());
         crate::nanbox_ffi::__torajs_anyv_rc_dec((p.add(FN_OFF) as *const u64).read());
@@ -39,10 +45,6 @@ pub unsafe extern "C" fn __torajs_iter_helper_drop(cell: *mut c_void) {
             (p.add(PROPS_OFF) as *mut u64).write(0);
             crate::__torajs_value_drop_heap(props);
         }
-        // Scrub from the root buffer before the memory goes away: a
-        // cell buffered above that later normal-drops to zero would
-        // leave a dangling candidate. No-op when never buffered.
-        crate::__torajs_cycle_unbuffer(cell);
         let layout = core::alloc::Layout::from_size_align(CELL_SIZE, 8).unwrap();
         std::alloc::dealloc(p, layout);
     }

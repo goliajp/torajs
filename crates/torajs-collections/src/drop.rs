@@ -62,6 +62,12 @@ pub unsafe extern "C" fn __torajs_map_drop(p: *mut c_void) {
     }
     let m = p as *mut Map;
     unsafe {
+        // Scrub from the root buffer before the memory goes away: a
+        // cell buffered above that later normal-drops to zero would
+        // leave a dangling candidate. Done before the entries go, so
+        // a chain released newest first meets each cell at the
+        // buffer's tail. No-op when never buffered.
+        __torajs_cycle_unbuffer(p);
         let n_used = (*m).n_used;
         for i in 0..n_used as usize {
             let e = (*m).entries.add(i);
@@ -92,10 +98,6 @@ pub unsafe extern "C" fn __torajs_map_drop(p: *mut c_void) {
             __torajs_value_drop_heap((*m).props);
             (*m).props = core::ptr::null_mut();
         }
-        // Scrub from the root buffer before the memory goes away: a
-        // cell buffered above that later normal-drops to zero would
-        // leave a dangling candidate. No-op when never buffered.
-        __torajs_cycle_unbuffer(p);
         free((*m).slots as *mut c_void);
         free((*m).entries as *mut c_void);
         free(p);

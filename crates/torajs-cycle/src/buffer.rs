@@ -267,6 +267,18 @@ pub unsafe extern "C" fn __torajs_cycle_unbuffer(p: *mut c_void) {
         unsafe {
             if *buf.add(i) == p {
                 *buf.add(i) = ptr::null_mut();
+                // a long chain released newest first scrubs the tail
+                // again and again: trimming the empty tail keeps each
+                // scrub one step instead of a walk over the earlier
+                // scrubs. A running collect holds the length it
+                // snapshotted, so the tail stays until its compact.
+                if !crate::collect::in_collect() {
+                    let mut n = len as usize;
+                    while n > 0 && (*buf.add(n - 1)).is_null() {
+                        n -= 1;
+                    }
+                    G_BUFFER_LEN.store(n as u32, Ordering::Relaxed);
+                }
                 return;
             }
         }
@@ -296,5 +308,30 @@ mod tests {
         let mut kept = Vec::new();
         for_each_with_index(|i, p| kept.push((i, p)));
         assert_eq!(kept, vec![(0, c)]);
+    }
+
+    #[test]
+    fn scrubbing_the_tail_trims_the_empty_slots_behind_it() {
+        let mut cells: Vec<HeapHeader> = (0..3)
+            .map(|_| HeapHeader {
+                refcount: 1,
+                type_tag: 0,
+                flags: FLAG_BUFFERED,
+            })
+            .collect();
+        let p: Vec<*mut c_void> = cells
+            .iter_mut()
+            .map(|h| h as *mut HeapHeader as *mut c_void)
+            .collect();
+        for &c in &p {
+            buffer_push(c);
+        }
+        // a middle slot is emptied, the length kept
+        unsafe { __torajs_cycle_unbuffer(p[1]) };
+        assert_eq!(len(), 3);
+        // the tail goes, and the empty slot behind it with it
+        unsafe { __torajs_cycle_unbuffer(p[2]) };
+        assert_eq!(len(), 1);
+        assert!(cells.iter().skip(1).all(|h| h.flags & FLAG_BUFFERED == 0));
     }
 }

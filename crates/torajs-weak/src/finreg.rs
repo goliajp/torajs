@@ -346,6 +346,9 @@ pub unsafe extern "C" fn __torajs_finreg_drop(p: *mut c_void) {
             __torajs_cycle_buffer(p);
             return;
         }
+        // scrubbed before the held values go, so a chain released
+        // newest first meets each cell at the buffer's tail
+        __torajs_cycle_unbuffer(p);
         let head = (*fr).pending_head as usize;
         let (nc, np) = ((*fr).cells_len as usize, (*fr).pending_len as usize);
         for i in 0..nc {
@@ -373,7 +376,6 @@ pub unsafe extern "C" fn __torajs_finreg_drop(p: *mut c_void) {
         if (*fr).header.flags & crate::layout::FLAG_SUBCLASSED != 0 {
             __torajs_subclass_drop_entry(p);
         }
-        __torajs_cycle_unbuffer(p);
         free(p);
     }
 }

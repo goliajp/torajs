@@ -137,12 +137,17 @@ pub unsafe extern "C" fn __torajs_proxy_drop(cell: *mut c_void) {
             crate::__torajs_cycle_buffer(cell);
             return;
         }
-        let p = cell.cast::<u8>();
-        __torajs_anyv_rc_dec((p.add(TARGET_OFF) as *const u64).read());
-        __torajs_anyv_rc_dec((p.add(HANDLER_OFF) as *const u64).read());
-        // Scrub from the root buffer before the memory goes away.
-        // No-op when never buffered.
+        // Scrub from the root buffer before the memory goes away,
+        // and before the slots go, so a chain released newest first
+        // meets each cell at the buffer's tail. No-op when never
+        // buffered.
         crate::__torajs_cycle_unbuffer(cell);
+        let p = cell.cast::<u8>();
+        // the handler first: proxies that wrap proxies chain through
+        // the target, and the level below is scrubbed at the tail only
+        // once this level's handler has gone
+        __torajs_anyv_rc_dec((p.add(HANDLER_OFF) as *const u64).read());
+        __torajs_anyv_rc_dec((p.add(TARGET_OFF) as *const u64).read());
         let layout = core::alloc::Layout::from_size_align(CELL_SIZE, 8).unwrap();
         std::alloc::dealloc(p, layout);
     }

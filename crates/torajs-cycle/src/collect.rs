@@ -46,8 +46,15 @@ use crate::work_stack::WorkStack;
 /// Set while a collect runs. A drop inside pass 3 that pushes the
 /// 1024th candidate would otherwise start a nested collect, and the
 /// nested root walk could not tell a black survivor being dismantled
-/// from a block that finished dying while buffered.
+/// from a block that finished dying while buffered. `unbuffer` also
+/// reads it: the buffer keeps its length while a collect walks it.
 static IN_COLLECT: AtomicBool = AtomicBool::new(false);
+
+/// True while a collect runs.
+#[inline]
+pub(crate) fn in_collect() -> bool {
+    IN_COLLECT.load(Ordering::Relaxed)
+}
 
 unsafe extern "C" {
     /// Universal-drop dispatcher in runtime_str.c — type-tag-keyed

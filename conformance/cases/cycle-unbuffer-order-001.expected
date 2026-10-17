@@ -1,0 +1,15 @@
+head 199 leaf
+mid 99 1 leaf
+shared gets true
+same same 7
+ring 299 298 297
+revocable base
+revoked mid true
+map head 2999
+map mid 1500 1499 true
+map walk 1501
+helper head 210
+helper mid 120 130
+helper rest 140
+helper self 198
+done
