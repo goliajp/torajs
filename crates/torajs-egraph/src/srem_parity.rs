@@ -16,6 +16,11 @@
 //! of information. float_demote's FRem→SRem output is the main feeder
 //! (collatz decomposition A1b).
 //!
+//! The rewritten value keeps its id but not its values, so its
+//! interval fact goes with the srem: over a non-positive dividend the
+//! srem's fact is `[-(2^k-1), 0]` while the mask reads `0..2^k-1`, and
+//! a later reader that met the two would see zero alone.
+//!
 //! Runs after float_demote (its SRem output is the target shape),
 //! before sext_elide / ctpop_idiom. `TORAJS_SREM_PARITY_OFF=1` skips,
 //! `TORAJS_SREM_PARITY_STATS=1` dumps counters.
@@ -24,6 +29,7 @@ use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{BinOp, Function, IPred, InstKind, Module, Operand, Terminator, ValueId};
 
+use crate::interval::NumFact;
 use crate::interval::transfer::op_const_int;
 use crate::rc_peephole::visit_value_operands;
 
@@ -33,13 +39,19 @@ pub struct SremParityStats {
     pub srems_reduced: u32,
 }
 
-pub fn reduce_parity_srems(module: &mut Module) -> SremParityStats {
+/// `facts` is the pipeline's interval analysis, index-aligned with
+/// `module.funcs`; every rewritten value's fact is dropped from it.
+pub fn reduce_parity_srems(
+    module: &mut Module,
+    mut facts: Option<&mut [HashMap<ValueId, NumFact>]>,
+) -> SremParityStats {
     let mut stats = SremParityStats::default();
-    for func in module.funcs.iter_mut() {
+    for (fi, func) in module.funcs.iter_mut().enumerate() {
         if func.is_declaration() {
             continue;
         }
-        reduce_in_function(func, &mut stats);
+        let fm = facts.as_deref_mut().and_then(|f| f.get_mut(fi));
+        reduce_in_function(func, fm, &mut stats);
     }
     stats
 }
@@ -55,7 +67,11 @@ fn is_zero_compare_of(kind: &InstKind, v: ValueId) -> bool {
     }
 }
 
-fn reduce_in_function(func: &mut Function, stats: &mut SremParityStats) {
+fn reduce_in_function(
+    func: &mut Function,
+    mut facts: Option<&mut HashMap<ValueId, NumFact>>,
+    stats: &mut SremParityStats,
+) {
     // candidate defs: %r = srem x, 2^k (k ≥ 1)
     let mut candidates: HashMap<ValueId, (usize, usize)> = HashMap::default();
     for (bi, block) in func.blocks.iter().enumerate() {
@@ -106,6 +122,9 @@ fn reduce_in_function(func: &mut Function, stats: &mut SremParityStats) {
         };
         let mask = (op_const_int(rhs).expect("candidate divisor is const") - 1) as i64;
         inst.kind = InstKind::BinOp(BinOp::And, *x, Operand::ConstI64(mask));
+        if let Some(f) = facts.as_deref_mut() {
+            f.remove(&r);
+        }
         stats.srems_reduced += 1;
     }
 }
@@ -160,13 +179,19 @@ mod tests {
             val(2, InstKind::ICmp(IPred::Eq, v(1), c(0)), &mut vals),
         ];
         let mut f = func_one_block(insts, vals, Terminator::Ret(Some(v(2))));
+        let mut facts: HashMap<ValueId, NumFact> = HashMap::default();
+        facts.insert(ValueId(0), NumFact::new(-9, 0));
+        facts.insert(ValueId(1), NumFact::new(-1, 0));
         let mut stats = SremParityStats::default();
-        reduce_in_function(&mut f, &mut stats);
+        reduce_in_function(&mut f, Some(&mut facts), &mut stats);
         assert_eq!(stats.srems_reduced, 1);
         assert_eq!(
             f.blocks[0].insts[1].kind,
             InstKind::BinOp(BinOp::And, v(0), c(1))
         );
+        // -1 & 1 is 1, outside the srem's [-1, 0]
+        assert!(!facts.contains_key(&ValueId(1)));
+        assert!(facts.contains_key(&ValueId(0)));
     }
 
     #[test]
@@ -180,7 +205,7 @@ mod tests {
         ];
         let mut f = func_one_block(insts, vals, Terminator::Ret(Some(v(2))));
         let mut stats = SremParityStats::default();
-        reduce_in_function(&mut f, &mut stats);
+        reduce_in_function(&mut f, None, &mut stats);
         assert_eq!(stats.srems_reduced, 1);
         assert_eq!(
             f.blocks[0].insts[1].kind,
@@ -200,7 +225,7 @@ mod tests {
         ];
         let mut f = func_one_block(insts, vals, Terminator::Ret(Some(v(3))));
         let mut stats = SremParityStats::default();
-        reduce_in_function(&mut f, &mut stats);
+        reduce_in_function(&mut f, None, &mut stats);
         assert_eq!(stats.srems_reduced, 0);
         assert!(matches!(
             f.blocks[0].insts[1].kind,
@@ -227,8 +252,8 @@ mod tests {
         ];
         let mut g = func_one_block(insts_g, vals_g, Terminator::Ret(Some(v(2))));
         let mut stats = SremParityStats::default();
-        reduce_in_function(&mut f, &mut stats);
-        reduce_in_function(&mut g, &mut stats);
+        reduce_in_function(&mut f, None, &mut stats);
+        reduce_in_function(&mut g, None, &mut stats);
         assert_eq!(stats.srems_reduced, 0);
     }
 }

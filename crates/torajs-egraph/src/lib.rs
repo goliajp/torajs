@@ -245,7 +245,9 @@ pub fn transform_module(mut module: Module) -> Module {
     // expands SRem to sdiv+msub; the divider trip is invisible to
     // GVN). After float_demote (its FRem→SRem output is the feeder).
     // `TORAJS_SREM_PARITY_OFF=1` skips (bisect gate).
-    gated_pass("SREM_PARITY", &mut module, srem_parity::reduce_parity_srems);
+    gated_pass("SREM_PARITY", &mut module, |m| {
+        srem_parity::reduce_parity_srems(m, interval_facts.as_deref_mut())
+    });
     let sext_seeds = pass_timer::timed("SEXT_SEEDS", || {
         sext_seeds(&module, interval_facts.as_deref())
     });
