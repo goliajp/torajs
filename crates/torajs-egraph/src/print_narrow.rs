@@ -42,9 +42,13 @@ pub struct PrintNarrowStats {
     pub bridges_removed: u32,
 }
 
-/// `cache` answers the lattice facts of bodies no pass has changed
-/// since they were analyzed.
-pub fn narrow_prints(module: &mut Module, cache: Option<&FactCache>) -> PrintNarrowStats {
+/// `facts` is the pipeline's interval analysis, index-aligned with
+/// `module.funcs`, and `cache` tells which bodies it still describes.
+pub fn narrow_prints(
+    module: &mut Module,
+    facts: Option<&[HashMap<ValueId, NumFact>]>,
+    cache: Option<&FactCache>,
+) -> PrintNarrowStats {
     let mut stats = PrintNarrowStats::default();
     let mut pairs: Vec<(FuncId, FuncId)> = Vec::new();
     for (f64_name, i64_name) in PAIRS {
@@ -67,7 +71,7 @@ pub fn narrow_prints(module: &mut Module, cache: Option<&FactCache>) -> PrintNar
         if func.is_declaration() {
             continue;
         }
-        let seed = cache.and_then(|c| c.get(fi, func));
+        let seed = cache.and_then(|c| c.get(facts, fi, func));
         narrow_in_function(func, &pairs, &names, seed, &mut stats);
     }
     stats
@@ -272,7 +276,7 @@ mod tests {
     #[test]
     fn bounded_sum_prints_through_the_i64_printer() {
         let mut m = sum_loop(1000);
-        let stats = narrow_prints(&mut m, None);
+        let stats = narrow_prints(&mut m, None, None);
         assert_eq!(stats.narrowed, 1);
         assert_eq!(stats.bridges_removed, 1);
         let exit = &m.funcs[2].blocks[3].insts;
@@ -284,7 +288,7 @@ mod tests {
     fn sum_that_may_pass_2_53_keeps_the_f64_printer() {
         // trip 2^30 × inc up to 2^30 = 2^60 > 2^53
         let mut m = sum_loop(1 << 30);
-        let stats = narrow_prints(&mut m, None);
+        let stats = narrow_prints(&mut m, None, None);
         assert_eq!(stats.narrowed, 0);
         assert!(matches!(
             &m.funcs[2].blocks[3].insts[1].kind,

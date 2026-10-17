@@ -17,7 +17,6 @@ use torajs_core::ssa::{BinOp, InstKind, Module, ValueId};
 
 use super::accum::accum_bound;
 use super::point_eval::PointEval;
-use crate::interval::FactCache;
 use crate::interval::transfer::NumFact;
 
 const F64_EXACT: i128 = 1 << 53;
@@ -28,16 +27,16 @@ pub struct SumFactStats {
     pub bounded: u32,
 }
 
-/// `cache` holds the lattice facts as analyzed, before this pass
-/// tightens `facts`.
+/// `facts` is the lattice as analyzed, index-aligned with
+/// `module.funcs`; the bounds are met into it once every sum of a
+/// function has read it. `names` is the module's function names.
 pub fn bound_sums(
     module: &Module,
     facts: &mut [HashMap<ValueId, NumFact>],
-    cache: Option<&FactCache>,
+    names: &[String],
 ) -> SumFactStats {
-    let (cache, names) = FactCache::for_module(cache, module);
     let mut stats = SumFactStats::default();
-    for (fi, (func, fm)) in module.funcs.iter().zip(facts.iter_mut()).enumerate() {
+    for (func, fm) in module.funcs.iter().zip(facts.iter_mut()) {
         if func.is_declaration() {
             continue;
         }
@@ -61,13 +60,14 @@ pub fn bound_sums(
         }
         let dom = DominatorTree::compute(func);
         let la = LoopAnalysis::compute(func, &dom);
-        let pe = PointEval::new(func, &dom, &la, &names, cache.and_then(|c| c.get(fi, func)));
-        for (x, at) in sums {
-            if pe.single_def(x).is_none() {
-                continue;
-            }
-            if let Some(bound) = accum_bound(func, &la, &pe, x, at)
-                && let Some(f) = fm.get_mut(&x)
+        let pe = PointEval::new(func, &dom, &la, names, Some(fm));
+        let bounds: Vec<(ValueId, NumFact)> = sums
+            .into_iter()
+            .filter(|(x, _)| pe.single_def(*x).is_some())
+            .filter_map(|(x, at)| accum_bound(func, &la, &pe, x, at).map(|b| (x, b)))
+            .collect();
+        for (x, bound) in bounds {
+            if let Some(f) = fm.get_mut(&x)
                 && let Some(met) = f.meet(bound)
             {
                 *f = met;
@@ -204,7 +204,7 @@ mod tests {
             facts[0][&ValueId(8)].hi >= F64_EXACT,
             "the lattice leaves the sum open"
         );
-        let stats = bound_sums(&m, &mut facts, None);
+        let stats = bound_sums(&m, &mut facts, &["main".into()]);
         (facts[0][&ValueId(8)], stats)
     }
 

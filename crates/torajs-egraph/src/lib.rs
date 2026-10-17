@@ -217,13 +217,13 @@ pub fn transform_module(mut module: Module) -> Module {
     // R2 with loop cells provably inside i32 range (the popcount
     // residual-pair case). `TORAJS_INTERVAL_OFF=1` skips (bisect gate).
     let (mut interval_facts, fact_cache) =
-        pass_timer::timed("INTERVAL", || interval::run::analyze_gated(&module));
+        pass_timer::timed("INTERVAL", || interval::run::analyze_gated(&module)).unzip();
     // Loop sums take their add-recurrence bound before float_demote
     // reads the facts: one the bound keeps inside ±2^53 demotes with
     // no window check. `TORAJS_SUM_FACTS_OFF=1` skips.
-    if let Some(facts) = &mut interval_facts {
+    if let (Some(facts), Some(cache)) = (&mut interval_facts, &fact_cache) {
         gated_pass("SUM_FACTS", &mut module, |m| {
-            bound_sums(m, facts, fact_cache.as_ref())
+            bound_sums(m, facts, cache.names())
         });
     }
     // Float demotion (RFC 20260611 phase 1b-i) — integer-valued f64
@@ -276,7 +276,7 @@ pub fn transform_module(mut module: Module) -> Module {
     // (folded diamonds must not be select-formed).
     // `TORAJS_BRANCH_FOLD_OFF=1` skips (bisect gate).
     gated_pass("BRANCH_FOLD", &mut module, |m| {
-        branch_fold::fold_branches(m, fact_cache.as_ref())
+        branch_fold::fold_branches(m, interval_facts.as_deref(), fact_cache.as_ref())
     });
     // Array header words out of loops (`array_header_passes`). After
     // branch_fold: its folded-away arms are no longer loop body.
@@ -299,7 +299,7 @@ pub fn transform_module(mut module: Module) -> Module {
     // shape (its guard just folded above, so the bridge has one def).
     // `TORAJS_PRINT_NARROW_OFF=1` skips (bisect gate).
     gated_pass("PRINT_NARROW", &mut module, |m| {
-        print_narrow::narrow_prints(m, fact_cache.as_ref())
+        print_narrow::narrow_prints(m, interval_facts.as_deref(), fact_cache.as_ref())
     });
     drop(fact_cache);
     pipeline_loop::hoist_loop_consts(&mut module);

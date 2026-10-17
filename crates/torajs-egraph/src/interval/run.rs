@@ -1,5 +1,12 @@
 //! The analysis as the egraph pipeline runs it: its off switch, its
 //! per-function counts, and the cache later passes read.
+//!
+//! The facts outlive the analysis: every pass between it and the last
+//! reader keeps them id-valid. A function never reuses a value id (new
+//! values are pushed), a pass that redefines a value in place leaves
+//! it a subset of the values it took (a demoted add, a collapsed
+//! loop's sum), and a pass that gives an id a new meaning drops its
+//! fact (srem_fquot and srem_parity do).
 
 use crate::id_hash::HashMap;
 
@@ -7,14 +14,13 @@ use torajs_core::ssa::{Function, Module, Type, ValueId};
 
 use super::{FactCache, NumFact, analyze_module_with, transfer};
 
-/// The integer range analysis and the cache of what it gave, or
-/// neither under `TORAJS_INTERVAL_OFF=1`; `TORAJS_INTERVAL_STATS=1`
-/// prints each fn's fact counts to stderr.
-pub fn analyze_gated(
-    module: &Module,
-) -> (Option<Vec<HashMap<ValueId, NumFact>>>, Option<FactCache>) {
+/// The integer range analysis and the cache that tells its later
+/// readers which bodies it still describes as analyzed, or `None`
+/// under `TORAJS_INTERVAL_OFF=1`; `TORAJS_INTERVAL_STATS=1` prints each
+/// fn's fact counts to stderr.
+pub fn analyze_gated(module: &Module) -> Option<(Vec<HashMap<ValueId, NumFact>>, FactCache)> {
     if std::env::var("TORAJS_INTERVAL_OFF").as_deref() == Ok("1") {
-        return (None, None);
+        return None;
     }
     let names: Vec<String> = module.funcs.iter().map(|f| f.name.clone()).collect();
     let facts = analyze_module_with(module, &names);
@@ -26,8 +32,8 @@ pub fn analyze_gated(
             }
         }
     }
-    let cache = FactCache::new(module, names, facts.clone());
-    (Some(facts), Some(cache))
+    let cache = FactCache::new(module, names);
+    Some((facts, cache))
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]

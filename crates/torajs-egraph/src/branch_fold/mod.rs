@@ -23,10 +23,11 @@
 //! zero is the case that needs it, and it is what the guarded index
 //! read leaves behind: the length guard settles the upper bound of
 //! `xs[i]` and never the lower, so that compare is emitted and is
-//! always false. It is recomputed here rather than reused from the
-//! pipeline's earlier run — the passes in between rewrite
-//! instructions, and a fact keyed by a ValueId that has since been
-//! reused is evidence for the wrong value.
+//! always false. The facts are the pipeline's own run of the analysis
+//! for a body no pass has changed since; a changed body is analyzed
+//! again, because the passes in between can tighten it (the guards
+//! float_demote inserts, the loops ctpop collapses) and the values they
+//! minted have no fact of their own (`interval::FactCache`).
 //!
 //! The fourth is the branch-edge constraints the lattice itself uses
 //! for instruction results but never applies to a value's own fact: a
@@ -70,16 +71,20 @@ pub struct BranchFoldStats {
 }
 
 /// Fold provably-constant conditional branches in every function.
-/// `cache` answers the lattice facts of bodies no pass has changed
-/// since they were analyzed.
-pub fn fold_branches(module: &mut Module, cache: Option<&FactCache>) -> BranchFoldStats {
+/// `facts` is the pipeline's interval analysis, index-aligned with
+/// `module.funcs`, and `cache` tells which bodies it still describes.
+pub fn fold_branches(
+    module: &mut Module,
+    facts: Option<&[HashMap<ValueId, NumFact>]>,
+    cache: Option<&FactCache>,
+) -> BranchFoldStats {
     let (cache, names) = FactCache::for_module(cache, module);
     let mut stats = BranchFoldStats::default();
     for (fi, func) in module.funcs.iter_mut().enumerate() {
         if func.is_declaration() {
             continue;
         }
-        let seed = cache.and_then(|c| c.get(fi, func));
+        let seed = cache.and_then(|c| c.get(facts, fi, func));
         fold_in_function(func, &names, seed, &mut stats);
     }
     stats
