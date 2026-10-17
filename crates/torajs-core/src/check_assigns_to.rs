@@ -102,6 +102,11 @@ pub(crate) fn writes(ast: &Ast, exprs: &[ExprId], s: &Stmt, hit: &dyn Fn(ExprId)
     out.write
 }
 
+/// Does evaluating `e` write the binding `name`?
+pub(crate) fn expr_writes(ast: &Ast, e: ExprId, name: &str) -> bool {
+    writes(ast, &[e], &Stmt::Multi(Vec::new()), &binding_hit(ast, name))
+}
+
 fn scan_expr(ast: &Ast, e: ExprId, g: &Guarded, out: &mut Scan) {
     match ast.get_expr(e) {
         Expr::Assign { target, .. } | Expr::PostIncr { target, .. } if (g.hit)(*target) => {
@@ -340,6 +345,131 @@ mod tests {
         accepted(
             "function h(x: Node | null, k: number): number \
              { if (x === null) x = { v: 9, next: null }; while (k > 0) { g(x); k--; } return 0; }",
+        );
+    }
+
+    #[test]
+    fn a_nested_guard_does_not_bring_back_a_retired_member_narrow() {
+        refused(
+            "let t: Node = a; if (t.next !== null) \
+             { if (t.next !== null) { t = t.next; } g(t.next); }",
+        );
+        refused(
+            "let t: Node = a; while (t.next !== null) \
+             { if (t.next !== null) { t = t.next; } g(t.next); }",
+        );
+        refused(
+            "let t: Node = a; if (t.next !== null) \
+             { if (t.next === null) { g(a); } else { t = t.next; } g(t.next); }",
+        );
+        refused(
+            "let q: Node | null = a; if (q !== null) { if (q !== null) { q = q.next; } g(q); }",
+        );
+        accepted(
+            "let t: Node = a; if (t.next !== null) \
+             { if (t.next !== null) { g(t.next); } g(t.next); }",
+        );
+        accepted(
+            "function h(t: Node, k: boolean): number { if (t.next !== null) \
+             { if (k) { t = t.next; return 0; } return g(t.next); } return 1; }",
+        );
+    }
+
+    #[test]
+    fn an_operand_write_cancels_the_other_operands_narrow() {
+        refused("let q: Node | null = a; if (q !== null && (q = null) === null) { g(q); }");
+        refused(
+            "function m(): Node | null { return null; } \
+             function f(x: Node | null): boolean { return x === null; } \
+             function h(q: Node | null): number { if (q === null || f(q = m())) return 0; return g(q); }",
+        );
+        refused(
+            "function m(): Node | null { return null; } \
+             function f(x: Node | null): boolean { return x === null; } \
+             let q: Node | null = a; let s = 0; while (q !== null && f(q = m())) { s += g(q); }",
+        );
+        accepted(
+            "let q: Node | null = a; let s = 0; \
+             while (q !== null && (q = q.next) !== null) { s += g(q); }",
+        );
+        accepted("let q: Node | null = a; if (q !== null && q.v > 0) { g(q); }");
+        accepted(
+            "function h(q: Node | null): number { if (q === null || q.v < 0) return 0; return g(q); }",
+        );
+    }
+
+    #[test]
+    fn a_break_out_of_a_switch_or_block_carries_its_writes() {
+        refused(
+            "let q: Node | null = a; let k = 1; let c = true; while (q !== null) \
+             { switch (k) { case 1: if (c) { q = q.next; break; } } g(q); }",
+        );
+        refused(
+            "let q: Node | null = a; let c = true; while (q !== null) \
+             { L: { if (c) { q = q.next; break L; } } g(q); }",
+        );
+        refused(
+            "function h(q: Node | null, k: number): number \
+             { switch (k) { case 1: if (q === null) break; g(q); } return g(q); }",
+        );
+        refused(
+            "function h(q: Node | null): number { L: { if (q === null) break L; g(q); } return g(q); }",
+        );
+        accepted(
+            "function h(q: Node | null, k: number): number \
+             { switch (k) { case 1: if (q === null) break; return g(q); } return 0; }",
+        );
+        accepted(
+            "let q: Node | null = a; let c = true; let s = 0; while (q !== null) \
+             { if (c) { q = q.next; break; } s += g(q); q = q.next; }",
+        );
+    }
+
+    #[test]
+    fn a_loop_that_wrote_the_guarded_binding_leaves_it_possibly_null() {
+        refused(
+            "function h(q: Node | null): number \
+             { if (q === null) return 0; while (q !== null) { q = q.next; } return g(q); }",
+        );
+        refused(
+            "function h(q: Node | null, k: number): number \
+             { while (k > 0) { if (q === null) break; k--; } return g(q); }",
+        );
+        refused(
+            "function h(q: Node | null, k: number): number \
+             { for (let i = 0; i < k; i++) { if (q === null) return 0; } return g(q); }",
+        );
+        accepted(
+            "function h(q: Node | null, k: number): number \
+             { if (q === null) return 0; while (k > 0) { if (q === null) break; k--; } return g(q); }",
+        );
+    }
+
+    #[test]
+    fn a_catch_starts_from_any_point_of_the_try() {
+        refused(
+            "let q: Node | null = a; if (q !== null) \
+             { try { q = q.next; if (q === null) throw 0; } catch (e) { g(q); } }",
+        );
+        refused(
+            "let q: Node | null = a; if (q !== null) \
+             { try { q = q.next; if (q === null) throw 0; } finally { g(q); } }",
+        );
+        refused(
+            "function h(q: Node | null): number \
+             { try { if (q === null) throw 0; } catch (e) { } return g(q); }",
+        );
+        refused(
+            "function h(q: Node | null): number \
+             { try { q = null; } catch (e) { if (q === null) return 0; } return g(q); }",
+        );
+        accepted(
+            "let q: Node | null = a; if (q !== null) \
+             { try { g(q); q = q.next; } catch (e) { g(a); } }",
+        );
+        accepted(
+            "function h(q: Node | null): number \
+             { try { if (q === null) throw 0; return g(q); } catch (e) { return 1; } }",
         );
     }
 }

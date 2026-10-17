@@ -65,8 +65,15 @@ pub(crate) fn check_while(checker: &mut Checker, ast: &Ast, cond: ExprId, body: 
         _ => None,
     };
     checker.check_stmt(ast, body);
-    if let (Some((name, _, _)), Some(prev)) = (&narrow, saved) {
-        checker.restore_narrow(name, prev);
+    if let (Some((name, inner, _)), Some(prev)) = (&narrow, saved) {
+        // a body that writes the binding leaves the loop with whatever
+        // the write stored, or with the null that ended it
+        let after = if guard.is_some() {
+            Type::Nullable(Box::new(inner.clone()))
+        } else {
+            prev
+        };
+        checker.restore_narrow(name, after);
     }
     checker.close_guard(guard);
     if let (Some((key, _, _)), Some(prev)) = (&member_narrow, member_saved) {

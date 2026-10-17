@@ -1,7 +1,6 @@
 //! Scope / borrow-move tracking method cluster (chunk 425).
 //!
-//! Extracted verbatim from check.rs — the Checker methods that
-//! manage lexical scopes and the ownership/move ledger:
+//! The Checker methods that manage scopes and the move ledger:
 //! - declare / lookup / lookup_with_depth — scope-stack bindings
 //! - collect_null_narrow / apply_narrow / restore_narrow — null
 //!   narrowing across if/ternary guards
@@ -10,8 +9,6 @@
 //!   join_branch_moves — move-ledger state machine across branches
 //! - consume / consume_escape — use-site ownership consumption
 //! - classify_init_alias — alias-vs-share init classification
-//!
-//! Bodies unchanged.
 
 use super::*;
 
@@ -49,7 +46,8 @@ impl Checker {
     ) -> Option<(String, Type, bool)> {
         // `a && b` is true only when both are, `a || b` false only when
         // both are: an operand's narrow on that side is the whole
-        // condition's (`if (x === null || x.w < 2) return`)
+        // condition's (`if (x === null || x.w < 2) return`), unless the
+        // right operand, run after the left, writes the binding
         if let Expr::BinOp {
             op: op @ (BinOp::LAnd | BinOp::LOr),
             left,
@@ -57,9 +55,11 @@ impl Checker {
         } = ast.get_expr(cond)
         {
             let side = *op == BinOp::LAnd;
-            return [*left, *right]
-                .into_iter()
-                .find_map(|e| self.collect_null_narrow(ast, e).filter(|n| n.2 == side));
+            let from = |e| self.collect_null_narrow(ast, e).filter(|n| n.2 == side);
+            return match from(*left) {
+                Some(n) if !crate::check_assigns_to::expr_writes(ast, *right, &n.0) => Some(n),
+                _ => from(*right),
+            };
         }
         // Cond shape 1 — `<ident> !== null` / `null !== <ident>`
         // (and `===` for the inverse polarity). The historical

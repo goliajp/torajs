@@ -21,6 +21,9 @@
 //!    states: a binding is moved post-if iff every non-diverging
 //!    branch consumed it. This makes `if (cond) return f; return f;`
 //!    work (then diverges so its consume of `f` doesn't propagate).
+//!    Member narrows (`if (t.next !== null)`) are joined the same way:
+//!    each branch starts from the state before the `if`, and a narrow
+//!    a branch's write retired stays retired after it.
 //! 4. **Post-if narrowing** — the binding is narrowed after the `if`
 //!    when every branch that falls through ends with it non-null:
 //!    the narrowed branch unless it wrote a possibly-null value, the
@@ -64,6 +67,15 @@ fn open_branch_guard(
     checker.open_guard(name, Type::Nullable(Box::new(inner.clone())))
 }
 
+/// Put the member narrow a branch installed back to what it displaced,
+/// unless a write in the branch retired it: the receiver or the member
+/// may then hold anything after the branch.
+fn settle_member_narrow(checker: &mut Checker, key: &(String, String), prev: Option<Type>) {
+    if checker.narrows.member.contains_key(key) {
+        checker.restore_member_narrow(key, prev);
+    }
+}
+
 /// Does the narrowed binding hold a non-null value at this point of
 /// the walk?
 fn holds(checker: &Checker, narrow: &Narrow) -> bool {
@@ -99,6 +111,7 @@ pub(crate) fn check(
     let union_narrow = checker.union_guard(ast, cond);
     let pre = checker.snapshot_moved();
     let guard_pre = checker.guard_snapshot();
+    let member_pre = checker.narrows.member.clone();
     // narrowed on the way in by more than a straight-line assignment
     // (which the flush after the `if` retires anyway)
     let narrowed_before = holds(checker, &narrow)
@@ -147,8 +160,9 @@ pub(crate) fn check(
     // not leak into the else walk (only one branch executes).
     checker.flush_assign_narrows();
     if let (Some((key, _, _)), Some(prev)) = (&member_narrow, then_member) {
-        checker.restore_member_narrow(key, prev);
+        settle_member_narrow(checker, key, prev);
     }
+    let then_members = std::mem::replace(&mut checker.narrows.member, member_pre.clone());
     let then_guards = checker.guard_snapshot();
     checker.guard_restore(&guard_pre);
     let then_div = stmt_diverges(then_branch);
@@ -190,7 +204,7 @@ pub(crate) fn check(
         checker.close_guard(else_guard);
         checker.flush_assign_narrows();
         if let (Some((key, _, _)), Some(prev)) = (&member_narrow, else_member) {
-            checker.restore_member_narrow(key, prev);
+            settle_member_narrow(checker, key, prev);
         }
         else_guards = checker.guard_snapshot();
         let div = stmt_diverges(eb);
@@ -210,6 +224,16 @@ pub(crate) fn check(
         (false, false) => checker.guard_join(&then_guards, &else_guards),
     };
     checker.guard_restore(&guards);
+    let else_members = std::mem::take(&mut checker.narrows.member);
+    checker.narrows.member = match (then_div, else_div) {
+        (true, true) => member_pre,
+        (true, false) => else_members,
+        (false, true) => then_members,
+        (false, false) => then_members
+            .into_iter()
+            .filter(|(k, t)| else_members.get(k) == Some(t))
+            .collect(),
+    };
     if let Some((name, inner, _)) = &narrow {
         let falls_through = !(then_div && else_div);
         if falls_through && (then_div || then_holds) && (else_div || else_holds) {

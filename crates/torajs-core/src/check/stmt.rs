@@ -12,12 +12,34 @@
 use super::*;
 
 impl Checker {
+    /// A statement control can leave from inside (a loop, a `switch`,
+    /// a labeled block some `break` leaves) is walked once, but what
+    /// follows it joins every way out, see [`Checker::join_region_exit`].
+    pub(crate) fn check_stmt(&mut self, ast: &Ast, stmt: &Stmt) {
+        let exits = match stmt {
+            Stmt::While { .. }
+            | Stmt::DoWhile { .. }
+            | Stmt::For { .. }
+            | Stmt::ForOf { .. }
+            | Stmt::ForOfSplitIter { .. }
+            | Stmt::Switch { .. } => true,
+            Stmt::Labeled { label, body } => crate::check_stmt_diverges::breaks_to(body, label),
+            _ => false,
+        };
+        if !exits {
+            return self.check_stmt_shape(ast, stmt);
+        }
+        let entry = self.flow_entry();
+        self.check_stmt_shape(ast, stmt);
+        self.join_region_exit(ast, &entry, &[stmt]);
+    }
+
     // CARVE-OUT: dispatch table — match-arm-per-Stmt-variant thin
     // delegation to per-shape sibling modules (1-8 lines each,
     // `ssa_lower_expr_inner::lower` posture); length comes from
     // variant count × per-arm doc + narrow-flush bracketing, not
     // logic. Splitting the match would destroy dispatch locality.
-    pub(crate) fn check_stmt(&mut self, ast: &Ast, stmt: &Stmt) {
+    fn check_stmt_shape(&mut self, ast: &Ast, stmt: &Stmt) {
         match stmt {
             Stmt::Expr(eid) => self.check_stmt_expr(ast, *eid),
             Stmt::Yield(_) | Stmt::YieldInto { .. } => {
@@ -78,7 +100,7 @@ impl Checker {
             }
             Stmt::Try {
                 body,
-                had_catch: _,
+                had_catch,
                 catch_param,
                 catch_type,
                 catch_body,
@@ -91,6 +113,7 @@ impl Checker {
                     self,
                     ast,
                     body,
+                    *had_catch,
                     catch_param,
                     catch_type,
                     catch_body,

@@ -13,6 +13,7 @@ mod branch_end;
 mod construct;
 mod diag;
 pub(crate) mod face_slots;
+mod flow_join;
 mod narrows;
 mod process_on;
 mod promise_static;

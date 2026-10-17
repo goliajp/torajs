@@ -33,3 +33,48 @@ pub(crate) fn stmt_diverges(s: &crate::ast::Stmt) -> bool {
         _ => false,
     }
 }
+
+/// Does `s` hold a `break label` that leaves it? Labels do not cross a
+/// function body.
+pub(crate) fn breaks_to(s: &crate::ast::Stmt, label: &str) -> bool {
+    use crate::ast::Stmt;
+    match s {
+        Stmt::Break(Some(l)) => l == label,
+        Stmt::Block(stmts) | Stmt::Multi(stmts) => stmts.iter().any(|b| breaks_to(b, label)),
+        Stmt::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            breaks_to(then_branch, label)
+                || else_branch.as_deref().is_some_and(|b| breaks_to(b, label))
+        }
+        Stmt::While { body, .. }
+        | Stmt::DoWhile { body, .. }
+        | Stmt::ForOfSplitIter { body, .. }
+        | Stmt::ForOf { body, .. } => breaks_to(body, label),
+        Stmt::For { init, body, .. } => {
+            init.as_deref().is_some_and(|i| breaks_to(i, label)) || breaks_to(body, label)
+        }
+        // an inner statement under the same label shadows it
+        Stmt::Labeled { label: l, body } => l != label && breaks_to(body, label),
+        Stmt::Switch { cases, default, .. } => {
+            cases
+                .iter()
+                .flat_map(|c| &c.body)
+                .any(|b| breaks_to(b, label))
+                || default.iter().flatten().any(|b| breaks_to(b, label))
+        }
+        Stmt::Try {
+            body,
+            catch_body,
+            finally_body,
+            ..
+        } => body
+            .iter()
+            .chain(catch_body)
+            .chain(finally_body.iter().flatten())
+            .any(|b| breaks_to(b, label)),
+        _ => false,
+    }
+}

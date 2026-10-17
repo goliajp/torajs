@@ -14,22 +14,31 @@
 //!    check-tier sees `e` as Any too (member access / arithmetic
 //!    / return all go through Any paths).
 //! 3. **Finally** (optional) — fresh scope; walk each stmt.
+//!
+//! Flow narrows: any statement of the body may throw, so the catch
+//! starts from the state before the `try` joined with every write in
+//! the body (`try { q = q.next; if (q === null) throw 0 } catch { … }`
+//! must not see `q` non-null); `finally` likewise over the body and the
+//! catch. After the statement the ends of the body and of the catch
+//! that complete are joined.
 
 use std::collections::HashMap;
 
 use crate::ast::{Ast, Stmt};
-use crate::check::{Checker, DiagPush, LocalInfo, Type};
+use crate::check::{Checker, DiagPush, LocalInfo, Type, stmt_diverges};
 use crate::check_type_ann::resolve_type_ann_full;
 
 pub(crate) fn check(
     checker: &mut Checker,
     ast: &Ast,
     body: &[Stmt],
+    had_catch: bool,
     catch_param: &Option<String>,
     catch_type: &Option<String>,
     catch_body: &[Stmt],
     finally_body: &Option<Vec<Stmt>>,
 ) {
+    let entry = checker.flow_entry();
     // body in a fresh scope
     checker.scopes.push(HashMap::new());
     for s in body {
@@ -39,6 +48,9 @@ pub(crate) fn check(
     // ut3 — the catch entry point is any throw site inside the
     // body: no body assignment narrow survives into catch.
     checker.flush_assign_narrows();
+    let body_end = checker.flow_at(&entry);
+    let body_stmts: Vec<&Stmt> = body.iter().collect();
+    checker.join_region_exit(ast, &entry, &body_stmts);
     // catch in a fresh scope with `e` injected.
     let e_ty = match catch_type {
         Some(ann) => {
@@ -62,12 +74,27 @@ pub(crate) fn check(
     }
     checker.scopes.pop();
     checker.flush_assign_narrows();
+    let ends = |b: &[Stmt]| b.last().is_some_and(stmt_diverges);
+    let after = if !had_catch || ends(catch_body) {
+        body_end
+    } else if ends(body) {
+        checker.flow_at(&entry)
+    } else {
+        checker.join_flow(&body_end, &checker.flow_at(&entry))
+    };
+    checker.restore_flow(&after);
     if let Some(fb) = finally_body {
+        let region: Vec<&Stmt> = body.iter().chain(catch_body).collect();
+        checker.join_region_exit(ast, &entry, &region);
         checker.scopes.push(HashMap::new());
         for s in fb {
             checker.check_stmt(ast, s);
         }
         checker.scopes.pop();
         checker.flush_assign_narrows();
+        // what follows runs after a body or catch that completed, then
+        // the finally: the state they left, less what the finally wrote
+        let fin: Vec<&Stmt> = fb.iter().collect();
+        checker.resume_after(ast, &after, &fin);
     }
 }
