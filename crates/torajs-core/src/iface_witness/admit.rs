@@ -86,8 +86,9 @@ pub(crate) fn class_admit(to: &Type, from: &Type) -> Option<bool> {
     }
 }
 
-/// Note what an admitted pairing lets flow: a class instance into an
-/// interface, or an interface value into another object type.
+/// Note what an admitted pairing lets flow: a class instance (or an
+/// `any` value) into an interface, or an interface value into another
+/// object type.
 pub(crate) fn note_flow(to: &Type, from: &Type, fits: bool) {
     let table = table();
     if !fits || table.types.is_empty() {
@@ -103,6 +104,23 @@ pub(crate) fn note_flow(to: &Type, from: &Type, fits: bool) {
         _ => {}
     }
     let to_iface = iface(&table, to);
+    // an `any` value may hold an instance of any class that fills the
+    // interface's rows: each of them flows, so the cast at the write
+    // admits it through the witness slots instead of refusing it
+    if matches!(from, Type::Any) {
+        let Some(i) = to_iface else { return };
+        let Some(ws) = table.witnesses.get(&i) else {
+            return;
+        };
+        let loose = table.loose.get(&i);
+        FLOWS.with(|f| {
+            let mut f = f.borrow_mut();
+            for c in ws.iter().filter(|c| !loose.is_some_and(|l| l.contains(*c))) {
+                f.classes.insert((i.clone(), c.clone()));
+            }
+        });
+        return;
+    }
     let flow = match from {
         Type::ClassRef(c) if !table.types.contains_key(c) => {
             let Some(i) = to_iface else { return };
