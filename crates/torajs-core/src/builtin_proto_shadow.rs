@@ -62,6 +62,7 @@ use crate::ssa::id_hash::HashSet;
 
 /// The module walk that fills a [`ShadowSet`]. A child module so it
 /// writes this one's private fields unchanged.
+mod exec_writes;
 mod hooks;
 mod scan;
 mod typed_exec;

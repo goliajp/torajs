@@ -202,7 +202,7 @@ pub(crate) fn collect_shadowed_builtin_methods(ast: &Ast) -> ShadowSet {
         &delete_targets,
     );
 
-    note_exec_writes(ast, &mut set, &assign_targets, &delete_targets);
+    super::exec_writes::note_exec_writes(ast, &mut set, &assign_targets, &delete_targets);
     super::hooks::scan_symbol_hooks(ast, &mut set);
     super::hooks::scan_namespace_statics(ast, &mut set);
     super::hooks::scan_global_writes(ast, &mut set);
@@ -316,82 +316,6 @@ fn attribute_proto_writes(
             set.widen(family);
         }
     }
-}
-
-/// Any write, delete or definition of a property named `exec`,
-/// whatever object it lands on, and any `__proto__` write (see
-/// `ShadowSet::exec_written`). A definition whose key the program does
-/// not spell — a `defineProperty` / `Reflect.set` key that is no
-/// string literal, a descriptor map or `Object.assign` source that is
-/// no object literal, or one with a computed or spread member — may
-/// name `exec` too. A computed-key assignment `x[k] = v` is left to
-/// the checker's types (`typed_exec`): every array store has that shape.
-fn note_exec_writes(
-    ast: &Ast,
-    set: &mut ShadowSet,
-    assign_targets: &HashSet<ExprId>,
-    delete_targets: &HashSet<ExprId>,
-) {
-    let names = |eid: &ExprId, key: &str| match ast.get_expr(*eid) {
-        Expr::Member { name, .. } => name == key,
-        Expr::Index { index, .. } => str_literal(ast, *index).as_deref() == Some(key),
-        _ => false,
-    };
-    let written = assign_targets
-        .iter()
-        .chain(delete_targets)
-        .any(|e| names(e, "exec"))
-        || assign_targets.iter().any(|e| names(e, "__proto__"))
-        || ast.exprs.iter().any(|e| match e {
-            Expr::Call { callee, args } => reflective_exec_write(ast, *callee, args),
-            _ => false,
-        });
-    if written {
-        set.set_exec_written();
-    }
-}
-
-/// Whether `Object.defineProperty / defineProperties / assign` or
-/// `Reflect.defineProperty / set` with `args` may define `exec`.
-fn reflective_exec_write(ast: &Ast, callee: ExprId, args: &[ExprId]) -> bool {
-    let Expr::Member { obj, name } = ast.get_expr(callee) else {
-        return false;
-    };
-    let Expr::Ident(ns) = ast.get_expr(*obj) else {
-        return false;
-    };
-    let key_may_be_exec = |i: usize| {
-        args.get(i)
-            .is_some_and(|&k| str_literal(ast, k).is_none_or(|k| k == "exec"))
-    };
-    match (ns.as_str(), name.as_str()) {
-        ("Object" | "Reflect", "defineProperty") | ("Reflect", "set") => key_may_be_exec(1),
-        ("Object", "defineProperties") => args.get(1).is_some_and(|&d| lit_may_hold_exec(ast, d)),
-        // `Object.assign({}, …)` copies onto a fresh object, no RegExp
-        ("Object", "assign") => {
-            args.first()
-                .is_some_and(|&t| !matches!(ast.get_expr(t), Expr::ObjectLit { .. }))
-                && args.iter().skip(1).any(|&s| lit_may_hold_exec(ast, s))
-        }
-        _ => false,
-    }
-}
-
-/// Whether the object `e` may carry an own `exec`: anything but an
-/// object literal, or one with an `exec` member (plain or accessor), a
-/// computed key or a spread.
-fn lit_may_hold_exec(ast: &Ast, e: ExprId) -> bool {
-    let Expr::ObjectLit { fields } = ast.get_expr(e) else {
-        return true;
-    };
-    fields.iter().any(|(k, _)| {
-        let k = k.lossy();
-        k == "exec"
-            || k == "__getter_exec"
-            || k == "__setter_exec"
-            || k.starts_with("__computed_")
-            || k.starts_with("__spread")
-    })
 }
 
 /// One access naming some expression as its object.

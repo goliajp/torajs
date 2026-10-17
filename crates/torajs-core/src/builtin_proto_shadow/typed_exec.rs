@@ -63,15 +63,39 @@ fn computed_regexp_write(ast: &Ast, types: &HashMap<ExprId, Type>) -> bool {
         let Expr::Index { obj, index } = ast.get_expr(target) else {
             return false;
         };
-        types.get(obj).is_none_or(may_hold_regexp)
+        types.get(obj).is_none_or(|t| may_hold_regexp(ast, t))
             && types.get(index).is_none_or(|t| !is_numeric(t))
     })
 }
 
+/// Whether the class `name` has RegExp on its heritage chain, which
+/// makes its instances RegExp cells.
+fn regexp_heir(ast: &Ast, name: &str) -> bool {
+    let mut cur = Some(name);
+    // a cycle the checker has not refused yet must not spin the walk
+    let mut hops = ast.class_parents.len() + 1;
+    while let Some(c) = cur
+        && hops > 0
+    {
+        if ast
+            .builtin_class_parents
+            .get(c)
+            .is_some_and(|p| p == "RegExp")
+        {
+            return true;
+        }
+        cur = ast.class_parents.get(c).and_then(|p| p.as_deref());
+        hops -= 1;
+    }
+    false
+}
+
 /// Whether a value of type `t` may be a RegExp: anything but a
-/// primitive or a builtin that is not one. A struct counts, since an
-/// instance of a class extending RegExp is a RegExp cell.
-fn may_hold_regexp(t: &Type) -> bool {
+/// primitive or a builtin that is not one, and a class instance only
+/// of a class with RegExp on its heritage chain. A struct type names
+/// no class, so it counts when some class of the program extends
+/// RegExp.
+fn may_hold_regexp(ast: &Ast, t: &Type) -> bool {
     match t {
         Type::Number
         | Type::String
@@ -94,8 +118,10 @@ fn may_hold_regexp(t: &Type) -> bool {
         | Type::Date
         | Type::Promise(_)
         | Type::Function(..) => false,
-        Type::Nullable(inner) => may_hold_regexp(inner),
-        Type::Union(members) => members.iter().any(may_hold_regexp),
+        Type::ClassRef(name) => regexp_heir(ast, name),
+        Type::Struct(_) => ast.builtin_class_parents.values().any(|p| p == "RegExp"),
+        Type::Nullable(inner) => may_hold_regexp(ast, inner),
+        Type::Union(members) => members.iter().any(|m| may_hold_regexp(ast, m)),
         _ => true,
     }
 }
