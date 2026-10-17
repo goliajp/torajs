@@ -38,7 +38,7 @@ pub const CYCLE_AUTO_COLLECT_THRESHOLD: u32 = 1024;
 /// the walk is paid for by the pushes that precede it.
 static G_THRESHOLD: AtomicU32 = AtomicU32::new(CYCLE_AUTO_COLLECT_THRESHOLD);
 
-/// Cells the running collect has proven live (`scan_black` colours
+/// Cells the running collect has proven live (its BLACK `repaint` colours
 /// each one once).
 static G_LIVE: AtomicU32 = AtomicU32::new(0);
 

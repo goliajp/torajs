@@ -36,7 +36,7 @@
 //!   my children" lives there, so teaching the walk a new shape is
 //!   an arm in that file, not an edit to the algorithm.
 //! - [`collect`] — the three phases (`mark_gray` / `scan` /
-//!   `scan_black` / `collect_white`) + the public `cycle_collect` /
+//!   `repaint` / `collect_white`) + the public `cycle_collect` /
 //!   `cycle_at_exit_drain` entry points.
 //!
 //! ## Cross-tier hooks
@@ -82,6 +82,7 @@ pub mod obj_drop;
 pub(crate) mod promise;
 pub mod proxy;
 pub(crate) mod view_buffer;
+pub(crate) mod work_stack;
 
 pub use buffer::{__torajs_cycle_buffer, __torajs_cycle_unbuffer};
 pub use collect::{__torajs_cycle_at_exit_drain, __torajs_cycle_collect};

@@ -22,11 +22,13 @@
 //!    children GRAY + trial-decrement their rc by 1. After the pass,
 //!    any node whose rc is 0 is a confirmed cycle (no external refs).
 //! 2. **Scan** — for each GRAY node: rc > 0 means externally
-//!    reachable → `scan_black` restores the rc + recolors BLACK
-//!    transitively. rc == 0 → recolor WHITE + recurse into children.
-//! 3. **Collect** — every WHITE node is confirmed garbage. Recurse
+//!    reachable → the BLACK `repaint` restores the rc + recolors BLACK
+//!    transitively. rc == 0 → recolor WHITE + descend into children.
+//! 3. **Collect** — every WHITE node is confirmed garbage. Descend
 //!    into WHITE children (clearing the slot to break the cycle),
 //!    then drop non-cycle children normally, then `free()` the block.
+//!
+//! Every descent runs on an explicit [`WorkStack`], not the machine stack.
 
 use core::ffi::c_void;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -39,6 +41,7 @@ use crate::layout::{
     FLAG_STATIC_LITERAL, HeapHeader, TAG_CLOSURE, color_of, has_walkable_children, is_class_obj,
     layout_for_class_obj, set_color,
 };
+use crate::work_stack::WorkStack;
 
 /// Set while a collect runs. A drop inside pass 3 that pushes the
 /// 1024th candidate would otherwise start a nested collect, and the
@@ -60,101 +63,136 @@ unsafe extern "C" {
     fn __torajs_weakref_target_dying(target: *mut c_void);
 }
 
-/// Mark phase — Bacon & Rajan's "MarkGray". Recursively descend from
-/// `p`, color reachable children GRAY + trial-decrement their rc.
+/// Tag on a [`collect_white`] entry asking for the cell's closing half
+/// once the WHITE cells below it are swept (cells are word-aligned).
+const AFTER_CHILDREN: usize = 1;
+
+/// Mark phase — Bacon & Rajan's "MarkGray". Descend from `root`,
+/// color reachable children GRAY + trial-decrement their rc, once
+/// per edge out of each cell that turns GRAY.
 ///
 /// # Safety
 /// Same as [`for_each_child`].
-unsafe fn mark_gray(p: *mut c_void) {
-    if !unsafe { has_walkable_children(p) } {
-        return;
-    }
-    let h = p as *mut HeapHeader;
-    if unsafe { color_of(h) } == COLOR_GRAY {
-        return;
-    }
-    unsafe { set_color(h, COLOR_GRAY) };
-    unsafe {
-        for_each_child(p, |_, child| {
-            if has_walkable_children(child) {
-                let ch = child as *mut HeapHeader;
-                if (*ch).flags & FLAG_STATIC_LITERAL == 0 {
-                    (*ch).refcount -= 1;
-                }
-                mark_gray(child);
-            }
-        });
+unsafe fn mark_gray(root: *mut c_void, st: &mut WorkStack) {
+    if unsafe { has_walkable_children(root) } {
+        unsafe { repaint(root, st, COLOR_GRAY) };
     }
 }
 
 /// Scan phase — for each GRAY node decide WHITE (cycle garbage) or
-/// hand off to `scan_black` (externally reachable, restore rc +
-/// recolor BLACK).
+/// hand off to `repaint` BLACK (externally reachable, restore rc +
+/// recolor BLACK). The outcome does not depend on visit order: a cell
+/// ends BLACK exactly when it is reachable from a GRAY cell whose
+/// trial rc stayed positive, because the BLACK repaint overrides WHITE.
 ///
 /// # Safety
 /// Same as `mark_gray`.
-unsafe fn scan(p: *mut c_void) {
-    if !unsafe { has_walkable_children(p) } {
+#[inline(never)]
+unsafe fn scan(root: *mut c_void, st: &mut WorkStack) {
+    if !unsafe { has_walkable_children(root) } || unsafe { color_of(root.cast()) } != COLOR_GRAY {
         return;
     }
-    let h = p as *mut HeapHeader;
-    if unsafe { color_of(h) } != COLOR_GRAY {
-        return;
-    }
-    if unsafe { (*h).refcount } > 0 {
-        unsafe { scan_black(p) };
-    } else {
-        unsafe { set_color(h, COLOR_WHITE) };
-        unsafe {
-            for_each_child(p, |_, child| scan(child));
+    let mut p = root;
+    loop {
+        let h = p as *mut HeapHeader;
+        if unsafe { has_walkable_children(p) } && unsafe { color_of(h) } == COLOR_GRAY {
+            if unsafe { (*h).refcount } > 0 {
+                // externally referenced — recolor BLACK and restore the
+                // trial rc decrement across all gray descendants
+                unsafe { repaint(p, st, COLOR_BLACK) };
+            } else {
+                unsafe { set_color(h, COLOR_WHITE) };
+                unsafe {
+                    for_each_child(p, |_, child| st.push(child as usize));
+                }
+            }
         }
+        let Some(v) = st.pop() else { break };
+        p = v as *mut c_void;
     }
 }
 
-/// Externally referenced — recolor BLACK and restore the trial rc
-/// decrement, transitively across all gray descendants.
+/// The walk MarkGray and ScanBlack share: recolor `root` and
+/// every walkable cell reachable from it that is not `color` yet, and
+/// move the rc of each walkable child of a recolored cell by one — down
+/// for GRAY (the trial deletion), back up for BLACK (its undo, counting
+/// each BLACK cell as live). Runs to completion above the entries
+/// already on the stack.
 ///
 /// # Safety
-/// Same as `mark_gray`.
-unsafe fn scan_black(p: *mut c_void) {
-    if !unsafe { has_walkable_children(p) } {
-        return;
-    }
-    let h = p as *mut HeapHeader;
-    unsafe { set_color(h, COLOR_BLACK) };
-    buffer::note_live();
-    unsafe {
-        for_each_child(p, |_, child| {
-            if has_walkable_children(child) {
-                let ch = child as *mut HeapHeader;
-                if (*ch).flags & FLAG_STATIC_LITERAL == 0 {
-                    (*ch).refcount += 1;
-                }
-                if color_of(ch) != COLOR_BLACK {
-                    scan_black(child);
-                }
+/// Same as `mark_gray`; `root` is walkable and not `color`.
+#[inline(never)]
+unsafe fn repaint(root: *mut c_void, st: &mut WorkStack, color: u16) {
+    let black = color == COLOR_BLACK;
+    // only walkable cells are pushed
+    let base = st.len();
+    let mut p = root;
+    loop {
+        let h = p as *mut HeapHeader;
+        if unsafe { color_of(h) } != color {
+            unsafe { set_color(h, color) };
+            if black {
+                buffer::note_live();
             }
-        });
+            unsafe {
+                for_each_child(p, |_, child| {
+                    if has_walkable_children(child) {
+                        let ch = child as *mut HeapHeader;
+                        if (*ch).flags & FLAG_STATIC_LITERAL == 0 {
+                            if black {
+                                (*ch).refcount += 1;
+                            } else {
+                                (*ch).refcount -= 1;
+                            }
+                        }
+                        if color_of(ch) != color {
+                            st.push(child as usize);
+                        }
+                    }
+                });
+            }
+        }
+        let Some(v) = st.pop_above(base) else { break };
+        p = v as *mut c_void;
     }
 }
 
 /// Collect phase — every WHITE node is confirmed cycle garbage with
-/// no external refs. First pass recurses into WHITE children (zeroes
-/// the slot so the recursion doesn't re-decrement); second pass
-/// drops surviving non-cycle children via `value_drop_heap` (their
-/// type-specific dec path). Then `free()` the block itself.
+/// no external refs. Cells are swept in depth-first recursion order:
+/// a cell's opening half (recolor, weak notify, first sweep) before
+/// the WHITE cells below it, in slot order, and its closing half
+/// (second sweep, deferred free) after them.
 ///
 /// # Safety
-/// Same as `mark_gray`. The slot-clear before recursion is what
-/// keeps the algorithm tail-recursive-safe (a child being collected
-/// twice would double-free).
-unsafe fn collect_white(p: *mut c_void) {
-    if !unsafe { has_walkable_children(p) } {
+/// Same as `mark_gray`; `root` is a WHITE cell. A WHITE
+/// child already swept through another parent is skipped when popped
+/// (a child collected twice would double-free).
+#[inline(never)]
+unsafe fn collect_white(root: *mut c_void, st: &mut WorkStack) {
+    if !unsafe { has_walkable_children(root) } {
         return;
     }
+    let mut v = root as usize;
+    loop {
+        let p = (v & !AFTER_CHILDREN) as *mut c_void;
+        if v & AFTER_CHILDREN != 0 || unsafe { collect_white_open(p, st) } {
+            unsafe { collect_white_close(p) };
+        }
+        let Some(next) = st.pop() else { break };
+        v = next;
+    }
+}
+
+/// The opening half of sweeping a cell still WHITE. True when it has
+/// no WHITE children and closes at once; else its closing entry goes under them.
+///
+/// # Safety
+/// Same as `collect_white`.
+#[inline]
+unsafe fn collect_white_open(p: *mut c_void, st: &mut WorkStack) -> bool {
     let h = p as *mut HeapHeader;
     if unsafe { color_of(h) } != COLOR_WHITE {
-        return;
+        return false;
     }
     // Recolor BLACK + clear BUFFERED first so re-entry from a
     // sibling cycle doesn't double-collect this node.
@@ -172,24 +210,39 @@ unsafe fn collect_white(p: *mut c_void) {
             unsafe { __torajs_weakref_target_dying(p) };
         }
     }
-    // First sweep: recurse into WHITE children + zero the slot.
+    // First sweep: queue WHITE children + zero the slot.
+    let base = st.len();
     unsafe {
         for_each_child(p, |i, child| {
             if has_walkable_children(child) {
                 let ch = child as *mut HeapHeader;
                 if color_of(ch) == COLOR_WHITE {
                     clear_child_slot(p, i);
-                    collect_white(child);
+                    st.push(child as usize);
                 }
             }
         });
     }
+    if st.len() == base {
+        return true;
+    }
+    // c1..ck then the closing entry, reversed: c1 pops first, it last
+    st.push(p as usize | AFTER_CHILDREN);
+    st.reverse_from(base);
+    false
+}
+
+/// The closing half of sweeping a cell, once the cells below it are swept.
+///
+/// # Safety
+/// `p` is a cell `collect_white` opened in this collect.
+unsafe fn collect_white_close(p: *mut c_void) {
     // Second sweep (non-closure shapes): drop surviving NON-WALKABLE
     // children via the universal drop dispatch — shapes mark_gray
     // never trial-decremented (Str / BigInt / Promise / Symbol …), so
     // this corpse's +1 on them is still outstanding. Walkable
     // children are skipped wholesale: mark trial-decremented every
-    // walkable edge out of this (then-GRAY) parent, and scan_black
+    // walkable edge out of this (then-GRAY) parent, and ScanBlack
     // only restores edges out of BLACK parents — for a child that
     // survived as BLACK, the unrestored trial-dec IS this dying
     // parent's release, and dropping it here charged the same edge
@@ -249,6 +302,7 @@ pub unsafe extern "C" fn __torajs_cycle_collect() {
     // surviving children) are next-collect candidates — the compact
     // below keeps them instead of blanket-resetting the length.
     let processed = buffer::len();
+    let mut st = WorkStack::take();
 
     // Mark phase: descend from each buffered root. A block whose rc
     // is already 0 is either dead and coloured black by the drop that
@@ -275,14 +329,14 @@ pub unsafe extern "C" fn __torajs_cycle_collect() {
             return;
         }
         if unsafe { color_of(h) } == COLOR_PURPLE {
-            unsafe { mark_gray(p) };
+            unsafe { mark_gray(p, &mut st) };
         }
         // If already gray (visited transitively in another root's
         // walk), nothing to do — but keep in buffer for scan phase.
     });
 
     // Scan phase: distinguish WHITE garbage from BLACK-restore.
-    buffer::for_each(|p| unsafe { scan(p) });
+    buffer::for_each(|p| unsafe { scan(p, &mut st) });
 
     // Collect phase: sweep every WHITE node + defer its free. Class
     // instances only die in `finalize_all`, after this pass has
@@ -296,13 +350,14 @@ pub unsafe extern "C" fn __torajs_cycle_collect() {
         let h = p as *mut HeapHeader;
         unsafe { (*h).flags &= !FLAG_BUFFERED };
         if unsafe { color_of(h) } == COLOR_WHITE {
-            unsafe { collect_white(p) };
+            unsafe { collect_white(p, &mut st) };
         }
     });
 
     // Free step — before the compact so re-buffer pushes from
     // closure drop_fns land in the kept region.
     unsafe { crate::defer::finalize_all() };
+    drop(st);
 
     buffer::compact_from(processed);
     buffer::retune_threshold();
@@ -336,3 +391,129 @@ pub unsafe extern "C" fn __torajs_cycle_at_exit_drain() {
 
 #[cfg(torajs_census)]
 mod census;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::layout::{ARR_ELEM_KIND_SHIFT, ARR_KIND_HEAP, TAG_ARR};
+
+    // A one-slot heap-element array cell, laid out the way `arr.rs`
+    // reads it: len +8, cap/head +16, props +24, data pointer +32.
+    #[repr(C)]
+    struct Cell {
+        hdr: HeapHeader,
+        len: u64,
+        cap_head: u64,
+        props: u64,
+        data: *mut u64,
+        slot: u64,
+    }
+
+    fn cells(n: usize) -> Vec<Box<Cell>> {
+        let mut v: Vec<Box<Cell>> = (0..n)
+            .map(|_| {
+                Box::new(Cell {
+                    hdr: HeapHeader {
+                        refcount: 0,
+                        type_tag: TAG_ARR,
+                        flags: (ARR_KIND_HEAP << ARR_ELEM_KIND_SHIFT) | COLOR_PURPLE,
+                    },
+                    len: 1,
+                    cap_head: 1,
+                    props: 0,
+                    data: core::ptr::null_mut(),
+                    slot: 0,
+                })
+            })
+            .collect();
+        for c in v.iter_mut() {
+            c.data = &raw mut c.slot;
+        }
+        v
+    }
+
+    fn ptr(c: &Cell) -> *mut c_void {
+        c as *const Cell as *mut c_void
+    }
+
+    // cell i holds cell i+1, the last holds the first; each cell is
+    // referenced once, by its predecessor
+    fn ring(n: usize) -> Vec<Box<Cell>> {
+        let mut v = cells(n);
+        for i in 0..n {
+            let next = ptr(&v[(i + 1) % n]) as u64;
+            v[i].slot = next;
+            v[i].hdr.refcount = 1;
+        }
+        v
+    }
+
+    // deeper than any machine-stack walk survives on a test thread
+    const DEEP: usize = 300_000;
+
+    #[test]
+    fn unreferenced_deep_ring_turns_white_and_is_swept_once_per_cell() {
+        let v = ring(DEEP);
+        let root = ptr(&v[0]);
+        let mut st = WorkStack::take();
+        unsafe {
+            mark_gray(root, &mut st);
+            scan(root, &mut st);
+        }
+        assert!(v.iter().all(|c| c.hdr.refcount == 0));
+        assert!(v.iter().all(|c| unsafe { color_of(&c.hdr) } == COLOR_WHITE));
+        unsafe { collect_white(root, &mut st) };
+        assert_eq!(st.len(), 0);
+        // every edge into a WHITE cell is cleared; the closing edge
+        // reaches the root after it was opened, and stays
+        assert!(v[..DEEP - 1].iter().all(|c| c.slot == 0));
+        assert_eq!(v[DEEP - 1].slot, root as u64);
+        assert!(v.iter().all(|c| unsafe { color_of(&c.hdr) } == COLOR_BLACK));
+        // post-order, the way the recursive sweep deferred them
+        let swept = crate::defer::take_for_test();
+        assert_eq!(swept.len(), DEEP);
+        assert_eq!(swept[0], ptr(&v[DEEP - 1]));
+        assert_eq!(swept[DEEP - 1], root);
+    }
+
+    #[test]
+    fn externally_held_deep_ring_survives_with_its_counts_restored() {
+        let mut v = ring(DEEP);
+        v[DEEP / 2].hdr.refcount = 2;
+        let root = ptr(&v[0]);
+        let mut st = WorkStack::take();
+        unsafe {
+            mark_gray(root, &mut st);
+            scan(root, &mut st);
+        }
+        assert_eq!(st.len(), 0);
+        for (i, c) in v.iter().enumerate() {
+            assert_eq!(c.hdr.refcount, if i == DEEP / 2 { 2 } else { 1 });
+            assert_eq!(unsafe { color_of(&c.hdr) }, COLOR_BLACK);
+        }
+    }
+
+    #[test]
+    fn a_cell_reached_from_two_white_parents_is_swept_once() {
+        // a -> b, b -> d, c -> d, d -> a, plus c held by a's props
+        // slot: d is reached from both b and c
+        let mut v = cells(4);
+        let [a, b, c, d] = [0, 1, 2, 3].map(|i| ptr(&v[i]));
+        v[0].slot = b as u64;
+        v[0].props = c as u64;
+        v[1].slot = d as u64;
+        v[2].slot = d as u64;
+        v[3].slot = a as u64;
+        for (i, rc) in [1, 1, 1, 2].into_iter().enumerate() {
+            v[i].hdr.refcount = rc;
+        }
+        let mut st = WorkStack::take();
+        unsafe {
+            mark_gray(a, &mut st);
+            scan(a, &mut st);
+            collect_white(a, &mut st);
+        }
+        let swept = crate::defer::take_for_test();
+        assert_eq!(swept, vec![d, b, c, a]);
+    }
+}

@@ -103,7 +103,7 @@ pub(crate) unsafe fn finalize_all() {
             // fellow corpses (rc == 0 — drop_fn has no rc gate and
             // would re-drop a block this drain is about to free) and
             // walkable survivors (mark trial-decremented this dying
-            // parent's edge and scan_black never restores a WHITE
+            // parent's edge and ScanBlack never restores a WHITE
             // parent's edges, so that unrestored trial-dec IS the
             // release — drop_fn releasing the slot too would charge
             // the edge twice; collect_white's second-sweep rule in
@@ -209,4 +209,12 @@ pub(crate) unsafe fn finalize_all() {
         }
     }
     D_LEN.store(0, Ordering::Relaxed);
+}
+
+/// The corpses swept so far, in push order; empties the list.
+#[cfg(test)]
+pub(crate) fn take_for_test() -> Vec<*mut c_void> {
+    let len = D_LEN.swap(0, Ordering::Relaxed) as usize;
+    let buf = D_LIST.load(Ordering::Relaxed);
+    (0..len).map(|i| unsafe { *buf.add(i) }).collect()
 }
