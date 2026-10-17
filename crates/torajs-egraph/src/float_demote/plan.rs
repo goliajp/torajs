@@ -461,9 +461,9 @@ mod tests {
             funcs: vec![f],
             ..Default::default()
         };
-        let facts = interval::analyze_module(&m);
+        let mut facts = interval::analyze_module(&m);
         let mut stats = FloatDemoteStats::default();
-        demote_in_function(&mut m.funcs[0], &facts[0], &mut stats);
+        demote_in_function(&mut m.funcs[0], &mut facts[0], &mut stats);
         (m, stats)
     }
 

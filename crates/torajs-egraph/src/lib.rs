@@ -230,9 +230,10 @@ pub fn transform_module(mut module: Module) -> Module {
     // closures whose every op is provably exact rewrite to i64 in
     // place (frem→srem kills the per-iteration fmod libcall). Facts
     // stay valid across the rewrite (values keep their id and bounds),
-    // so demoted in-i32-range cells seed sext_elide below for free.
+    // so demoted in-i32-range cells seed sext_elide below for free;
+    // an accumulator given the in-place slow path drops its facts.
     // `TORAJS_FLOAT_DEMOTE_OFF=1` skips (bisect gate).
-    if let Some(facts) = &interval_facts {
+    if let Some(facts) = &mut interval_facts {
         gated_pass("FLOAT_DEMOTE", &mut module, |m| {
             float_demote::demote_floats(m, facts)
         });

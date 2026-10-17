@@ -56,6 +56,7 @@ pub(crate) mod fit;
 mod forward;
 mod guard;
 mod hoist;
+mod inplace;
 mod merge;
 mod plan;
 mod settle;
@@ -88,28 +89,43 @@ pub struct FloatDemoteStats {
     pub merge_cells: u32,
     /// converted-compare operands read past their demoted copies.
     pub copies_forwarded: u32,
+    /// accumulators given the in-place slow path instead of a clone.
+    pub accumulators_inplace: u32,
 }
 
-pub fn demote_floats(module: &mut Module, facts: &[HashMap<ValueId, NumFact>]) -> FloatDemoteStats {
+pub fn demote_floats(
+    module: &mut Module,
+    facts: &mut [HashMap<ValueId, NumFact>],
+) -> FloatDemoteStats {
     let mut stats = FloatDemoteStats::default();
-    let empty = HashMap::default();
+    let mut empty = HashMap::default();
     for (fi, func) in module.funcs.iter_mut().enumerate() {
         if func.is_declaration() {
             continue;
         }
-        demote_in_function(func, facts.get(fi).unwrap_or(&empty), &mut stats);
+        let facts = match facts.get_mut(fi) {
+            Some(f) => f,
+            None => &mut empty,
+        };
+        demote_in_function(func, facts, &mut stats);
     }
     stats
 }
 
 fn demote_in_function(
     func: &mut Function,
-    facts: &HashMap<ValueId, NumFact>,
+    facts: &mut HashMap<ValueId, NumFact>,
     stats: &mut FloatDemoteStats,
 ) {
-    let Some((set, plans)) = compute_demote_set(func, facts) else {
+    let Some((set, plans, inplace)) = compute_demote_set(func, facts) else {
         return;
     };
+    // in-place accumulators re-point their reads past the loop first,
+    // for the same reasons as the merge bridges below
+    let reads: Vec<_> = inplace
+        .iter()
+        .map(|ip| inplace::redirect_reads(func, ip))
+        .collect();
     // mint merge-bridge cells and re-point external uses first —
     // before cloning (only original blocks exist) and before mutation
     // (the rewritten uses must not take per-use sitofp bridges)
@@ -131,19 +147,27 @@ fn demote_in_function(
         stats.guards_inserted += g;
         stats.entry_guards += eg;
     }
+    for (ip, reads) in inplace.iter().zip(&reads) {
+        inplace::install(func, ip, reads);
+        for v in ip.encoded() {
+            facts.remove(&v);
+        }
+    }
+    stats.accumulators_inplace += inplace.len() as u32;
     stats.loops_versioned += plans.len() as u32;
     stats.values_demoted += set.len() as u32;
     stats.copies_forwarded += forward::forward_into_icmps(func, &set);
 }
 
-/// The demotion set plus the versioning plans its guarded defs need.
-/// `None` = nothing demotes in this function. Mutates only on a
+/// The demotion set plus the versioning plans its guarded defs need,
+/// and the in-place accumulators standing in for regions that cannot
+/// be cloned. `None` = nothing demotes in this function. Mutates only on a
 /// planner split request (mixed preheader normalization — a pure
 /// control-flow split, semantics-preserving even if nothing fires).
 fn compute_demote_set(
     func: &mut Function,
     facts: &HashMap<ValueId, NumFact>,
-) -> Option<(HashSet<ValueId>, Vec<plan::RegionPlan>)> {
+) -> Option<DemotePlan> {
     // candidate set, shrunk until every def fits AND every bridged
     // escape is -0-free AND every guarded def is hosted by a
     // versionable region.
@@ -152,17 +176,33 @@ fn compute_demote_set(
     // def-use graph outlives it; the planning shape does not
     let graph = settle::Graph::of(func, &defs, &set);
     let mut shape: Option<cfg::PlanCfg> = None;
+    // guarded sums given the in-place slow path (`inplace`)
+    let mut marked: HashSet<ValueId> = HashSet::default();
     loop {
         settle::settle(&mut set, &defs, facts, &graph);
         if set.is_empty() {
             return None;
         }
         // guarded defs need a hosting region (1b-ii)
-        let (growth, entries) = guard::collect_guard_sites(func, &set, facts);
+        let (mut growth, entries) = guard::collect_guard_sites(func, &set, facts);
         if growth.is_empty() && entries.is_empty() {
-            return Some((set, Vec::new()));
+            return Some((set, Vec::new(), Vec::new()));
         }
         let cfg = shape.get_or_insert_with(|| cfg::PlanCfg::of(func));
+        let ips = match inplace::take_marked(func, cfg, &set, &mut growth, &marked, facts) {
+            Ok(ips) => ips,
+            Err(lost) => {
+                for v in lost {
+                    set.remove(&v);
+                    marked.remove(&v);
+                }
+                continue;
+            }
+        };
+        if growth.is_empty() && entries.is_empty() {
+            return Some((set, Vec::new(), ips));
+        }
+        let rest = growth.clone();
         match plan::plan_regions(func, cfg, &set, growth, entries) {
             Ok(plans) => {
                 // profitability gate: an unprofitable region's guarded
@@ -173,16 +213,24 @@ fn compute_demote_set(
                     .filter(|p| !plan::profitable(func, p, &set))
                     .flat_map(|p| p.growth.iter().map(|s| s.result))
                     .collect();
-                if costly.is_empty() {
-                    return Some((set, plans));
+                let clash = inplace::clashes(&ips, &plans);
+                if costly.is_empty() && clash.is_empty() {
+                    return Some((set, plans, ips));
                 }
-                for v in costly {
+                for v in &clash {
+                    marked.remove(v);
+                }
+                for v in costly.into_iter().chain(clash) {
                     set.remove(&v);
                 }
             }
             Err(plan::PlanFail::Evict(evict)) => {
                 for v in evict {
-                    set.remove(&v);
+                    if inplace::fits(func, cfg, &set, &rest, v, facts) {
+                        marked.insert(v);
+                    } else {
+                        set.remove(&v);
+                    }
                 }
             }
             Err(plan::PlanFail::Split(b, p)) => {
@@ -193,6 +241,13 @@ fn compute_demote_set(
         }
     }
 }
+
+/// The demotion set, its versioning plans, and its in-place accumulators.
+type DemotePlan = (
+    HashSet<ValueId>,
+    Vec<plan::RegionPlan>,
+    Vec<inplace::InPlace>,
+);
 
 /// A candidate set and each candidate's def sites.
 type Candidates = (HashSet<ValueId>, HashMap<ValueId, Vec<InstKind>>);
@@ -359,9 +414,9 @@ mod tests {
             funcs: vec![f],
             ..Default::default()
         };
-        let facts = interval::analyze_module(&m);
+        let mut facts = interval::analyze_module(&m);
         let mut stats = FloatDemoteStats::default();
-        demote_in_function(&mut m.funcs[0], &facts[0], &mut stats);
+        demote_in_function(&mut m.funcs[0], &mut facts[0], &mut stats);
         (m, stats)
     }
 
