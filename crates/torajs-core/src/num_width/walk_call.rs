@@ -121,7 +121,9 @@ impl Analysis<'_> {
 
     /// For `f.call(t, a, b)` and `f.apply(t, [a, b])` the function `f`
     /// and `Some([a, b])`; for `f.apply(t, xs)`, whose arguments are
-    /// not written out, `f` and `None`.
+    /// not written out, `f` and `None`. A receiver the checker typed as
+    /// something other than a function (`o.call(a, b)` on an object
+    /// with a method of that name) calls its own method.
     fn replayed_args(
         &self,
         callee: ExprId,
@@ -130,6 +132,9 @@ impl Analysis<'_> {
         let Expr::Member { obj, name } = self.ast.get_expr(callee) else {
             return None;
         };
+        if self.expr_types.get(obj).is_some_and(|t| !may_be_fn(t)) {
+            return None;
+        }
         match (name.as_str(), args.get(1).map(|a| self.ast.get_expr(*a))) {
             ("call", _) => Some((*obj, Some(args.iter().skip(1).copied().collect()))),
             ("apply", None) => Some((*obj, Some(Vec::new()))),
@@ -137,5 +142,16 @@ impl Analysis<'_> {
             ("apply", Some(_)) => Some((*obj, None)),
             _ => None,
         }
+    }
+}
+
+/// Whether a value the checker typed `t` may be a function.
+fn may_be_fn(t: &crate::check::Type) -> bool {
+    use crate::check::Type;
+    match t {
+        Type::Function(..) | Type::Any => true,
+        Type::Nullable(t) => may_be_fn(t),
+        Type::Union(ts) => ts.iter().any(may_be_fn),
+        _ => false,
     }
 }
