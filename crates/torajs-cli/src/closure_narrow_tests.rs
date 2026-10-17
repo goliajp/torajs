@@ -120,3 +120,23 @@ fn a_nested_function_declaration_reads_the_narrow() {
          console.log(h(null));\n",
     );
 }
+
+#[test]
+fn a_null_store_an_enclosing_closure_made_before_is_refused() {
+    refused(
+        "function h(): number { let q: Node | null = mk(); const fs: (() => number)[] = [];\n\
+         const step = (x: Node | null): void => { q = x; if (q === null) return;\n\
+         fs.push((): number => g(q)) };\n\
+         step(mk()); step(null); return fs[0]() }\n\
+         console.log(h());\n",
+    );
+}
+
+#[test]
+fn an_async_body_closure_without_a_later_store_keeps_the_narrow() {
+    accepted(
+        "async function h(a: Node | null): Promise<number> { let q: Node | null = a;\n\
+         if (q === null) q = mk(); const f = (): number => g(q); return f() }\n\
+         h(null).then((v) => console.log(v));\n",
+    );
+}

@@ -87,7 +87,11 @@ impl Checker {
         before: usize,
         failed: bool,
     ) {
-        let accounted = self.narrows.closure_errs.pop().unwrap_or(0);
+        let accounted = self
+            .narrows
+            .closure_errs
+            .pop()
+            .expect("close_capture_trial pairs with open_capture_trial");
         let grown = self.error_count().saturating_sub(before) + usize::from(failed);
         let mut kept = false;
         if grown > accounted && self.speculative_depth == 0 && !self.checking_spec_body {
@@ -137,7 +141,9 @@ impl Checker {
     }
 
     /// Can a possibly-null store into `name` run while closure `eid`
-    /// exists, other than one the walk reaches after it?
+    /// exists, other than one the walk reaches after it? A store an
+    /// enclosing closure made before `eid` runs again when that closure
+    /// is called again, as a loop's next iteration would.
     pub(crate) fn nulled_around(
         &self,
         ast: &Ast,
@@ -146,6 +152,7 @@ impl Checker {
         info: &LocalInfo,
     ) -> bool {
         info.nulled_anytime
+            || (info.captured && !info.null_stores.is_empty())
             || in_one_loop(ast, &ast.stmts, eid, name, &info.null_stores)
             || (self.is_main_toplevel(name) && self.written_in_fn_body(ast, name))
     }
@@ -173,8 +180,32 @@ impl Checker {
             null_declared: outer.null_declared.clone(),
             nulled_anytime: self.nulled_around(ast, eid, name, outer),
             pinned: outer.pinned,
+            captured: true,
             ..LocalInfo::plain(ty)
         }
+    }
+
+    /// The capture frame of closure `eid` (see [`Self::capture_frame_info`]),
+    /// with each capture's `nulled_anytime` as the frame starts.
+    pub(crate) fn capture_frame(
+        &self,
+        ast: &Ast,
+        eid: ExprId,
+        cap_tys: &[(String, Type)],
+    ) -> (Vec<(String, LocalInfo)>, Vec<(String, bool)>) {
+        let frame: Vec<(String, LocalInfo)> = cap_tys
+            .iter()
+            .map(|(n, t)| {
+                let outer = self.lookup(n);
+                let info = self.capture_frame_info(ast, eid, n, outer.as_ref(), t.clone());
+                (n.clone(), info)
+            })
+            .collect();
+        let inherited = frame
+            .iter()
+            .map(|(n, i)| (n.clone(), i.nulled_anytime))
+            .collect();
+        (frame, inherited)
     }
 
     /// After the body: which captures it stored a possibly-null value

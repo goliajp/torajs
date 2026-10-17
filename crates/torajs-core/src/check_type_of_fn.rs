@@ -233,18 +233,7 @@ pub(crate) fn check_closure_body(
     checker.toplevel_captures.push(top_caps);
     // a captured census slot stays that slot inside the closure, and a
     // captured union keeps its declared members and loose mark
-    let cap_frame: Vec<(String, LocalInfo)> = cap_tys
-        .iter()
-        .map(|(n, t)| {
-            let outer = checker.lookup(n);
-            let info = checker.capture_frame_info(ast, eid, n, outer.as_ref(), t.clone());
-            (n.clone(), info)
-        })
-        .collect();
-    let inherited: Vec<(String, bool)> = cap_frame
-        .iter()
-        .map(|(n, i)| (n.clone(), i.nulled_anytime))
-        .collect();
+    let (cap_frame, inherited) = checker.capture_frame(ast, eid, &cap_tys);
     let saved_scopes = std::mem::replace(&mut checker.scopes, vec![HashMap::new()]);
     let saved_narrows = checker.enter_closure_narrows();
     let saved_return = checker.expected_return.replace(ret_ty);

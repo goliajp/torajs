@@ -96,6 +96,9 @@ pub(crate) struct LocalInfo {
     /// A closure reads the binding at its non-null narrow, so a
     /// possibly-null store into it is refused from here on.
     pub(crate) pinned: bool,
+    /// The entry is a closure's view of a binding declared outside it:
+    /// a store into it in the body runs again on every later call.
+    pub(crate) captured: bool,
 }
 
 impl LocalInfo {
@@ -119,6 +122,7 @@ impl LocalInfo {
             null_stores: Vec::new(),
             nulled_anytime: false,
             pinned: false,
+            captured: false,
         }
     }
 }
