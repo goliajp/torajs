@@ -68,8 +68,8 @@ const REREAD_CALLS: &[&str] = &[
     "__torajs_arr_shift",
 ];
 
-pub fn promote_lengths(module: &mut Module) -> LenPromoteStats {
-    let names: Vec<String> = module.funcs.iter().map(|f| f.name.clone()).collect();
+pub fn promote_lengths(module: &mut Module, known: Option<&[String]>) -> LenPromoteStats {
+    let names = crate::interval::module_names(known, module);
     let mut stats = LenPromoteStats::default();
     for func in module.funcs.iter_mut() {
         if func.is_declaration() {
@@ -474,7 +474,7 @@ mod tests {
     #[test]
     fn the_pop_loop_keeps_its_length_in_a_register() {
         let mut m = pop_loop(vec![], vec![]);
-        let st = promote_lengths(&mut m);
+        let st = promote_lengths(&mut m, None);
         assert_eq!((st.cells_promoted, st.stores_placed), (1, 1));
         let f = &m.funcs[4];
         // the preheader reads the word once into the cell
@@ -502,21 +502,21 @@ mod tests {
             InstKind::Call(FuncId(1), vec![v(0), Operand::ConstI64(1)]),
         );
         let mut m = pop_loop(vec![push], vec![]);
-        assert_eq!(promote_lengths(&mut m).cells_promoted, 0);
+        assert_eq!(promote_lengths(&mut m, None).cells_promoted, 0);
     }
 
     #[test]
     fn a_read_only_loop_is_left_to_load_licm() {
         let mut m = pop_loop(vec![], vec![]);
         m.funcs[4].blocks[2].insts.retain(|i| !is_len_store(i));
-        assert_eq!(promote_lengths(&mut m).cells_promoted, 0);
+        assert_eq!(promote_lengths(&mut m, None).cells_promoted, 0);
     }
 
     #[test]
     fn a_guard_call_sees_the_word_and_is_followed_by_a_reread() {
         let guard = inst(None, InstKind::Call(FuncId(2), vec![v(0)]));
         let mut m = pop_loop(vec![guard], vec![]);
-        assert_eq!(promote_lengths(&mut m).cells_promoted, 1);
+        assert_eq!(promote_lengths(&mut m, None).cells_promoted, 1);
         let b = &m.funcs[4].blocks[2].insts;
         assert!(is_len_store(&b[0]));
         assert!(matches!(b[1].kind, InstKind::Call(FuncId(2), _)));
@@ -541,7 +541,7 @@ mod tests {
             ty: Type::Ptr,
             name: None,
         });
-        assert_eq!(promote_lengths(&mut m).cells_promoted, 1);
+        assert_eq!(promote_lengths(&mut m, None).cells_promoted, 1);
         let b = &m.funcs[4].blocks[2].insts;
         // the bit move stays ahead of the write-back
         assert!(matches!(b[0].kind, InstKind::BitCastF64ToI64(_)));
@@ -558,7 +558,7 @@ mod tests {
             InstKind::Call(FuncId(3), vec![Operand::ConstF64(1.0)]),
         );
         let mut m = pop_loop(vec![], vec![print]);
-        assert_eq!(promote_lengths(&mut m).cells_promoted, 1);
+        assert_eq!(promote_lengths(&mut m, None).cells_promoted, 1);
         let b = &m.funcs[4].blocks[2].insts;
         let n = b.len();
         assert!(is_len_store(&b[n - 2]));

@@ -132,7 +132,7 @@ fn loads(b: &Block, off: u64) -> usize {
 #[test]
 fn a_grow_arm_reads_the_cached_words_again() {
     let mut m = store_loop(heap_entry(), vec![], grow());
-    let s = reread_header_words(&mut m);
+    let s = reread_header_words(&mut m, None);
     assert_eq!(
         (s.cells_promoted, s.rereads_placed, s.preheaders_made),
         (2, 1, 0)
@@ -155,10 +155,10 @@ fn a_grow_arm_reads_the_cached_words_again() {
 fn any_other_call_on_the_array_keeps_the_loads() {
     let push = call(PUSH, vec![v(0), Operand::ConstI64(1)]);
     let mut m = store_loop(heap_entry(), vec![push], grow());
-    assert_eq!(reread_header_words(&mut m).cells_promoted, 0);
+    assert_eq!(reread_header_words(&mut m, None).cells_promoted, 0);
     // and a loop with no kernel call is load_licm's
     let mut m = store_loop(heap_entry(), vec![], mk(None, InstKind::Identity(v(1))));
-    assert_eq!(reread_header_words(&mut m).cells_promoted, 0);
+    assert_eq!(reread_header_words(&mut m, None).cells_promoted, 0);
 }
 
 #[test]
@@ -179,7 +179,7 @@ fn two_ways_in_get_a_preheader() {
         block(6, vec![], Terminator::Br(BlockId(1))),
     ];
     let mut m = store_loop(entry, vec![], grow());
-    assert_eq!(reread_header_words(&mut m).preheaders_made, 1);
+    assert_eq!(reread_header_words(&mut m, None).preheaders_made, 1);
     let f = &m.funcs[3];
     let pre = f.blocks.len() as u32 - 1;
     assert_eq!(f.blocks[pre as usize].term, Terminator::Br(BlockId(1)));
@@ -209,7 +209,7 @@ fn flag_test(mask: i64) -> Vec<Inst> {
 #[test]
 fn a_flag_test_is_cached_as_its_mask() {
     let mut m = store_loop(heap_entry(), flag_test(MASK), grow());
-    assert_eq!(reread_header_words(&mut m).cells_promoted, 3);
+    assert_eq!(reread_header_words(&mut m, None).cells_promoted, 3);
     let f = &m.funcs[3];
     assert_eq!(loads(&f.blocks[2], 0), 0);
     let masks = |b: &Block| {
@@ -230,14 +230,14 @@ fn a_flag_test_is_cached_as_its_mask() {
     // flags word in memory; the length and data pointer still move
     for mask in [MASK | 1, 1 << 53] {
         let mut m = store_loop(heap_entry(), flag_test(mask), grow());
-        assert_eq!(reread_header_words(&mut m).cells_promoted, 2);
+        assert_eq!(reread_header_words(&mut m, None).cells_promoted, 2);
         assert_eq!(loads(&m.funcs[3].blocks[2], 0), 1);
     }
     // a store into the flags half of the word dirties the whole word
     let mut body = flag_test(MASK);
     body.push(mk(None, InstKind::Store(Operand::ConstI64(1), v(0), 6)));
     let mut m = store_loop(heap_entry(), body, grow());
-    reread_header_words(&mut m);
+    reread_header_words(&mut m, None);
     assert_eq!(loads(&m.funcs[3].blocks[2], 0), 1);
 }
 
@@ -265,7 +265,7 @@ fn a_frame_cell_literal_is_tracked() {
     let promoted = |data: i64| {
         let mut m = store_loop(frame_birth(data), vec![], grow());
         m.funcs[3].values[0].ty = Type::Arr(torajs_core::ssa::ArrId(0));
-        reread_header_words(&mut m).cells_promoted
+        reread_header_words(&mut m, None).cells_promoted
     };
     assert_eq!(promoted(40), 2);
     // an address into the cell other than its inline slots escapes

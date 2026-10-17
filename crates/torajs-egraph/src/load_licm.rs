@@ -66,8 +66,8 @@ const HEADER_READ_ONLY_CALLS: &[&str] = &[
     "__torajs_arr_species_guard",
 ];
 
-pub fn hoist_header_loads(module: &mut Module) -> LoadLicmStats {
-    let names: Vec<String> = module.funcs.iter().map(|f| f.name.clone()).collect();
+pub fn hoist_header_loads(module: &mut Module, known: Option<&[String]>) -> LoadLicmStats {
+    let names = crate::interval::module_names(known, module);
     let mut stats = LoadLicmStats::default();
     for func in module.funcs.iter_mut() {
         if func.is_declaration() {
@@ -389,7 +389,7 @@ mod tests {
     #[test]
     fn a_read_only_walk_reads_the_header_once() {
         let mut m = walk(Terminator::Br(BlockId(1)), vec![]);
-        assert_eq!(hoist_header_loads(&mut m).loads_hoisted, 2);
+        assert_eq!(hoist_header_loads(&mut m, None).loads_hoisted, 2);
         let f = &m.funcs[3];
         assert_eq!(f.blocks[0].insts.len(), 3);
         assert_eq!(f.blocks[1].insts.len(), 1);
@@ -403,14 +403,14 @@ mod tests {
             InstKind::Call(FuncId(1), vec![v(0), Operand::ConstI64(1)]),
         );
         let mut m = walk(Terminator::Br(BlockId(1)), vec![push]);
-        assert_eq!(hoist_header_loads(&mut m).loads_hoisted, 0);
+        assert_eq!(hoist_header_loads(&mut m, None).loads_hoisted, 0);
     }
 
     #[test]
     fn a_length_store_in_the_loop_keeps_only_the_length_load() {
         let store = mk(None, InstKind::Store(Operand::ConstI64(1), v(0), 8));
         let mut m = walk(Terminator::Br(BlockId(1)), vec![store]);
-        assert_eq!(hoist_header_loads(&mut m).loads_hoisted, 1);
+        assert_eq!(hoist_header_loads(&mut m, None).loads_hoisted, 1);
         let f = &m.funcs[3];
         assert!(matches!(f.blocks[1].insts[0].kind, InstKind::Load(_, _, 8)));
         assert!(matches!(
@@ -443,13 +443,13 @@ mod tests {
                 name: None,
             });
         }
-        assert_eq!(hoist_header_loads(&mut m).loads_hoisted, 5);
+        assert_eq!(hoist_header_loads(&mut m, None).loads_hoisted, 5);
         assert_eq!(m.funcs[3].blocks[2].insts.len(), 1);
         // a mask that reads the collector's buffered bit stays
         let mut buffered = lock;
         buffered[2].kind = InstKind::BinOp(BinOp::And, v(6), Operand::ConstI64(1 << 5));
         let mut m = walk(Terminator::Br(BlockId(1)), buffered);
-        assert_eq!(hoist_header_loads(&mut m).loads_hoisted, 2);
+        assert_eq!(hoist_header_loads(&mut m, None).loads_hoisted, 2);
     }
 
     #[test]
@@ -477,13 +477,13 @@ mod tests {
         };
         let mut m = walk(Terminator::Br(BlockId(1)), lock((0x8290u64 << 48) as i64));
         grow(&mut m);
-        assert_eq!(hoist_header_loads(&mut m).loads_hoisted, 4);
+        assert_eq!(hoist_header_loads(&mut m, None).loads_hoisted, 4);
         assert_eq!(m.funcs[3].blocks[2].insts.len(), 1);
         // the collector's buffered bit, or any bit below the flags, stays
         for mask in [1i64 << 53, (0x8290 << 48) | 1] {
             let mut m = walk(Terminator::Br(BlockId(1)), lock(mask));
             grow(&mut m);
-            assert_eq!(hoist_header_loads(&mut m).loads_hoisted, 2);
+            assert_eq!(hoist_header_loads(&mut m, None).loads_hoisted, 2);
         }
     }
 
@@ -491,14 +491,14 @@ mod tests {
     fn the_pop_guard_does_not_write_the_header() {
         let guard = mk(None, InstKind::Call(FuncId(2), vec![v(0)]));
         let mut m = walk(Terminator::Br(BlockId(1)), vec![guard]);
-        assert_eq!(hoist_header_loads(&mut m).loads_hoisted, 2);
+        assert_eq!(hoist_header_loads(&mut m, None).loads_hoisted, 2);
     }
 
     #[test]
     fn a_slot_write_through_the_data_pointer_does_not_stop_it() {
         let slot = mk(None, InstKind::Store(Operand::ConstI64(1), v(3), 0));
         let mut m = walk(Terminator::Br(BlockId(1)), vec![slot]);
-        assert_eq!(hoist_header_loads(&mut m).loads_hoisted, 2);
+        assert_eq!(hoist_header_loads(&mut m, None).loads_hoisted, 2);
     }
 
     #[test]
@@ -509,6 +509,6 @@ mod tests {
             else_blk: BlockId(4),
         };
         let mut m = walk(diamond, vec![]);
-        assert_eq!(hoist_header_loads(&mut m).loads_hoisted, 0);
+        assert_eq!(hoist_header_loads(&mut m, None).loads_hoisted, 0);
     }
 }

@@ -63,8 +63,8 @@ pub struct LoadRereadStats {
     pub reads_direct: u32,
 }
 
-pub fn reread_header_words(module: &mut Module) -> LoadRereadStats {
-    let names: Vec<String> = module.funcs.iter().map(|f| f.name.clone()).collect();
+pub fn reread_header_words(module: &mut Module, known: Option<&[String]>) -> LoadRereadStats {
+    let names = crate::interval::module_names(known, module);
     let mut stats = LoadRereadStats::default();
     for func in module.funcs.iter_mut() {
         if func.is_declaration() {

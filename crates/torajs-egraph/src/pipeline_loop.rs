@@ -4,6 +4,7 @@
 
 use torajs_core::ssa::Module;
 
+use crate::interval::FactCache;
 use crate::pass_gates::gated_pass;
 use crate::{fconst_hoist, iconst_hoist, len_promote, load_licm};
 
@@ -13,30 +14,33 @@ use crate::{fconst_hoist, iconst_hoist, len_promote, load_licm};
 /// cold-arm kernels write. Before throw_check_fold (its
 /// loop-entry probe would otherwise sit between the preheader and the
 /// header).
-pub(crate) fn array_header_passes(module: &mut Module) {
+pub(crate) fn array_header_passes(module: &mut Module, cache: Option<&FactCache>) {
+    let names = cache.map(FactCache::names);
     // Array length word into a register across a loop that stores it
     // (`len_promote`): the pop loop's `str len` → next `ldr len` chain.
     // After branch_fold (its folded arms are no longer loop body),
     // before load_licm, which then sees the loop without the stores.
     // `TORAJS_LEN_PROMOTE_OFF=1` skips (bisect gate).
-    gated_pass("LEN_PROMOTE", module, len_promote::promote_lengths);
+    gated_pass("LEN_PROMOTE", module, |m| {
+        len_promote::promote_lengths(m, names)
+    });
     // Array header-field loads out of loops that never write that
     // array's header (allocation-site alias slices, `load_licm`).
     // After branch_fold (a folded-away out-of-range arm is no longer
     // loop body), before throw_check_fold (its loop-entry probe would
     // otherwise sit between the preheader and the header).
     // `TORAJS_LOAD_LICM_OFF=1` skips (bisect gate).
-    gated_pass("LOAD_LICM", module, load_licm::hoist_header_loads);
+    gated_pass("LOAD_LICM", module, |m| {
+        load_licm::hoist_header_loads(m, names)
+    });
     // Header words a loop reads but only the typed store's cold-arm
     // kernels write: kept in registers and read again after each
     // kernel call (`load_licm::reread`). After load_licm, which takes
     // the loops no call naming the array touches.
     // `TORAJS_LOAD_REREAD_OFF=1` skips (bisect gate).
-    gated_pass(
-        "LOAD_REREAD",
-        module,
-        load_licm::reread::reread_header_words,
-    );
+    gated_pass("LOAD_REREAD", module, |m| {
+        load_licm::reread::reread_header_words(m, names)
+    });
 }
 
 /// The two loop-constant hoists: each distinct in-loop `ConstF64`

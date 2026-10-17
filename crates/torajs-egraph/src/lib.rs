@@ -281,7 +281,7 @@ pub fn transform_module(mut module: Module) -> Module {
     });
     // Array header words out of loops (`array_header_passes`). After
     // branch_fold: its folded-away arms are no longer loop body.
-    pipeline_loop::array_header_passes(&mut module);
+    pipeline_loop::array_header_passes(&mut module, fact_cache.as_ref());
     // Frame-literal array releases behind an inline born-shape test
     // (`frame_arr_drop`). After the header passes, which read the
     // release as a call naming the array.
@@ -302,7 +302,7 @@ pub fn transform_module(mut module: Module) -> Module {
     gated_pass("PRINT_NARROW", &mut module, |m| {
         print_narrow::narrow_prints(m, interval_facts.as_deref(), fact_cache.as_ref())
     });
-    drop(fact_cache);
+    let fn_names = fact_cache.map(interval::FactCache::into_names);
     pipeline_loop::hoist_loop_consts(&mut module);
     // Ctpop-range-sum reduction recognition — collapse a counted
     // `acc += ctpop(i)` loop into one `CtpopRangeSum` super-inst that
@@ -335,7 +335,7 @@ pub fn transform_module(mut module: Module) -> Module {
         &mut module,
         self_tail_call::eliminate_self_tail_calls,
     );
-    pipeline_tail::form_selects_and_fuse(&mut module);
+    pipeline_tail::form_selects_and_fuse(&mut module, fn_names.as_deref());
     pipeline_tail::finish_pipeline(&mut module, interval_facts.as_deref(), &clones);
     module
 }

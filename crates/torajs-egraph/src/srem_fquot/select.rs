@@ -18,8 +18,11 @@ use super::{Readers, Site, SremFquotStats, Uses, rewrite_function, zero_tests_on
 use crate::fact_folds::LoopShapes;
 use crate::interval::transfer::op_const_int;
 
-pub fn float_quotient_select_srems(module: &mut Module) -> SremFquotStats {
-    let names: Vec<String> = module.funcs.iter().map(|f| f.name.clone()).collect();
+pub fn float_quotient_select_srems(
+    module: &mut Module,
+    known: Option<&[String]>,
+) -> SremFquotStats {
+    let names = crate::interval::module_names(known, module);
     let mut stats = SremFquotStats::default();
     let mut shapes = LoopShapes::new(module.funcs.len());
     for (fi, func) in module.funcs.iter_mut().enumerate() {

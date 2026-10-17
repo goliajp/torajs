@@ -43,7 +43,7 @@ pub mod transfer;
 mod walk;
 mod widen;
 
-pub use cache::{FactCache, Seed};
+pub use cache::{FactCache, Seed, module_names};
 pub use def_shapes::SingleDefs;
 pub use transfer::{AbsVal, NumFact};
 

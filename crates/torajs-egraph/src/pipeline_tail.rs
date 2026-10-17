@@ -13,7 +13,7 @@ mod global_ref_share;
 
 /// Select formation and the inst-level fusions that read its output,
 /// ahead of the rc and cfg-shape tail.
-pub(crate) fn form_selects_and_fuse(module: &mut Module) {
+pub(crate) fn form_selects_and_fuse(module: &mut Module, names: Option<&[String]>) {
     // Select formation — if-convert pure CondBr diamonds into csel-
     // shaped `Select` defs (RFC 20260719-select-formation blade 2).
     // After ctpop so every arm-shaping rewrite (float_demote /
@@ -25,11 +25,9 @@ pub(crate) fn form_selects_and_fuse(module: &mut Module) {
     // quotient from `fdiv` as an exit test does. Before cmp_sink, which
     // keeps the compare next to its select.
     // `TORAJS_SREM_FQUOT_SELECT_OFF=1` skips.
-    gated_pass(
-        "SREM_FQUOT_SELECT",
-        module,
-        srem_fquot::float_quotient_select_srems,
-    );
+    gated_pass("SREM_FQUOT_SELECT", module, |m| {
+        srem_fquot::float_quotient_select_srems(m, names)
+    });
     // Compare sink — restore ICmp/Select adjacency that the hoisted
     // speculated arms just broke, so codegen's adjacency-gated NZCV
     // fuse fires (RFC 20260719-select-formation route ③). Right after

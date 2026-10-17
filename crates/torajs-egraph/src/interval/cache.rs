@@ -48,6 +48,12 @@ impl FactCache {
         &self.names
     }
 
+    /// The function names the analysis ran under, kept for the passes
+    /// after the cache's last reader.
+    pub fn into_names(self) -> Vec<String> {
+        self.names
+    }
+
     /// `module`'s function names, and `cache` when it was built under
     /// those names (a pass that adds, drops or renames a function
     /// invalidates every entry). A matching cache lends its own copy
@@ -56,15 +62,9 @@ impl FactCache {
         cache: Option<&'a FactCache>,
         module: &Module,
     ) -> (Option<&'a FactCache>, Cow<'a, [String]>) {
-        match cache {
-            Some(c) if c.names.iter().eq(module.funcs.iter().map(|f| &f.name)) => {
-                (Some(c), Cow::Borrowed(c.names.as_slice()))
-            }
-            _ => (
-                None,
-                Cow::Owned(module.funcs.iter().map(|f| f.name.clone()).collect()),
-            ),
-        }
+        let names = module_names(cache.map(|c| c.names.as_slice()), module);
+        let cache = cache.filter(|_| matches!(names, Cow::Borrowed(_)));
+        (cache, names)
     }
 
     /// `facts`' entry for `module.funcs[idx]` when that body is the one
@@ -80,6 +80,17 @@ impl FactCache {
             return None;
         }
         facts?.get(idx)
+    }
+}
+
+/// `module`'s function names, index-aligned with `Module::funcs`:
+/// `known` itself when it still spells them, a fresh copy otherwise.
+/// Comparing costs no allocation; copying a module's names (the
+/// runtime's declarations included) costs one per function.
+pub fn module_names<'a>(known: Option<&'a [String]>, module: &Module) -> Cow<'a, [String]> {
+    match known {
+        Some(n) if n.iter().eq(module.funcs.iter().map(|f| &f.name)) => Cow::Borrowed(n),
+        _ => Cow::Owned(module.funcs.iter().map(|f| f.name.clone()).collect()),
     }
 }
 
