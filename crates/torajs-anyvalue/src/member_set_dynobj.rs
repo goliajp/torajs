@@ -175,34 +175,11 @@ pub(crate) unsafe fn inherited_set_walk(
                 // boundary) — the own-create fall-through stands.
                 break;
             };
-            if dict.is_null() {
-                // Modeled but empty: nothing owns the key HERE, which
-                // is not the same as the chain ending.
-                level = crate::member_set_proto_root::chain_parent(cell);
-                continue;
-            }
-            if __torajs_dynobj_has(dict, key as *const c_void) != 0 {
-                let etag = __torajs_dynobj_get_tag(dict, key as *const c_void);
-                if etag == MEMBER_SET_ANY_ACCESSOR {
-                    let pair =
-                        __torajs_dynobj_get_value(dict, key as *const c_void) as *const c_void;
-                    let value_anyv = __torajs_anyv_box_from_pair(tag as i64, value as i64);
-                    // The setter borrows the value, so its stake ends
-                    // here either way; a getter-only pair refuses the
-                    // strict assignment.
-                    let ran = __torajs_accessor_invoke_setter(pair, recv, value_anyv);
-                    drop_payload(tag, value);
-                    if ran == 0 {
-                        if throw_on_refusal {
-                            __torajs_throw_type_error(
-                                c"Attempted to assign to readonly property.".as_ptr(),
-                            );
-                        }
-                        return Some(0);
-                    }
-                    return Some(1);
-                }
-                if __torajs_dynobj_get_flags(dict, key as *const c_void) & 0x1 == 0 {
+            if dict.is_null() || __torajs_dynobj_has(dict, key as *const c_void) == 0 {
+                // Nothing owns the key as an entry HERE, which is not
+                // the same as the chain ending: a builtin prototype's
+                // virtual accessor may.
+                if virtual_getter_only(cell, key) {
                     drop_payload(tag, value);
                     if throw_on_refusal {
                         __torajs_throw_type_error(
@@ -211,12 +188,58 @@ pub(crate) unsafe fn inherited_set_walk(
                     }
                     return Some(0);
                 }
-                break;
+                level = crate::member_set_proto_root::chain_parent(cell);
+                continue;
             }
-            level = crate::member_set_proto_root::chain_parent(cell);
+            let etag = __torajs_dynobj_get_tag(dict, key as *const c_void);
+            if etag == MEMBER_SET_ANY_ACCESSOR {
+                let pair = __torajs_dynobj_get_value(dict, key as *const c_void) as *const c_void;
+                let value_anyv = __torajs_anyv_box_from_pair(tag as i64, value as i64);
+                // The setter borrows the value, so its stake ends
+                // here either way; a getter-only pair refuses the
+                // strict assignment.
+                let ran = __torajs_accessor_invoke_setter(pair, recv, value_anyv);
+                drop_payload(tag, value);
+                if ran == 0 {
+                    if throw_on_refusal {
+                        __torajs_throw_type_error(
+                            c"Attempted to assign to readonly property.".as_ptr(),
+                        );
+                    }
+                    return Some(0);
+                }
+                return Some(1);
+            }
+            if __torajs_dynobj_get_flags(dict, key as *const c_void) & 0x1 == 0 {
+                drop_payload(tag, value);
+                if throw_on_refusal {
+                    __torajs_throw_type_error(
+                        c"Attempted to assign to readonly property.".as_ptr(),
+                    );
+                }
+                return Some(0);
+            }
+            break;
         }
     }
     None
+}
+
+/// Whether `cell` is a builtin prototype carrying `key` as one of its
+/// virtual accessors (§22.2.6 RegExp's `flags` / flag booleans /
+/// `source`, Map / Set `size`, the buffer views' getters). Every one
+/// is `{ get, set: undefined }`, so §10.1.9.2 step 3.d refuses the
+/// write.
+///
+/// # Safety
+/// `cell` is a live object cell; `key` is a live key cell.
+unsafe fn virtual_getter_only(cell: u64, key: *mut c_void) -> bool {
+    unsafe {
+        let ptag = torajs_rc::builtin_proto::__torajs_builtin_proto_tag_of(cell as *const c_void);
+        ptag >= 0
+            && (key.cast::<u8>().add(4) as *const u16).read() == torajs_rc::Tag::Str as u16
+            && crate::method_support_proto_accessor::live_accessor_mid(ptag, key).is_some()
+    }
 }
 
 /// `Tag::DynObj` receiver — the ordinary own-entry write, plus the
