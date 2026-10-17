@@ -26,10 +26,23 @@ pub(crate) struct Narrows {
     /// The names a function or class body stores into
     /// (`capture_narrow`), worked out on first use.
     pub(crate) fn_body_writes: std::cell::OnceCell<std::collections::HashSet<String>>,
+    /// The (closure, binding) captures typed at the non-null narrow:
+    /// those whose body did not check against the declared `T | null`
+    /// in an earlier run of the fixpoint (`capture_narrow`).
+    pub(crate) capture_kept: std::collections::HashSet<(ExprId, String)>,
+    /// The captures this run found that need the narrow, for the next
+    /// run to keep.
+    pub(crate) capture_wanted: std::collections::HashSet<(ExprId, String)>,
+    /// Per closure body being walked, the errors of its nested closures
+    /// already put down to a capture of theirs.
+    pub(crate) closure_errs: Vec<usize>,
 }
 
 /// What [`Checker::open_guard`] displaced (`None`: no such binding).
 pub(crate) type GuardSave = Option<(String, Option<Type>)>;
+
+/// The assignment and member narrows a closure body is walked without.
+pub(crate) type ClosureNarrows = (HashMap<String, Type>, HashMap<(String, String), Type>);
 
 /// The live type of each binding carrying a `flow_declared` type, by
 /// scope depth and name.
@@ -65,6 +78,25 @@ impl Checker {
         if let Some(info) = self.binding_mut(name) {
             info.flow_declared = Some(declared);
         }
+    }
+
+    /// A closure body runs when the closure is called, so no narrow of
+    /// the code around its creation holds in it.
+    pub(crate) fn enter_closure_narrows(&mut self) -> ClosureNarrows {
+        (
+            std::mem::take(&mut self.narrows.assign),
+            std::mem::take(&mut self.narrows.member),
+        )
+    }
+
+    pub(crate) fn leave_closure_narrows(
+        &mut self,
+        ast: &Ast,
+        fn_name: &str,
+        saved: ClosureNarrows,
+    ) {
+        (self.narrows.assign, self.narrows.member) = saved;
+        self.retire_member_narrows(ast, fn_name);
     }
 
     pub(crate) fn guard_declared(&self, name: &str) -> Option<&Type> {

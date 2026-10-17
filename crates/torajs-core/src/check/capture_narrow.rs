@@ -1,25 +1,26 @@
 //! The type a closure captures a null-narrowed binding at.
 //!
 //! A closure reads a captured binding whenever it is called, not where
-//! it is created, so the narrow in force at creation holds for it only
-//! if no possibly-null store into the binding can run between the
-//! creation and a call. Such a store can be
+//! it is created. So a closure first captures the `T | null` the narrow
+//! replaced (`LocalInfo::null_declared`), as TS does for a binding
+//! written after the closure. When its body does not check against
+//! that type, the next run of the fixpoint keeps the narrow for this
+//! capture (`Narrows::capture_kept`), unless a possibly-null store into
+//! the binding can run while the closure exists without the walk
+//! reaching it after the creation:
 //!
-//! - after the creation in the walk: the closure keeps the narrow and
-//!   the binding is pinned, so that store is refused when it is
-//!   reached (`LocalInfo::pinned`);
-//! - before the creation, inside a loop around it: the next iteration
-//!   runs it after the closure exists;
+//! - before the creation, inside a loop around it that does not
+//!   declare the binding: the next iteration runs it after the closure
+//!   exists;
 //! - inside a closure, or in a function body for a top-level binding:
 //!   it can run at any time (`LocalInfo::nulled_anytime`).
 //!
-//! In the last two cases the closure captures the `T | null` the
-//! narrow replaced (`LocalInfo::null_declared`), and so it does when
-//! its body reads the binding only where null is welcome (compared
-//! with null, `typeof`, `??`, `?.`) and some write to it exists: such
-//! a closure does not need the narrow, and pinning would refuse a
-//! later null store for nothing. A store of a non-null value never
-//! undoes the narrow.
+//! Then the capture stays at `T | null` and the body's errors are the
+//! program's. Otherwise it keeps the narrow and the binding is pinned:
+//! a possibly-null store the walk reaches later, the closure's own
+//! body included, is refused (`LocalInfo::pinned`). A store of a
+//! non-null value never undoes the narrow, and a binding nothing ever
+//! stores into keeps it with no trial.
 
 use std::collections::HashSet;
 
@@ -37,35 +38,102 @@ pub(crate) struct CaptureOut {
 
 impl Checker {
     /// The type closure `eid` captures `name` (resolving to `info`)
-    /// at; keeping the narrow pins the binding.
+    /// at, and whether it is the declared type on trial (see the module
+    /// doc); keeping the narrow pins the binding.
     pub(crate) fn capture_ty(
         &mut self,
         ast: &Ast,
         eid: ExprId,
         name: &str,
         info: &LocalInfo,
-    ) -> Type {
+    ) -> (Type, bool) {
         let Some(declared) = &info.null_declared else {
-            return info.ty.clone();
+            return (info.ty.clone(), false);
         };
-        if !info.mutable || matches!(info.ty, Type::Nullable(_)) {
-            return info.ty.clone();
+        if !info.mutable || matches!(info.ty, Type::Nullable(_)) || !any_write(ast, name) {
+            return (info.ty.clone(), false);
         }
-        // a closure that reads the binding only where null is welcome
-        // does not need the narrow, and then a write need not be refused
-        let tolerant = || match ast.get_expr(eid) {
-            Expr::Closure { fn_name, .. } => {
-                any_write(ast, name) && reads_tolerate_null(ast, fn_name, name, &mut HashSet::new())
-            }
-            _ => false,
-        };
-        if self.nulled_around(ast, eid, name, info) || tolerant() {
-            return declared.clone();
+        if !self.narrows.capture_kept.contains(&(eid, name.to_string())) {
+            return (declared.clone(), true);
+        }
+        if self.nulled_around(ast, eid, name, info) {
+            return (declared.clone(), false);
         }
         if let Some(b) = self.scopes.iter_mut().rev().find_map(|s| s.get_mut(name)) {
             b.pinned = true;
         }
-        info.ty.clone()
+        (info.ty.clone(), false)
+    }
+
+    /// Open the walk of a closure body: the error count to measure it
+    /// against.
+    pub(crate) fn open_capture_trial(&mut self) -> usize {
+        self.narrows.closure_errs.push(0);
+        self.error_count()
+    }
+
+    /// Close the walk of closure `eid`'s body `fn_name`, whose captures
+    /// `tried` were typed at their declared type, `failed` when the
+    /// walk returned an error. Errors the body raised itself, not put
+    /// down to a nested closure, ask the next run to keep the narrow
+    /// of each tried capture that some read needs non-null; the errors
+    /// stay with the enclosing body otherwise.
+    pub(crate) fn close_capture_trial(
+        &mut self,
+        ast: &Ast,
+        eid: ExprId,
+        fn_name: &str,
+        tried: &[String],
+        before: usize,
+        failed: bool,
+    ) {
+        let accounted = self.narrows.closure_errs.pop().unwrap_or(0);
+        let grown = self.error_count().saturating_sub(before) + usize::from(failed);
+        let mut kept = false;
+        if grown > accounted && self.speculative_depth == 0 && !self.checking_spec_body {
+            for n in tried {
+                if !reads_tolerate_null(ast, fn_name, n, &mut HashSet::new()) {
+                    self.narrows.capture_wanted.insert((eid, n.clone()));
+                    kept = true;
+                }
+            }
+        }
+        if let Some(top) = self.narrows.closure_errs.last_mut() {
+            *top += if kept { grown } else { accounted };
+        }
+    }
+
+    fn error_count(&self) -> usize {
+        self.errors
+            .iter()
+            .filter(|d| d.severity == Severity::Error)
+            .count()
+    }
+
+    /// The member narrows a closure body could undo when called: those
+    /// whose receiver or member the body, or a closure in it, writes.
+    pub(crate) fn retire_member_narrows(&mut self, ast: &Ast, fn_name: &str) {
+        if self.narrows.member.is_empty() {
+            return;
+        }
+        let mut bodies = Vec::new();
+        closure_bodies(ast, fn_name, &mut HashSet::new(), &mut bodies);
+        self.narrows.member.retain(|(recv, field), _| {
+            let hit = crate::check_assigns_to::member_hit(ast, recv, field);
+            let base = |t: ExprId| match ast.get_expr(t) {
+                Expr::Index { obj, .. }
+                    if crate::check_assigns_to::member_path(ast, t).is_none() =>
+                {
+                    crate::check_assigns_to::member_path(ast, *obj)
+                        .is_some_and(|bp| recv.starts_with(&format!("{bp}[")))
+                }
+                _ => false,
+            };
+            let either = |t: ExprId| hit(t) || base(t);
+            !bodies
+                .iter()
+                .any(|s| crate::check_assigns_to::writes(ast, &[], s, &either))
+        });
     }
 
     /// Can a possibly-null store into `name` run while closure `eid`
@@ -78,7 +146,7 @@ impl Checker {
         info: &LocalInfo,
     ) -> bool {
         info.nulled_anytime
-            || in_one_loop(ast, &ast.stmts, eid, &info.null_stores)
+            || in_one_loop(ast, &ast.stmts, eid, name, &info.null_stores)
             || (self.is_main_toplevel(name) && self.written_in_fn_body(ast, name))
     }
 
@@ -280,8 +348,9 @@ fn fn_body_writes(ast: &Ast) -> HashSet<String> {
         .collect()
 }
 
-/// Is there a loop in `stmts` holding both `eid` and one of `stores`?
-fn in_one_loop(ast: &Ast, stmts: &[Stmt], eid: ExprId, stores: &[ExprId]) -> bool {
+/// Is there a loop in `stmts` holding both `eid` and one of `stores`,
+/// and not the declaration of the binding `name` that `eid` sees?
+fn in_one_loop(ast: &Ast, stmts: &[Stmt], eid: ExprId, name: &str, stores: &[ExprId]) -> bool {
     if stores.is_empty() {
         return false;
     }
@@ -296,14 +365,74 @@ fn in_one_loop(ast: &Ast, stmts: &[Stmt], eid: ExprId, stores: &[ExprId]) -> boo
         ) {
             let mut ids = HashSet::new();
             collect_exprs(ast, s, &mut ids);
-            if ids.contains(&eid) && stores.iter().any(|v| ids.contains(v)) {
+            if ids.contains(&eid)
+                && stores.iter().any(|v| ids.contains(v))
+                && !declares_around(ast, s, eid, name)
+            {
                 return true;
             }
         }
         let mut hit = false;
-        for_each_nested_list(s, &mut |l| hit = hit || in_one_loop(ast, l, eid, stores));
+        for_each_nested_list(s, &mut |l| {
+            hit = hit || in_one_loop(ast, l, eid, name, stores)
+        });
         hit
     })
+}
+
+/// Does `s`, which holds `eid`, declare a binding `name` whose scope
+/// holds `eid`: in its head, or in a statement list on the way to it?
+fn declares_around(ast: &Ast, s: &Stmt, eid: ExprId, name: &str) -> bool {
+    let decl = |s: &Stmt| match s {
+        Stmt::LetDecl { name: n, .. } => n == name,
+        _ => false,
+    };
+    let head = match s {
+        Stmt::For { init: Some(i), .. } => decl(i),
+        Stmt::ForOf { var_name, .. } | Stmt::ForOfSplitIter { var_name, .. } => var_name == name,
+        _ => false,
+    };
+    let holds = |s: &Stmt| {
+        let mut ids = HashSet::new();
+        collect_exprs(ast, s, &mut ids);
+        ids.contains(&eid)
+    };
+    let mut hit = head;
+    for_each_nested_list(s, &mut |l| {
+        hit = hit
+            || l.iter()
+                .find(|s| holds(s))
+                .is_some_and(|inner| l.iter().any(decl) || declares_around(ast, inner, eid, name));
+    });
+    hit
+}
+
+/// The body of lifted closure `fn_name` and of every closure in it.
+fn closure_bodies<'a>(
+    ast: &'a Ast,
+    fn_name: &str,
+    seen: &mut HashSet<String>,
+    out: &mut Vec<&'a Stmt>,
+) {
+    if !seen.insert(fn_name.to_string()) {
+        return;
+    }
+    let Some(body) = ast.stmts.iter().find_map(|s| match s {
+        Stmt::FnDecl { name, body, .. } if name == fn_name => Some(body),
+        _ => None,
+    }) else {
+        return;
+    };
+    let mut ids = HashSet::new();
+    for s in body {
+        collect_exprs(ast, s, &mut ids);
+        out.push(s);
+    }
+    for e in ids {
+        if let Expr::Closure { fn_name, .. } = ast.get_expr(e) {
+            closure_bodies(ast, fn_name, seen, out);
+        }
+    }
 }
 
 /// Every expression `s` evaluates in its own frame.

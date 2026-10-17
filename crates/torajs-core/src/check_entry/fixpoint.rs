@@ -66,7 +66,10 @@ fn has_errors(c: &Checker) -> bool {
 /// `face_mismatch_params`) are carried into the next run the same way,
 /// when a read asked for one of their keys before the store that
 /// entered it (`Reads::stale`): that call is typed again once the
-/// census holds it. They too only grow.
+/// census holds it. They too only grow. So do the closure captures that
+/// keep a null narrow (`Narrows::capture_kept`): a closure body first
+/// checked against a capture's declared `T | null` and failed, and the
+/// next run types that capture at the narrow.
 fn fixpoint_with(
     ast: &Ast,
     widen_ret_declared: bool,
@@ -87,7 +90,13 @@ fn fixpoint_with(
         // stands the typed String regex calls down, which only the
         // run's types can tell from an array store
         let exec = c.proto_shadow.needs_typed_exec_run(ast, &c.expr_types);
-        if found.is_subset(&c.cross_type_widened) && !retypes && !c.face_slot_reads.stale && !exec {
+        let kept = &c.narrows.capture_wanted;
+        if found.is_subset(&c.cross_type_widened)
+            && !retypes
+            && !c.face_slot_reads.stale
+            && !exec
+            && kept.is_empty()
+        {
             // no read answers otherwise under the grown set: a run
             // seeded with it would type the program the same
             c.shadowed_reads.names.extend(shadowed);
@@ -100,6 +109,8 @@ fn fixpoint_with(
         let face_slots = std::mem::take(&mut c.face_slots);
         let lets = std::mem::take(&mut c.face_mismatch_lets);
         let params = std::mem::take(&mut c.face_mismatch_params);
+        let mut kept = std::mem::take(&mut c.narrows.capture_kept);
+        kept.extend(std::mem::take(&mut c.narrows.capture_wanted));
         let mut shadow = std::mem::take(&mut c.proto_shadow);
         if exec {
             shadow.seed_exec_written();
@@ -113,6 +124,7 @@ fn fixpoint_with(
         c.face_slots = face_slots;
         c.face_mismatch_lets = lets;
         c.face_mismatch_params = params;
+        c.narrows.capture_kept = kept;
         c.run_full_pipeline(ast);
     }
 }

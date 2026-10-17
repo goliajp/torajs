@@ -274,3 +274,83 @@ fn a_closure_in_a_closure_sees_writes_around_both() {
          return f() }\n",
     );
 }
+
+#[test]
+fn a_closure_first_reads_a_capture_at_its_declared_type() {
+    // the body checks against `Node | null`: the later null store stays
+    accepted(
+        "function h(a: Node | null): number {\n\
+         let q: Node | null = a;\n\
+         if (q === null) q = mk();\n\
+         const f = (): number => q !== null ? g(q) : 0;\n\
+         q = null;\n\
+         return f() }\n",
+    );
+    // only the capture that needs the narrow keeps it
+    accepted(
+        "function h(a: Node | null, b: Node | null): number {\n\
+         let q: Node | null = a;\n\
+         let r: Node | null = b;\n\
+         if (q === null) q = mk();\n\
+         if (r === null) r = mk();\n\
+         const f = (): number => g(q) + (r === null ? 1 : 0);\n\
+         r = null;\n\
+         return f() }\n",
+    );
+    // a narrow the body needs, undone by a null store in the body
+    refused(
+        "function h(a: Node): number {\n\
+         let q: Node | null = a;\n\
+         const f = (): number => { const r = g(q); q = null; return r };\n\
+         f();\n\
+         return f() }\n",
+    );
+}
+
+#[test]
+fn a_closure_keeps_a_narrow_a_loop_declaring_the_binding_renews() {
+    // a binding of each iteration is not written by the next one
+    accepted(
+        "function h(xs: (Node | null)[]): number {\n\
+         const fs: (() => number)[] = [];\n\
+         for (const x of xs) {\n\
+         let q: Node | null = null;\n\
+         q = x;\n\
+         if (q === null) q = mk();\n\
+         fs.push((): number => g(q)) }\n\
+         return fs[0]() }\n",
+    );
+    // one binding across iterations is
+    refused(
+        "function h(xs: (Node | null)[]): number {\n\
+         let q: Node | null = null;\n\
+         const fs: (() => number)[] = [];\n\
+         for (const x of xs) { q = x; if (q === null) continue; fs.push((): number => g(q)) }\n\
+         return fs[0]() }\n",
+    );
+}
+
+#[test]
+fn a_member_narrow_does_not_reach_into_a_closure() {
+    refused(
+        "type O = { f: Node | null };\n\
+         const o: O = { f: mk() };\n\
+         let c = (): number => 0;\n\
+         if (o.f !== null) { c = (): number => g(o.f) }\n\
+         o.f = null;\n\
+         c();\n",
+    );
+    // a write in a closure body retires the narrow around it
+    refused(
+        "type O = { f: Node | null };\n\
+         function h(o: O): number {\n\
+         if (o.f !== null) { const z = (): void => { o.f = null }; return g(o.f) }\n\
+         return 0 }\n",
+    );
+    accepted(
+        "type O = { f: Node | null };\n\
+         function h(o: O): number {\n\
+         if (o.f !== null) { const z = (): number => 1; return g(o.f) + z() }\n\
+         return 0 }\n",
+    );
+}

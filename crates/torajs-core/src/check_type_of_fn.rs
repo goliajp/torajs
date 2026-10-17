@@ -125,9 +125,14 @@ pub(crate) fn check_closure(
     }
     let captures = captures.to_vec();
     let mut cap_tys: Vec<(String, Type)> = Vec::with_capacity(captures.len());
+    let mut tried = Vec::new();
     for cap in &captures {
         if let Some(info) = checker.lookup(cap) {
-            cap_tys.push((cap.clone(), checker.capture_ty(ast, eid, cap, &info)));
+            let (ty, trial) = checker.capture_ty(ast, eid, cap, &info);
+            if trial {
+                tried.push(cap.clone());
+            }
+            cap_tys.push((cap.clone(), ty));
         } else if checker.globals.contains_key(cap) {
             // K.3/K.4/K.6 promoted data global (or hoisted fn) — not a
             // capture: the body ident resolves through the same globals
@@ -171,7 +176,10 @@ pub(crate) fn check_closure(
     checker
         .closure_captures
         .insert(fn_name.clone(), cap_tys.clone());
-    let ty = check_closure_body(checker, ast, eid, &fn_name, cap_tys)?;
+    let before = checker.open_capture_trial();
+    let ty = check_closure_body(checker, ast, eid, &fn_name, cap_tys);
+    checker.close_capture_trial(ast, eid, &fn_name, &tried, before, ty.is_err());
+    let ty = ty?;
     // the replace lane's view twin is a clone of this body with no
     // construction site of its own: checked here, in the same scope
     if let Some(twin) = ast.regex_replace_view_fns.get(&fn_name).cloned() {
@@ -238,6 +246,7 @@ pub(crate) fn check_closure_body(
         .map(|(n, i)| (n.clone(), i.nulled_anytime))
         .collect();
     let saved_scopes = std::mem::replace(&mut checker.scopes, vec![HashMap::new()]);
+    let saved_narrows = checker.enter_closure_narrows();
     let saved_return = checker.expected_return.replace(ret_ty);
     let saved_owner = checker.ret_owner.replace(fn_name.clone());
     // §15.5.5 (RFC 20260810) — the fn-expression's self-name binds
@@ -304,6 +313,7 @@ pub(crate) fn check_closure_body(
     checker.ret_owner = saved_owner;
     let cap_out = checker.capture_frame_out(cap_scope, &inherited);
     checker.scopes = saved_scopes;
+    checker.leave_closure_narrows(ast, &fn_name, saved_narrows);
     checker.apply_capture_out(cap_out);
     checker.toplevel_captures.pop();
     if checker.speculative_depth == 0 {
