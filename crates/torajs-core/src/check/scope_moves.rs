@@ -47,6 +47,20 @@ impl Checker {
         ast: &Ast,
         cond: ExprId,
     ) -> Option<(String, Type, bool)> {
+        // `a && b` is true only when both are, `a || b` false only when
+        // both are: an operand's narrow on that side is the whole
+        // condition's (`if (x === null || x.w < 2) return`)
+        if let Expr::BinOp {
+            op: op @ (BinOp::LAnd | BinOp::LOr),
+            left,
+            right,
+        } = ast.get_expr(cond)
+        {
+            let side = *op == BinOp::LAnd;
+            return [*left, *right]
+                .into_iter()
+                .find_map(|e| self.collect_null_narrow(ast, e).filter(|n| n.2 == side));
+        }
         // Cond shape 1 — `<ident> !== null` / `null !== <ident>`
         // (and `===` for the inverse polarity). The historical
         // narrow shape, kept verbatim.

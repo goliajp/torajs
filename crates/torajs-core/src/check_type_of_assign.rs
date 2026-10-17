@@ -30,6 +30,10 @@ pub(crate) fn check(
 ) -> Result<Type, String> {
     match ast.get_expr(target).clone() {
         Expr::Ident(name) => {
+            // The right-hand side is evaluated before the store
+            // (§13.15.2), so it reads under the narrows the store then
+            // retires: `t = t.next` inside `while (t.next !== null)`.
+            let ty = crate::check_assign_ident::check(checker, ast, target, name.clone(), value);
             // RFC 20260710 C5 — rebinding the receiver invalidates
             // every member-path narrow rooted at it (chunk 789:
             // keys are canonical paths, so "h" kills "h.o.cb" too).
@@ -37,7 +41,7 @@ pub(crate) fn check(
                 .narrows
                 .member
                 .retain(|(recv, _), _| !crate::check_assigns_to::path_overlaps(recv, &name));
-            crate::check_assign_ident::check(checker, ast, target, name, value)
+            ty
         }
         Expr::Member { obj, name: field } => {
             // G2.5 — a member STORE through bare `globalThis` is loud
@@ -46,10 +50,23 @@ pub(crate) fn check(
             // singleton's dynobj lanes. A user binding named
             // globalThis shadows through the lookup gate.
             reject_globalthis_mutation(checker, ast, obj, Some(field.as_str()))?;
+            // The TARGET carries the spelling, not the assignment
+            // expression wrapped around it — see
+            // `Ast::index_spelled_props`.
+            let ty = crate::check_assign_target::check_member(
+                checker,
+                ast,
+                eid,
+                obj,
+                field.clone(),
+                value,
+                ast.index_spelled_props.contains(&target),
+            );
             // RFC 20260710 C5 — writing the member invalidates its
             // own narrow entry and every narrow rooted deeper in it
             // (chunk 789: `h.o = ...` kills ("h.o", cb) AND
-            // "h.o.p"-rooted keys).
+            // "h.o.p"-rooted keys), after the right-hand side read
+            // under it (see the Ident arm).
             if let Some(path) = crate::check_assigns_to::member_path(ast, obj) {
                 let full = format!("{path}.{field}");
                 checker.narrows.member.retain(|(recv, f), _| {
@@ -57,18 +74,7 @@ pub(crate) fn check(
                         && !crate::check_assigns_to::path_overlaps(recv, &full)
                 });
             }
-            // The TARGET carries the spelling, not the assignment
-            // expression wrapped around it — see
-            // `Ast::index_spelled_props`.
-            crate::check_assign_target::check_member(
-                checker,
-                ast,
-                eid,
-                obj,
-                field,
-                value,
-                ast.index_spelled_props.contains(&target),
-            )
+            ty
         }
         Expr::Index { obj, index } => {
             // G2.5 — the Index spelling: a string-literal key takes

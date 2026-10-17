@@ -26,6 +26,7 @@ pub(crate) fn check(
     sep: ExprId,
     body: &Stmt,
 ) {
+    checker.enter_loop(ast, &[], body);
     match checker.type_of(ast, parent) {
         Ok(Type::String) => {}
         Ok(other) => checker

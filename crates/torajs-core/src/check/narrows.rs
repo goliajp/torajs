@@ -11,6 +11,11 @@
 //!   field's Nullable inner type. `check_type_of_member` consults it
 //!   before the declared field type; any assignment to the receiver
 //!   or the member invalidates its entry (`check_type_of_assign`).
+//! - a binding's `flow_declared` (`LocalInfo`) — the declared type
+//!   behind a narrow that a later write may retire
+//!   (`crate::check_assigns_to`); the methods below set it around a
+//!   guarded region, snapshot it across `if` branches, and put a
+//!   binding a loop writes back to it on the way into the loop.
 
 use super::*;
 
@@ -20,7 +25,106 @@ pub(crate) struct Narrows {
     pub(crate) member: HashMap<(String, String), Type>,
 }
 
+/// What [`Checker::open_guard`] displaced (`None`: no such binding).
+pub(crate) type GuardSave = Option<(String, Option<Type>)>;
+
+/// The live type of each binding carrying a `flow_declared` type, by
+/// scope depth and name.
+pub(crate) type GuardTypes = Vec<((usize, String), Type)>;
+
 impl Checker {
+    fn binding(&self, name: &str) -> Option<&LocalInfo> {
+        self.scopes.iter().rev().find_map(|s| s.get(name))
+    }
+
+    fn binding_mut(&mut self, name: &str) -> Option<&mut LocalInfo> {
+        self.scopes.iter_mut().rev().find_map(|s| s.get_mut(name))
+    }
+
+    /// Record `declared` for the binding `name` resolves to while a
+    /// guarded region that writes it is walked.
+    pub(crate) fn open_guard(&mut self, name: &str, declared: Type) -> GuardSave {
+        let info = self.binding_mut(name)?;
+        Some((name.to_string(), info.flow_declared.replace(declared)))
+    }
+
+    pub(crate) fn close_guard(&mut self, saved: GuardSave) {
+        if let Some((name, prev)) = saved
+            && let Some(info) = self.binding_mut(&name)
+        {
+            info.flow_declared = prev;
+        }
+    }
+
+    /// Mark the binding `name` as narrowed in front of `declared` from
+    /// here to the end of its scope.
+    pub(crate) fn set_flow_declared(&mut self, name: &str, declared: Type) {
+        if let Some(info) = self.binding_mut(name) {
+            info.flow_declared = Some(declared);
+        }
+    }
+
+    pub(crate) fn guard_declared(&self, name: &str) -> Option<&Type> {
+        self.binding(name)?.flow_declared.as_ref()
+    }
+
+    /// The live types of the bindings carrying a `flow_declared` type:
+    /// what a branch may change (a write there retires the narrow), so
+    /// `if` gives each branch the state before it and joins the ones
+    /// that fall through.
+    pub(crate) fn guard_snapshot(&self) -> GuardTypes {
+        let mut out = Vec::new();
+        for (d, scope) in self.scopes.iter().enumerate() {
+            for (n, info) in scope {
+                if info.flow_declared.is_some() {
+                    out.push(((d, n.clone()), info.ty.clone()));
+                }
+            }
+        }
+        out
+    }
+
+    pub(crate) fn guard_restore(&mut self, snap: &GuardTypes) {
+        for ((d, n), t) in snap {
+            if let Some(info) = self.scopes.get_mut(*d).and_then(|s| s.get_mut(n)) {
+                info.ty = t.clone();
+            }
+        }
+    }
+
+    /// Two branches that both fall through: a binding they leave
+    /// differently is back to its declared type.
+    pub(crate) fn guard_join(&self, a: &GuardTypes, b: &GuardTypes) -> GuardTypes {
+        let other: HashMap<_, _> = b.iter().cloned().collect();
+        let declared = |(d, n): &(usize, String)| {
+            let info = self.scopes.get(*d)?.get(n)?;
+            info.flow_declared.clone()
+        };
+        let join = |(k, t): &((usize, String), Type)| match other.get(k) {
+            Some(u) if u == t => t.clone(),
+            _ => declared(k).unwrap_or_else(|| t.clone()),
+        };
+        a.iter().map(|e| (e.0.clone(), join(e))).collect()
+    }
+
+    /// A loop runs its uses again after its writes, which the single
+    /// walk does not see: a binding narrowed in front of its
+    /// `flow_declared` type that the loop (`exprs` and `body`) writes
+    /// enters the loop at that declared type.
+    pub(crate) fn enter_loop(&mut self, ast: &Ast, exprs: &[ExprId], body: &Stmt) {
+        for scope in self.scopes.iter_mut() {
+            for (name, info) in scope.iter_mut() {
+                let Some(declared) = &info.flow_declared else {
+                    continue;
+                };
+                let hit = crate::check_assigns_to::binding_hit(ast, name);
+                if info.ty != *declared && crate::check_assigns_to::writes(ast, exprs, body, &hit) {
+                    info.ty = declared.clone();
+                }
+            }
+        }
+    }
+
     /// RFC 20260710 C5 — detect a member-path narrowing cond on a
     /// truthiness / nullish-eq guard over `recv.field` where `recv`
     /// canonicalizes to a stable source path (chunk 789: an Ident
@@ -77,6 +181,22 @@ impl Checker {
             Type::Struct(fields) => fields,
             Type::Object(alias) => match self.aliases.get(alias) {
                 Some(Type::Struct(fields)) => fields.clone(),
+                _ => return None,
+            },
+            // a class instance's declared data field narrows the same
+            // way, unless it is a scalar whose slot stays boxed (the
+            // narrowed type would misdescribe the slot, see
+            // `narrow_within_lane`)
+            Type::ClassRef(class) => match self.class_structs.get(&class) {
+                Some(Type::Struct(fields)) => {
+                    let fty = fields.iter().find(|(n, _)| *n == field).map(|(_, t)| t)?;
+                    return match fty {
+                        Type::Nullable(inner) if !rides_any_lane(fty) => {
+                            Some(((recv, field), (**inner).clone(), polarity))
+                        }
+                        _ => None,
+                    };
+                }
                 _ => return None,
             },
             _ => return None,

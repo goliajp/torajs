@@ -1,45 +1,27 @@
-//! `stmt_assigns_to` + the member variant, pulled out of
-//! [`crate::check`] as chunk-315 of the check.rs god-file decomp.
+//! Where a guarded region writes the guarded reference.
 //!
-//! Pure read-only AST walkers — given an `Ast`, a `Stmt` (or
-//! `ExprId`), and an assign-target predicate, return `true` iff any
-//! reachable sub-expression performs `<target> = ...` (direct
-//! assign) or `<target>++` / `<target>--` (post-increment). The
-//! walker is generic over the target shape (chunk 782):
+//! A null guard narrows a binding (`q !== null`) or a member path
+//! (`t.next !== null`) for the statement it guards. The checker walks
+//! that statement once, in execution order, so a write inside it can
+//! retire the narrow at the write itself (`q = q.next` puts `q` back to
+//! its declared `T | null` for the rest of the walk) — exactly the
+//! control-flow narrowing TS performs — as long as no use the walk
+//! already typed under the narrow can run again after the write
+//! without passing the guard first.
 //!
-//! - [`stmt_assigns_to`] — Ident target `name = ...`; gates the
-//!   `check_stmt_while` binding narrow and the "infinite while-true
-//!   loop with no assigns to the loop variable" diagnostic.
-//! - [`stmt_assigns_to_member`] — `recv = ...` OR `recv.field =
-//!   ...`; gates the while-body member-path narrow (a re-bound
-//!   receiver or a re-assigned field can turn the guarded member
-//!   back to undefined on the next iteration, which the
-//!   check-time invalidation hook in check_type_of_assign cannot
-//!   see — the body is only walked once).
+//! Two shapes break that: a write inside a loop nested in the region
+//! (the loop's next iteration re-runs uses typed before the write) and
+//! a function body in the region that mentions the reference's root
+//! binding (its uses run whenever it is called, not where the walk
+//! types them; a declaration or class body counts whatever it
+//! mentions). [`scan`] tells the three cases apart.
 //!
-//! The two walkers are mutually recursive (Stmt walker recurses
-//! into nested Expr / Stmt children; Expr walker recurses back
-//! into ArrowFn bodies via the Stmt walker). They are extracted
-//! together so the recursion edges stay file-local.
-//!
-//! Re-exported from `check` as
-//! `pub use check_assigns_to::stmt_assigns_to;` so the external
-//! `check_stmt_while` caller continues to use the canonical
-//! `crate::check::stmt_assigns_to` import path.
+//! Member narrows are keyed by the canonical source path of their
+//! receiver ([`member_path`]); a write invalidates every narrow whose
+//! key it overlaps ([`path_overlaps`]).
 
+use crate::ast::desugar_async_sm_walk::{visit_expr_children, visit_stmt_exprs};
 use crate::ast::{Ast, Expr, ExprId, Stmt};
-
-/// Assign-target predicate: answers whether the `Expr` at the given
-/// id is the target shape the caller is scanning for.
-type HitFn<'a> = &'a dyn Fn(ExprId) -> bool;
-
-pub(crate) fn stmt_assigns_to(ast: &Ast, s: &Stmt, name: &str) -> bool {
-    stmt_assigns_matching(
-        ast,
-        s,
-        &|target| matches!(ast.get_expr(target), Expr::Ident(n) if n == name),
-    )
-}
 
 /// Chunk 789 — canonical source path for a member-narrow receiver:
 /// an Ident (`h`), a Member chain (`h.o.p`), or an integer-literal
@@ -69,182 +51,295 @@ pub(crate) fn path_overlaps(key_path: &str, assigned: &str) -> bool {
         || key_path.starts_with(&format!("{assigned}["))
 }
 
-/// A write that can flip the (recv, field) member narrow anywhere in
-/// `s` — the member-narrow while gate (see module doc). `recv` is a
-/// canonical path (chunk 789): any assign whose target path overlaps
-/// the receiver or the narrowed member itself counts.
-pub(crate) fn stmt_assigns_to_member(ast: &Ast, s: &Stmt, recv: &str, field: &str) -> bool {
-    let full = format!("{recv}.{field}");
-    stmt_assigns_matching(ast, s, &|target| {
-        member_path(ast, target)
-            .is_some_and(|tp| path_overlaps(recv, &tp) || path_overlaps(&full, &tp))
-    })
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Region {
+    /// nothing in the region writes the reference
+    NoWrite,
+    /// every write is one the single walk sees before any use it
+    /// could invalidate
+    StraightLine,
+    /// a write inside a nested loop, or a function body mentioning the
+    /// root in a region that writes
+    Unsafe,
 }
 
-fn stmt_assigns_matching(ast: &Ast, s: &Stmt, hit: HitFn) -> bool {
+#[derive(Default)]
+struct Scan {
+    write: bool,
+    nested_write: bool,
+    has_fn: bool,
+}
+
+/// The reference a guard narrows: `root` is the binding the path
+/// starts at, `hit` matches a write's target expression.
+pub(crate) struct Guarded<'a> {
+    pub(crate) root: &'a str,
+    pub(crate) hit: &'a dyn Fn(ExprId) -> bool,
+}
+
+/// Classify the writes to `g` in the guarded statement `s`.
+pub(crate) fn scan(ast: &Ast, s: &Stmt, g: &Guarded) -> Region {
+    let mut out = Scan::default();
+    visit_stmt_exprs(s, &mut |e| scan_expr(ast, e, g, &mut out));
+    let top_write = out.write;
+    out.write = false;
+    scan_stmts(ast, s, false, g, &mut out);
+    match (top_write, out.nested_write || out.has_fn) {
+        (false, _) => Region::NoWrite,
+        (true, false) => Region::StraightLine,
+        (true, true) => Region::Unsafe,
+    }
+}
+
+/// Does evaluating `exprs` or `s` write what `hit` matches?
+pub(crate) fn writes(ast: &Ast, exprs: &[ExprId], s: &Stmt, hit: &dyn Fn(ExprId) -> bool) -> bool {
+    let g = Guarded { root: "", hit };
+    let mut out = Scan::default();
+    for e in exprs {
+        scan_expr(ast, *e, &g, &mut out);
+    }
+    visit_stmt_exprs(s, &mut |e| scan_expr(ast, e, &g, &mut out));
+    out.write
+}
+
+fn scan_expr(ast: &Ast, e: ExprId, g: &Guarded, out: &mut Scan) {
+    match ast.get_expr(e) {
+        Expr::Assign { target, .. } | Expr::PostIncr { target, .. } if (g.hit)(*target) => {
+            out.write = true;
+        }
+        Expr::Closure { captures, .. } if captures.iter().any(|c| c == g.root) => {
+            out.has_fn = true;
+        }
+        // a write in an arrow body is a write of the region
+        Expr::ArrowFn { body, .. } => {
+            if body.iter().any(|s| stmt_mentions(ast, s, g.root)) {
+                out.has_fn = true;
+            }
+            for s in body {
+                visit_stmt_exprs(s, &mut |e| scan_expr(ast, e, g, out));
+            }
+        }
+        _ => {}
+    }
+    visit_expr_children(ast, e, &mut |c| scan_expr(ast, c, g, out));
+}
+
+fn stmt_mentions(ast: &Ast, s: &Stmt, root: &str) -> bool {
+    let mut hit = false;
+    visit_stmt_exprs(s, &mut |e| hit |= expr_mentions(ast, e, root));
+    hit
+}
+
+fn expr_mentions(ast: &Ast, e: ExprId, root: &str) -> bool {
+    let own = match ast.get_expr(e) {
+        Expr::Ident(n) => n == root,
+        Expr::Closure { captures, .. } => captures.iter().any(|c| c == root),
+        Expr::ArrowFn { body, .. } => body.iter().any(|s| stmt_mentions(ast, s, root)),
+        _ => false,
+    };
+    let mut hit = own;
+    visit_expr_children(ast, e, &mut |c| hit |= expr_mentions(ast, c, root));
+    hit
+}
+
+/// Statement-level pass: declarations with bodies, and writes inside
+/// nested loops.
+fn scan_stmts(ast: &Ast, s: &Stmt, in_loop: bool, g: &Guarded, out: &mut Scan) {
+    let is_loop = matches!(
+        s,
+        Stmt::While { .. }
+            | Stmt::DoWhile { .. }
+            | Stmt::For { .. }
+            | Stmt::ForOf { .. }
+            | Stmt::ForOfSplitIter { .. }
+    );
+    if is_loop && !in_loop {
+        let mut inner = Scan::default();
+        visit_stmt_exprs(s, &mut |e| scan_expr(ast, e, g, &mut inner));
+        out.nested_write |= inner.write;
+    }
+    let in_loop = in_loop || is_loop;
+    let mut each = |b: &Stmt| scan_stmts(ast, b, in_loop, g, out);
     match s {
-        Stmt::Expr(eid) | Stmt::Throw(eid) | Stmt::Yield(eid) => {
-            expr_assigns_matching(ast, *eid, hit)
-        }
-        Stmt::YieldInto { value, .. } => expr_assigns_matching(ast, *value, hit),
-        Stmt::Return(maybe) => maybe.is_some_and(|e| expr_assigns_matching(ast, e, hit)),
-        Stmt::LetDecl { init, .. } | Stmt::UsingDecl { init, .. } => {
-            expr_assigns_matching(ast, *init, hit)
-        }
+        Stmt::FnDecl { .. } | Stmt::ClassDecl { .. } => out.has_fn = true,
         Stmt::If {
-            cond,
             then_branch,
             else_branch,
-        } => {
-            expr_assigns_matching(ast, *cond, hit)
-                || stmt_assigns_matching(ast, then_branch, hit)
-                || else_branch
-                    .as_ref()
-                    .is_some_and(|eb| stmt_assigns_matching(ast, eb, hit))
-        }
-        Stmt::While { cond, body } | Stmt::DoWhile { body, cond } => {
-            expr_assigns_matching(ast, *cond, hit) || stmt_assigns_matching(ast, body, hit)
-        }
-        Stmt::Switch {
-            scrutinee,
-            cases,
-            default,
             ..
         } => {
-            if expr_assigns_matching(ast, *scrutinee, hit) {
-                return true;
+            each(then_branch);
+            if let Some(b) = else_branch {
+                each(b);
             }
-            for c in cases {
-                if expr_assigns_matching(ast, c.value, hit) {
-                    return true;
-                }
-                for s in &c.body {
-                    if stmt_assigns_matching(ast, s, hit) {
-                        return true;
-                    }
-                }
+        }
+        Stmt::While { body, .. }
+        | Stmt::DoWhile { body, .. }
+        | Stmt::ForOfSplitIter { body, .. }
+        | Stmt::ForOf { body, .. }
+        | Stmt::Labeled { body, .. } => each(body),
+        Stmt::For { init, body, .. } => {
+            if let Some(i) = init {
+                each(i);
             }
-            if let Some(db) = default {
-                for s in db {
-                    if stmt_assigns_matching(ast, s, hit) {
-                        return true;
-                    }
-                }
-            }
-            false
+            each(body);
         }
-        Stmt::For {
-            init,
-            cond,
-            step,
-            body,
-        } => {
-            init.as_ref()
-                .is_some_and(|i| stmt_assigns_matching(ast, i, hit))
-                || cond.is_some_and(|c| expr_assigns_matching(ast, c, hit))
-                || step.is_some_and(|s| expr_assigns_matching(ast, s, hit))
-                || stmt_assigns_matching(ast, body, hit)
+        Stmt::Switch { cases, default, .. } => {
+            cases.iter().flat_map(|c| &c.body).for_each(&mut each);
+            default.iter().flatten().for_each(&mut each);
         }
-        Stmt::Block(stmts) | Stmt::Multi(stmts) => {
-            stmts.iter().any(|s| stmt_assigns_matching(ast, s, hit))
-        }
+        Stmt::Block(stmts) | Stmt::Multi(stmts) => stmts.iter().for_each(&mut each),
         Stmt::Try {
             body,
             catch_body,
             finally_body,
             ..
         } => {
-            body.iter().any(|s| stmt_assigns_matching(ast, s, hit))
-                || catch_body
-                    .iter()
-                    .any(|s| stmt_assigns_matching(ast, s, hit))
-                || finally_body
-                    .as_ref()
-                    .is_some_and(|fb| fb.iter().any(|s| stmt_assigns_matching(ast, s, hit)))
+            body.iter().for_each(&mut each);
+            catch_body.iter().for_each(&mut each);
+            finally_body.iter().flatten().for_each(&mut each);
         }
-        Stmt::Break(_) | Stmt::Continue(_) => false,
-        Stmt::Labeled { body, .. } => stmt_assigns_matching(ast, body, hit),
-        Stmt::ForOfSplitIter {
-            parent, sep, body, ..
-        } => {
-            expr_assigns_matching(ast, *parent, hit)
-                || expr_assigns_matching(ast, *sep, hit)
-                || stmt_assigns_matching(ast, body, hit)
+        Stmt::ExportDecl { inner, .. } => {
+            if let Some(i) = inner {
+                each(i);
+            }
         }
-        Stmt::ForOf {
-            elem_expr, body, ..
-        } => expr_assigns_matching(ast, *elem_expr, hit) || stmt_assigns_matching(ast, body, hit),
-        Stmt::FnDecl { .. } | Stmt::TypeDecl { .. } | Stmt::ClassDecl { .. } => false,
-        Stmt::ImportDecl { .. } => false,
-        Stmt::ExportDecl { inner, .. } => inner
-            .as_ref()
-            .is_some_and(|inner| stmt_assigns_matching(ast, inner, hit)),
+        Stmt::Expr(_)
+        | Stmt::LetDecl { .. }
+        | Stmt::UsingDecl { .. }
+        | Stmt::Break(_)
+        | Stmt::Continue(_)
+        | Stmt::Throw(_)
+        | Stmt::TypeDecl { .. }
+        | Stmt::Return(_)
+        | Stmt::Yield(_)
+        | Stmt::YieldInto { .. }
+        | Stmt::ImportDecl { .. } => {}
     }
 }
 
-fn expr_assigns_matching(ast: &Ast, eid: ExprId, hit: HitFn) -> bool {
-    if let Expr::Assign { target, value } = ast.get_expr(eid) {
-        if hit(*target) {
-            return true;
-        }
-        return expr_assigns_matching(ast, *target, hit) || expr_assigns_matching(ast, *value, hit);
+/// `name = …` / `name++`.
+pub(crate) fn binding_hit<'a>(ast: &'a Ast, name: &'a str) -> impl Fn(ExprId) -> bool + 'a {
+    move |t| matches!(ast.get_expr(t), Expr::Ident(n) if n == name)
+}
+
+/// A write whose target path overlaps the receiver or the member
+/// itself (`t = …`, `t.next = …`, `t.next.v = …` does not).
+pub(crate) fn member_hit<'a>(
+    ast: &'a Ast,
+    recv: &'a str,
+    field: &'a str,
+) -> impl Fn(ExprId) -> bool + 'a {
+    let full = format!("{recv}.{field}");
+    move |t| {
+        member_path(ast, t).is_some_and(|tp| path_overlaps(recv, &tp) || path_overlaps(&full, &tp))
     }
-    match ast.get_expr(eid) {
-        Expr::Call { callee, args } => {
-            expr_assigns_matching(ast, *callee, hit)
-                || args.iter().any(|a| expr_assigns_matching(ast, *a, hit))
-        }
-        Expr::BinOp { left, right, .. } => {
-            expr_assigns_matching(ast, *left, hit) || expr_assigns_matching(ast, *right, hit)
-        }
-        Expr::Unary { expr, .. } => expr_assigns_matching(ast, *expr, hit),
-        Expr::Member { obj, .. } => expr_assigns_matching(ast, *obj, hit),
-        Expr::Index { obj, index } => {
-            expr_assigns_matching(ast, *obj, hit) || expr_assigns_matching(ast, *index, hit)
-        }
-        Expr::Array(elems) => elems.iter().any(|e| expr_assigns_matching(ast, *e, hit)),
-        Expr::ObjectLit { fields } => fields
-            .iter()
-            .any(|(_, e)| expr_assigns_matching(ast, *e, hit)),
-        Expr::ArrowFn { body, .. } => body.iter().any(|s| stmt_assigns_matching(ast, s, hit)),
-        Expr::Closure { .. } => false,
-        Expr::New { args, .. } | Expr::Super { args } => {
-            args.iter().any(|a| expr_assigns_matching(ast, *a, hit))
-        }
-        Expr::Ternary {
-            cond,
-            then_branch,
-            else_branch,
-        } => {
-            expr_assigns_matching(ast, *cond, hit)
-                || expr_assigns_matching(ast, *then_branch, hit)
-                || expr_assigns_matching(ast, *else_branch, hit)
-        }
-        Expr::TypeOf { expr } | Expr::Spread { expr } | Expr::As { expr, .. } => {
-            expr_assigns_matching(ast, *expr, hit)
-        }
-        Expr::InstanceOf { expr, rhs } => {
-            expr_assigns_matching(ast, *expr, hit) || expr_assigns_matching(ast, *rhs, hit)
-        }
-        Expr::Sequence { left, right }
-        | Expr::Nullish {
-            lhs: left,
-            rhs: right,
-        } => expr_assigns_matching(ast, *left, hit) || expr_assigns_matching(ast, *right, hit),
-        Expr::OptChain { obj, .. } => expr_assigns_matching(ast, *obj, hit),
-        Expr::OptIndex { obj, index } => {
-            expr_assigns_matching(ast, *obj, hit) || expr_assigns_matching(ast, *index, hit)
-        }
-        Expr::OptCall { callee, args } => {
-            expr_assigns_matching(ast, *callee, hit)
-                || args.iter().any(|a| expr_assigns_matching(ast, *a, hit))
-        }
-        Expr::PostIncr { target, .. } => {
-            if hit(*target) {
-                return true;
-            }
-            expr_assigns_matching(ast, *target, hit)
-        }
-        _ => false,
+}
+
+#[cfg(test)]
+mod tests {
+    // a recursive object type: the unit pipeline runs no class desugar
+    // (the class-receiver path is covered by the conformance fixtures)
+    const NODE: &str = "type Node = { v: number; next: Node | null };\n\
+        function g(n: Node): number { return n.v; }\n\
+        const a: Node = { v: 1, next: { v: 2, next: null } };\n";
+
+    fn check_src(body: &str) -> Result<(), String> {
+        let src = format!("{NODE}{body}\n");
+        let tokens = crate::lexer::tokenize(&src).map_err(|e| format!("lex: {e}"))?;
+        let mut ast = crate::parser::parse(&src, &tokens).map_err(|e| format!("parse: {e}"))?;
+        crate::ast::lift_arrow_fns(&mut ast);
+        crate::check::check(&ast).map(|_| ())
+    }
+
+    fn accepted(body: &str) {
+        assert!(check_src(body).is_ok(), "{body}: {:?}", check_src(body));
+    }
+
+    fn refused(body: &str) {
+        assert!(check_src(body).is_err(), "{body}: must be refused");
+    }
+
+    #[test]
+    fn a_loop_guard_survives_a_write_it_sees_first() {
+        accepted("let t = a; while (t.next !== null) t = t.next;");
+        accepted(
+            "let t: Node = a; let q: Node | null = a.next; \
+             while (q !== null) { t = q; q = q.next; }",
+        );
+        accepted(
+            "let q: Node | null = a; let s = 0; while (q !== null) \
+             { s += g(q); q = q.next; if (q === null) break; s += g(q); }",
+        );
+        accepted(
+            "let q: Node | null = a; while (q !== null) \
+             { if (q.v === 2) { q = q.next; continue; } g(q); q = q.next; }",
+        );
+    }
+
+    #[test]
+    fn a_write_retires_the_narrow_where_it_happens() {
+        refused("let q: Node | null = a; if (q !== null) { q = q.next; g(q); }");
+        refused(
+            "let q: Node | null = a; if (q !== null) { q = q.next; } \
+             else { throw 1; } g(q);",
+        );
+        refused(
+            "let q: Node | null = a; let k = 0; while (q !== null) \
+             { if (k > 0) { q = q.next; } g(q); k++; }",
+        );
+        refused("const t = a; while (t.next !== null) { t.next = t.next.next; g(t.next); }");
+    }
+
+    #[test]
+    fn a_write_a_use_can_outrun_keeps_the_old_refusal() {
+        refused(
+            "let q: Node | null = a; let k = 0; while (q !== null) \
+             { while (k < 3) { g(q); q = q.next; k++; } }",
+        );
+        refused(
+            "let t = a; let k = 0; while (t.next !== null) \
+             { while (k < 2) { g(t.next); t = t.next; k++; } }",
+        );
+        refused(
+            "let t = a; let k = 0; if (t.next !== null) \
+             { while (k < 2) { g(t.next); t = t.next; k++; } }",
+        );
+        refused(
+            "let q: Node | null = a.next; if (q !== null) { const f = () => g(q); q = q.next; f(); }",
+        );
+    }
+
+    #[test]
+    fn an_exit_or_a_fill_narrows_what_follows() {
+        accepted(
+            "function h(x: Node | null): number { if (x === null || x.v < 2) return -1; return g(x); }",
+        );
+        accepted(
+            "function h(x: Node | null): number { if (x === null) x = { v: 9, next: null }; return g(x); }",
+        );
+        refused(
+            "function h(x: Node | null, k: boolean): number \
+             { if (x === null && k) return -1; return g(x); }",
+        );
+        refused(
+            "function h(x: Node | null, k: boolean): number \
+             { if (k) x = { v: 9, next: null }; return g(x); }",
+        );
+    }
+
+    #[test]
+    fn a_filled_binding_can_still_be_written_but_not_ahead_of_a_loop() {
+        accepted(
+            "function h(x: Node | null): number \
+             { if (x === null) x = { v: 9, next: null }; const r = g(x); x = null; return r; }",
+        );
+        refused(
+            "function h(x: Node | null, k: number): number \
+             { if (x === null) x = { v: 9, next: null }; while (k > 0) { g(x); x = x.next; k--; } return 0; }",
+        );
+        accepted(
+            "function h(x: Node | null, k: number): number \
+             { if (x === null) x = { v: 9, next: null }; while (k > 0) { g(x); k--; } return 0; }",
+        );
     }
 }

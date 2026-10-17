@@ -75,6 +75,12 @@ pub(crate) struct LocalInfo {
     /// `const` / `var` by its initializer (a `for-of` head by its
     /// element read), or a fn-typed parameter by its function.
     pub(crate) decl: Option<FnSlot>,
+    /// The declared `T | null` behind a narrow that a later write may
+    /// retire (`crate::check_assigns_to`): set while a guarded region
+    /// that writes the binding is walked, and from an `if` whose
+    /// branches both fill the binding on. A write is checked against
+    /// it, and a possibly-null one puts the binding back to it.
+    pub(crate) flow_declared: Option<Type>,
 }
 
 impl LocalInfo {
@@ -93,6 +99,7 @@ impl LocalInfo {
             held_any: false,
             ann: None,
             decl: None,
+            flow_declared: None,
         }
     }
 }

@@ -33,6 +33,7 @@ mod union_tests;
 pub(crate) use branch_end::End;
 pub(crate) use diag::DiagPush;
 pub use diag::{Diagnostic, Severity};
+pub(crate) use narrows::GuardSave;
 pub use type_def::{Lit, StructFields, Type};
 
 /// Generic declaration index: name → (type-param names, field ann pairs,
@@ -59,18 +60,6 @@ pub(crate) type MovedSnapshot = Vec<Vec<(String, bool)>>;
 /// falling through. Used by CFG-aware moved tracking: a diverging
 /// branch's local moves don't propagate to the post-branch state
 /// (the moves go off with the diverging exit).
-/// V3-18 wedge — true iff `s` (or anything reachable from it) is
-/// an assignment to a top-level Ident binding `name`. Used by
-/// the while-narrow guard to skip narrowing when the body
-/// reassigns the binding (which would conflict with the
-/// re-narrowing on the next iteration).
-// `stmt_assigns_to` + the private `expr_assigns_to` helper live
-// in [`crate::check_assigns_to`] (chunk-315 of the check.rs
-// god-file decomp). Re-exported here so the external caller
-// (`check_stmt_while`) continues to use the canonical
-// `crate::check::stmt_assigns_to` import path.
-pub(crate) use crate::check_assigns_to::{stmt_assigns_to, stmt_assigns_to_member};
-
 // `stmt_diverges` lives in [`crate::check_stmt_diverges`] (chunk-317
 // of the check.rs god-file decomp). Re-exported here so the external
 // caller (`check_stmt_if`) continues to use the canonical

@@ -34,6 +34,8 @@ pub(crate) fn check(
     // ut3 — init runs once but cond/step/body sit on the loop
     // back-edge: an init assignment narrow must not reach them.
     checker.flush_assign_narrows();
+    let looped: Vec<ExprId> = cond.iter().chain(step).copied().collect();
+    checker.enter_loop(ast, &looped, body);
     if let Some(c) = cond {
         checker.note_unmodeled_guard(ast, *c);
         match checker.type_of(ast, *c) {

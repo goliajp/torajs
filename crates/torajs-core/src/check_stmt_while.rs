@@ -4,23 +4,28 @@
 //! check_stmt sibling.
 //!
 //! - **While** — V3-18 narrow wedge on `(x !== null)` conditions:
-//!   narrow `x` for the body ONLY if the body doesn't reassign `x`
-//!   (otherwise the re-narrowing would conflict with the
-//!   still-Nullable RHS of `x = x.next`). Polarity-false
-//!   (`x === null`) wouldn't enter the loop, so no narrow.
+//!   narrow `x` for the body. A body that writes `x` keeps the narrow
+//!   only when the single walk sees every write before a use it could
+//!   invalidate (`check_assigns_to`); the write is then checked
+//!   against the declared type and retires the narrow from that point
+//!   on (`t = q; q = q.next` types `t = q` under the narrow and
+//!   `q = q.next` against `T | null`). Polarity-false (`x === null`)
+//!   wouldn't enter the loop, so no narrow.
 //! - **DoWhile** — body runs first (no narrow); condition typechecks
 //!   after.
 //!
 //! Chunk 782 adds the member-path mirror (`while (o.cb)` narrows
-//! `o.cb` for the body) with the equivalent gate: no narrow when
-//! the body assigns the receiver OR the member.
+//! `o.cb` for the body), under the same region rule: a write to the
+//! receiver or the member retires it (`check_type_of_assign`), so
+//! `while (t.next !== null) t = t.next` types its right-hand side
+//! under the narrow.
 
 use crate::ast::{Ast, ExprId, Stmt};
-use crate::check::{
-    Checker, DiagPush, js_truthy_acceptable, stmt_assigns_to, stmt_assigns_to_member,
-};
+use crate::check::{Checker, DiagPush, Type, js_truthy_acceptable};
+use crate::check_assigns_to::{Guarded, Region, binding_hit, member_hit, scan};
 
 pub(crate) fn check_while(checker: &mut Checker, ast: &Ast, cond: ExprId, body: &Stmt) {
+    checker.enter_loop(ast, &[cond], body);
     match checker.type_of(ast, cond) {
         Ok(t) if js_truthy_acceptable(&t) => {}
         Ok(other) => checker.errors.push_err(format!(
@@ -30,42 +35,55 @@ pub(crate) fn check_while(checker: &mut Checker, ast: &Ast, cond: ExprId, body: 
     }
     checker.note_unmodeled_guard(ast, cond);
     let narrow = checker.collect_null_narrow(ast, cond);
-    let saved = if let Some((name, inner, polarity)) = &narrow {
-        if *polarity && !stmt_assigns_to(ast, body, name) {
-            checker.apply_narrow(name, inner.clone())
-        } else {
-            None
+    let mut guard = None;
+    let saved = match &narrow {
+        Some((name, inner, true)) => {
+            let hit = binding_hit(ast, name);
+            match scan(
+                ast,
+                body,
+                &Guarded {
+                    root: name,
+                    hit: &hit,
+                },
+            ) {
+                Region::NoWrite => checker.apply_narrow(name, inner.clone()),
+                Region::StraightLine => {
+                    guard = checker.open_guard(name, Type::Nullable(Box::new(inner.clone())));
+                    checker.apply_narrow(name, inner.clone())
+                }
+                Region::Unsafe => None,
+            }
         }
-    } else {
-        None
+        _ => None,
     };
-    // Chunk 782 — member-path guard (`while (o.cb) { o.cb() }`):
-    // mirror of the if-stmt wedge (RFC 20260710 C5), with the same
-    // reassignment gate as the binding narrow above — a body that
-    // re-binds `o` or re-assigns `o.cb` can turn the member back to
-    // undefined on the next iteration, and the check-time
-    // invalidation hook only fires AFTER the earlier body uses were
-    // already typed against the narrow.
     let member_narrow = checker.collect_member_narrow(ast, cond);
-    let member_saved = if let Some((key, inner, polarity)) = &member_narrow {
-        if *polarity && !stmt_assigns_to_member(ast, body, &key.0, &key.1) {
+    let member_saved = match &member_narrow {
+        Some((key, inner, true)) if member_region(ast, body, key) != Region::Unsafe => {
             Some(checker.apply_member_narrow(key, inner.clone()))
-        } else {
-            None
         }
-    } else {
-        None
+        _ => None,
     };
     checker.check_stmt(ast, body);
     if let (Some((name, _, _)), Some(prev)) = (&narrow, saved) {
         checker.restore_narrow(name, prev);
     }
+    checker.close_guard(guard);
     if let (Some((key, _, _)), Some(prev)) = (&member_narrow, member_saved) {
         checker.restore_member_narrow(key, prev);
     }
 }
 
+/// How `s` writes the member path `key` guards (its receiver or the
+/// member itself).
+pub(crate) fn member_region(ast: &Ast, s: &Stmt, key: &(String, String)) -> Region {
+    let root = key.0.split(['.', '[']).next().unwrap_or(&key.0);
+    let hit = member_hit(ast, &key.0, &key.1);
+    scan(ast, s, &Guarded { root, hit: &hit })
+}
+
 pub(crate) fn check_do_while(checker: &mut Checker, ast: &Ast, body: &Stmt, cond: ExprId) {
+    checker.enter_loop(ast, &[cond], body);
     checker.check_stmt(ast, body);
     checker.note_unmodeled_guard(ast, cond);
     match checker.type_of(ast, cond) {

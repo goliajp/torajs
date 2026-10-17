@@ -98,6 +98,7 @@ pub(crate) fn check(
     body: &Stmt,
     is_await: bool,
 ) {
+    checker.enter_loop(ast, &[elem_expr], body);
     checker.scopes.push(HashMap::new());
     let _ = checker.declare(i_ident.to_string(), LocalInfo::plain(Type::Number));
     let src_kind = if let Expr::Index { obj, .. } = ast.get_expr(elem_expr) {

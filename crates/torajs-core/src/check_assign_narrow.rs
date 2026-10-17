@@ -55,6 +55,7 @@ impl Checker {
         self.narrows
             .assign
             .get(name)
+            .or_else(|| self.guard_declared(name))
             .cloned()
             .unwrap_or_else(|| live_ty.clone())
     }
@@ -81,7 +82,14 @@ impl Checker {
             &self.aliases,
             &self.generic_alias_decls,
         );
+        // inside a guarded region (`check_assigns_to`) the guard's
+        // narrow is the binding's state until a write retires it
+        let guarded =
+            !self.narrows.assign.contains_key(name) && self.guard_declared(name).is_some();
         if narrowable {
+            if guarded && !matches!(live.ty, Type::Nullable(_)) {
+                return;
+            }
             self.apply_narrow(name, (*inner).clone());
             self.narrows
                 .assign
@@ -89,6 +97,8 @@ impl Checker {
                 .or_insert(declared);
         } else if let Some(d) = self.narrows.assign.remove(name) {
             self.apply_narrow(name, d);
+        } else if guarded {
+            self.apply_narrow(name, declared);
         }
     }
 
@@ -140,7 +150,11 @@ impl Checker {
         if matches!(
             value_ty,
             Type::Null | Type::Undefined | Type::Nullable(_) | Type::Void | Type::Any
-        ) && let Some(d) = self.narrows.assign.remove(name)
+        ) && let Some(d) = self
+            .narrows
+            .assign
+            .remove(name)
+            .or_else(|| self.guard_declared(name).cloned())
         {
             self.apply_narrow(name, d);
         }

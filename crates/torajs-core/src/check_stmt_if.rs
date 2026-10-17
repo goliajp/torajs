@@ -11,21 +11,68 @@
 //!    narrows in the then-branch; polarity false (`=== null`) narrows
 //!    in the else-branch. `apply_narrow` returns the saved prev type,
 //!    `restore_narrow` after typing the branch (so nested ifs
-//!    compose correctly).
+//!    compose correctly). A branch that writes the binding straight-
+//!    line opens the guard ledger (`check_assigns_to`), so the write
+//!    is checked against the declared `T | null` and retires the
+//!    narrow where it happens.
 //! 3. **CFG-aware moved snapshot** — `snapshot_moved` before each
 //!    branch, run branch, capture post-state, `restore_moved` so
 //!    each branch starts fresh. `join_branch_moves` joins post-
 //!    states: a binding is moved post-if iff every non-diverging
 //!    branch consumed it. This makes `if (cond) return f; return f;`
 //!    work (then diverges so its consume of `f` doesn't propagate).
-//! 4. **Post-if narrowing on diverge** — if one branch diverges
-//!    (early return/throw/break/continue), the other state
-//!    propagates out. Polarity true + else diverges → post-if
-//!    narrows to inner; polarity false + then diverges → post-if
-//!    narrows to inner.
+//! 4. **Post-if narrowing** — the binding is narrowed after the `if`
+//!    when every branch that falls through ends with it non-null:
+//!    the narrowed branch unless it wrote a possibly-null value, the
+//!    other one if it assigned a non-null value (`if (a === null)
+//!    a = new A()`), an absent else when the condition's false side
+//!    is the narrowed one (`if (a === null) return`).
 
 use crate::ast::{Ast, ExprId, Stmt};
-use crate::check::{Checker, DiagPush, MovedSnapshot, js_truthy_acceptable, stmt_diverges};
+use crate::check::{Checker, DiagPush, MovedSnapshot, Type, js_truthy_acceptable, stmt_diverges};
+use crate::check_assigns_to::{Guarded, Region, binding_hit, scan};
+use crate::check_stmt_while::member_region;
+
+/// A null narrow collected from a condition: binding, inner type,
+/// whether the then-branch is the narrowed one.
+type Narrow = Option<(String, Type, bool)>;
+
+/// Open the guard ledger for the branch `narrow` applies to (`on`
+/// names which branch that is) when the branch writes the binding
+/// straight-line.
+fn open_branch_guard(
+    checker: &mut Checker,
+    ast: &Ast,
+    narrow: &Narrow,
+    branch: &Stmt,
+    on: bool,
+) -> crate::check::GuardSave {
+    let (name, inner, polarity) = narrow.as_ref()?;
+    let hit = binding_hit(ast, name);
+    if *polarity != on
+        || scan(
+            ast,
+            branch,
+            &Guarded {
+                root: name,
+                hit: &hit,
+            },
+        ) != Region::StraightLine
+    {
+        return None;
+    }
+    checker.open_guard(name, Type::Nullable(Box::new(inner.clone())))
+}
+
+/// Does the narrowed binding hold a non-null value at this point of
+/// the walk?
+fn holds(checker: &Checker, narrow: &Narrow) -> bool {
+    narrow.as_ref().is_some_and(|(n, _, _)| {
+        checker
+            .lookup(n)
+            .is_some_and(|i| !matches!(i.ty, Type::Nullable(_)))
+    })
+}
 
 pub(crate) fn check(
     checker: &mut Checker,
@@ -51,6 +98,13 @@ pub(crate) fn check(
     // members (the narrowed type is still a union, see union_narrow)
     let union_narrow = checker.union_guard(ast, cond);
     let pre = checker.snapshot_moved();
+    let guard_pre = checker.guard_snapshot();
+    // narrowed on the way in by more than a straight-line assignment
+    // (which the flush after the `if` retires anyway)
+    let narrowed_before = holds(checker, &narrow)
+        && !narrow
+            .as_ref()
+            .is_some_and(|n| checker.narrows.assign.contains_key(&n.0));
     let then_union = union_narrow
         .as_ref()
         .and_then(|(n, t, _)| checker.apply_union_narrow(n, t.clone()));
@@ -63,8 +117,9 @@ pub(crate) fn check(
     } else {
         None
     };
+    let then_guard = open_branch_guard(checker, ast, &narrow, then_branch, true);
     let then_member = if let Some((key, inner, polarity)) = &member_narrow {
-        if *polarity {
+        if *polarity && member_region(ast, then_branch, key) != Region::Unsafe {
             Some(checker.apply_member_narrow(key, inner.clone()))
         } else {
             None
@@ -73,6 +128,7 @@ pub(crate) fn check(
         None
     };
     checker.check_stmt(ast, then_branch);
+    let then_holds = holds(checker, &narrow);
     if let (Some((name, _, _)), Some(saved)) = (&union_narrow, then_union) {
         checker.restore_narrow(name, saved);
     }
@@ -86,15 +142,20 @@ pub(crate) fn check(
     if let (Some((name, _, _)), Some(saved)) = (&narrow, then_narrow) {
         checker.restore_narrow(name, saved);
     }
+    checker.close_guard(then_guard);
     // ut3 — assignment narrows minted inside the then-branch must
     // not leak into the else walk (only one branch executes).
     checker.flush_assign_narrows();
     if let (Some((key, _, _)), Some(prev)) = (&member_narrow, then_member) {
         checker.restore_member_narrow(key, prev);
     }
+    let then_guards = checker.guard_snapshot();
+    checker.guard_restore(&guard_pre);
     let then_div = stmt_diverges(then_branch);
     let then_post = checker.snapshot_moved();
     checker.restore_moved(&pre);
+    let mut else_guards = guard_pre.clone();
+    let mut else_holds = narrow.as_ref().is_some_and(|(_, _, polarity)| !*polarity);
     let (else_div, else_post): (bool, Option<MovedSnapshot>) = if let Some(eb) = else_branch {
         let else_narrow = if let Some((name, inner, polarity)) = &narrow {
             if !*polarity {
@@ -105,8 +166,9 @@ pub(crate) fn check(
         } else {
             None
         };
+        let else_guard = open_branch_guard(checker, ast, &narrow, eb, false);
         let else_member = if let Some((key, inner, polarity)) = &member_narrow {
-            if !*polarity {
+            if !*polarity && member_region(ast, eb, key) != Region::Unsafe {
                 Some(checker.apply_member_narrow(key, inner.clone()))
             } else {
                 None
@@ -118,16 +180,19 @@ pub(crate) fn check(
             .as_ref()
             .and_then(|(n, _, e)| checker.apply_union_narrow(n, e.clone()));
         checker.check_stmt(ast, eb);
+        else_holds = holds(checker, &narrow);
         if let (Some((name, _, _)), Some(saved)) = (&union_narrow, else_union) {
             checker.restore_narrow(name, saved);
         }
         if let (Some((name, _, _)), Some(saved)) = (&narrow, else_narrow) {
             checker.restore_narrow(name, saved);
         }
+        checker.close_guard(else_guard);
         checker.flush_assign_narrows();
         if let (Some((key, _, _)), Some(prev)) = (&member_narrow, else_member) {
             checker.restore_member_narrow(key, prev);
         }
+        else_guards = checker.guard_snapshot();
         let div = stmt_diverges(eb);
         let snap2 = checker.snapshot_moved();
         checker.restore_moved(&pre);
@@ -136,10 +201,30 @@ pub(crate) fn check(
         (false, None)
     };
     checker.join_branch_moves(&pre, &then_post, then_div, else_post.as_deref(), else_div);
-    if let Some((name, inner, polarity)) = &narrow {
-        let post_narrow_to_inner = (*polarity && else_div) || (!*polarity && then_div);
-        if post_narrow_to_inner {
+    // a write in a branch that cannot fall through retires nothing
+    // after the `if` (`if (k) { q = q.next; continue } use(q)`)
+    let guards = match (then_div, else_div) {
+        (true, true) => guard_pre,
+        (true, false) => else_guards,
+        (false, true) => then_guards,
+        (false, false) => checker.guard_join(&then_guards, &else_guards),
+    };
+    checker.guard_restore(&guards);
+    if let Some((name, inner, _)) = &narrow {
+        let falls_through = !(then_div && else_div);
+        if falls_through && (then_div || then_holds) && (else_div || else_holds) {
             checker.apply_narrow(name, inner.clone());
+            // both branches fall through non-null: a narrow only an exit
+            // used to mint, and a later write may retire this one
+            if !then_div && !else_div && !narrowed_before && checker.guard_declared(name).is_none()
+            {
+                checker.set_flow_declared(name, Type::Nullable(Box::new(inner.clone())));
+            }
+        } else if (!then_div && !then_holds) || (else_branch.is_some() && !else_div && !else_holds)
+        {
+            // a branch that falls through left the binding possibly
+            // null, whatever narrow it entered the `if` with
+            checker.apply_narrow(name, Type::Nullable(Box::new(inner.clone())));
         }
     }
     if let Some((name, t, e)) = &union_narrow {
