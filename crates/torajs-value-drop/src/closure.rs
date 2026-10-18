@@ -33,7 +33,14 @@ pub(crate) unsafe fn release(child: *mut c_void) {
         if __torajs_rc_dec(child) != 0 {
             // the env's captures may be a chain of closures: deep in
             // the stack the reference goes back and the release is
-            // deferred whole
+            // deferred whole. The count is written directly, not
+            // through the rc helpers: while pending it reads 1, so a
+            // cycle collection that runs first sees a live cell. The
+            // deferred release decs it to zero a second time, which
+            // fires the weak target-dying hook again for this cell;
+            // that second call finds nothing, because the first one
+            // removed the cell from the weak registry. Both steps
+            // assume one mutator thread.
             if crate::dropguard::below_floor() {
                 (child as *mut u32).write(1);
                 return crate::dropguard::release_near_floor(child, __torajs_value_drop_heap);

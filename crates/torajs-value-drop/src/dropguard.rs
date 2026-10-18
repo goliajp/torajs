@@ -48,7 +48,10 @@ const UNSET: usize = usize::MAX - DEFER_SLACK;
 /// sits. The real floor costs a system call, which a program whose
 /// releases never nest this deep never makes. Less than the smallest
 /// margin of a stack of 256 KiB or more, so a provisional floor below
-/// the real one still stops the walk short of the stack's end.
+/// the real one still stops the walk short of the stack's end. That
+/// assumes the first test runs at least this far above the stack's
+/// end; one closer to it gets a floor below the end, and a deep
+/// release from there overruns the stack before it reaches the floor.
 const PROVISIONAL_SLACK: usize = 64 << 10;
 
 /// Stack kept free below the floor for the deferral loop and the
