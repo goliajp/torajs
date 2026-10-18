@@ -56,6 +56,8 @@ use crate::ssa_lower_array_alloc::{alloc_heap_arr, alloc_stack_arr};
 use crate::ssa_lower_intrinsics_str_b::STR_UNDEF_CELL_SYM;
 
 pub(crate) fn lower(ctx: &mut LowerCtx<'_>, elements: &[ExprId], eid: ExprId) -> Operand {
+    // claimed here, so no element's own literal takes it
+    let declared = ctx.take_declared_arr();
     if elements.is_empty() {
         return lower_empty(ctx);
     }
@@ -67,7 +69,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, elements: &[ExprId], eid: ExprId) ->
         return ctx.lower_array_any_literal(&element_ids);
     }
     if !has_spread {
-        return lower_no_spread(ctx, &element_ids, eid);
+        return lower_no_spread(ctx, &element_ids, eid, declared.as_ref());
     }
     crate::ssa_lower_array_spread::lower_spread(ctx, &element_ids, eid)
 }
@@ -100,8 +102,15 @@ fn lower_empty(ctx: &mut LowerCtx<'_>) -> Operand {
 /// past the 32 KiB addressing cap) and the allocator's active set
 /// grew with n. Storing as we go bounds the live set by the element
 /// being built.
-fn lower_no_spread(ctx: &mut LowerCtx<'_>, element_ids: &[ExprId], eid: ExprId) -> Operand {
-    let (anchor_ty, mut probed) = probe_anchor_ty(ctx, element_ids);
+fn lower_no_spread(
+    ctx: &mut LowerCtx<'_>,
+    element_ids: &[ExprId],
+    eid: ExprId,
+    declared: Option<&(Type, Option<String>)>,
+) -> Operand {
+    let elem = declared.map(|(ty, ann)| declared_elem(ctx, *ty, ann.as_deref()));
+    let elem = elem.as_ref();
+    let (anchor_ty, mut probed) = probe_anchor_ty(ctx, element_ids, elem);
     // Nothing anchors (empty literals / nullish constants only): the
     // first element's own lowering decides the slot type, as
     // `compute_elem_ty` always read it off the first value. The
@@ -113,7 +122,7 @@ fn lower_no_spread(ctx: &mut LowerCtx<'_>, element_ids: &[ExprId], eid: ExprId) 
     let slot_anchor = match anchor_ty {
         Some(t) => t,
         None => {
-            let (v, _) = lower_no_spread_element(ctx, element_ids[0], None);
+            let (v, _) = lower_no_spread_element(ctx, element_ids[0], None, elem);
             let t = ctx.operand_ty(&v);
             probed = Some((0, v));
             t
@@ -150,7 +159,7 @@ fn lower_no_spread(ctx: &mut LowerCtx<'_>, element_ids: &[ExprId], eid: ExprId) 
                 let inc = elem_needs_inc(ctx, elem_eid, &op);
                 (op, inc)
             }
-            _ => lower_no_spread_element(ctx, elem_eid, anchor_ty),
+            _ => lower_no_spread_element(ctx, elem_eid, anchor_ty, elem),
         };
         if elem_ty == Type::F64 && ctx.operand_ty(&val) == Type::I64 {
             val = ctx.coerce_to_f64(val);
@@ -218,6 +227,7 @@ fn lower_no_spread(ctx: &mut LowerCtx<'_>, element_ids: &[ExprId], eid: ExprId) 
 fn probe_anchor_ty(
     ctx: &mut LowerCtx<'_>,
     element_ids: &[ExprId],
+    elem: Option<&(Type, Option<String>)>,
 ) -> (Option<Type>, Option<(usize, Operand)>) {
     for (idx, eid) in element_ids.iter().enumerate() {
         if matches!(ctx.ast.get_expr(*eid), Expr::Array(els) if els.is_empty()) {
@@ -237,7 +247,7 @@ fn probe_anchor_ty(
             Expr::Null => continue,
             _ => {}
         }
-        let probe = ctx.lower_expr(*eid);
+        let probe = lower_pinned(ctx, *eid, elem);
         let ty = ctx.operand_ty(&probe);
         return (Some(ty), Some((idx, probe)));
     }
@@ -251,6 +261,7 @@ fn lower_no_spread_element(
     ctx: &mut LowerCtx<'_>,
     eid: ExprId,
     anchor_ty: Option<Type>,
+    elem: Option<&(Type, Option<String>)>,
 ) -> (Operand, bool) {
     if matches!(ctx.ast.get_expr(eid), Expr::Array(els) if els.is_empty())
         && let Some(Type::Arr(inner_id)) = anchor_ty
@@ -264,9 +275,36 @@ fn lower_no_spread_element(
         );
         return (Operand::Value(v), false);
     }
-    let v = ctx.lower_expr(eid);
+    let v = lower_pinned(ctx, eid, elem);
     let inc = elem_needs_inc(ctx, eid, &v);
     (v, inc)
+}
+
+/// The element type of the declared array type `ty` annotated `ann`,
+/// and the element's annotation.
+fn declared_elem(ctx: &LowerCtx<'_>, ty: Type, ann: Option<&str>) -> (Type, Option<String>) {
+    let Type::Arr(id) = ty else {
+        unreachable!("an array literal is pinned only to an array type")
+    };
+    let elem_ann = ann.and_then(crate::ast_throw_info::elem_ann);
+    (ctx.arr_layouts[id.0 as usize], elem_ann)
+}
+
+/// The element `eid` lowered, pinned to the declared element type
+/// `elem` when it is a literal of that type: the readers of the array
+/// read every element at the declared element layout.
+fn lower_pinned(
+    ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
+    elem: Option<&(Type, Option<String>)>,
+) -> Operand {
+    let Some((ty, ann)) = elem else {
+        return ctx.lower_expr(eid);
+    };
+    ctx.pin_declared(*ty, ann.as_deref(), eid);
+    let v = ctx.lower_expr(eid);
+    ctx.let_declared_obj_layout = None;
+    v
 }
 
 /// Chunk 570 — a named-binding elem is always a SHARE: local OR

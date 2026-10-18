@@ -113,11 +113,11 @@ pub(crate) fn emit(
                 // same-shaped layout registered under a different
                 // declared type and the slot reprs collide (silent-wrong
                 // reads through the declared layout).
-                if let Some(Type::Obj(sid)) = expected
-                    && matches!(ctx.ast.get_expr(*a), crate::ast::Expr::ObjectLit { .. })
+                if let Some(&slot) = expected
+                    && ctx.pins_declared(slot, *a)
                 {
                     let ann = param_ann(ctx, (callee, target), i);
-                    ctx.pin_declared_obj(*sid, ann.as_deref());
+                    ctx.pin_declared(slot, ann.as_deref(), *a);
                 }
                 let v = ctx.lower_expr(*a);
                 ctx.let_declared_obj_layout = None;

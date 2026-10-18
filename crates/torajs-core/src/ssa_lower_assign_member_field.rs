@@ -290,11 +290,9 @@ fn store_rhs(
         // same-shaped layout registered under a different declared
         // type and the slot reprs collide (silent-wrong reads
         // through the declared layout).
-        if let Type::Obj(inner_sid) = field_ty
-            && matches!(ctx.ast.get_expr(value), Expr::ObjectLit { .. })
-        {
+        if ctx.pins_declared(field_ty, value) {
             let ann = ctx.member_field_ann(obj, field);
-            ctx.pin_declared_obj(inner_sid, ann.as_deref());
+            ctx.pin_declared(field_ty, ann.as_deref(), value);
         }
         let v = ctx.lower_expr(value);
         ctx.let_declared_obj_layout = None;

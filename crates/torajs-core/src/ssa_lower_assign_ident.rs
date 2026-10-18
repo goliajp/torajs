@@ -407,11 +407,9 @@ fn lower_assign_rhs(
     // without the hint the literal resolves its own anon layout and
     // the sid mismatch trips the coercion check (mirror of the
     // let-decl chunk 780 hint; consumed take-once).
-    if let Type::Obj(sid) = slot_ty
-        && matches!(ctx.ast.get_expr(value), Expr::ObjectLit { .. })
-    {
+    if ctx.pins_declared(slot_ty, value) {
         let ann = ctx.binding_ann(name, global);
-        ctx.pin_declared_obj(sid, ann.as_deref());
+        ctx.pin_declared(slot_ty, ann.as_deref(), value);
     }
     ctx.lower_expr(value)
 }

@@ -228,11 +228,7 @@ fn lower_global_init_val(
         // ObjectLit init (global-lane mirror of the fn-scope hint;
         // see `let_declared_obj_layout` field doc). Consumed by
         // `resolve_objlit_layout` via take-once.
-        if let Type::Obj(sid) = slot_ty
-            && matches!(ctx.ast.get_expr(init), Expr::ObjectLit { .. })
-        {
-            ctx.pin_declared_obj(sid, type_ann.map(String::as_str));
-        }
+        ctx.pin_declared(slot_ty, type_ann.map(String::as_str), init);
         ctx.lower_expr(init)
     }
 }

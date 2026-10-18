@@ -121,11 +121,7 @@ pub(crate) fn lower(
     // ObjectLit init so resolve_objlit_layout doesn't first-match a
     // same-shaped layout registered under a different declared type
     // (see the field doc on `let_declared_obj_layout`).
-    if let Type::Obj(sid) = ty
-        && matches!(ctx.ast.get_expr(init), Expr::ObjectLit { .. })
-    {
-        ctx.pin_declared_obj(sid, type_ann.map(String::as_str));
-    }
+    ctx.pin_declared(ty, type_ann.map(String::as_str), init);
     // A member of an alias class that holds a split product as views
     // (`let last: string[] = []` later rebound to a split product,
     // `let b = a`) declares the view layout outright: the `[]` arm

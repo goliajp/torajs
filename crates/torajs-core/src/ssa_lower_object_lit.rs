@@ -79,7 +79,7 @@ pub(crate) fn lower(
     // field value would otherwise consume it inside
     // `lower_field_entries` and pin the OUTER declared layout onto
     // the inner literal.
-    let declared = ctx.let_declared_obj_layout.take();
+    let declared = (ctx.let_declared_obj_layout.take()).and_then(declared::DeclaredLit::into_obj);
     let declared_hint = declared.as_ref().map(|d| d.sid);
     // RFC 20260710-optional-undefined-repr C1 — fields initialized
     // with an undefined LITERAL (frontend-distinguished from null)

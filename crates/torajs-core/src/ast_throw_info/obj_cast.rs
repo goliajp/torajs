@@ -36,13 +36,22 @@ pub(crate) fn cast_binding_ann(ast: &Ast, ann: &str) -> bool {
 /// Whether the object literal `lit`, lowered against the annotation
 /// `ann`, holds an `any` member that the annotation gives an object
 /// type or an array of them, at any depth: the lowering casts that
-/// member into its slot (`ssa_lower_object_lit::declared`).
+/// member into its slot (`ssa_lower_object_lit::declared`). An array
+/// literal lowered against an array annotation lays its object literal
+/// elements out at the element type (`ssa_lower_array`), so it casts
+/// when one of them does.
 pub(crate) fn lit_casts_member(
     ast: &Ast,
     expr_types: &HashMap<ExprId, Type>,
     ann: &str,
     lit: ExprId,
 ) -> bool {
+    if let Expr::Array(elems) = ast.get_expr(lit) {
+        let Some(elem) = elem_ann(ann) else {
+            return false;
+        };
+        return (elems.iter()).any(|e| lit_casts_member(ast, expr_types, &elem, *e));
+    }
     let Expr::ObjectLit { fields } = ast.get_expr(lit) else {
         return false;
     };
@@ -71,9 +80,13 @@ pub(crate) fn lit_casts_member(
     })
 }
 
-/// Whether the object literal `lit` holds an `any` member at any
-/// depth: the one shape [`lit_casts_member`] can answer yes for.
+/// Whether the object literal `lit`, or an object literal element of
+/// the array literal `lit`, holds an `any` member at any depth: the one
+/// shape [`lit_casts_member`] can answer yes for.
 fn lit_has_any_member(ast: &Ast, expr_types: &HashMap<ExprId, Type>, lit: ExprId) -> bool {
+    if let Expr::Array(elems) = ast.get_expr(lit) {
+        return (elems.iter()).any(|e| lit_has_any_member(ast, expr_types, *e));
+    }
     let Expr::ObjectLit { fields } = ast.get_expr(lit) else {
         return false;
     };

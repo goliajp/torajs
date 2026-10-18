@@ -70,10 +70,8 @@ fn lower_return_value(ctx: &mut LowerCtx, eid: crate::ast::ExprId) -> Operand {
         // a raw scalar (`{ value: number }` return answered NaN;
         // a generator's step struct hit the same lane through the
         // desugared `return { value, done }`).
-        if let Expr::ObjectLit { .. } = ctx.ast.get_expr(eid)
-            && let Type::Obj(sid) = ctx.f.ret
-        {
-            ctx.pin_declared_obj(sid, ctx.written_ret_ann().as_deref());
+        if ctx.pins_declared(ctx.f.ret, eid) {
+            ctx.pin_declared(ctx.f.ret, ctx.written_ret_ann().as_deref(), eid);
         }
         let v = ctx.lower_expr(eid);
         ctx.let_declared_obj_layout = None;

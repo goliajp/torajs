@@ -21,11 +21,11 @@ pub(super) fn lower_regular_field(
 ) {
     // Chunk 785 — forward the declared struct layout to a nested
     // ObjectLit field value (see `lower_field_entries`).
-    if let Some(Type::Obj(inner_sid)) = declared_field_ty
-        && matches!(ctx.ast.get_expr(eid), Expr::ObjectLit { .. })
+    if let Some(slot) = declared_field_ty
+        && ctx.pins_declared(slot, eid)
     {
         let ann = owner_ann.and_then(|o| declared::field_ann(ctx, o, name));
-        ctx.pin_declared_obj(inner_sid, ann.as_deref());
+        ctx.pin_declared(slot, ann.as_deref(), eid);
     }
     let v = ctx.lower_expr(eid);
     ctx.let_declared_obj_layout = None;

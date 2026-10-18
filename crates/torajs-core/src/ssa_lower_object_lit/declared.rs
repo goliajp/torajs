@@ -9,7 +9,7 @@
 //! (`ssa_lower_checked_cast::obj`): a cell its readers cannot read
 //! as a `T` is refused there as it is everywhere else.
 
-use crate::ast::{ExprId, PropKey};
+use crate::ast::{Expr, ExprId, PropKey};
 use crate::ssa::{FuncId, Operand, StructId, Type};
 use crate::ssa_lower::LowerCtx;
 use crate::ssa_lower_checked_cast::CastSlot;
@@ -22,12 +22,73 @@ pub(crate) struct DeclaredObj {
     pub(crate) ann: Option<String>,
 }
 
+/// The declared type the literal lowered next is pinned to: an object
+/// literal's layout, or an array literal's array type, whose object
+/// literal elements are pinned to its element layout in turn.
+#[derive(Clone)]
+pub(crate) enum DeclaredLit {
+    Obj(DeclaredObj),
+    Arr { ty: Type, ann: Option<String> },
+}
+
+impl DeclaredLit {
+    pub(crate) fn into_obj(self) -> Option<DeclaredObj> {
+        match self {
+            DeclaredLit::Obj(d) => Some(d),
+            DeclaredLit::Arr { .. } => None,
+        }
+    }
+}
+
 impl LowerCtx<'_> {
     /// Pin the object literal lowered next to layout `sid`, declared
     /// as `ann` (`let_declared_obj_layout`, taken once).
     pub(crate) fn pin_declared_obj(&mut self, sid: StructId, ann: Option<&str>) {
         let ann = ann.map(str::to_string);
-        self.let_declared_obj_layout = Some(DeclaredObj { sid, ann });
+        self.let_declared_obj_layout = Some(DeclaredLit::Obj(DeclaredObj { sid, ann }));
+    }
+
+    /// Whether [`Self::pin_declared`] pins the literal `init` lowered
+    /// into a slot of type `slot`: an object literal into an object
+    /// layout, an array literal into an array whose elements are object
+    /// layouts at some depth.
+    pub(crate) fn pins_declared(&self, slot: Type, init: ExprId) -> bool {
+        match (slot, self.ast.get_expr(init)) {
+            (Type::Obj(_), Expr::ObjectLit { .. }) => true,
+            (Type::Arr(_), Expr::Array(_)) => {
+                let mut elem = slot;
+                while let Type::Arr(id) = elem {
+                    elem = self.arr_layouts[id.0 as usize];
+                }
+                matches!(elem, Type::Obj(_))
+            }
+            _ => false,
+        }
+    }
+
+    /// Pin the literal `init`, lowered next into a slot of type `slot`
+    /// the program annotated `ann`, to that type when
+    /// [`Self::pins_declared`] says so (taken once).
+    pub(crate) fn pin_declared(&mut self, slot: Type, ann: Option<&str>, init: ExprId) {
+        if !self.pins_declared(slot, init) {
+            return;
+        }
+        match slot {
+            Type::Obj(sid) => self.pin_declared_obj(sid, ann),
+            _ => {
+                let ann = ann.map(str::to_string);
+                self.let_declared_obj_layout = Some(DeclaredLit::Arr { ty: slot, ann });
+            }
+        }
+    }
+
+    /// The array type an array literal lowered now is pinned to, and
+    /// its annotation (taken).
+    pub(crate) fn take_declared_arr(&mut self) -> Option<(Type, Option<String>)> {
+        match self.let_declared_obj_layout.take() {
+            Some(DeclaredLit::Arr { ty, ann }) => Some((ty, ann)),
+            _ => None,
+        }
     }
 }
 
