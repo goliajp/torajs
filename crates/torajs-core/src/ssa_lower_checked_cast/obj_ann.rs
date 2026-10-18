@@ -78,7 +78,7 @@ impl LowerCtx<'_> {
         let binding = |n: &str| self.binding_ann(n, !self.locals.contains_key(n));
         let class_of = |e| crate::ast_throw_info::class_of(self.expr_types, e);
         let ann = crate::ast_throw_info::written_ann(self.ast, recv, &binding, &class_of)?;
-        crate::ast_throw_info::elem_ann(&ann)
+        crate::ast_throw_info::elem_ann(self.ast, &ann)
     }
 }
 

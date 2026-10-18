@@ -55,23 +55,28 @@ use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx, intern_arr_layout};
 use crate::ssa_lower_array_alloc::{alloc_heap_arr, alloc_stack_arr};
 use crate::ssa_lower_intrinsics_str_b::STR_UNDEF_CELL_SYM;
 
+/// A declared type a literal is lowered against, and its annotation.
+pub(crate) type Declared = (Type, Option<String>);
+
 pub(crate) fn lower(ctx: &mut LowerCtx<'_>, elements: &[ExprId], eid: ExprId) -> Operand {
     // claimed here, so no element's own literal takes it
     let declared = ctx.take_declared_arr();
     if elements.is_empty() {
         return lower_empty(ctx);
     }
+    let elem = (declared.as_ref()).map(|(ty, ann)| declared_elem(ctx, *ty, ann.as_deref()));
     let element_ids: Vec<ExprId> = elements.to_vec();
     let has_spread = element_ids
         .iter()
         .any(|eid| matches!(ctx.ast.get_expr(*eid), Expr::Spread { .. }));
     if crate::ssa_lower_array_any_gate::takes_any_lane(ctx, &element_ids, eid, has_spread) {
-        return ctx.lower_array_any_literal(&element_ids);
+        return ctx.lower_array_any_literal_pinned(&element_ids, elem.as_ref());
     }
     if !has_spread {
-        return lower_no_spread(ctx, &element_ids, eid, declared.as_ref());
+        return lower_no_spread(ctx, &element_ids, eid, elem.as_ref());
     }
-    crate::ssa_lower_array_spread::lower_spread(ctx, &element_ids, eid)
+    let pins = declared.as_ref().zip(elem.as_ref());
+    crate::ssa_lower_array_spread::lower_spread(ctx, &element_ids, eid, pins)
 }
 
 fn lower_empty(ctx: &mut LowerCtx<'_>) -> Operand {
@@ -106,10 +111,8 @@ fn lower_no_spread(
     ctx: &mut LowerCtx<'_>,
     element_ids: &[ExprId],
     eid: ExprId,
-    declared: Option<&(Type, Option<String>)>,
+    elem: Option<&(Type, Option<String>)>,
 ) -> Operand {
-    let elem = declared.map(|(ty, ann)| declared_elem(ctx, *ty, ann.as_deref()));
-    let elem = elem.as_ref();
     let (anchor_ty, mut probed) = probe_anchor_ty(ctx, element_ids, elem);
     // Nothing anchors (empty literals / nullish constants only): the
     // first element's own lowering decides the slot type, as
@@ -286,14 +289,14 @@ fn declared_elem(ctx: &LowerCtx<'_>, ty: Type, ann: Option<&str>) -> (Type, Opti
     let Type::Arr(id) = ty else {
         unreachable!("an array literal is pinned only to an array type")
     };
-    let elem_ann = ann.and_then(crate::ast_throw_info::elem_ann);
+    let elem_ann = ann.and_then(|a| crate::ast_throw_info::elem_ann(ctx.ast, a));
     (ctx.arr_layouts[id.0 as usize], elem_ann)
 }
 
 /// The element `eid` lowered, pinned to the declared element type
 /// `elem` when it is a literal of that type: the readers of the array
 /// read every element at the declared element layout.
-fn lower_pinned(
+pub(crate) fn lower_pinned(
     ctx: &mut LowerCtx<'_>,
     eid: ExprId,
     elem: Option<&(Type, Option<String>)>,

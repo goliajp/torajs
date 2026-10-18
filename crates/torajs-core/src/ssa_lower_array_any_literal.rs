@@ -29,6 +29,17 @@ impl<'a> LowerCtx<'a> {
     /// push_any with the matching tag. Returns the (possibly grown)
     /// array pointer as Operand::Value.
     pub(crate) fn lower_array_any_literal(&mut self, ids: &[ExprId]) -> Operand {
+        self.lower_array_any_literal_pinned(ids, None)
+    }
+
+    /// The same, for a literal lowered against a declared array type
+    /// whose element type is `elem`: an element literal is pinned to it
+    /// as in the typed lanes (`ssa_lower_array::lower_pinned`).
+    pub(crate) fn lower_array_any_literal_pinned(
+        &mut self,
+        ids: &[ExprId],
+        elem: Option<&crate::ssa_lower_array::Declared>,
+    ) -> Operand {
         // P5.6 — spreads inside Array<Any> literals walk through
         // arr_extend_any (which understands the 16-byte tagged
         // slot layout); non-spread items still push tag/value
@@ -123,7 +134,7 @@ impl<'a> LowerCtx<'a> {
                 );
                 continue;
             }
-            let val = self.lower_expr(eid);
+            let val = crate::ssa_lower_array::lower_pinned(self, eid, elem);
             let val_ty = self.operand_ty(&val);
             let (tag_op, value_op) = self.pack_any_elem(val, val_ty, Some(eid));
             arr = self.f.append_inst(

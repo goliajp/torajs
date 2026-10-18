@@ -1,0 +1,24 @@
+init 1
+ok
+alias ok
+ok
+readonly alias ok
+ok
+ReadonlyArray ok
+bok
+spread item ok
+okc
+spread source ok
+ok3
+hole ok
+okb
+assign ok
+1  2 a 3 b 4 
+optional field ok
+alias instance true
+readonly alias instance true
+ReadonlyArray instance true
+spread item instance true
+spread source instance true
+hole instance true
+assign instance true

@@ -196,7 +196,7 @@ impl Builder<'_, '_> {
                 let elem = self.t.arr_layouts[id.0 as usize];
                 let kind = crate::ssa_lower_stmt_let_decl_convert::arr_elem_kind_const(&elem);
                 self.bytes.extend([ARR, kind.unwrap_or(0) as u8]);
-                let elem_ann = base.and_then(crate::ast_throw_info::elem_ann);
+                let elem_ann = base.and_then(|a| crate::ast_throw_info::elem_ann(self.t.ast, a));
                 self.node(elem, elem_ann.as_deref())?;
             }
             _ => {

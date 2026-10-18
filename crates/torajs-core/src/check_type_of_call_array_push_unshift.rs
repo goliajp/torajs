@@ -124,7 +124,7 @@ fn casts_any_into(checker: &Checker, ast: &Ast, elem: &Type, recv: ExprId) -> bo
     let class_of = |e| crate::ast_throw_info::class_of(&checker.expr_types, e);
     testable
         && crate::ast_throw_info::written_ann(ast, recv, &binding, &class_of)
-            .and_then(|a| crate::ast_throw_info::elem_ann(&a))
+            .and_then(|a| crate::ast_throw_info::elem_ann(ast, &a))
             .is_some()
 }
 

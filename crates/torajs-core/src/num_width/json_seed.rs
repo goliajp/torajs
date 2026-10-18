@@ -234,7 +234,7 @@ impl Analysis<'_> {
             }
         };
         (anns.iter())
-            .filter_map(|a| crate::ast_throw_info::elem_ann(a))
+            .filter_map(|a| crate::ast_throw_info::elem_ann(self.ast, a))
             .collect()
     }
 }

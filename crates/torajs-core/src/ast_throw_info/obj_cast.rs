@@ -30,7 +30,7 @@ pub(crate) fn cast_binding_ann(ast: &Ast, ann: &str) -> bool {
     let base = strip_nullable(ann).trim();
     object_ann(ast, base)
         || (base.starts_with("__inlobj(") && base != "__inlobj()")
-        || elem_ann(base).is_some_and(|e| cast_binding_ann(ast, &e))
+        || elem_ann(ast, base).is_some_and(|e| cast_binding_ann(ast, &e))
 }
 
 /// Whether the object literal `lit`, lowered against the annotation
@@ -47,7 +47,7 @@ pub(crate) fn lit_casts_member(
     lit: ExprId,
 ) -> bool {
     if let Expr::Array(elems) = ast.get_expr(lit) {
-        let Some(elem) = elem_ann(ann) else {
+        let Some(elem) = elem_ann(ast, ann) else {
             return false;
         };
         return (elems.iter()).any(|e| lit_casts_member(ast, expr_types, &elem, *e));
@@ -366,20 +366,69 @@ fn field_ann(ast: &Ast, owner: &str, field: &str) -> Option<String> {
     })
 }
 
-/// The element annotation of the array annotation `ann` (`T[]` or
-/// `Array<T>`, either one `| undefined`).
-pub(crate) fn elem_ann(ann: &str) -> Option<String> {
-    let ann = strip_nullable(ann).trim();
+/// The element annotation of the array annotation `ann` (`T[]`,
+/// `Array<T>` or `ReadonlyArray<T>`, either one `| undefined`, or a
+/// type alias of one).
+pub(crate) fn elem_ann(ast: &Ast, ann: &str) -> Option<String> {
+    let mut ann = strip_nullable(ann).trim();
+    let mut seen: Vec<&str> = Vec::new();
+    while let Some(target) = alias_target(ast, ann)
+        && !seen.contains(&ann)
+    {
+        seen.push(ann);
+        ann = strip_nullable(target).trim();
+    }
     let elem = match ann.strip_suffix("[]") {
         Some(e) => e,
-        None => ann.strip_prefix("Array<")?.strip_suffix('>')?,
+        None => (ann.strip_prefix("Array<"))
+            .or_else(|| ann.strip_prefix("ReadonlyArray<"))?
+            .strip_suffix('>')?,
     };
     Some(elem.trim().to_string())
+}
+
+/// The annotation the non-generic type alias `name` stands for
+/// (`type L = T[]`).
+fn alias_target<'a>(ast: &'a Ast, name: &str) -> Option<&'a str> {
+    if !(name.bytes()).all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'$') {
+        return None;
+    }
+    ast.stmts.iter().find_map(|s| match s {
+        Stmt::TypeDecl {
+            name: n,
+            type_params,
+            fields,
+        } if n == name && type_params.is_empty() => match fields.as_slice() {
+            [(k, target)] if *k == "__alias__" => Some(target.as_str()),
+            _ => None,
+        },
+        _ => None,
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_array_type_spelled_through_an_alias_answers_its_element() {
+        let src = "type L = { t: number }[]; type M = L; type R = readonly string[];";
+        let tokens = crate::lexer::tokenize(src).expect("tokenize");
+        let ast = crate::parser::parse(src, &tokens).expect("parse");
+        let elem = elem_ann(&ast, "L").expect("an alias of an array type");
+        assert!(elem.contains('t') && !elem.ends_with("[]"));
+        assert_eq!(elem_ann(&ast, "M").as_deref(), Some(elem.as_str()));
+        assert_eq!(
+            elem_ann(&ast, "__nullable(M)").as_deref(),
+            Some(elem.as_str())
+        );
+        assert_eq!(elem_ann(&ast, "R").as_deref(), Some("string"));
+        assert_eq!(
+            elem_ann(&ast, "ReadonlyArray<string>").as_deref(),
+            Some("string")
+        );
+        assert_eq!(elem_ann(&ast, "S"), None);
+    }
 
     #[test]
     fn a_type_parameter_is_matched_as_a_whole_name() {

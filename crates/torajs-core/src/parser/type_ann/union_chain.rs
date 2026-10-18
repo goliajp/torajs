@@ -34,9 +34,11 @@ impl Parser<'_> {
     }
 
     /// Whether the `{` at the cursor opens an object type that is only
-    /// the first member of a union (`{ .. } | ..`, `{ .. }[] | ..`), so
-    /// a type alias must read its right side as one annotation.
-    pub(in crate::parser) fn brace_type_heads_union(&self) -> bool {
+    /// part of a longer type: the first member of a union (`{ .. } |
+    /// ..`, `{ .. }[] | ..`) or the element of an array type (`{ ..
+    /// }[]`), so a type alias must read its right side as one
+    /// annotation.
+    pub(in crate::parser) fn brace_type_is_operand(&self) -> bool {
         let mut depth = 0usize;
         let mut i = self.pos;
         while let Some(t) = self.tokens.get(i) {
@@ -53,6 +55,7 @@ impl Parser<'_> {
             i += 1;
         }
         i += 1;
+        let body_end = i;
         while matches!(self.tokens.get(i).map(|t| &t.token), Some(Token::LBracket))
             && matches!(
                 self.tokens.get(i + 1).map(|t| &t.token),
@@ -61,7 +64,7 @@ impl Parser<'_> {
         {
             i += 2;
         }
-        matches!(self.tokens.get(i).map(|t| &t.token), Some(Token::Pipe))
+        i > body_end || matches!(self.tokens.get(i).map(|t| &t.token), Some(Token::Pipe))
     }
 }
 

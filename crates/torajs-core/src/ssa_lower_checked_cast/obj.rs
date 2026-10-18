@@ -224,7 +224,7 @@ impl LowerCtx<'_> {
         let (mut elem_ty, mut elem) = (ty, ann.to_string());
         while let Type::Arr(id) = elem_ty {
             elem_ty = self.arr_layouts[id.0 as usize];
-            let Some(e) = crate::ast_throw_info::elem_ann(&elem) else {
+            let Some(e) = crate::ast_throw_info::elem_ann(self.ast, &elem) else {
                 return false;
             };
             elem = e;

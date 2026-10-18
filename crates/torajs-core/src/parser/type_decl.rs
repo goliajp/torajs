@@ -129,7 +129,7 @@ impl<'a> Parser<'a> {
         // a Struct. Real struct-shape `{ ... }` keeps the
         // existing Vec<(name, ty)> path untouched.
         if !matches!(self.peek(), Token::LBrace)
-            || self.brace_type_heads_union()
+            || self.brace_type_is_operand()
             || self.brace_body_has_index_sig()
         {
             let ann = self.parse_type_ann()?;

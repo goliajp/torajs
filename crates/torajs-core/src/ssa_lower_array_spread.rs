@@ -8,6 +8,7 @@
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{BinOp as SsaBinOp, InstKind, Operand, Type};
 use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx, intern_arr_layout};
+use crate::ssa_lower_array::Declared;
 
 #[derive(Debug)]
 enum Item {
@@ -33,8 +34,16 @@ pub(crate) struct LoweredItem {
     pub(crate) minted: bool,
 }
 
-pub(crate) fn lower_spread(ctx: &mut LowerCtx<'_>, element_ids: &[ExprId], eid: ExprId) -> Operand {
-    let (lowered, elem_ty, literal_count) = lower_spread_elements(ctx, element_ids);
+/// `pins`: the declared array type the literal is lowered against and
+/// its element type, which its literal items are pinned to as in the
+/// no-spread lane (`ssa_lower_array::lower_pinned`).
+pub(crate) fn lower_spread(
+    ctx: &mut LowerCtx<'_>,
+    element_ids: &[ExprId],
+    eid: ExprId,
+    pins: Option<(&Declared, &Declared)>,
+) -> Operand {
+    let (lowered, elem_ty, literal_count) = lower_spread_elements(ctx, element_ids, pins);
     // Any element type assembles from the ALREADY-lowered operands —
     // re-lowering the ExprIds (the pre-S5+ shape) would double-emit
     // spread source side effects (e.g. `[...m.values()]` minting the
@@ -94,6 +103,7 @@ fn release_spread_sources(ctx: &mut LowerCtx<'_>, lowered: &[LoweredItem]) {
 fn lower_spread_elements(
     ctx: &mut LowerCtx<'_>,
     element_ids: &[ExprId],
+    pins: Option<(&Declared, &Declared)>,
 ) -> (Vec<LoweredItem>, Option<Type>, i64) {
     let mut lowered: Vec<LoweredItem> = Vec::with_capacity(element_ids.len());
     let mut elem_ty: Option<Type> = None;
@@ -106,7 +116,13 @@ fn lower_spread_elements(
     for eid in element_ids {
         if let Expr::Spread { expr } = ctx.ast.get_expr(*eid) {
             let inner = *expr;
+            // a literal spread source is read at the declared element
+            // layout like the items around it
+            if let Some(((ty, ann), _)) = pins {
+                ctx.pin_declared(*ty, ann.as_deref(), inner);
+            }
             let (op, v_ty, was_any, minted) = lower_spread_source(ctx, inner);
+            ctx.let_declared_obj_layout = None;
             if was_any {
                 // Materialized Arr<Any> — force the Any assembly path
                 // regardless of what earlier items anchored.
@@ -131,7 +147,7 @@ fn lower_spread_elements(
                 minted,
             });
         } else {
-            let v = ctx.lower_expr(*eid);
+            let v = crate::ssa_lower_array::lower_pinned(ctx, *eid, pins.map(|(_, e)| e));
             let v_ty = ctx.operand_ty(&v);
             // A substring VIEW element (`[...a, s[1]]`) is stored as an
             // owned copy — the same rule the plain literal lane applies
