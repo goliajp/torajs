@@ -5,6 +5,7 @@
 //! reachable".
 
 use std::collections::BTreeMap;
+use std::rc::Rc;
 
 use torajs_obj::{MachHeader64, N_SECT, N_TYPE, NLIST_64_SIZE};
 
@@ -19,45 +20,54 @@ pub(crate) fn build_member_reach<'a>(member: &ArMember<'a>) -> Result<MemberReac
         collect_member_sections(member).map_err(|e| format!("{}: sections: {e:?}", member.name))?;
 
     let bytes = member.data;
-    let mut nlist: Vec<NlEntry<'a>> = Vec::new();
     let mut defined: BTreeMap<&'a str, (u8, u64)> = BTreeMap::new();
     let mut dup_defined: Vec<&'a str> = Vec::new();
+    let mut nlist: Rc<[NlEntry<'a>]> = Rc::from([]);
     if bytes.len() >= 32 && !sections.is_empty() {
         let st = parse_member_symtab(member).map_err(|e| format!("{}: {e:?}", member.name))?;
         let symoff = st.symoff as usize;
         let stroff = st.stroff as usize;
-        for i in 0..st.nsyms as usize {
-            let off = symoff + i * NLIST_64_SIZE as usize;
-            if bytes.len() < off + NLIST_64_SIZE as usize {
-                return Err(format!("{}: nlist row {i} truncated", member.name));
-            }
-            let n_strx = u32::from_le_bytes(bytes[off..off + 4].try_into().unwrap()) as usize;
-            let n_type = bytes[off + 4];
-            let n_sect = bytes[off + 5];
-            let n_desc = u16::from_le_bytes(bytes[off + 6..off + 8].try_into().unwrap());
-            let n_value = u64::from_le_bytes(bytes[off + 8..off + 16].try_into().unwrap());
-            let name = if n_strx == 0 {
-                ""
-            } else {
-                let s = stroff + n_strx;
-                let end = bytes[s..]
-                    .iter()
-                    .position(|&b| b == 0)
-                    .map(|p| s + p)
-                    .unwrap_or(bytes.len());
-                std::str::from_utf8(&bytes[s..end]).unwrap_or("")
-            };
-            if n_type & N_TYPE == N_SECT && defined.insert(name, (n_sect, n_value)).is_some() {
-                dup_defined.push(name);
-            }
-            nlist.push(NlEntry {
-                name,
-                n_type,
-                n_sect,
-                n_desc,
-                n_value,
-            });
+        let nsyms = st.nsyms as usize;
+        // every row is checked before any is read, so the rows go
+        // straight into one allocation of their final size
+        let rows_present = bytes.len().saturating_sub(symoff) / NLIST_64_SIZE as usize;
+        if rows_present < nsyms {
+            return Err(format!(
+                "{}: nlist row {rows_present} truncated",
+                member.name
+            ));
         }
+        nlist = (0..nsyms)
+            .map(|i| {
+                let off = symoff + i * NLIST_64_SIZE as usize;
+                let n_strx = u32::from_le_bytes(bytes[off..off + 4].try_into().unwrap()) as usize;
+                let n_type = bytes[off + 4];
+                let n_sect = bytes[off + 5];
+                let n_desc = u16::from_le_bytes(bytes[off + 6..off + 8].try_into().unwrap());
+                let n_value = u64::from_le_bytes(bytes[off + 8..off + 16].try_into().unwrap());
+                let name = if n_strx == 0 {
+                    ""
+                } else {
+                    let s = stroff + n_strx;
+                    let end = bytes[s..]
+                        .iter()
+                        .position(|&b| b == 0)
+                        .map(|p| s + p)
+                        .unwrap_or(bytes.len());
+                    std::str::from_utf8(&bytes[s..end]).unwrap_or("")
+                };
+                if n_type & N_TYPE == N_SECT && defined.insert(name, (n_sect, n_value)).is_some() {
+                    dup_defined.push(name);
+                }
+                NlEntry {
+                    name,
+                    n_type,
+                    n_sect,
+                    n_desc,
+                    n_value,
+                }
+            })
+            .collect();
     }
 
     // Per-section atom tables. Only a member that declares
@@ -107,7 +117,7 @@ pub(crate) fn build_member_reach<'a>(member: &ArMember<'a>) -> Result<MemberReac
     Ok(MemberReach {
         member_name: member.name,
         sects,
-        nlist: nlist.into(),
+        nlist,
         defined: defined.into(),
         dup_defined: dup_defined.into(),
     })
