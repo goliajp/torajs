@@ -22,6 +22,9 @@ unsafe extern "C" {
     fn __torajs_throw_check() -> i64;
 }
 
+/// The pair's tag for `undefined` (an absent key included).
+const ANY_UNDEF_TAG: u64 = 5;
+
 /// [[Get]] on `recv` for an existing key cell (Str or Symbol).
 ///
 /// # Safety
@@ -40,6 +43,11 @@ pub(crate) unsafe fn get_by_key_checked(recv: AnyValue, key: *const c_void) -> O
                 return None;
             }
             return Some(got);
+        }
+        // an absent key reads undefined: the value channel would repeat
+        // the probe and the prototype walk only to answer it
+        if tag == ANY_UNDEF_TAG {
+            return Some(crate::nanbox::VALUE_UNDEFINED);
         }
         // The probe pair is a borrow off the receiver — take the
         // stake before boxing, so every arm here answers owned.
