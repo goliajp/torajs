@@ -20,6 +20,7 @@ use std::collections::{HashMap, HashSet};
 
 pub(crate) mod arr_head_census;
 pub(crate) mod live_field_census;
+pub(crate) mod value_class_census;
 
 use crate::ast::{Ast, ExprId, Stmt};
 use crate::num_width::WidthTable;
@@ -51,8 +52,12 @@ pub(crate) fn run(
     let mut fn_sigs: Vec<(Vec<Type>, Type)> = Vec::new();
     let (may_throw, nonint_reads_run_code) =
         crate::ast_throw_info::compute_may_throw_fns(ast, expr_types, num_f64_slots);
-    let arr_head_pinned = arr_head_census::program_pins_arr_head(ast, expr_types);
-    let live_fields = live_field_census::program_live_fields(ast, expr_types, num_f64_slots);
+    let dead_twins = arr_head_census::unreachable_twin_exprs(ast, expr_types);
+    let arr_head_pinned = arr_head_census::program_pins_arr_head(ast, expr_types, &dead_twins);
+    let live_fields =
+        live_field_census::program_live_fields(ast, expr_types, num_f64_slots, &dead_twins);
+    let value_class_names =
+        value_class_census::program_value_classes(ast, expr_types, &dead_twins, arr_head_pinned);
 
     let mut generic_struct_decls: GenericStructDecls = HashMap::new();
     let mut struct_layouts: Vec<Vec<(PropKey, Type)>> = std::mem::take(&mut module.struct_layouts);
@@ -200,6 +205,8 @@ pub(crate) fn run(
     }
 
     let class_name_to_tag = class_tags(ast);
+    let value_classes =
+        value_class_census::value_sids(&value_class_names, &aliases, &struct_layouts);
 
     Pass05 {
         aliases,
@@ -211,12 +218,26 @@ pub(crate) fn run(
             arr_head_pinned,
             live_fields,
             nonint_reads_run_code,
+            value_classes,
+            twins_unreachable: !dead_twins.is_empty(),
         }),
         generic_struct_decls,
         struct_layouts,
         inst_memo,
         class_name_to_tag,
     }
+}
+
+/// The classes the value-class census admits, by name, sorted.
+pub fn value_class_names(artifacts: &crate::check::CheckArtifacts) -> Vec<String> {
+    let (ast, widths) = (&artifacts.5.mono_ast, &artifacts.5.widths);
+    let p = run(ast, &artifacts.1, &mut Module::default(), widths);
+    let mut out: Vec<String> = (p.aliases.iter())
+        .filter(|(_, t)| matches!(t, Type::Obj(s) if p.facts.value_classes.contains(s)))
+        .map(|(n, _)| n.clone())
+        .collect();
+    out.sort();
+    out
 }
 
 /// Settle a declared class's freshly parsed layout: intern onto an

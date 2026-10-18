@@ -253,7 +253,7 @@ pub(crate) fn lower_inner(
         &anon_stamp_pool,
         struct_layouts_pass15_len,
     );
-    cell_size::settle(&mut module, &closure_captures, &ast.widen_clone_origin);
+    cell_size::settle(&mut module, &closure_captures, ast, &facts);
     module
 }
 

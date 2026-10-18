@@ -39,6 +39,12 @@ pub(crate) struct ProgramFacts {
     /// (`compute_may_throw_fns`): a getter or a `valueOf` reachable
     /// through the property the key names.
     pub(crate) nonint_reads_run_code: bool,
+    /// Classes no code can tell apart from a copy of their fields
+    /// (`ssa_lower_pass_0_5::value_class_census`).
+    pub(crate) value_classes: HashSet<crate::ssa::StructId>,
+    /// No receiver can enter a method twin (`__cmany_<C>__<m>`) the
+    /// censuses left out (`arr_head_census::unreachable_twin_exprs`).
+    pub(crate) twins_unreachable: bool,
 }
 
 pub(crate) type ProgramFactsRc = std::rc::Rc<ProgramFacts>;

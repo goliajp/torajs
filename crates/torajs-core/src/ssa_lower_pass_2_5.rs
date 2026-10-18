@@ -12,6 +12,7 @@
 pub(crate) mod any_holds;
 pub(crate) mod cell_size;
 pub(crate) mod cell_slot_flow;
+pub(crate) mod value_class_check;
 
 use std::collections::HashMap;
 

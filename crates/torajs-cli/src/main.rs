@@ -50,6 +50,8 @@ mod str_split_ir_tests;
 mod usage;
 mod util;
 #[cfg(test)]
+mod value_class_census_tests;
+#[cfg(test)]
 mod widen_ret_tests;
 
 use std::env;

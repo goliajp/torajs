@@ -32,8 +32,11 @@ use std::collections::HashMap;
 use crate::ast::{Ast, Expr, ExprId};
 use crate::check::Type;
 
-pub(crate) fn program_pins_arr_head(ast: &Ast, expr_types: &HashMap<ExprId, Type>) -> bool {
-    let dead_twins = twin_roads::unreachable_twin_exprs(ast, expr_types);
+pub(crate) fn program_pins_arr_head(
+    ast: &Ast,
+    expr_types: &HashMap<ExprId, Type>,
+    dead_twins: &ExprMask,
+) -> bool {
     !ast.exprs.iter().enumerate().any(|(i, e)| {
         !dead_twins.contains(ExprId(i as u32)) && expr_may_reach_head_mutation(ast, expr_types, e)
     })

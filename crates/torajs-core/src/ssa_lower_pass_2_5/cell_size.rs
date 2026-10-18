@@ -48,17 +48,19 @@ fn cell_bytes(n_fields: usize) -> usize {
 }
 
 /// Runs after the class layout rows are final and every synthesized
-/// body (env drops, class releases) is in place. `captures` and
-/// `clone_origin` are the closure side channels the env layouts are
-/// read from (`cell_slot_flow::env_layouts`).
+/// body (env drops, class releases) is in place. `captures` and the
+/// AST's `widen_clone_origin` are the closure side channels the env
+/// layouts are read from (`cell_slot_flow::env_layouts`); `facts` names
+/// the value classes the SSA is held to (`value_class_check`).
 pub(crate) fn settle(
     module: &mut Module,
     captures: &HashMap<String, Vec<(String, Type, bool)>>,
-    clone_origin: &HashMap<String, String>,
+    ast: &crate::ast::Ast,
+    facts: &crate::ssa_lower::proofs::ProgramFacts,
 ) {
-    let envs = env_layouts(module, captures, clone_origin);
+    let envs = env_layouts(module, captures, &ast.widen_clone_origin);
     let unsettled = settle_alloc_sizes_to_rows(module);
-    settle_typed_frees(module, &envs, &unsettled);
+    settle_typed_frees(module, &envs, &unsettled, ast, facts);
 }
 
 /// A typed object drop leaves lowering as `obj_drop_sized(p, size,
@@ -67,7 +69,13 @@ pub(crate) fn settle(
 /// lands in the size class of `sid`'s own; where a wider layout
 /// would not, or where the slot can hold a cell of any layout, free
 /// by what the cell says of itself instead.
-fn settle_typed_frees(module: &mut Module, envs: &EnvLayouts, unsettled: &HashSet<usize>) {
+fn settle_typed_frees(
+    module: &mut Module,
+    envs: &EnvLayouts,
+    unsettled: &HashSet<usize>,
+    ast: &crate::ast::Ast,
+    facts: &crate::ssa_lower::proofs::ProgramFacts,
+) {
     let find = |name: &str| {
         let at = module.funcs.iter().position(|f| f.name == name)?;
         Some(FuncId(at as u32))
@@ -83,6 +91,7 @@ fn settle_typed_frees(module: &mut Module, envs: &EnvLayouts, unsettled: &HashSe
     .filter_map(|(s, b)| Some((find(s)?, find(b)?)))
     .collect();
     let open = open_sids(module, envs);
+    super::value_class_check::report(module, ast, facts, &open);
     let layouts = &module.struct_layouts;
     let mut admits_wider: HashMap<i64, bool> = HashMap::new();
     for f in &mut module.funcs {

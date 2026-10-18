@@ -99,7 +99,10 @@ pub(super) fn collect_super_args(ast: &Ast, e: ExprId, f: &mut impl FnMut(&[Expr
 /// The `return` statements of a body, not descending into nested
 /// function declarations (closure bodies are expressions and are not
 /// statements of this body).
-pub(super) fn own_returns(body: &[Stmt], f: &mut impl FnMut(Option<ExprId>)) {
+pub(in crate::ssa_lower_pass_0_5) fn own_returns(
+    body: &[Stmt],
+    f: &mut impl FnMut(Option<ExprId>),
+) {
     for s in body {
         if let Stmt::Return(v) = s {
             f(*v);
@@ -112,7 +115,7 @@ pub(super) fn own_returns(body: &[Stmt], f: &mut impl FnMut(Option<ExprId>)) {
 
 /// The statements directly nested in `s` (one level), for every body
 /// shape.
-pub(super) fn nested_stmts<'a>(s: &'a Stmt, f: &mut impl FnMut(&'a Stmt)) {
+pub(in crate::ssa_lower_pass_0_5) fn nested_stmts<'a>(s: &'a Stmt, f: &mut impl FnMut(&'a Stmt)) {
     match s {
         Stmt::FnDecl { .. } => {}
         Stmt::Try {

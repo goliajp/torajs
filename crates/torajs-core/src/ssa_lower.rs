@@ -200,6 +200,9 @@ pub fn lower_with_arity(ast: &Ast, artifacts: &crate::check::CheckArtifacts) -> 
     )
 }
 
+/// The classes pass 0.5's value-class census admits, by name, sorted.
+pub use crate::ssa_lower_pass_0_5::value_class_names;
+
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct LocalInfo {
     /// Pointer to the alloca slot — Type::Ptr.

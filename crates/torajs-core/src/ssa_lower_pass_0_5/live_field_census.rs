@@ -46,7 +46,7 @@
 //! program paid before.
 
 mod judge;
-mod walk;
+pub(super) mod walk;
 
 use std::collections::{HashMap, HashSet};
 
@@ -56,7 +56,7 @@ use crate::ast::{Ast, Expr, ExprId, Param, Stmt};
 use crate::check::Type;
 use crate::num_width::WidthTable;
 
-use super::arr_head_census::{ExprMask, unreachable_twin_exprs};
+use super::arr_head_census::ExprMask;
 use walk::{
     ctor_class, ctor_fed_seed, derives_from, factory_class, key_is_numeric, nested_stmts,
     never_an_instance, user_params,
@@ -85,12 +85,12 @@ pub(crate) fn program_live_fields(
     ast: &Ast,
     expr_types: &HashMap<ExprId, Type>,
     widths: &WidthTable,
+    dead_twins: &ExprMask,
 ) -> LiveFields {
-    let dead_twins = unreachable_twin_exprs(ast, expr_types);
     if !ast.cmany_twins.is_empty() && dead_twins.is_empty() {
         return LiveFields::new();
     }
-    let census = Census::collect(ast, expr_types, widths, &dead_twins);
+    let census = Census::collect(ast, expr_types, widths, dead_twins);
     if census.road {
         return LiveFields::new();
     }
