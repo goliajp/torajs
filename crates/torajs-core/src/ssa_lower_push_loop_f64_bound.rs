@@ -22,8 +22,8 @@ use crate::ssa_lower::LowerCtx;
 const TWO_POW_53: i64 = 1 << 53;
 
 impl LowerCtx<'_> {
-    /// Branch- and select-free, as `emit_reserve_target` is: `Select`
-    /// only exists after the egraph pass.
+    /// Branch- and select-free: `Select` only exists after the egraph
+    /// pass.
     pub(crate) fn emit_f64_trip_count(&mut self, n: Operand) -> Operand {
         let positive = self.emit_fcmp_i64(FPred::Ogt, n, Operand::ConstF64(0.0));
         let in_window = self.emit_fcmp_i64(FPred::Ole, n, Operand::ConstF64(TWO_POW_53 as f64));

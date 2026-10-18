@@ -13,7 +13,7 @@ use crate::ast::{Ast, Expr, ExprId, Stmt};
 
 mod assigned;
 
-pub(crate) use assigned::collect_assigned_names_scoped;
+pub(crate) use assigned::{collect_assigned_names_scoped, expr_assigned_names};
 
 /// What one body's closure-construction walk finds (RFC
 /// 20260731-mono-closure-clone 刀 2): the names its closures capture

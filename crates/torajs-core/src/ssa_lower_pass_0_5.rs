@@ -220,6 +220,7 @@ pub(crate) fn run(
             value_classes: value_inits.keys().copied().collect(),
             value_inits,
             twins_unreachable: !dead_twins.is_empty(),
+            assigned: Default::default(),
         }),
         generic_struct_decls,
         struct_layouts,

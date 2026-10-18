@@ -53,7 +53,7 @@ pub(crate) fn push_args_cannot_call(ctx: &LowerCtx<'_>, s: &Stmt) -> bool {
 
 /// See [`push_args_cannot_call`]. Operand types are read off the
 /// checker: `+` over an `any` is a `valueOf` call.
-fn expr_cannot_call(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
+pub(crate) fn expr_cannot_call(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
     if expr_is_inert(ctx, eid) {
         return true;
     }

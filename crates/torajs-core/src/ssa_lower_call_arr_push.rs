@@ -35,7 +35,7 @@
 
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, Type};
-use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx, OBJ_HEADER_SIZE, inline_push};
+use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx, OBJ_HEADER_SIZE, inline_push, push_recv_hold};
 use crate::ssa_lower_arr_grow_kernel::emit_grow_kernel_checked;
 pub(crate) use crate::ssa_lower_call_arr_push_coerce::coerce_push_value;
 
@@ -183,12 +183,19 @@ fn try_lower_ident_local(
         arr_ty,
         None,
     );
+    // a fill loop's arguments cannot call, so they cannot rebind it
+    let fast = ctx.prereserve.unchecked_for.get(recv_name).copied();
+    let hold = match fast {
+        Some(_) => None,
+        None => push_recv_hold::hold(ctx, recv_name, false, args[0], Operand::Value(cur_arr)),
+    };
     if let Type::Inline(sid) = elem_ty {
-        let fast = ctx.prereserve.unchecked_for.get(recv_name).copied();
-        return Some(match fast {
+        let n = match fast {
             Some(st) => Operand::Value(inline_push::push_prereserved(ctx, st, args[0], sid)),
             None => inline_push::push(ctx, Operand::Value(cur_arr), args[0], sid),
-        });
+        };
+        push_recv_hold::release(ctx, hold);
+        return Some(n);
     }
     let (val, val_owned_from_substr) = coerce_push_value(ctx, args[0], elem_ty);
     // v0.6+1 perf checkpoint — push-loop pre-reserve. If the enclosing
@@ -232,6 +239,7 @@ fn try_lower_ident_local(
         Type::I64,
         None,
     );
+    push_recv_hold::release(ctx, hold);
     Some(Operand::Value(new_len))
 }
 
@@ -275,13 +283,11 @@ fn try_lower_ident_global(
         arr_ty,
         None,
     );
+    let hold = push_recv_hold::hold(ctx, recv_name, true, args[0], Operand::Value(cur_arr));
     if let Type::Inline(sid) = elem_ty {
-        return Some(inline_push::push(
-            ctx,
-            Operand::Value(cur_arr),
-            args[0],
-            sid,
-        ));
+        let n = inline_push::push(ctx, Operand::Value(cur_arr), args[0], sid);
+        push_recv_hold::release(ctx, hold);
+        return Some(n);
     }
     let (val, val_owned_from_substr) = coerce_push_value(ctx, args[0], elem_ty);
     let push_arg = ctx.raw_slot_arg(val);
@@ -303,6 +309,7 @@ fn try_lower_ident_global(
         Type::I64,
         None,
     );
+    push_recv_hold::release(ctx, hold);
     Some(Operand::Value(new_len))
 }
 

@@ -68,6 +68,13 @@ pub(crate) fn collect_assigned_names_scoped<'s>(
     out
 }
 
+/// The names `eid` assigns, closures it constructs included.
+pub(crate) fn expr_assigned_names(ast: &Ast, eid: ExprId) -> HashSet<String> {
+    let mut out = HashSet::new();
+    collect_assigned_in_expr(ast, eid, &mut out);
+    out
+}
+
 fn collect_assigned_in_stmt(ast: &Ast, s: &Stmt, out: &mut HashSet<String>) {
     match s {
         Stmt::Expr(eid) | Stmt::Throw(eid) | Stmt::Yield(eid) => {

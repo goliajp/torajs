@@ -29,6 +29,7 @@ pub(crate) mod alias_hazard;
 pub(crate) mod inline_elem;
 pub(crate) mod inline_push;
 pub(crate) mod proofs;
+pub(crate) mod push_recv_hold;
 
 use crate::ast::{Ast, ExprId};
 use crate::ssa::{InstKind, Module, Operand, Type, ValueId};

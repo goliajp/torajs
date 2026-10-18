@@ -48,6 +48,9 @@ pub(crate) struct ProgramFacts {
     /// No receiver can enter a method twin (`__cmany_<C>__<m>`) the
     /// censuses left out (`arr_head_census::unreachable_twin_exprs`).
     pub(crate) twins_unreachable: bool,
+    /// Every name some statement of the program assigns, read once on
+    /// first need ([`Proofs::assigned_anywhere`]).
+    pub(crate) assigned: std::cell::OnceCell<HashSet<String>>,
 }
 
 pub(crate) type ProgramFactsRc = std::rc::Rc<ProgramFacts>;
@@ -110,6 +113,18 @@ impl Proofs {
     /// holds, by field name.
     pub(crate) fn value_inits(&self, sid: crate::ssa::StructId) -> &[(String, ValueFieldInit)] {
         self.facts.value_inits.get(&sid).map_or(&[], Vec::as_slice)
+    }
+
+    /// Every name some statement of the program assigns (`=`, `++`),
+    /// in any function.
+    pub(crate) fn assigned_anywhere(&self, ast: &crate::ast::Ast) -> &HashSet<String> {
+        self.facts.assigned.get_or_init(|| {
+            crate::ssa_lower_closure_captures::collect_assigned_names_scoped(
+                ast,
+                ast.stmts.iter(),
+                &[],
+            )
+        })
     }
 
     /// See [`ProgramFacts::nonint_reads_run_code`].

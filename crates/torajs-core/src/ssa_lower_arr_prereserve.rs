@@ -165,7 +165,7 @@ impl PreReserve {
     }
 }
 
-use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Type, ValueId};
+use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Terminator, Type, ValueId};
 use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx, PreReserveState};
 use crate::ssa_lower_str_arr_inplace::emit_arr_lock_bits_guard;
 
@@ -192,10 +192,8 @@ pub(crate) fn push_counts(names: &[String]) -> Vec<(String, i64)> {
     out
 }
 
-/// Largest bound worth scaling: the capacity field is a u32, so a
-/// bound past it already fails the reserve unscaled, and scaling it
-/// could wrap to a small capacity instead.
-const RESERVE_SCALE_MAX_BOUND: i64 = u32::MAX as i64;
+/// The longest an array may grow (§10.4.2.4: a length is a u32).
+const ARRAY_LENGTH_MAX: i64 = u32::MAX as i64;
 
 impl LowerCtx<'_> {
     /// The fill loop stores slots inline, so the refusal of a
@@ -214,53 +212,18 @@ impl LowerCtx<'_> {
     /// interval analysis's element points, and the SUM loop after the
     /// fill lost float demotion (`interval/elem.rs` admits the read
     /// since). Measure the second loop, not only the one touched.
-    /// `len + per_trip * bound` — the capacity `bound` trips of
-    /// `per_trip` appends each need. One append a trip is the plain
-    /// sum, the shape nearly every fill loop has.
-    pub(crate) fn emit_reserve_target(
-        &mut self,
-        len: ValueId,
-        bound: Operand,
-        per_trip: i64,
-    ) -> ValueId {
-        let room = if per_trip == 1 {
-            bound
-        } else {
-            // Branch- and select-free (Select only exists after the
-            // egraph pass): `huge` is 0 or 1, so a wrapped product is
-            // multiplied by zero exactly when the bound was too big to
-            // scale, and the unscaled bound stands in for it.
-            let huge = self.f.append_inst(
-                self.cur_block,
-                InstKind::ICmp(
-                    IPred::Sgt,
-                    bound,
-                    Operand::ConstI64(RESERVE_SCALE_MAX_BOUND),
-                ),
-                Type::Bool,
-                None,
-            );
-            let huge = self.emit_i64(InstKind::ZExtBoolToI64(Operand::Value(huge)));
-            let keep = self.emit_i64(InstKind::BinOp(SsaBinOp::Sub, Operand::ConstI64(1), huge));
-            let scaled = self.emit_i64(InstKind::BinOp(
-                SsaBinOp::Mul,
-                bound,
-                Operand::ConstI64(per_trip),
-            ));
-            let scaled = self.emit_i64(InstKind::BinOp(SsaBinOp::Mul, scaled, keep));
-            let unscaled = self.emit_i64(InstKind::BinOp(SsaBinOp::Mul, bound, huge));
-            self.emit_i64(InstKind::BinOp(SsaBinOp::Add, scaled, unscaled))
-        };
-        self.f.append_inst(
-            self.cur_block,
-            InstKind::BinOp(SsaBinOp::Add, Operand::Value(len), room),
-            Type::I64,
-            None,
-        )
-    }
-
-    /// [`Self::emit_reserve_target`] for the array `arr_ty`, in its
-    /// slots: an element held in place takes one slot per field.
+    /// The capacity, in slots, that `bound` trips of `per_trip`
+    /// appends each need on top of `len` elements of the array
+    /// `arr_ty`: an element held in place takes one slot per field.
+    /// One plain append a trip is `len + bound`, the shape nearly
+    /// every fill loop has.
+    ///
+    /// Any other shape multiplies, and a product past what the buffer
+    /// can hold would leave the loop's unchecked stores writing past
+    /// it. Those trips would take the length past 2^32 - 1, where the
+    /// append that crosses it raises the RangeError of §10.4.2.4
+    /// whatever else the loop does; the body is appends alone, so the
+    /// error is raised here, before the loop, on a cold edge.
     pub(crate) fn emit_reserve_slots(
         &mut self,
         arr_ty: Type,
@@ -271,24 +234,75 @@ impl LowerCtx<'_> {
         let k = match arr_ty {
             Type::Arr(a) => {
                 let elem = self.arr_layouts[a.0 as usize];
-                crate::ssa_lower::inline_elem::elem_stride(self.struct_layouts, elem) / 8
+                crate::ssa_lower::inline_elem::elem_stride(self.struct_layouts, elem) as i64 / 8
             }
             _ => 1,
         };
-        if k == 1 {
-            return self.emit_reserve_target(len, bound, per_trip);
+        if k == 1 && per_trip == 1 {
+            return self.f.append_inst(
+                self.cur_block,
+                InstKind::BinOp(SsaBinOp::Add, Operand::Value(len), bound),
+                Type::I64,
+                None,
+            );
         }
-        let len_slots = self.f.append_inst(
-            self.cur_block,
-            InstKind::BinOp(
+        self.emit_too_long_guard(bound, ARRAY_LENGTH_MAX / per_trip);
+        let len_slots = if k == 1 {
+            Operand::Value(len)
+        } else {
+            self.emit_i64(InstKind::BinOp(
                 SsaBinOp::Mul,
                 Operand::Value(len),
-                Operand::ConstI64(k as i64),
-            ),
+                Operand::ConstI64(k),
+            ))
+        };
+        let room = self.emit_i64(InstKind::BinOp(
+            SsaBinOp::Mul,
+            bound,
+            Operand::ConstI64(per_trip * k),
+        ));
+        self.f.append_inst(
+            self.cur_block,
+            InstKind::BinOp(SsaBinOp::Add, len_slots, room),
             Type::I64,
             None,
+        )
+    }
+
+    /// `bound > max` raises "Invalid array length" (the length check
+    /// of `__torajs_arr_set_length_validate`, handed a length one past
+    /// the largest) and leaves by the throw edge.
+    fn emit_too_long_guard(&mut self, bound: Operand, max: i64) {
+        let long = self.f.append_inst(
+            self.cur_block,
+            InstKind::ICmp(IPred::Sgt, bound, Operand::ConstI64(max)),
+            Type::Bool,
+            None,
         );
-        self.emit_reserve_target(len_slots, bound, per_trip * k as i64)
+        let raise_blk = self.f.add_block();
+        let cont_blk = self.f.add_block();
+        self.f.set_term(
+            self.cur_block,
+            Terminator::CondBr {
+                cond: Operand::Value(long),
+                then_blk: raise_blk,
+                else_blk: cont_blk,
+            },
+        );
+        self.cur_block = raise_blk;
+        let check = InstKind::Call(
+            self.intrinsics.arr_set_length_validate,
+            vec![
+                Operand::ConstI64(2),
+                Operand::ConstI64(ARRAY_LENGTH_MAX + 1),
+            ],
+        );
+        self.f.append_void(raise_blk, check);
+        self.emit_throw_check(None);
+        // the validate always raises, so the check never falls through
+        let cb = self.cur_block;
+        self.f.set_term(cb, Terminator::Unreachable);
+        self.cur_block = cont_blk;
     }
 
     fn emit_i64(&mut self, kind: InstKind) -> Operand {
