@@ -182,61 +182,74 @@ pub unsafe fn is_callable(av: AnyValue) -> bool {
 ///
 /// # Safety
 /// `av` must be a live AnyValue.
+// one shared copy: inlined, the loop is copied into every caller
+#[inline(never)]
 pub unsafe fn is_constructor(av: AnyValue) -> bool {
-    if !is_cell(av) {
-        return false;
+    let mut av = av;
+    loop {
+        if !is_cell(av) {
+            return false;
+        }
+        let ptr = as_void_ptr(av);
+        if ptr.is_null() {
+            return false;
+        }
+        // §10.5.14 step 3 — a Proxy has [[Construct]] exactly when its
+        // target does; the handler has no say in it.
+        if crate::proxy::is_proxy(av) {
+            return unsafe { crate::proxy_callable::proxy_is_constructor(av) };
+        }
+        match unsafe { constructor_cell_shape(ptr) } {
+            CellCtor::Answer(yes) => return yes,
+            // A bound function's [[Construct]] exists exactly when its
+            // target's does (§10.4.1.2: BoundFunctionCreate copies the
+            // slot iff the target has one). The target is a whole
+            // AnyValue (a cell pointer is its own encoding), asked the
+            // same question again — Proxy row included — so a chain of
+            // any depth is one loop, not one native frame per layer.
+            CellCtor::Bound(target) => av = target,
+        }
     }
-    let ptr = as_void_ptr(av);
-    if ptr.is_null() {
-        return false;
-    }
-    // §10.5.14 step 3 — a Proxy has [[Construct]] exactly when its
-    // target does; the handler has no say in it.
-    if crate::proxy::is_proxy(av) {
-        return unsafe { crate::proxy_callable::proxy_is_constructor(av) };
-    }
-    unsafe { is_constructor_cell(ptr) }
 }
 
-/// Cell-level half of [`is_constructor`] — recursion point for bound
-/// functions, whose [[Construct]] existence is exactly their target's
-/// (§10.4.1.2: BoundFunctionCreate copies the slot iff the target has
-/// one). A kind-0 bound target is a builtin prototype method — no
-/// [[Construct]] — and a bound-over-bound chain recurses to whatever
-/// sits at the bottom, through [`is_constructor`] so that every link
-/// of the chain gets the Proxy row too.
+/// What the cell level of [`is_constructor`] can say about one cell.
+enum CellCtor {
+    Answer(bool),
+    /// A kind-1 bound cell: the answer is its target's.
+    Bound(AnyValue),
+}
+
+/// Cell-level half of [`is_constructor`]. A kind-0 bound target is a
+/// builtin prototype method — no [[Construct]]; a kind-1 bound cell
+/// hands its target back to the value-level loop, not to this
+/// function: a Proxy target is a question no cell shape answers yes
+/// to, however constructible the Proxy's own target.
 ///
 /// # Safety
 /// `ptr` is a live heap cell.
-unsafe fn is_constructor_cell(ptr: *mut c_void) -> bool {
+unsafe fn constructor_cell_shape(ptr: *mut c_void) -> CellCtor {
     if unsafe { is_class_ctor_cell(ptr) } {
-        return true;
+        return CellCtor::Answer(true);
     }
     // SAFETY: caller guarantees a live heap block, whose header is
     // the first `HeapHeader` bytes.
     let hdr = unsafe { &*(ptr as *const HeapHeader) };
     if hdr.type_tag != Tag::Closure as u16 {
-        return false;
+        return CellCtor::Answer(false);
     }
     if hdr.flags & FLAG_FN_PROTO != 0 {
-        return true;
+        return CellCtor::Answer(true);
     }
     // A builtin-constructor cell (`Number` / `Array` … read as a
     // value) — [[Construct]] is real for the wrapper / container
     // families; the per-tag dispatch raises the loud TypeError for
     // the rest, so answering true here never turns a refusal silent.
     if crate::method_value::ctor::ctor_tag_of_cell(ptr).is_some() {
-        return true;
+        return CellCtor::Answer(true);
     }
     match unsafe { crate::method_bind::bound_cell_meta(ptr) } {
-        // Back to the value-level entry, not this one: a bound
-        // target is a whole AnyValue (a cell pointer is its own
-        // encoding), and the Proxy row lives up there. Recursing
-        // into the cell level instead would ask "is this cell
-        // shaped like a constructor?" of a Proxy — a question no
-        // Proxy answers yes to, however constructible its target.
-        Some((1, target, _)) => unsafe { is_constructor(target) },
-        _ => false,
+        Some((1, target, _)) => CellCtor::Bound(target),
+        _ => CellCtor::Answer(false),
     }
 }
 
@@ -366,9 +379,11 @@ pub(crate) unsafe fn construct_with_nt(
         return VALUE_UNDEFINED;
     }
     // §10.5.13 — a Proxy runs its `construct` trap (or forwards to
-    // the target) instead of the ordinary shapes below.
+    // the target) instead of the ordinary shapes below, with the
+    // newTarget it was given: a bound layer above it may have swapped
+    // one in, and `Reflect.construct` names its own.
     if crate::proxy::is_proxy(callee) {
-        return unsafe { crate::proxy_callable::__torajs_proxy_construct(callee, argv, argc) };
+        return unsafe { crate::proxy_callable::construct_proxy(callee, argv, argc, new_target) };
     }
     // A plain function constructs per §10.2.2 (base kind): fresh
     // `this` from its `.prototype`, then the ordinary call channel.
@@ -377,31 +392,11 @@ pub(crate) unsafe fn construct_with_nt(
     let hdr = unsafe { &*(cell as *const HeapHeader) };
     if hdr.type_tag == Tag::Closure as u16 {
         // §10.4.1.2 — a bound function constructs its TARGET with
-        // boundArgs ++ args; the bound this plays no part, and for the
-        // unreflected `new BD()` the spec itself swaps newTarget for
-        // the target (step 5), so recursing on the target — which
-        // unwinds bound-over-bound chains outside-in — is exact,
-        // prototype included. The is_constructor gate above already
-        // proved the chain bottoms out at a real constructor.
-        if let Some((1, target, bn)) = unsafe { crate::method_bind::bound_cell_meta(cell) } {
-            let bp = unsafe { crate::method_bind::bound_args_ptr(cell) };
-            let cn = argc.max(0) as usize;
-            let mut merged = vec![VALUE_UNDEFINED; bn + cn];
-            for (i, slot) in merged.iter_mut().enumerate().take(bn) {
-                *slot = unsafe { *bp.add(i) };
-            }
-            for i in 0..cn {
-                merged[bn + i] = unsafe { *argv.add(i) };
-            }
-            let target_av = unsafe { __torajs_anyv_box_pointer(target as *mut c_void) };
-            // Step 5 — a newTarget that is the bound function itself
-            // becomes the target.
-            let nt = if new_target == callee {
-                target_av
-            } else {
-                new_target
+        // boundArgs ++ args; the bound this plays no part.
+        if unsafe { crate::method_bind::bound_cell_meta(cell) }.is_some_and(|m| m.0 == 1) {
+            return unsafe {
+                crate::construct_bound::construct_bound(callee, argv, argc, new_target)
             };
-            return unsafe { construct_with_nt(target_av, merged.as_ptr(), (bn + cn) as i64, nt) };
         }
         // A builtin-constructor cell — the per-family [[Construct]]
         // (wrapper mints, containers, the loud reject for the rest).

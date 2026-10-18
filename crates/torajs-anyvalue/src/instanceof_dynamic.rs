@@ -52,15 +52,15 @@ unsafe extern "C" {
 }
 
 /// `AnySlotTag::Heap` in the member-pair protocol.
-const TAG_HEAP: u64 = 4;
+pub(crate) const TAG_HEAP: u64 = 4;
 /// The two tags §7.3.11 GetMethod reads as "no method": `null` and
 /// `undefined` (an absent property answers the latter).
-const TAG_NULL: u64 = 0;
-const TAG_UNDEF: u64 = 5;
+pub(crate) const TAG_NULL: u64 = 0;
+pub(crate) const TAG_UNDEF: u64 = 5;
 
 /// §6.1.5.1 well-known index of `@@hasInstance` — the table is
 /// alphabetical by property name (torajs-str `WELL_KNOWN_DESCS`).
-const WK_HAS_INSTANCE: i64 = 3;
+pub(crate) const WK_HAS_INSTANCE: i64 = 3;
 
 /// §13.10.2 `v instanceof target` for a runtime-resolved target.
 ///

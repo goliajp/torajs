@@ -37,11 +37,10 @@ unsafe extern "C" {
 pub unsafe extern "C" fn __torajs_instanceof_fn_value(v: u64, cell: *mut c_void) -> bool {
     unsafe {
         // §7.3.22 step 2 — a bound function has no `.prototype` of
-        // its own; the question is asked of the target it was bound
-        // from, and a bound-over-bound chain recurses to the bottom
-        // (the same walk [`is_constructor_cell`] does).
+        // its own: the answer is InstanceofOperator(O, BC) on the
+        // target it was bound from.
         if let Some((1, target, _)) = crate::method_bind::bound_cell_meta(cell) {
-            return __torajs_instanceof_fn_value(v, target as *mut c_void);
+            return bound_has_instance(v, target);
         }
         // §7.3.22 step 3 — "If O is not an Object, return false".
         // This precedes the Get, so a callable with a broken
@@ -82,6 +81,78 @@ pub unsafe extern "C" fn __torajs_instanceof_fn_value(v: u64, cell: *mut c_void)
     }
 }
 
+/// §7.3.22 step 2 — InstanceofOperator(O, BC) over the
+/// [[BoundTargetFunction]] `target`, for every bound layer below in one
+/// loop rather than one native frame per layer. Each layer is asked
+/// for @@hasInstance once, as §13.10.2 step 2 does. The default
+/// handler (§20.2.3.6) and an absent one both run OrdinaryHasInstance
+/// on that layer — for a bound layer that is this step again, one
+/// layer down; for any other function it is the ordinary walk. Any
+/// other handler is called with the layer as `this` (step 3).
+///
+/// # Safety
+/// `v` is a valid AnyValue; `target` is a live kind-1 bound target.
+// out of line and for size: the ordinary walk above stays as it was
+#[cold]
+#[inline(never)]
+#[optimize(size)]
+unsafe fn bound_has_instance(v: AnyValue, target: u64) -> bool {
+    unsafe {
+        let mut c = crate::nanbox_encode::__torajs_anyv_box_pointer(target as *mut c_void);
+        loop {
+            if let Some(b) = layer_has_instance(v, c) {
+                return b;
+            }
+            match crate::construct_bound::bound_closure_meta(as_void_ptr(c)) {
+                Some((1, t, _)) => {
+                    c = crate::nanbox_encode::__torajs_anyv_box_pointer(t as *mut c_void)
+                }
+                _ => return crate::instanceof_dynamic::ordinary_has_instance(v, c, false),
+            }
+        }
+    }
+}
+
+/// One layer of [`bound_has_instance`]: §13.10.2 steps 2-3 over `c`.
+/// None for the default handler or none, which leave
+/// OrdinaryHasInstance to run on `c`.
+///
+/// # Safety
+/// As [`bound_has_instance`]; `c` is a live function.
+#[inline(always)]
+unsafe fn layer_has_instance(v: AnyValue, c: AnyValue) -> Option<bool> {
+    use crate::instanceof_dynamic::{TAG_HEAP, TAG_NULL, TAG_UNDEF, WK_HAS_INSTANCE};
+    unsafe {
+        let handler = crate::member_get_symbol::symbol_key_get(
+            c,
+            crate::method_value::symbol_static::well_known_singleton(WK_HAS_INSTANCE),
+        );
+        let (tag, value) = handler.pair();
+        // one exit, so the handler is released in one place
+        if __torajs_throw_check() != 0 {
+            Some(false)
+        } else if tag == TAG_HEAP && value != 0 {
+            if crate::method_value::builtin_method_mid(value as *mut c_void)
+                == Some(torajs_rc::ANY_METHOD_FN_HAS_INSTANCE)
+            {
+                None
+            } else {
+                let h = crate::nanbox_encode::__torajs_anyv_box_pointer(value as *mut c_void);
+                let r =
+                    crate::method_call_closure_dispatch::__torajs_any_call_with_this(h, c, &v, 1);
+                let b = crate::nanbox_ffi::__torajs_anyv_to_bool(r);
+                crate::nanbox_ffi::__torajs_anyv_rc_dec(r);
+                Some(b)
+            }
+        } else if !matches!(tag, TAG_NULL | TAG_UNDEF) {
+            __torajs_throw_type_error(c"Symbol.hasInstance handler is not callable".as_ptr());
+            Some(false)
+        } else {
+            None
+        }
+    }
+}
+
 /// §7.3.22 steps 3 and 6-7 — is `pval` on O's [[Prototype]] chain?
 ///
 /// O must be an Object (step 3, non-objects answer false); the walk
@@ -93,6 +164,8 @@ pub unsafe extern "C" fn __torajs_instanceof_fn_value(v: u64, cell: *mut c_void)
 ///
 /// # Safety
 /// `v` is a valid AnyValue; `pval` is a heap cell address.
+// one shared copy for its four callers
+#[inline(never)]
 pub(crate) unsafe fn proto_chain_reaches(v: AnyValue, pval: u64) -> bool {
     unsafe {
         if !is_heap_object(v) {

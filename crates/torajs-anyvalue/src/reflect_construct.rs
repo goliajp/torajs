@@ -263,16 +263,27 @@ const OBJECT_PROTO_TAG: i64 = 1;
 /// BORROWED, for a newTarget whose `prototype` is no object; 0 keeps
 /// what the target built. An ordinary function's is
 /// %Object.prototype% (§10.2.2 step 5.a); a builtin constructor built
-/// its own intrinsic already, and a bound function constructed its
-/// target, which chose; a class asks the class registry.
+/// its own intrinsic already; a class asks the class registry. A bound
+/// function has no intrinsic of its own: §10.4.1.2 constructs its
+/// target with the same newTarget, so the fallback is that of the
+/// first target down the chain that is not bound, and a Proxy there
+/// chose through its own [[Construct]].
 ///
 /// # Safety
 /// `target` is a live constructor.
 unsafe fn default_proto(target: AnyValue) -> u64 {
-    let cell = as_void_ptr(target);
+    let mut cell = as_void_ptr(target);
     unsafe {
+        while let Some((1, t, _)) = crate::construct_bound::bound_closure_meta(cell) {
+            cell = t as *mut c_void;
+        }
+        if crate::proxy::is_proxy(crate::nanbox_encode::__torajs_anyv_box_pointer(cell)) {
+            return 0;
+        }
         if (cell.cast::<u8>().add(4) as *const u16).read() != Tag::Closure as u16 {
-            return __torajs_class_default_proto(target);
+            return __torajs_class_default_proto(crate::nanbox_encode::__torajs_anyv_box_pointer(
+                cell,
+            ));
         }
         if ctor_tag_of_cell(cell.cast_const()).is_some()
             || crate::method_bind::bound_cell_meta(cell).is_some()

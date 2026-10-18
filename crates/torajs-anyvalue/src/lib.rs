@@ -75,12 +75,12 @@
 //! the design sense (the design here is fully Rust; the call into
 //! C is a Layer-3 dependency that the rewrite hasn't reached yet).
 
-// Plain `std` crate, matching `torajs-rc`. See that crate's
-// header for the full rationale — short version: `cargo test`
-// + dual `crate-type = ["rlib", "staticlib"]` + `no_std`
-// combine to a precompiled-core panic-strategy mismatch that
-// has no clean fix on stable. std staticlibs link cleanly at
-// `tr build` time (cc + LLVM-LTO dedup tolerates std symbol
+#![feature(optimize_attribute)]
+
+// Plain `std` crate, matching `torajs-rc`. See that crate's header for the full rationale —
+// short version: `cargo test` + dual `crate-type = ["rlib", "staticlib"]` + `no_std` combine
+// to a precompiled-core panic-strategy mismatch that has no clean fix on stable. std
+// staticlibs link cleanly at `tr build` time (cc + LLVM-LTO dedup tolerates std symbol
 // overlap between Rust-emitted .a's).
 
 use std::ffi::c_void;
@@ -111,6 +111,7 @@ mod combinator_elem;
 mod combinator_spec;
 mod compare;
 mod construct;
+mod construct_bound;
 mod construct_has_instance;
 mod construct_unit;
 mod ctor_return;

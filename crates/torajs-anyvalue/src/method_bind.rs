@@ -238,11 +238,7 @@ pub(crate) unsafe fn bound_cell_meta(ptr: *mut c_void) -> Option<(u64, u64, usiz
 /// `target` is a live kind-1 target pointer.
 unsafe fn bound_target_cell(target: u64) -> Option<*mut u8> {
     unsafe {
-        let p = target as *mut c_void;
-        if (p.cast::<u8>().add(4) as *const u16).read() != torajs_rc::Tag::Closure as u16 {
-            return None;
-        }
-        bound_cell_meta(p).map(|_| p.cast::<u8>())
+        crate::construct_bound::bound_closure_meta(target as *mut c_void).map(|_| target as *mut u8)
     }
 }
 
@@ -288,9 +284,6 @@ pub(crate) unsafe fn bound_args_ptr(ptr: *mut c_void) -> *const u64 {
     unsafe { (ptr as *const u8).add(BOUND_ARGS_OFF) as *const u64 }
 }
 
-/// drop_fn of a bound cell — the universal Closure drop arm calls
-/// this on hit-zero; release every captured reference, the lazy
-/// props bag, then the block itself.
 /// The bound cell's trace fn (RFC 20260717 closure-env-cycle knife
 /// 2) — enumerates the same held children [`bound_drop`] releases,
 /// minus the +24 props bag (fixed shared offset; the collector's
@@ -334,6 +327,9 @@ unsafe extern "C" fn bound_trace(
     }
 }
 
+/// drop_fn of a bound cell — the universal Closure drop arm calls
+/// this on hit-zero; release every captured reference, the lazy
+/// props bag, then the block itself.
 unsafe extern "C" fn bound_drop(env: *mut c_void) {
     unsafe {
         // Scrub the cycle root buffer first — a buffered bound cell
