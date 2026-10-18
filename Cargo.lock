@@ -1524,6 +1524,7 @@ dependencies = [
  "torajs-dynobj",
  "torajs-fetch",
  "torajs-fmt",
+ "torajs-fnname",
  "torajs-fs",
  "torajs-io",
  "torajs-math",
@@ -1533,6 +1534,7 @@ dependencies = [
  "torajs-mmalloc",
  "torajs-num",
  "torajs-panic",
+ "torajs-panic-runtime",
  "torajs-print",
  "torajs-process",
  "torajs-promise",
@@ -1548,6 +1550,7 @@ dependencies = [
  "torajs-ucd",
  "torajs-value-drop",
  "torajs-weak",
+ "torajs-wrapper",
  "torajs-wtf8",
 ]
 
