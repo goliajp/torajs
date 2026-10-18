@@ -33,7 +33,7 @@ use core::ffi::c_void;
 
 use torajs_rc::Tag;
 
-use super::plan::{Fail, Field, MEMBER, OBJ, Plan};
+use super::plan::{Fail, Field, MEMBER, OBJ, Plain, Plan, Walk};
 use super::{cell_tag, reject};
 use crate::arg_struct_coerce::{
     __torajs_anyv_struct_fits, OBJ_CLASS_TAG_OFF, OBJ_HEADER_SIZE, OBJ_TAG_OFF,
@@ -45,7 +45,7 @@ use crate::nanbox::{AnyValue, as_void_ptr, is_cell};
 /// node lists its class's prototype-chain keys after its fields.
 const CLASS: u8 = 1;
 const FITS_ONLY: u8 = 2;
-pub(super) const PROTO_KEYS: u8 = 4;
+const PROTO_KEYS: u8 = 4;
 /// The OBJ node has no class list.
 const NO_LIST: u32 = u32::MAX;
 const OBJ_VTABLE_OFF: usize = 16;
@@ -89,7 +89,21 @@ pub unsafe extern "C" fn __torajs_anyv_cast_obj(
     vtables: *const *mut c_void,
     site: *const u8,
 ) -> *mut c_void {
-    unsafe { run(Plan::<false>::new(plan, vtables), v, site) }
+    unsafe { cast_obj::<Plain>(v, plan, vtables, site) }
+}
+
+/// [`__torajs_anyv_cast_obj`] walked by `W`.
+///
+/// # Safety
+/// As [`__torajs_anyv_cast_obj`].
+#[inline(always)]
+pub unsafe fn cast_obj<W: Walk>(
+    v: AnyValue,
+    plan: *const u8,
+    vtables: *const *mut c_void,
+    site: *const u8,
+) -> *mut c_void {
+    unsafe { run(Plan::<W>::new(plan, vtables), v, site) }
 }
 
 /// The cast `plan` makes of `v`, rejecting a mismatch naming `site`.
@@ -97,11 +111,7 @@ pub unsafe extern "C" fn __torajs_anyv_cast_obj(
 /// # Safety
 /// As [`__torajs_anyv_cast_obj`].
 #[inline(always)]
-pub(super) unsafe fn run<const OWN: bool>(
-    plan: Plan<OWN>,
-    v: AnyValue,
-    site: *const u8,
-) -> *mut c_void {
+pub(super) unsafe fn run<W: Walk>(plan: Plan<W>, v: AnyValue, site: *const u8) -> *mut c_void {
     match unsafe { plan.cast(4, v) } {
         Ok(bits) => bits as *mut c_void,
         Err(Fail::Mismatch) => {
@@ -112,7 +122,7 @@ pub(super) unsafe fn run<const OWN: bool>(
     }
 }
 
-impl<const OWN: bool> Plan<OWN> {
+impl<W: Walk> Plan<W> {
     /// An object node (`at`): the cell itself when it is one of the
     /// slot's layout, else a fresh cell copied field by field.
     ///
@@ -157,7 +167,7 @@ impl<const OWN: bool> Plan<OWN> {
         // a property of its own under a method or accessor name would
         // be lost to the class's member in the copy; a plan listing
         // keys always comes through an own entry
-        if OWN && flags & PROTO_KEYS != 0 && unsafe { super::own::owns_key(self, v, at) } {
+        if W::OWN && flags & PROTO_KEYS != 0 && unsafe { self.holds_key(v, at) } {
             return Err(Fail::Mismatch);
         }
         let n = self.u16(at + 14) as usize;
@@ -221,6 +231,29 @@ impl<const OWN: bool> Plan<OWN> {
         r
     }
 
+    /// Whether `v` holds ([`Walk::holds`]) one of the keys the OBJ node
+    /// at `at` lists after its fields.
+    ///
+    /// # Safety
+    /// `at` is an OBJ node with the `PROTO_KEYS` flag; `v` is a live
+    /// object cell.
+    unsafe fn holds_key(&self, v: AnyValue, at: usize) -> bool {
+        let mut pos = at + 16;
+        for _ in 0..self.u16(at + 14) {
+            pos = self.u32(pos) as usize;
+        }
+        let count = self.u16(pos);
+        pos += 2;
+        for _ in 0..count {
+            let len = self.u16(pos) as usize;
+            if unsafe { W::holds(v, self.base.add(pos + 2), len) } {
+                return true;
+            }
+            pos += 2 + len;
+        }
+        false
+    }
+
     /// `v.[[Get]](name)` for the field name at `name` (`len` bytes):
     /// an owned value, or `Thrown` when a getter threw.
     ///
@@ -246,6 +279,7 @@ impl<const OWN: bool> Plan<OWN> {
 ///
 /// # Safety
 /// `p` is a live `Tag::Obj` cell.
+#[inline]
 pub(super) unsafe fn class_instance(p: *mut c_void) -> bool {
     let tag = unsafe { p.cast::<u8>().add(OBJ_CLASS_TAG_OFF).cast::<u32>().read() };
     let row = unsafe { __torajs_struct_layout_lookup(tag) };

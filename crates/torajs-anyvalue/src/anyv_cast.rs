@@ -21,8 +21,11 @@ use core::ffi::{c_char, c_void};
 mod as_is;
 mod members;
 mod obj;
-mod own;
 mod plan;
+
+pub use members::cast_obj_members;
+pub use obj::cast_obj;
+pub use plan::{Plain, Walk};
 
 use crate::STR_HDR_SIZE;
 use crate::member_set::STR_LEN_OFF;

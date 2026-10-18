@@ -1410,6 +1410,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "torajs-anyvalue-own"
+version = "0.1.0"
+dependencies = [
+ "torajs-anyvalue",
+ "torajs-rc",
+]
+
+[[package]]
 name = "torajs-arr"
 version = "0.1.0"
 dependencies = [
@@ -1504,6 +1512,7 @@ version = "0.1.0"
 dependencies = [
  "torajs-abort",
  "torajs-anyvalue",
+ "torajs-anyvalue-own",
  "torajs-arr",
  "torajs-bigint",
  "torajs-buffer",

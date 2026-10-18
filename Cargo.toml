@@ -12,6 +12,7 @@ members = [
     "crates/torajs-wtf8",
     "crates/torajs-rc",
     "crates/torajs-anyvalue",
+    "crates/torajs-anyvalue-own",
     "crates/torajs-dispatch",
     "crates/torajs-regexp-lane",
     "crates/torajs-regexp-protocol",

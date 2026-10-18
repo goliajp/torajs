@@ -12,7 +12,7 @@
 //!           (u32::MAX: none), u32 vtable index, u16 field count,
 //!           fields, [keys]
 //!   keys    u16 count, then per key: u16 length, name (WTF-8): the
-//!           class's prototype-chain keys (`super::own`), a
+//!           class's prototype-chain keys ([`Walk`]), a
 //!           well-known symbol key spelled `__sym_Symbol_<x>__`
 //!   REF     u32 offset of an OBJ node (a type that contains itself)
 //!   ARR     u8 element kind (`__torajs_arr_any_to_typed`), node
@@ -35,6 +35,7 @@ mod arr;
 
 use core::cell::RefCell;
 use core::ffi::c_void;
+use core::marker::PhantomData;
 use std::collections::BTreeMap;
 
 use torajs_rc::Tag;
@@ -84,32 +85,69 @@ pub(super) enum Fail {
 /// the entry for a plan with one sets it (`super::members`), so a
 /// program that casts no optional member links none of that code.
 ///
-/// `OWN` walks a plan whose class nodes list keys an object copied
-/// into them must not own (`super::own`). Only the entries for such a
-/// plan walk it as `Plan<true>`; the walk every other program links is
-/// the plain one, and the own walk hands it every node that holds no
-/// object node ([`Self::cast_own`]). The layout does not depend on
-/// `OWN`.
+/// `W` is the walk ([`Walk`]). The layout does not depend on it.
 #[repr(C)]
-pub(super) struct Plan<const OWN: bool = false> {
+pub(super) struct Plan<W: Walk = Plain> {
     pub(super) copies: Copies,
     pub(super) base: *const u8,
     pub(super) vtables: *const *mut c_void,
-    pub(super) member: Option<MemberCast<OWN>>,
+    pub(super) member: Option<MemberCast<W>>,
+    walk: PhantomData<W>,
 }
 
 /// The cast of an optional member's field into the fresh cell, from
 /// the value `v` that holds the field and the field's value (owned).
-pub(super) type MemberCast<const OWN: bool> =
-    unsafe fn(&Plan<OWN>, AnyValue, AnyValue, &Field) -> Result<u64, Fail>;
+pub(super) type MemberCast<W> =
+    unsafe fn(&Plan<W>, AnyValue, AnyValue, &Field) -> Result<u64, Fail>;
+
+/// How a cast walks a plan whose class nodes list keys (`PROTO_KEYS`)
+/// an object copied into them must not hold: the copy's methods and
+/// accessors are the class's, so an object holding a property under
+/// one of those names would answer the class's member instead of its
+/// own. The own walk refuses such an object; the walk every other
+/// program links, [`Plain`], never reads the keys. The own walk is
+/// instantiated only by the crate that defines it, an archive member
+/// of its own, so a program that casts into no class with a method or
+/// accessor links none of it; it walks every node that may hold an
+/// object node and hands the plain walk every other one (the walk's
+/// `cast_own`).
+///
+/// That crate calls every non-generic function the walk calls, so each
+/// is exported from this one; a function that is otherwise inlined at
+/// every call site is marked `#[inline]`, or exporting it would add an
+/// out-of-line copy to this member, which every link parses.
+pub trait Walk: Sized {
+    /// The walk reads the keys a class node lists.
+    const OWN: bool;
+
+    /// Whether the object `v` holds a property under the key `name`
+    /// (`len` bytes, WTF-8, a well-known symbol key spelled
+    /// `__sym_Symbol_<x>__`).
+    ///
+    /// # Safety
+    /// `v` is a live object cell; `name` addresses `len` bytes.
+    unsafe fn holds(v: AnyValue, name: *const u8, len: usize) -> bool;
+}
+
+/// The walk that does not read the keys.
+pub enum Plain {}
+
+impl Walk for Plain {
+    const OWN: bool = false;
+
+    unsafe fn holds(_v: AnyValue, _name: *const u8, _len: usize) -> bool {
+        false
+    }
+}
 
 /// The copies a cast has made so far, by the value and the node they
-/// were made for; one body of each method serves both walks.
+/// were made for.
 pub(super) struct Copies(RefCell<BTreeMap<(AnyValue, usize), u64>>);
 
 impl Copies {
     /// The copy already made of `v` for the node at `at`, with a stake
     /// for the caller.
+    #[inline]
     pub(super) fn copy_of(&self, v: AnyValue, at: usize) -> Option<u64> {
         let copy = *self.0.borrow().get(&(v, at))?;
         unsafe { __torajs_rc_inc(copy as *mut c_void) };
@@ -118,6 +156,7 @@ impl Copies {
 
     /// Record `copy` as the copy of `v` for the node at `at`, before
     /// its contents are filled in.
+    #[inline]
     pub(super) fn note_copy(&self, v: AnyValue, at: usize, copy: u64) {
         self.0.borrow_mut().insert((v, at), copy);
     }
@@ -134,13 +173,14 @@ pub(super) struct Field {
     pub(super) node: usize,
 }
 
-impl<const OWN: bool> Plan<OWN> {
-    pub(super) fn new(base: *const u8, vtables: *const *mut c_void) -> Plan<OWN> {
+impl<W: Walk> Plan<W> {
+    pub(super) fn new(base: *const u8, vtables: *const *mut c_void) -> Plan<W> {
         Plan {
             copies: Copies(RefCell::new(BTreeMap::new())),
             base,
             vtables,
             member: None,
+            walk: PhantomData,
         }
     }
 
@@ -172,7 +212,7 @@ impl<const OWN: bool> Plan<OWN> {
     /// # Safety
     /// `at` is a node of this plan; a cell payload of `v` is live.
     pub(super) unsafe fn cast(&self, at: usize, v: AnyValue) -> Result<u64, Fail> {
-        if OWN {
+        if W::OWN {
             return unsafe { self.cast_own(at, v) };
         }
         let tag = is_cell(v).then(|| unsafe { cell_tag(v) });
@@ -266,6 +306,7 @@ impl<const OWN: bool> Plan<OWN> {
 }
 
 /// `bits` is the Str slot's undefined sentinel.
+#[inline]
 fn is_str_undef(bits: u64) -> bool {
     bits == unsafe { __torajs_str_undef() } as u64
 }

@@ -5,7 +5,7 @@ use core::ffi::c_void;
 
 use torajs_rc::ARR_KIND_HEAP;
 
-use super::{ANY, BOOL, Fail, INT, NUM, Plan, STR};
+use super::{ANY, BOOL, Fail, INT, NUM, Plan, STR, Walk};
 use crate::nanbox::AnyValue;
 
 const ARR_LEN_OFF: usize = 8;
@@ -43,7 +43,7 @@ unsafe fn __torajs_arr_mark_kind(_arr: *mut c_void, _chain: u64) {
     unreachable!()
 }
 
-impl<const OWN: bool> Plan<OWN> {
+impl<W: Walk> Plan<W> {
     /// An array node: the slot's own copy of the array `arr`. A
     /// scalar or string element is judged by `__torajs_arr_any_to_typed`
     /// (which records its own TypeError); an `any` element takes the

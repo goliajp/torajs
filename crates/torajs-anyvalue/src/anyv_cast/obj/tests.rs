@@ -14,7 +14,7 @@ fn plan_of(node: &[u8]) -> Vec<u8> {
 
 fn cast(node: &[u8], v: AnyValue) -> Option<u64> {
     let bytes = plan_of(node);
-    let plan = Plan::<false>::new(bytes.as_ptr(), core::ptr::null());
+    let plan = Plan::<Plain>::new(bytes.as_ptr(), core::ptr::null());
     unsafe { plan.cast(4, v) }.ok()
 }
 

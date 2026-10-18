@@ -7,7 +7,7 @@
 use core::ffi::c_void;
 
 use super::obj::{__torajs_str_alloc, __torajs_str_drop, __torajs_throw_check, run};
-use super::plan::{Fail, Field, NUM, OPT, Plan};
+use super::plan::{Fail, Field, NUM, OPT, Plan, Walk};
 use crate::arg_struct_coerce::OBJ_HEADER_SIZE;
 use crate::nanbox::{AnyValue, is_null, is_undefined};
 
@@ -36,7 +36,21 @@ pub unsafe extern "C" fn __torajs_anyv_cast_obj_members(
     vtables: *const *mut c_void,
     site: *const u8,
 ) -> *mut c_void {
-    let mut plan = Plan::<false>::new(plan, vtables);
+    unsafe { cast_obj_members::<super::Plain>(v, plan, vtables, site) }
+}
+
+/// [`__torajs_anyv_cast_obj_members`] walked by `W`.
+///
+/// # Safety
+/// As [`super::obj::__torajs_anyv_cast_obj`].
+#[inline(always)]
+pub unsafe fn cast_obj_members<W: Walk>(
+    v: AnyValue,
+    plan: *const u8,
+    vtables: *const *mut c_void,
+    site: *const u8,
+) -> *mut c_void {
+    let mut plan = Plan::<W>::new(plan, vtables);
     plan.member = Some(member);
     unsafe { run(plan, v, site) }
 }
@@ -48,8 +62,8 @@ pub unsafe extern "C" fn __torajs_anyv_cast_obj_members(
 /// # Safety
 /// `at.cell` is the fresh cell being built, with its header written;
 /// `v` is a live object cell.
-pub(super) unsafe fn member<const OWN: bool>(
-    plan: &Plan<OWN>,
+pub(super) unsafe fn member<W: Walk>(
+    plan: &Plan<W>,
     v: AnyValue,
     g: AnyValue,
     at: &Field,
@@ -64,7 +78,7 @@ pub(super) unsafe fn member<const OWN: bool>(
     unsafe { plan.field_value(at.node, g) }
 }
 
-impl<const OWN: bool> Plan<OWN> {
+impl<W: Walk> Plan<W> {
     /// A `null` the value carries for an optional `number` member: the
     /// slot takes its undefined sentinel and the `null` goes to the
     /// field's sidecar behind `FLAG_OBJ_EXOTIC_FIELD` (§10.1.9.2 [[Set]]

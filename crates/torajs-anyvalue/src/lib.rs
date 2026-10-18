@@ -314,6 +314,8 @@ pub mod json_stringify;
 pub(crate) mod json_stringify_tojson;
 pub mod loose_eq;
 
+#[doc(hidden)]
+pub mod cast_own_support;
 pub mod nanbox;
 #[doc(hidden)]
 pub mod regexp_support;

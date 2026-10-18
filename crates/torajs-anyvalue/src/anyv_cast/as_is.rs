@@ -26,7 +26,7 @@ use core::ffi::c_void;
 use torajs_rc::Tag;
 use torajs_rc::undef_cell::undef_cell_ptr;
 
-use super::plan::{OPT, Plan};
+use super::plan::{OPT, Plain, Plan};
 use super::{cell_tag, reject};
 use crate::arg_struct_coerce::{__torajs_anyv_struct_fits, OBJ_CLASS_TAG_OFF, kin_admits};
 use crate::nanbox::{AnyValue, as_void_ptr, is_cell, is_null, is_undefined};
@@ -70,7 +70,7 @@ pub unsafe extern "C" fn __torajs_anyv_cast_obj_as_is(
     _vtables: *const *mut c_void,
     site: *const u8,
 ) -> *mut c_void {
-    let plan = Plan::<false>::new(plan, core::ptr::null());
+    let plan = Plan::<Plain>::new(plan, core::ptr::null());
     match unsafe { as_is(&plan, 4, v) } {
         Some(bits) => bits as *mut c_void,
         None => {

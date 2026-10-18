@@ -71,6 +71,7 @@ const STATICLIBS: &[&str] = &[
     "torajs_abort", // Layer-0: panic-free abort helper — write(2)+abort(); replaces Rust panic infra (polish A3a)
     "torajs_print", // Layer-0: console primitives (print_bool / print_i64 / print_f64) — co-linked by torajs-link at `tr build`.
     "torajs_fnname", // Layer-1: fn-name registry runtime helper — looks up fn body vaddr in __torajs_fn_name_table[] and emits [Function: <name>] / [Function (anonymous)] for inspect (fn-name registry Phase 2 Step 4).
+    "torajs_anyvalue_own", // Layer-1: the own walk of the any -> class-slot object cast behind its two entries; near last, so every member it shares resolves to the archive that owns it
     "torajs_regexp_lane", // Layer-1: the RegExp protocol seam's body (kernel lane or algorithm); near last, so every member it shares resolves to the archive that owns it
     "torajs_regexp_protocol", // Layer-1: RegExp protocol algorithms + ctor build behind two seams; last, so every member it shares resolves to the archive that owns it
 ];

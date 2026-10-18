@@ -1,0 +1,28 @@
+[package]
+name = "torajs-anyvalue-own"
+description = "The own walk of the `any` to class-slot object cast for the torajs AOT TypeScript runtime: an object holding a property under one of the class's method or accessor names does not cross into the class. An archive member of its own, so a program that casts into no class with a method or accessor never links or walks it."
+keywords = ["torajs", "any", "cast", "dead-strip"]
+categories = ["compilers"]
+documentation = "https://docs.rs/torajs-anyvalue-own"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+# Dual emit like every runtime crate: `rlib` for workspace builds,
+# `staticlib` for the in-house link pipeline. Being a SEPARATE
+# archive member is load-bearing: every link that pulls the
+# torajs-anyvalue member parses all of it, so code living there costs
+# every such program, and this walk is reached only by a cast whose
+# plan lists class keys.
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[dependencies]
+torajs-anyvalue = { path = "../torajs-anyvalue" }
+torajs-rc = { path = "../torajs-rc" }

@@ -69,6 +69,9 @@ torajs-regexp-protocol = { path = "../torajs-regexp-protocol" }
 # The RegExp protocol seam's body, a member of its own in front of the
 # algorithms; built before build.rs snapshots staticlib paths.
 torajs-regexp-lane = { path = "../torajs-regexp-lane" }
+# The own walk of the any -> class-slot object cast, a member of its
+# own; built before build.rs snapshots staticlib paths.
+torajs-anyvalue-own = { path = "../torajs-anyvalue-own" }
 # Layer-1 substrate: native-error factory registry + throw_range/
 # type_error helpers. Same dual rlib+staticlib usage.
 torajs-throw = { path = "../torajs-throw" }
