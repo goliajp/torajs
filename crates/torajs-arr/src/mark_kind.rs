@@ -124,6 +124,24 @@ mod tests {
     }
 
     #[test]
+    fn mark_inline_kind_reads_no_slot() {
+        // an array holding a value class in place: its slots are field
+        // words, so the mark writes the kind and never walks them (the
+        // NULL data pointer would fault on a walk)
+        let mut block = [0u8; 40];
+        let p = block.as_mut_ptr();
+        unsafe {
+            *(p as *mut u32) = 1;
+            *(p.add(4) as *mut u16) = crate::layout::TAG_ARR;
+            *(p.add(ARR_LEN_OFF) as *mut u64) = 3;
+            let chain = torajs_rc::ARR_KIND_INLINE as u64 | (4 << 3);
+            __torajs_arr_mark_kind(p as *mut c_void, chain);
+            let header = &*(p as *const HeapHeader);
+            assert_eq!(header.arr_elem_kind(), torajs_rc::ARR_KIND_INLINE);
+        }
+    }
+
+    #[test]
     fn mark_heap_chain_recurses_into_nested_arr() {
         // outer = Arr with one slot pointing at inner Arr; chain =
         // HEAP | (I64 << 3) must set outer=HEAP, inner=I64.

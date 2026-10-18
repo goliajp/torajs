@@ -357,3 +357,36 @@ fn a_push_after_a_shadowed_view_keeps_it_out() {
         "can come between the view `t` and its read",
     );
 }
+
+#[test]
+fn an_admitted_class_records_what_each_field_starts_with() {
+    use torajs_core::ssa_lower::ValueFieldInit as Init;
+    let src = "class P {\n\
+         x: number\n\
+         y: number\n\
+         on: boolean\n\
+         constructor(y: number) {\n\
+           this.y = y\n\
+           this.on = true\n\
+         }\n\
+       }\n\
+       function main(): void {\n\
+         const ps: P[] = []\n\
+         ps.push(new P(parseInt(process.argv[2], 10)))\n\
+         console.log(ps[0].x + ps[0].y)\n\
+       }\n\
+       main()\n";
+    let artifacts = check::check_with_arity(&desugared(src)).expect("fixture checks");
+    let fields = |v: &[(&str, Init)]| v.iter().map(|(f, i)| (f.to_string(), *i)).collect();
+    assert_eq!(
+        ssa_lower::value_class_inits(&artifacts),
+        vec![(
+            "P".to_string(),
+            fields(&[
+                ("x", Init::Number(0.0)),
+                ("y", Init::Arg(0)),
+                ("on", Init::Bool(true)),
+            ])
+        )]
+    );
+}

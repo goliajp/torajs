@@ -205,8 +205,7 @@ pub(crate) fn run(
     }
 
     let class_name_to_tag = class_tags(ast);
-    let value_classes =
-        value_class_census::value_sids(&value_class_names, &aliases, &struct_layouts);
+    let value_inits = value_class_census::value_sids(&value_class_names, &aliases, &struct_layouts);
 
     Pass05 {
         aliases,
@@ -218,7 +217,8 @@ pub(crate) fn run(
             arr_head_pinned,
             live_fields,
             nonint_reads_run_code,
-            value_classes,
+            value_classes: value_inits.keys().copied().collect(),
+            value_inits,
             twins_unreachable: !dead_twins.is_empty(),
         }),
         generic_struct_decls,
@@ -238,6 +238,17 @@ pub fn value_class_names(artifacts: &crate::check::CheckArtifacts) -> Vec<String
         .collect();
     out.sort();
     out
+}
+
+/// The classes the value-class census admits, by name, sorted, each
+/// field with what a new instance holds there.
+pub fn value_class_inits(
+    artifacts: &crate::check::CheckArtifacts,
+) -> Vec<value_class_census::Admitted> {
+    let (ast, types) = (&artifacts.5.mono_ast, &artifacts.1);
+    let dead = arr_head_census::unreachable_twin_exprs(ast, types);
+    let pinned = arr_head_census::program_pins_arr_head(ast, types, &dead);
+    value_class_census::program_value_classes(ast, types, &dead, pinned)
 }
 
 /// Each candidate of the value-class census, by name, with the reason

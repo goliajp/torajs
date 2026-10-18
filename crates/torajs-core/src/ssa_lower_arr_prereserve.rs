@@ -259,6 +259,38 @@ impl LowerCtx<'_> {
         )
     }
 
+    /// [`Self::emit_reserve_target`] for the array `arr_ty`, in its
+    /// slots: an element held in place takes one slot per field.
+    pub(crate) fn emit_reserve_slots(
+        &mut self,
+        arr_ty: Type,
+        len: ValueId,
+        bound: Operand,
+        per_trip: i64,
+    ) -> ValueId {
+        let k = match arr_ty {
+            Type::Arr(a) => {
+                let elem = self.arr_layouts[a.0 as usize];
+                crate::ssa_lower::inline_elem::elem_stride(self.struct_layouts, elem) / 8
+            }
+            _ => 1,
+        };
+        if k == 1 {
+            return self.emit_reserve_target(len, bound, per_trip);
+        }
+        let len_slots = self.f.append_inst(
+            self.cur_block,
+            InstKind::BinOp(
+                SsaBinOp::Mul,
+                Operand::Value(len),
+                Operand::ConstI64(k as i64),
+            ),
+            Type::I64,
+            None,
+        );
+        self.emit_reserve_target(len_slots, bound, per_trip * k as i64)
+    }
+
     fn emit_i64(&mut self, kind: InstKind) -> Operand {
         Operand::Value(self.f.append_inst(self.cur_block, kind, Type::I64, None))
     }
@@ -336,12 +368,13 @@ impl LowerCtx<'_> {
     /// `__torajs_arr_*` argument, so `raw_slot_arg`'s f64 → i64 bit
     /// crossing is neither needed nor wanted here.
     pub(crate) fn emit_prereserved_push(&mut self, st: PreReserveState, val: Operand) -> ValueId {
-        let len_now = self.f.append_inst(
-            self.cur_block,
-            InstKind::Load(Type::I64, Operand::Value(st.len_slot), 0),
-            Type::I64,
-            None,
+        // an element held in place is built by `inline_push`
+        assert!(
+            !matches!(self.f.value_type(st.arr_ptr), Type::Arr(a)
+                if matches!(self.arr_layouts[a.0 as usize], Type::Inline(_))),
+            "ssa-lower: a word stored into an inline array"
         );
+        let len_now = self.emit_prereserved_len(st);
         let len_x8 = self.f.append_inst(
             self.cur_block,
             InstKind::BinOp(SsaBinOp::Mul, Operand::Value(len_now), Operand::ConstI64(8)),
@@ -352,6 +385,26 @@ impl LowerCtx<'_> {
             self.cur_block,
             InstKind::StoreDyn(val, Operand::Value(st.slot0), Operand::Value(len_x8)),
         );
+        self.emit_prereserved_bump(st, len_now)
+    }
+
+    /// The running length a pre-reserved append stores at.
+    pub(crate) fn emit_prereserved_len(&mut self, st: PreReserveState) -> ValueId {
+        self.f.append_inst(
+            self.cur_block,
+            InstKind::Load(Type::I64, Operand::Value(st.len_slot), 0),
+            Type::I64,
+            None,
+        )
+    }
+
+    /// Count the element just stored at `len_now`: answers the new
+    /// length, which is what JS `push` answers.
+    pub(crate) fn emit_prereserved_bump(
+        &mut self,
+        st: PreReserveState,
+        len_now: ValueId,
+    ) -> ValueId {
         let len_next = self.f.append_inst(
             self.cur_block,
             InstKind::BinOp(SsaBinOp::Add, Operand::Value(len_now), Operand::ConstI64(1)),

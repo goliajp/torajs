@@ -24,6 +24,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::ast::ExprId;
+use crate::ssa_lower_pass_0_5::value_class_census::FieldInit as ValueFieldInit;
 
 /// What the whole-program censuses of pass 0.5 established, shared by
 /// every fn's proofs.
@@ -42,6 +43,8 @@ pub(crate) struct ProgramFacts {
     /// Classes no code can tell apart from a copy of their fields
     /// (`ssa_lower_pass_0_5::value_class_census`).
     pub(crate) value_classes: HashSet<crate::ssa::StructId>,
+    /// What each field of a new instance of a value class holds.
+    pub(crate) value_inits: HashMap<crate::ssa::StructId, Vec<(String, ValueFieldInit)>>,
     /// No receiver can enter a method twin (`__cmany_<C>__<m>`) the
     /// censuses left out (`arr_head_census::unreachable_twin_exprs`).
     pub(crate) twins_unreachable: bool,
@@ -101,6 +104,12 @@ impl Proofs {
     /// every element lives at `data + idx * stride`.
     pub(crate) fn arr_head_pinned(&self) -> bool {
         self.facts.arr_head_pinned
+    }
+
+    /// What each field of a new instance of the value class `sid`
+    /// holds, by field name.
+    pub(crate) fn value_inits(&self, sid: crate::ssa::StructId) -> &[(String, ValueFieldInit)] {
+        self.facts.value_inits.get(&sid).map_or(&[], Vec::as_slice)
     }
 
     /// See [`ProgramFacts::nonint_reads_run_code`].

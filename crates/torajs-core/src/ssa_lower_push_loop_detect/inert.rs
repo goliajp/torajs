@@ -91,6 +91,10 @@ pub(crate) fn branch_conds_inert(ctx: &LowerCtx<'_>, s: &Stmt) -> bool {
 
 /// One push argument. See [`push_args_all_inert`].
 fn push_arg_is_inert(ctx: &LowerCtx<'_>, eid: ExprId, names: &[String]) -> bool {
+    // an instance built in place reads nothing but its arguments
+    if let Some(args) = crate::ssa_lower::inline_push::construction_args(ctx, eid) {
+        return args.iter().all(|a| push_arg_is_inert(ctx, *a, names));
+    }
     let typed = matches!(
         ctx.expr_types.get(&eid),
         Some(crate::check::Type::Number) | Some(crate::check::Type::Boolean)

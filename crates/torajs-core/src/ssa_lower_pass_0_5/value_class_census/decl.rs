@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::ast::{Ast, Expr, ExprId, PropKey, Stmt};
 
-use super::Candidate;
+use super::{Candidate, FieldInit};
 
 /// Classes whose declaration and desugared factory / constructor pass
 /// the checks of the census's first paragraph.
@@ -57,14 +57,14 @@ pub(super) fn candidates(ast: &Ast) -> Vec<Candidate<'_>> {
             Some([one]) => *one,
             _ => continue,
         };
-        let arity = match ctor {
+        let (arity, writes) = match ctor {
             Some(c) => match ctor_shape(ast, c, &fields) {
-                Some(n) => n,
+                Some(shape) => shape,
                 None => continue,
             },
-            None => 0,
+            None => (0, Vec::new()),
         };
-        if !factory_shape(
+        let Some(seeds) = factory_shape(
             ast,
             factory,
             name,
@@ -72,13 +72,25 @@ pub(super) fn candidates(ast: &Ast) -> Vec<Candidate<'_>> {
             &ctor_name,
             ctor.is_some(),
             arity,
-        ) {
+        ) else {
             continue;
-        }
+        };
+        // the value each field ends with: the constructor's write, or
+        // else the factory's seed
+        let inits: Option<Vec<FieldInit>> = (fields.iter().zip(seeds))
+            .map(|(f, seed)| match writes.iter().find(|(w, _)| w == f) {
+                Some((_, init)) => *init,
+                None => literal_init(ast.get_expr(seed)),
+            })
+            .collect();
+        let Some(inits) = inits else {
+            continue;
+        };
         out.push(Candidate {
             name,
             fields,
             arity,
+            inits,
         });
     }
     out
@@ -133,8 +145,14 @@ fn collect_fns<'a>(stmts: &'a [Stmt], out: &mut HashMap<&'a str, Vec<&'a Stmt>>)
 
 /// `__cm_C__ctor(__this, __new_target, p..)` whose body (after the
 /// directive) is `__this.f = <param or literal>` once per distinct
-/// field and nothing else: the user arity.
-fn ctor_shape(ast: &Ast, ctor: &Stmt, fields: &[&str]) -> Option<usize> {
+/// field and nothing else: the user arity, and what each write stores
+/// (`None` for a literal that is no number or boolean).
+#[allow(clippy::type_complexity)] // the arity, and one entry per write
+fn ctor_shape<'f>(
+    ast: &Ast,
+    ctor: &Stmt,
+    fields: &[&'f str],
+) -> Option<(usize, Vec<(&'f str, Option<FieldInit>)>)> {
     let Stmt::FnDecl {
         params,
         body,
@@ -156,6 +174,7 @@ fn ctor_shape(ast: &Ast, ctor: &Stmt, fields: &[&str]) -> Option<usize> {
         return None;
     }
     let mut written: HashSet<&str> = HashSet::new();
+    let mut writes = Vec::new();
     for s in body {
         let Stmt::Expr(e) = s else { return None };
         let (target, value) = match ast.get_expr(*e) {
@@ -166,24 +185,24 @@ fn ctor_shape(ast: &Ast, ctor: &Stmt, fields: &[&str]) -> Option<usize> {
         let Expr::Member { obj, name } = ast.get_expr(target) else {
             return None;
         };
-        let value_ok = match ast.get_expr(value) {
-            Expr::Ident(n) => user.iter().any(|p| p.name == *n),
-            e => literal(e),
+        let init = match ast.get_expr(value) {
+            Expr::Ident(n) => {
+                (user.iter().position(|p| p.name == *n)).map(|i| Some(FieldInit::Arg(i)))
+            }
+            e => literal(e).then(|| literal_init(e)),
         };
-        if !matches!(ast.get_expr(*obj), Expr::Ident(n) if n == "__this")
-            || !fields.contains(&name.as_str())
-            || !written.insert(name)
-            || !value_ok
-        {
+        let field = fields.iter().find(|f| **f == name.as_str());
+        if !matches!(ast.get_expr(*obj), Expr::Ident(n) if n == "__this") || !written.insert(name) {
             return None;
         }
+        writes.push((*field?, init?));
     }
-    Some(user.len())
+    Some((user.len(), writes))
 }
 
 /// `__new_C(p..)` = `let __this: C = { <every field: literal> };`
 /// `__cm_C__ctor(__this, __torajs_my_class_ref("C"), p..)` (when there
-/// is a constructor) `; return __this`.
+/// is a constructor) `; return __this`: the seed of each field.
 fn factory_shape(
     ast: &Ast,
     factory: &Stmt,
@@ -192,19 +211,19 @@ fn factory_shape(
     ctor_name: &str,
     has_ctor: bool,
     arity: usize,
-) -> bool {
+) -> Option<Vec<ExprId>> {
     let Stmt::FnDecl { params, body, .. } = factory else {
-        return false;
+        return None;
     };
     if params.len() != arity || params.iter().any(|p| p.default.is_some() || p.is_rest) {
-        return false;
+        return None;
     }
     let (seed, rest) = match body.as_slice() {
         [Stmt::LetDecl { name, init, .. }, rest @ ..] if name == "__this" => (*init, rest),
-        _ => return false,
+        _ => return None,
     };
     let Expr::ObjectLit { fields: lit } = ast.get_expr(seed) else {
-        return false;
+        return None;
     };
     if lit.len() != fields.len()
         || !lit
@@ -212,18 +231,18 @@ fn factory_shape(
             .zip(fields)
             .all(|((k, v), f)| k.lossy() == *f && literal(ast.get_expr(*v)))
     {
-        return false;
+        return None;
     }
     let is_this = |e: &ExprId| matches!(ast.get_expr(*e), Expr::Ident(n) if n == "__this");
     let ret_ok = |s: &Stmt| matches!(s, Stmt::Return(Some(e)) if is_this(e));
-    match (has_ctor, rest) {
+    let shape_ok = match (has_ctor, rest) {
         (false, [ret]) => ret_ok(ret),
         (true, [Stmt::Expr(call), ret]) => {
             let Expr::Call { callee, args } = ast.get_expr(*call) else {
-                return false;
+                return None;
             };
             let [this, nt, user @ ..] = args.as_slice() else {
-                return false;
+                return None;
             };
             let class_ref = matches!(ast.get_expr(*nt), Expr::Call { callee, args }
                 if matches!(ast.get_expr(*callee), Expr::Ident(n) if n == "__torajs_my_class_ref")
@@ -239,6 +258,17 @@ fn factory_shape(
                 && ret_ok(ret)
         }
         _ => false,
+    };
+    shape_ok.then(|| lit.iter().map(|(_, v)| *v).collect())
+}
+
+/// A number or boolean literal as a field's value; an absent value
+/// (`null`, `undefined`) has no spelling in a field held in place.
+fn literal_init(e: &Expr) -> Option<FieldInit> {
+    match e {
+        Expr::Number(n) => Some(FieldInit::Number(*n)),
+        Expr::Bool(b) => Some(FieldInit::Bool(*b)),
+        _ => None,
     }
 }
 

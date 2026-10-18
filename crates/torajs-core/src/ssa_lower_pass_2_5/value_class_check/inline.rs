@@ -9,13 +9,11 @@ use super::Reader;
 mod tests;
 
 /// Runtime entries an array holding its elements in place may be handed
-/// to through a pointer: the grow of an append, the lock test before
-/// it, the release of an array whose elements carry nothing to release,
-/// and the element-kind mark a struct field store writes. None of them
-/// reads a slot.
+/// to through a pointer: the grow of an append, the release of an array
+/// whose elements carry nothing to release, and the element-kind mark a
+/// struct field store writes. None of them reads a slot.
 pub(super) const INLINE_ARRAY_ENTRIES: &[&str] = &[
     "__torajs_arr_reserve",
-    "__torajs_arr_extend_guard",
     "__torajs_arr_drop_scalar",
     "__torajs_arr_mark_kind",
 ];

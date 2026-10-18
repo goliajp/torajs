@@ -27,6 +27,7 @@ use std::collections::HashMap;
 
 pub(crate) mod alias_hazard;
 pub(crate) mod inline_elem;
+pub(crate) mod inline_push;
 pub(crate) mod proofs;
 
 use crate::ast::{Ast, ExprId};
@@ -201,8 +202,10 @@ pub fn lower_with_arity(ast: &Ast, artifacts: &crate::check::CheckArtifacts) -> 
     )
 }
 
+/// What a field of a new instance of a value class holds.
+pub use crate::ssa_lower_pass_0_5::value_class_census::FieldInit as ValueFieldInit;
 /// The classes pass 0.5's value-class census admits, by name, sorted.
-pub use crate::ssa_lower_pass_0_5::{value_class_names, value_class_verdicts};
+pub use crate::ssa_lower_pass_0_5::{value_class_inits, value_class_names, value_class_verdicts};
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct LocalInfo {

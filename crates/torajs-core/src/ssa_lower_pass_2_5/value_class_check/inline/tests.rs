@@ -12,6 +12,7 @@ const RESERVE: FuncId = FuncId(3);
 const DROP_SCALAR: FuncId = FuncId(4);
 const NULLISH: FuncId = FuncId(5);
 const EXTEND_GUARD: FuncId = FuncId(6);
+const MARK_KIND: FuncId = FuncId(7);
 
 fn inline_module() -> crate::ssa::Module {
     let mut m = module();
@@ -21,6 +22,7 @@ fn inline_module() -> crate::ssa::Module {
         ("__torajs_arr_drop_scalar", &[Type::Ptr]),
         ("__torajs_heap_nullish_check", &[Type::Ptr]),
         ("__torajs_arr_extend_guard", &[Type::Ptr]),
+        ("__torajs_arr_mark_kind", &[Type::Ptr, Type::I64]),
     ] {
         let mut f = Function::new(name, Type::Void);
         for p in params {
@@ -53,10 +55,14 @@ fn the_shapes_of_an_inline_array_agree() {
     let mut m = inline_module();
     func(&mut m, "main", Type::Void, |f, b| {
         let xs = inline_array(f, b);
-        f.append_void(b, InstKind::Call(EXTEND_GUARD, vec![xs]));
+        // an append: the grow, then the fields stored in the new slot
         f.append_void(b, InstKind::Call(RESERVE, vec![xs, Operand::ConstI64(4)]));
         let t = view(f, b, xs);
+        f.append_void(b, InstKind::Store(Operand::ConstF64(2.0), t, 0));
         f.append_void(b, InstKind::Store(Operand::ConstF64(1.0), t, 8));
+        // a struct field store of the array marks its kind
+        let kind = Operand::ConstI64(i64::from(torajs_rc::ARR_KIND_INLINE));
+        f.append_void(b, InstKind::Call(MARK_KIND, vec![xs, kind]));
         // a let binding of the view, and the merge slot of a read past
         // the end, which holds the undefined cell typed as the view
         let slot = f.append_inst(
@@ -98,6 +104,18 @@ fn the_shapes_of_an_inline_array_agree() {
         f.append_void(b, InstKind::Call(DROP_SCALAR, vec![xs]));
     });
     assert_eq!(found(&m), Vec::<String>::new());
+}
+
+#[test]
+fn the_lock_test_of_a_runtime_push_is_reported() {
+    // an inline append tests the header itself and never hands the
+    // array to the runtime's guard
+    let mut m = inline_module();
+    func(&mut m, "f", Type::Void, |f, b| {
+        let xs = inline_array(f, b);
+        f.append_void(b, InstKind::Call(EXTEND_GUARD, vec![xs]));
+    });
+    reports(&m, "passed to __torajs_arr_extend_guard");
 }
 
 #[test]

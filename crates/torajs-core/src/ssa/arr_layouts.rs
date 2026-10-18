@@ -53,6 +53,11 @@ impl ArrLayouts {
         !self.value_sids.is_empty()
     }
 
+    /// Whether the arrays of class `sid` hold its instances in place.
+    pub fn holds_in_place(&self, sid: StructId) -> bool {
+        self.value_sids.contains(&sid)
+    }
+
     /// An empty table whose arrays of `sids` hold their fields in
     /// place, for tests that lower an inline array by hand; no program
     /// interns one yet.

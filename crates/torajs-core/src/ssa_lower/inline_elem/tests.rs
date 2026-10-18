@@ -106,4 +106,33 @@ fn a_value_class_interns_in_place_in_every_spelling() {
         (ArrId(1), Type::Obj(StructId(1)))
     );
     assert!(!ArrLayouts::default().has_value_classes());
+    assert!(t.holds_in_place(StructId(0)) && !t.holds_in_place(StructId(1)));
+}
+
+#[test]
+fn an_inline_array_releases_as_a_scalar_one() {
+    for no_refs in [Type::I64, Type::F64, Type::Bool, Type::Inline(StructId(0))] {
+        assert!(no_refs.elems_release_nothing(), "{no_refs:?}");
+    }
+    for refs in [
+        Type::Obj(StructId(0)),
+        Type::Str,
+        Type::Any,
+        Type::Arr(ArrId(0)),
+    ] {
+        assert!(!refs.elems_release_nothing(), "{refs:?}");
+    }
+}
+
+#[test]
+fn an_inline_array_carries_its_own_element_kind() {
+    // the kind a struct field store or a stack literal writes into the
+    // header; the cycle collector walks only the heap kind
+    let mut t = ArrLayouts::with_value_classes(&[StructId(0)]);
+    let inline = t.intern(Type::Obj(StructId(0)));
+    let kind = u64::from(torajs_rc::ARR_KIND_INLINE);
+    let chain = crate::ssa_lower_arr_kind_mark::arr_kind_chain_of;
+    assert_eq!(chain(&t, &Type::Inline(StructId(0)), 0), kind);
+    assert_eq!(chain(&t, &Type::Arr(inline), 0), 4 | (kind << 3));
+    assert_ne!(kind, 4);
 }

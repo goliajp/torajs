@@ -57,6 +57,10 @@ fn expr_cannot_call(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
     if expr_is_inert(ctx, eid) {
         return true;
     }
+    // an instance built in place in an inline array's slot is stores
+    if let Some(args) = crate::ssa_lower::inline_push::construction_args(ctx, eid) {
+        return args.iter().all(|a| expr_cannot_call(ctx, *a));
+    }
     let primitive = |e: ExprId| {
         matches!(
             ctx.expr_types.get(&e),

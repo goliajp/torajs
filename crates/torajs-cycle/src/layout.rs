@@ -597,6 +597,11 @@ mod tests {
         assert!(!unsafe { is_visitable_arr(&unset as *const _ as *mut c_void) });
         let i64_kind = fake_arr(1 << ARR_ELEM_KIND_SHIFT, 0);
         assert!(!unsafe { is_visitable_arr(&i64_kind as *const _ as *mut c_void) });
+        // an array holding a value class in place: its slots are field
+        // words, never cell pointers
+        let inline = fake_arr(ARR_KIND_INLINE << ARR_ELEM_KIND_SHIFT, 0);
+        assert!(!arr_elems_walkable(&inline.hdr));
+        assert!(!unsafe { is_visitable_arr(&inline as *const _ as *mut c_void) });
         let any_arr = fake_arr(FLAG_ARR_ANY, 0);
         assert!(unsafe { is_visitable_arr(&any_arr as *const _ as *mut c_void) });
         let static_heap = fake_arr(

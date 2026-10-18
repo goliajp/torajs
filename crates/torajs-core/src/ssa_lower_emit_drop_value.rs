@@ -225,7 +225,7 @@ fn emit_drop_arr(ctx: &mut LowerCtx, val: Operand, arr_id: crate::ssa::ArrId) {
         // r500 A4' — a scalar-kind array (the any lane coerces or
         // refuses a kind-mismatched store, it never re-kinds) takes
         // the kernel with no element walk and no cycle-buffer hook.
-        let drop_fid = if matches!(elem_ty, Type::I64 | Type::I32 | Type::F64 | Type::Bool) {
+        let drop_fid = if elem_ty.elems_release_nothing() {
             ctx.intrinsics.arr_drop_scalar
         } else {
             ctx.intrinsics.arr_drop

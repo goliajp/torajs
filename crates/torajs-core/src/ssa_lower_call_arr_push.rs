@@ -35,7 +35,7 @@
 
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, Type};
-use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx, OBJ_HEADER_SIZE};
+use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx, OBJ_HEADER_SIZE, inline_push};
 use crate::ssa_lower_arr_grow_kernel::emit_grow_kernel_checked;
 pub(crate) use crate::ssa_lower_call_arr_push_coerce::coerce_push_value;
 
@@ -116,6 +116,12 @@ fn try_lower_index(ctx: &mut LowerCtx<'_>, recv_id: ExprId, args: &[ExprId]) -> 
         ctx.release_owned_temp(recv_id, &recv_val);
         return Some(n);
     }
+    if let Type::Inline(sid) = elem_ty {
+        let n = crate::ssa_lower::inline_push::push(ctx, recv_val, args[0], sid);
+        ctx.unpark_owned_temp(tok);
+        ctx.release_owned_temp(recv_id, &recv_val);
+        return Some(n);
+    }
     let (val, val_owned_from_substr) = coerce_push_value(ctx, args[0], elem_ty);
     let push_arg = ctx.raw_slot_arg(val);
     // Chunk 733's stake dance (owned-shape arg hands its +1 to the
@@ -177,6 +183,13 @@ fn try_lower_ident_local(
         arr_ty,
         None,
     );
+    if let Type::Inline(sid) = elem_ty {
+        let fast = ctx.prereserve.unchecked_for.get(recv_name).copied();
+        return Some(match fast {
+            Some(st) => Operand::Value(inline_push::push_prereserved(ctx, st, args[0], sid)),
+            None => inline_push::push(ctx, Operand::Value(cur_arr), args[0], sid),
+        });
+    }
     let (val, val_owned_from_substr) = coerce_push_value(ctx, args[0], elem_ty);
     // v0.6+1 perf checkpoint — push-loop pre-reserve. If the enclosing
     // for-loop's lowerer detected the canonical fill pattern and emitted
@@ -262,6 +275,14 @@ fn try_lower_ident_global(
         arr_ty,
         None,
     );
+    if let Type::Inline(sid) = elem_ty {
+        return Some(inline_push::push(
+            ctx,
+            Operand::Value(cur_arr),
+            args[0],
+            sid,
+        ));
+    }
     let (val, val_owned_from_substr) = coerce_push_value(ctx, args[0], elem_ty);
     let push_arg = ctx.raw_slot_arg(val);
     let new_arr = emit_grow_kernel_checked(
@@ -323,6 +344,14 @@ fn try_lower_field(ctx: &mut LowerCtx<'_>, recv_id: ExprId, args: &[ExprId]) -> 
         field_ty,
         None,
     );
+    if let Type::Inline(sid) = elem_ty {
+        return Some(inline_push::push(
+            ctx,
+            Operand::Value(cur_arr),
+            args[0],
+            sid,
+        ));
+    }
     // The shared push coercion (chain-mark, bool → i64, W4 width
     // align, Substr / Any materialize) — the field path's historical
     // inline copy lacked the Substr and Any arms, so an admitted Any

@@ -112,7 +112,7 @@ pub(crate) fn lower_while_inner(
                 Type::I64,
                 None,
             );
-            let target_cap = ctx.emit_reserve_target(initial_len_v, bound_op, per_trip);
+            let target_cap = ctx.emit_reserve_slots(info.ty, initial_len_v, bound_op, per_trip);
             let reserved = ctx.f.append_inst(
                 ctx.cur_block,
                 InstKind::Call(

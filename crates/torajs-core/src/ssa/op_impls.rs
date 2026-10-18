@@ -134,6 +134,16 @@ impl Type {
         // and similar pointer-shaped slots are POD by reference.
     }
 
+    /// An array of this element type is released without visiting its
+    /// slots (`__torajs_arr_drop_scalar`): no slot holds a reference.
+    /// An element held in place has scalar fields only.
+    pub fn elems_release_nothing(self) -> bool {
+        matches!(
+            self,
+            Type::I64 | Type::I32 | Type::F64 | Type::Bool | Type::Inline(_)
+        )
+    }
+
     /// Phase B refcount: returns true if the heap object for this type
     /// begins with `__torajs_heap_header_t` (refcount@0, type_tag@4,
     /// flags@6). `__torajs_rc_inc` / `__torajs_rc_dec` are only safe

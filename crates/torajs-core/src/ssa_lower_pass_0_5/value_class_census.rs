@@ -30,7 +30,7 @@ mod program;
 mod view;
 mod walk;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use crate::ast::{Ast, ExprId, PropKey};
 use crate::check::Type;
@@ -46,7 +46,24 @@ pub(super) struct Candidate<'a> {
     fields: Vec<&'a str>,
     /// User parameters of the constructor, in order (0 without one).
     arity: usize,
+    /// The value each field of a new instance holds, by `fields`.
+    inits: Vec<FieldInit>,
 }
+
+/// What a field of a newly built instance holds: an argument of the
+/// construction (by position), or a literal the factory or the
+/// constructor writes. An array holding the class in place builds an
+/// element from these, in its slot, with no factory call.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum FieldInit {
+    Arg(usize),
+    Number(f64),
+    Bool(bool),
+}
+
+/// An admitted class: its name, and each field with what a new
+/// instance holds there.
+pub type Admitted = (String, Vec<(String, FieldInit)>);
 
 /// `TORAJS_VALUE_CLASS_STATS=1` — one line per class the census
 /// admits, and per candidate it rules out with the first reason found.
@@ -58,23 +75,28 @@ fn stats() -> bool {
 /// many, every candidate is judged out rather than paid for.
 const MAX_CANDIDATES: usize = 8;
 
-/// The names of the classes the census admits, sorted.
+/// The classes the census admits, sorted by name.
 pub(crate) fn program_value_classes(
     ast: &Ast,
     expr_types: &HashMap<ExprId, Type>,
     dead: &ExprMask,
     arr_head_pinned: bool,
-) -> Vec<String> {
+) -> Vec<Admitted> {
     let stats = stats();
     let mut out = Vec::new();
-    for (class, verdict) in verdicts(ast, expr_types, dead, arr_head_pinned) {
+    for (c, verdict) in judged(ast, expr_types, dead, arr_head_pinned) {
         match verdict {
-            Ok(()) => out.push(class.to_string()),
-            Err(reason) if stats => eprintln!("[value_class] out: {class}: {reason}"),
+            Ok(()) => {
+                let inits = (c.fields.iter().zip(&c.inits))
+                    .map(|(f, i)| (f.to_string(), *i))
+                    .collect();
+                out.push((c.name.to_string(), inits));
+            }
+            Err(reason) if stats => eprintln!("[value_class] out: {}: {reason}", c.name),
             Err(_) => {}
         }
     }
-    out.sort();
+    out.sort_by(|a, b| a.0.cmp(&b.0));
     out
 }
 
@@ -86,6 +108,17 @@ pub(crate) fn verdicts<'a>(
     dead: &ExprMask,
     arr_head_pinned: bool,
 ) -> Vec<(&'a str, Result<(), String>)> {
+    (judged(ast, expr_types, dead, arr_head_pinned).into_iter())
+        .map(|(c, v)| (c.name, v))
+        .collect()
+}
+
+fn judged<'a>(
+    ast: &'a Ast,
+    expr_types: &HashMap<ExprId, Type>,
+    dead: &ExprMask,
+    arr_head_pinned: bool,
+) -> Vec<(Candidate<'a>, Result<(), String>)> {
     let cands = decl::candidates(ast);
     let global = if cands.len() > MAX_CANDIDATES {
         Some(format!("more than {MAX_CANDIDATES} candidate classes"))
@@ -103,27 +136,26 @@ pub(crate) fn verdicts<'a>(
         None
     };
     if let Some(reason) = global {
-        return (cands.iter())
-            .map(|c| (c.name, Err(reason.clone())))
+        return (cands.into_iter())
+            .map(|c| (c, Err(reason.clone())))
             .collect();
     }
     let prog = Program::index(ast, expr_types, dead);
-    (cands.iter())
-        .map(|c| (c.name, walk::judge(&prog, c)))
-        .collect()
+    let found: Vec<_> = cands.iter().map(|c| walk::judge(&prog, c)).collect();
+    cands.into_iter().zip(found).collect()
 }
 
 /// The sids of the admitted classes whose layout is all scalar slots
-/// and is no other name's.
+/// and is no other name's, each with what a new instance's fields hold.
 pub(crate) fn value_sids(
-    names: &[String],
+    admitted: &[Admitted],
     aliases: &HashMap<String, ssa::Type>,
     struct_layouts: &[Vec<(PropKey, ssa::Type)>],
-) -> HashSet<ssa::StructId> {
+) -> HashMap<ssa::StructId, Vec<(String, FieldInit)>> {
     use ssa::Type as T;
-    let mut out = HashSet::new();
-    let stats = !names.is_empty() && stats();
-    for n in names {
+    let mut out = HashMap::new();
+    let stats = !admitted.is_empty() && stats();
+    for (n, inits) in admitted {
         let Some(T::Obj(sid)) = aliases.get(n) else {
             continue;
         };
@@ -132,7 +164,7 @@ pub(crate) fn value_sids(
             .all(|(_, t)| matches!(t, T::I64 | T::F64 | T::I32 | T::Bool));
         let shared = aliases.iter().any(|(m, t)| m != n && *t == T::Obj(*sid));
         if scalar && !shared {
-            out.insert(*sid);
+            out.insert(*sid, inits.clone());
             if stats {
                 eprintln!("[value_class] hit: {n}");
             }

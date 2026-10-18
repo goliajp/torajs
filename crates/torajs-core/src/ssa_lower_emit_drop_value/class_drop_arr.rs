@@ -8,7 +8,8 @@
 //! any elements:           __torajs_arr_drop_any(a)
 //! refcounted elements:    rc == 1 → release each slot in [0, len)
 //!                         then __torajs_arr_drop(a)
-//! scalar elements:        __torajs_arr_drop_scalar(a)
+//! scalar elements, or an
+//! element held in place:  __torajs_arr_drop_scalar(a)
 //! anything else:          __torajs_arr_drop(a)
 //! ```
 //!
@@ -44,7 +45,7 @@ pub(crate) fn emit_release_arr(
         cx.intr.arr_drop_str_elems
     } else if elem_ty == Type::Any {
         cx.intr.arr_drop_any
-    } else if matches!(elem_ty, Type::I64 | Type::I32 | Type::F64 | Type::Bool) {
+    } else if elem_ty.elems_release_nothing() {
         cx.intr.arr_drop_scalar
     } else {
         if elem_ty.is_refcounted() {
