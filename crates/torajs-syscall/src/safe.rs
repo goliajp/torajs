@@ -18,7 +18,7 @@ use crate::arch_aarch64_macos::{syscall0, syscall1, syscall3, syscall6};
 pub struct Errno(pub i32);
 
 #[inline]
-fn decode(raw: i64) -> Result<i64, Errno> {
+pub(crate) fn decode(raw: i64) -> Result<i64, Errno> {
     if raw < 0 {
         Err(Errno((-raw) as i32))
     } else {

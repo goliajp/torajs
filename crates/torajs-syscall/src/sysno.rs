@@ -65,6 +65,9 @@ pub const SYS_GETDIRENTRIES64: u32 = 344;
 /// `mmap(void *addr, size_t len, int prot, int flags, int fd, off_t off) -> void*`.
 pub const SYS_MMAP: u32 = 197;
 
+/// `getrlimit(int resource, struct rlimit *rlp) -> int`. SYS_getrlimit == 194.
+pub const SYS_GETRLIMIT: u32 = 194;
+
 /// `lseek(int fd, off_t offset, int whence) -> off_t`.
 pub const SYS_LSEEK: u32 = 199;
 

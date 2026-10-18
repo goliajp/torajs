@@ -55,6 +55,9 @@ pub mod census;
 #[cfg(all(target_arch = "aarch64", target_os = "macos"))]
 pub mod extern_api;
 
+pub mod rlimit;
+pub use rlimit::stack_limit;
+
 pub mod safe;
 pub use safe::{
     Errno, close, exit, fcntl_getpath, fstat_size, getdirentries64, getentropy, getpid,

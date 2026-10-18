@@ -68,16 +68,16 @@
 //! `Response` is gated `#[cfg(not(target_os = "wasi"))]` (no libcurl
 //! on WASI; mirrors runtime_str.c's `#ifndef __wasi__` gate).
 
+#![feature(optimize_attribute)]
+
 use core::ffi::c_void;
 
-use torajs_rc::{__torajs_rc_dec, ARR_KIND_HEAP, FLAG_ARR_ANY, FLAG_SUBCLASSED, HeapHeader, Tag};
+use torajs_rc::{__torajs_rc_dec, ARR_KIND_HEAP, FLAG_ARR_ANY, HeapHeader, Tag};
 
-/// Byte offset of the synthesized drop-fn pointer in a Closure env
-/// block — ABI mirror of `torajs-core::ssa_lower::CLOSURE_DROP_FN_OFF`
-/// (`{ hdr | fn_ptr@8 | drop_fn@16 | props@24 | boxed_entry@32 |
-/// trace_fn@40 | caps@48+ }`, see the `Tag::Closure` doc in
-/// torajs-rc).
-const CLOSURE_DROP_FN_OFF: usize = 16;
+mod closure;
+mod dropguard;
+
+pub use dropguard::{__torajs_drop_release, ReleaseFn};
 
 // v0.7-A2 step 6b — force-link mmalloc for the `__torajs_libc_free`
 // extern below.
@@ -163,8 +163,22 @@ pub unsafe extern "C" fn __torajs_value_drop_heap(child: *mut c_void) {
     // type_tag lives at offset +4 in the universal header (after the
     // u32 refcount).
     let tag = unsafe { (child.cast::<u8>().add(4) as *const u16).read() };
+    // a string holds no reference to release in turn
+    if tag == Tag::Str as u16 {
+        return unsafe { __torajs_str_drop(child) };
+    }
+    if tag == Tag::Closure as u16 {
+        return unsafe { closure::release(child) };
+    }
+    // Every container releases its children through here, so a chain
+    // of any depth and kind nests this frame once per level: deep in
+    // the stack the release is deferred to a loop instead. Only a
+    // release that takes the count (the header's first u32) to zero
+    // walks children, so only that one asks.
+    if unsafe { (child as *const u32).read() } == 1 && dropguard::below_floor() {
+        return unsafe { dropguard::release_near_floor(child, __torajs_value_drop_heap) };
+    }
     match tag {
-        t if t == Tag::Str as u16 => unsafe { __torajs_str_drop(child) },
         // RFC 20260704 S6 — pick the walker the block's own header
         // describes: Array<Any> walks its NaN-box slots; a typed
         // array marked ARR_KIND_HEAP at the typed→Any boundary walks
@@ -255,37 +269,6 @@ pub unsafe extern "C" fn __torajs_value_drop_heap(child: *mut c_void) {
             // `__torajs_class_layouts` child offsets; mirrors the
             // typed path's cycle-root buffering for named classes).
             __torajs_obj_drop_rc(child)
-        },
-        t if t == Tag::Closure as u16 => unsafe {
-            // Release one reference on the closure env cell. On
-            // hit-zero, invoke the Pass-2.5-synthesized
-            // `__env_drop_<closure>` whose address every construction
-            // site stores at +16 (walks the props dynobj + Copy
-            // capture boxes, then frees the env block) — the same
-            // indirect call `emit_drop_closure` emits on the typed
-            // path. The synthesized body has no rc gate of its own
-            // (typed sites own their single reference), so the dec
-            // gate lives here.
-            if __torajs_rc_dec(child) != 0 {
-                // RFC 20260730 blade 0 — a Function-subclass instance
-                // (closure cell minted through a user class) scrubs
-                // its identity entry before the env drop frees it.
-                if (*(child as *const HeapHeader)).flags & FLAG_SUBCLASSED != 0 {
-                    __torajs_subclass_drop_entry(child);
-                }
-                let drop_fn: unsafe extern "C" fn(*mut c_void) = core::mem::transmute(
-                    (child.cast::<u8>().add(CLOSURE_DROP_FN_OFF) as *const usize).read(),
-                );
-                drop_fn(child);
-            } else {
-                // rc still positive — the exact cyclic-leak
-                // condition (RFC 20260717 knife 3): buffer as a
-                // PURPLE cycle candidate, mirroring the Obj and
-                // wrapper arms. cycle_buffer's has_walkable_children
-                // gate keeps untraceable envs (trace_fn 0, no
-                // expando) zero-cost.
-                __torajs_cycle_buffer(child);
-            }
         },
         _ => unsafe {
             // Reserved6 / corrupt-tag fallback — rc-dec; on hit-zero

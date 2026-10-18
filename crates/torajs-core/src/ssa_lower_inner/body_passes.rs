@@ -213,4 +213,5 @@ pub(crate) fn run(
         intrinsics,
         module,
     );
+    crate::ssa_lower_emit_drop_value::class_drop_reentry::route(class_drops, fn_sigs, module);
 }

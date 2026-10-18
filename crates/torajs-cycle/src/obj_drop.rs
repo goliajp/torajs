@@ -58,12 +58,13 @@ pub unsafe extern "C" fn __torajs_obj_drop_rc(p: *mut c_void) {
     if p.is_null() {
         return;
     }
-    // a static literal is never a cycle root and its dec is a no-op
-    let named = unsafe { is_class_obj(p) }
-        && unsafe { (*layout_for_class_obj(p)).flags } & CLASS_LAYOUT_FLAG_NAMED != 0;
     if unsafe { __torajs_rc_dec(p) } == 0 {
         // Still referenced — named-class instances are potential
-        // cycle roots (typed path buffers here too).
+        // cycle roots (typed path buffers here too). A static literal
+        // is never one, and its dec is a no-op. Asked only here, so a
+        // release that frees the block does not pay for the question.
+        let named = unsafe { is_class_obj(p) }
+            && unsafe { (*layout_for_class_obj(p)).flags } & CLASS_LAYOUT_FLAG_NAMED != 0;
         if named {
             unsafe { __torajs_cycle_buffer(p) };
         }

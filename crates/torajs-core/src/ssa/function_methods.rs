@@ -110,6 +110,27 @@ impl Function {
         });
     }
 
+    /// Insert an instruction at `idx` of `block`, ahead of the one there.
+    pub fn insert_inst(
+        &mut self,
+        block: BlockId,
+        idx: usize,
+        kind: InstKind,
+        result_ty: Type,
+    ) -> ValueId {
+        let result = self.alloc_value(result_ty, None);
+        let origin = self.current_origin;
+        self.blocks[block.0 as usize].insts.insert(
+            idx,
+            Inst {
+                result: Some(result),
+                kind,
+                origin,
+            },
+        );
+        result
+    }
+
     pub fn set_term(&mut self, block: BlockId, term: Terminator) {
         self.blocks[block.0 as usize].term = term;
     }

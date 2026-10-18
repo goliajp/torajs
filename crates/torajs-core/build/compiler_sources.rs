@@ -117,6 +117,7 @@ pub(crate) const COMPILER_SOURCE_FILES: &[&str] = &[
     "src/ssa_lower_emit_drop_value/class_drop.rs",
     "src/ssa_lower_emit_drop_value/class_drop_arr.rs",
     "src/ssa_lower_emit_drop_value/class_drop_setup.rs",
+    "src/ssa_lower_emit_drop_value/class_drop_reentry.rs",
     "src/ssa_lower_inner/body_passes.rs",
     "src/ssa_lower_inner/callable_infra.rs",
     "src/ssa_lower_deque_escape.rs",
