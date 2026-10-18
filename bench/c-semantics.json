@@ -63,6 +63,7 @@
   "generator-yield-100k": {"kind": "same", "why": "hand-written resumable state struct"},
   "generator-yield-100m": {"kind": "same", "why": "hand-written resumable state struct"},
   "async-fn-call-100k": {"kind": "same", "why": "hand-written microtask queue + reaction list; enqueues and resumes as the spec orders", "caveat": "tr does not suspend at these awaits yet (P-LOOP 4): the drain runs inline in an order the spec forbids, so tr's lead here is not a ceiling reading"},
+  "async-suspend-5m": {"kind": "same", "why": "hand-written microtask queue + reaction list; step's frame queues its own resumption for the await null and the caller reacts on its still-pending promise, two fifo round trips per call as the spec orders; the yield allocates no promise, since the one the spec creates for null is never observable"},
   "promise-all-1m": {"kind": "same", "why": "hand-written microtask queue", "caveat": "tr does not suspend at these awaits yet (P-LOOP 4): the drain runs inline in an order the spec forbids, so tr's lead here is not a ceiling reading"},
   "promise-await-100k": {"kind": "same", "why": "hand-written microtask queue", "caveat": "tr does not suspend at these awaits yet (P-LOOP 4): the drain runs inline in an order the spec forbids, so tr's lead here is not a ceiling reading"},
   "promise-chain-1m": {"kind": "same", "why": "hand-written microtask queue", "caveat": "tr does not suspend at these awaits yet (P-LOOP 4): the drain runs inline in an order the spec forbids, so tr's lead here is not a ceiling reading"},

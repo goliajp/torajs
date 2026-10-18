@@ -125,6 +125,7 @@ cases = [
 weight = 10
 cases = [
   "async-fn-call-100k",
+  "async-suspend-5m",
   "promise-all-1m",
   "promise-await-100k",
   "promise-chain-1m",

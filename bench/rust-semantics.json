@@ -61,6 +61,7 @@
   "str-replace-100k": {"kind": "different", "why": "hand-coded forward scan for a(b+)c stands in for a regex engine"},
   "str-replace-argv-100k": {"kind": "different", "why": "hand-coded forward scan for a(b+)c stands in for a regex engine"},
   "async-fn-call-100k": {"kind": "same", "caveat": "tr does not suspend at these awaits yet (P-LOOP 4): the drain runs inline in an order the spec forbids, so tr's lead here is not a ceiling reading"},
+  "async-suspend-5m": {"kind": "same", "why": "step is a spawned task whose state machine queues its own resumption for the await null, so each call is two fifo round trips as in the spec; the yield allocates no promise, since the one the spec creates for null is never observable"},
   "promise-all-1m": {"kind": "same", "caveat": "tr does not suspend at these awaits yet (P-LOOP 4): the drain runs inline in an order the spec forbids, so tr's lead here is not a ceiling reading"},
   "promise-await-100k": {"kind": "same", "caveat": "tr does not suspend at these awaits yet (P-LOOP 4): the drain runs inline in an order the spec forbids, so tr's lead here is not a ceiling reading"},
   "promise-chain-1m": {"kind": "same", "caveat": "tr does not suspend at these awaits yet (P-LOOP 4): the drain runs inline in an order the spec forbids, so tr's lead here is not a ceiling reading"},
