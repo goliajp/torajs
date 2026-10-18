@@ -31,6 +31,10 @@
 //! instructions ran in between. A copy where the value is proven a
 //! number is simply dropped: retaining a number is a no-op.
 //!
+//! The releases that open a join are split onto the edges that reach
+//! it by the same facts, in the pass that runs next
+//! ([`super::dec_split`]).
+//!
 //! Runs after the loop versioning and the borrow / pair passes, on
 //! the retains those left, reading the tests in their expanded bit
 //! form. `TORAJS_ANYNUM_INC_SINK_OFF=1` skips,

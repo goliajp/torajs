@@ -25,6 +25,7 @@
 //! representation pass; `TORAJS_ANYNUM_CELL_STATS=1` dumps counters.
 
 mod apply;
+pub mod dec_split;
 pub mod expand;
 pub mod inc_sink;
 mod live;
