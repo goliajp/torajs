@@ -240,6 +240,20 @@ pub fn value_class_names(artifacts: &crate::check::CheckArtifacts) -> Vec<String
     out
 }
 
+/// Each candidate of the value-class census, by name, with the reason
+/// it is kept out (`None`: admitted).
+pub fn value_class_verdicts(
+    artifacts: &crate::check::CheckArtifacts,
+) -> Vec<(String, Option<String>)> {
+    let (ast, types) = (&artifacts.5.mono_ast, &artifacts.1);
+    let dead = arr_head_census::unreachable_twin_exprs(ast, types);
+    let pinned = arr_head_census::program_pins_arr_head(ast, types, &dead);
+    value_class_census::verdicts(ast, types, &dead, pinned)
+        .into_iter()
+        .map(|(c, v)| (c.to_string(), v.err()))
+        .collect()
+}
+
 /// Settle a declared class's freshly parsed layout: intern onto an
 /// existing FINALIZED layout that matches (alias `name` to that sid and
 /// leave the reserved slot empty — harmless, nothing references it), or

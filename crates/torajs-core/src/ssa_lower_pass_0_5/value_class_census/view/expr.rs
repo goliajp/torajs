@@ -13,7 +13,10 @@ impl Scan<'_, '_> {
         let ast = self.prog.ast;
         match ast.get_expr(e) {
             Expr::Ident(n) => {
-                if n == self.name && self.h.cat_of(self.prog, e) == Some(Cat::Elem) {
+                if n == self.name
+                    && self.shadowed == 0
+                    && self.h.cat_of(self.prog, e) == Some(Cat::Elem)
+                {
                     self.reads += 1;
                     self.stale |= self.hazard;
                 }

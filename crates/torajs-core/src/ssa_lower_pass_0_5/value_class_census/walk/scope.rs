@@ -75,10 +75,13 @@ impl<'p, 'a> Walk<'p, 'a> {
             ));
         }
         self.scopes.push(scope);
+        let names = params.iter().map(|p| (p.name.as_str(), None)).collect();
+        self.blocks.push(names);
     }
 
     pub(super) fn leave_scope(&mut self) {
         self.scopes.pop();
+        self.blocks.pop();
     }
 
     /// What the binding a read of `name` resolves to holds.

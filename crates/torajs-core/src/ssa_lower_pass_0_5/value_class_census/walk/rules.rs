@@ -19,6 +19,16 @@ impl<'p, 'a> Walk<'p, 'a> {
     ) -> Result<(), String> {
         let h = self.h;
         let ast = self.prog.ast;
+        if let (Cat::Elem, Expr::Index { obj, .. }) = (cat, x)
+            && !self.rooted(*obj)
+        {
+            return Err("an element read off a temporary array".into());
+        }
+        if let (Cat::Elem, Expr::Ident(n)) = (cat, x)
+            && self.view_of(n).is_none()
+        {
+            return Err(format!("a read of `{n}` that no view in scope binds"));
+        }
         let ok = match cat {
             Cat::Bad => false,
             Cat::Elem => match x {
@@ -35,7 +45,9 @@ impl<'p, 'a> Walk<'p, 'a> {
                         }
                 }
                 Expr::Ident(n) => {
-                    *self.ident_reads.entry(n.as_str()).or_default() += 1;
+                    if let Some(view) = self.view_of(n) {
+                        *self.ident_reads.entry(view).or_default() += 1;
+                    }
                     matches!(ctx, Ctx::MemberObj { name, role } if self.field_read(name, *role))
                 }
                 Expr::Call { callee, args } => {
@@ -68,9 +80,31 @@ impl<'p, 'a> Walk<'p, 'a> {
             Ok(())
         } else {
             let ty = self.prog.ty(e);
+            let under = match self.parent {
+                Some(p) => {
+                    let p = format!("{:?}", ast.get_expr(p));
+                    p.split(['(', ' ']).next().unwrap_or_default().to_string()
+                }
+                None => "a statement".into(),
+            };
             Err(format!(
-                "an expression typed {ty:?} in an unknown place: {x:?}"
+                "an expression typed {ty:?} in an unknown place ({ctx:?} under {under}): {x:?}"
             ))
+        }
+    }
+
+    /// An array that outlives the statement reading it: a binding, or
+    /// a container field reached from one. A temporary array (a call's
+    /// result, `new C(..).f`) is released right after its element is
+    /// read, when the element takes a stake of its own; an element
+    /// held in place would be left pointing into freed memory.
+    fn rooted(&self, e: ExprId) -> bool {
+        match self.prog.ast.get_expr(e) {
+            Expr::Ident(_) | Expr::This => true,
+            Expr::Member { obj, .. } => {
+                matches!(self.cat(*obj), Some(Cat::Boxed(_))) && self.rooted(*obj)
+            }
+            _ => false,
         }
     }
 
@@ -145,7 +179,13 @@ impl<'p, 'a> Walk<'p, 'a> {
                     self.fail(format!("a read of `{n}` typed {:?}", self.prog.ty(e)));
                 }
             }
-            Expr::Member { obj, name } => self.expr(*obj, Ctx::MemberObj { name, role }),
+            Expr::Member { obj, name } => {
+                if let Some(Cat::Boxed(i)) = self.cat(*obj) {
+                    let want = self.h.field_cat(i, name);
+                    self.read_as(e, want, ctx, || format!("a read of `.{name}`"));
+                }
+                self.expr(*obj, Ctx::MemberObj { name, role })
+            }
             Expr::OptChain { obj, name } => self.expr(
                 *obj,
                 Ctx::MemberObj {
@@ -154,6 +194,9 @@ impl<'p, 'a> Walk<'p, 'a> {
                 },
             ),
             Expr::Index { obj, index } => {
+                if self.cat(*obj) == Some(Cat::Arr) && self.prog.ty(*index) == Some(&Type::Number) {
+                    self.read_as(e, Some(Cat::Elem), ctx, || "an element read".into());
+                }
                 self.expr(
                     *obj,
                     Ctx::IndexObj {
@@ -173,7 +216,7 @@ impl<'p, 'a> Walk<'p, 'a> {
                 );
                 self.expr(*index, Ctx::Other);
             }
-            Expr::Call { callee, args } => self.call(*callee, args),
+            Expr::Call { callee, args } => self.call(e, *callee, args),
             Expr::New {
                 class_name, args, ..
             } => {
@@ -181,6 +224,8 @@ impl<'p, 'a> Walk<'p, 'a> {
                     "__new_{}",
                     class_name.split('<').next().unwrap_or(class_name)
                 );
+                let want = self.h.ann_cat(class_name).filter(|c| *c != Cat::Bad);
+                self.read_as(e, want, ctx, || format!("`new {class_name}`"));
                 self.args(&factory, args);
             }
             Expr::Assign { target, value } => {
@@ -233,8 +278,34 @@ impl<'p, 'a> Walk<'p, 'a> {
         }
     }
 
-    fn call(&mut self, callee: ExprId, args: &'a [ExprId]) {
+    /// A read the declarations say holds `want` must be typed so: a
+    /// read the checker typed `any` would hand the instance on with no
+    /// expression of the walk holding it.
+    fn read_as(
+        &mut self,
+        e: ExprId,
+        want: Option<Cat>,
+        ctx: &Ctx<'a>,
+        what: impl FnOnce() -> String,
+    ) {
+        if !self.exempt
+            && want.is_some()
+            && !matches!(ctx, Ctx::AssignTarget)
+            && self.cat(e) != want
+        {
+            self.fail(format!("{} typed {:?}", what(), self.prog.ty(e)));
+        }
+    }
+
+    fn call(&mut self, e: ExprId, callee: ExprId, args: &'a [ExprId]) {
         let ast = self.prog.ast;
+        if let Expr::Ident(n) = ast.get_expr(callee) {
+            let want = match n.strip_prefix("__new_") {
+                Some(c) => self.h.ann_cat(c).filter(|c| *c != Cat::Bad),
+                None => self.watched.get(n.as_str()).and_then(|w| w.ret),
+            };
+            self.read_as(e, want, &Ctx::Other, || format!("a call of `{n}`"));
+        }
         match ast.get_expr(callee) {
             Expr::Member { obj, name } if name == "push" && self.cat(*obj) == Some(Cat::Arr) => {
                 // a value of any other type pushed here would sit in a

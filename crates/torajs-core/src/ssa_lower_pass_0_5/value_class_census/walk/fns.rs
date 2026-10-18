@@ -23,7 +23,11 @@ pub(super) fn watched<'a>(
 ) -> Result<HashMap<&'a str, Watched>, String> {
     let mut out = HashMap::new();
     let c = h.class;
-    for (name, f) in &prog.fns {
+    // in name order, so the reason a class is ruled out is the same
+    // on every run
+    let mut fns: Vec<_> = prog.fns.iter().collect();
+    fns.sort_unstable_by_key(|(n, _)| **n);
+    for (name, f) in fns {
         if name.strip_prefix("__new_") == Some(c)
             || name
                 .strip_prefix("__cm_")

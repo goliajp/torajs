@@ -20,6 +20,18 @@ fn classes(src: &str) -> Vec<String> {
     ssa_lower::value_class_names(&artifacts)
 }
 
+/// The reason the census keeps `Token` out of `src`.
+fn token_reason(src: &str) -> String {
+    let artifacts = check::check_with_arity(&desugared(src)).expect("fixture checks");
+    let verdicts = ssa_lower::value_class_verdicts(&artifacts);
+    let reason = verdicts.iter().find(|(c, _)| c == "Token");
+    match reason {
+        Some((_, Some(r))) => r.clone(),
+        None => "not a candidate".into(),
+        Some((_, None)) => panic!("Token not ruled out: {verdicts:?}\n{src}"),
+    }
+}
+
 const BASE: &str = "class Token {\n\
      kind: number\n\
      value: number\n\
@@ -44,13 +56,17 @@ const BASE: &str = "class Token {\n\
    }\n\
    main()\n";
 
-fn out_with(tail: &str) {
+/// `Token` is kept out of the base program with `tail` added, for a
+/// reason that says `why`.
+fn out_with(tail: &str, why: &str) {
     let src = BASE.replace("TAIL", tail);
     let got = classes(&src);
     assert!(
         !got.iter().any(|c| c == "Token"),
         "admitted with:\n{tail}\n{got:?}"
     );
+    let reason = token_reason(&src);
+    assert!(reason.contains(why), "with:\n{tail}\nreason: {reason}");
 }
 
 #[test]
@@ -69,70 +85,145 @@ fn the_base_program_admits_token() {
 
 #[test]
 fn identity_comparison_keeps_it_out() {
-    out_with("const a = ts[0]\nconst b = ts[0]\nconsole.log(a === b)\n");
+    out_with(
+        "const a = ts[0]\nconst b = ts[0]\nconsole.log(a === b)\n",
+        "Other under BinOp): Ident(\"a\")",
+    );
 }
 
 #[test]
 fn keyed_collections_keep_it_out() {
-    out_with("const m = new Map<Token, number>()\nm.set(ts[0], 1)\nconsole.log(m.get(ts[0]))\n");
-    out_with("const st = new Set<Token>(ts)\nconsole.log(st.has(ts[0]))\n");
-    out_with("console.log(ts.indexOf(ts[1]))\n");
-    out_with("const wm = new WeakMap()\nwm.set(ts[0], 1)\n");
+    out_with(
+        "const m = new Map<Token, number>()\nm.set(ts[0], 1)\nconsole.log(m.get(ts[0]))\n",
+        "typed Some(Map(ClassRef(\"Token\")",
+    );
+    out_with(
+        "const st = new Set<Token>(ts)\nconsole.log(st.has(ts[0]))\n",
+        "under New): Ident(\"ts\")",
+    );
+    out_with(
+        "console.log(ts.indexOf(ts[1]))\n",
+        "name: \"indexOf\", role: Call",
+    );
+    out_with(
+        "const wm = new WeakMap()\nwm.set(ts[0], 1)\n",
+        "Arg { want: None } under Call): Index",
+    );
 }
 
 #[test]
 fn a_field_write_keeps_it_out() {
-    out_with("const t = ts[1]\nts[1].kind = 9\nconsole.log(t.kind)\n");
+    out_with(
+        "const t = ts[1]\nts[1].kind = 9\nconsole.log(t.kind)\n",
+        "name: \"kind\", role: Write",
+    );
 }
 
 #[test]
 fn freeze_and_define_keep_it_out() {
-    out_with("Object.freeze(ts[0])\n");
-    out_with("Object.defineProperty(ts[0], \"kind\", { value: 5 })\n");
+    out_with("Object.freeze(ts[0])\n", "the program may freeze or delete");
+    out_with(
+        "Object.defineProperty(ts[0], \"kind\", { value: 5 })\n",
+        "not a candidate",
+    );
+}
+
+#[test]
+fn a_getter_on_the_array_prototype_keeps_it_out() {
+    // `ts[5]` past the end reads the getter, not an element
+    out_with(
+        "Object.defineProperty(Array.prototype, \"5\", { get() { return 1 } })\n",
+        "an array read may run a prototype getter",
+    );
 }
 
 #[test]
 fn a_subclass_keeps_it_out() {
-    out_with("class T2 extends Token {\n  x: number = 0\n}\nts.push(new T2(1, 2))\n");
+    out_with(
+        "class T2 extends Token {\n  x: number = 0\n}\nts.push(new T2(1, 2))\n",
+        "not a candidate",
+    );
 }
 
 #[test]
 fn a_wider_literal_keeps_it_out() {
-    out_with("const o = { kind: 1, value: 2, extra: 3 }\nts.push(o)\n");
+    out_with(
+        "const o = { kind: 1, value: 2, extra: 3 }\nts.push(o)\n",
+        "Other under Call): Ident(\"ts\")",
+    );
 }
 
 #[test]
 fn flowing_into_any_keeps_it_out() {
-    out_with("console.log(ts[0])\n");
-    out_with("function f(x: any) {\n  return x\n}\nf(ts[0])\n");
-    out_with("console.log(JSON.stringify(ts))\n");
-    out_with("console.log(`${ts[0]}`)\n");
+    out_with(
+        "console.log(ts[0])\n",
+        "Arg { want: None } under Call): Index",
+    );
+    out_with(
+        "function f(x: any) {\n  return x\n}\nf(ts[0])\n",
+        "Arg { want: None } under Call): Index",
+    );
+    out_with(
+        "console.log(JSON.stringify(ts))\n",
+        "Arg { want: None } under Call): Ident(\"ts\")",
+    );
+    out_with(
+        "console.log(`${ts[0]}`)\n",
+        "Arg { want: None } under Call): Index",
+    );
 }
 
 #[test]
 fn holes_and_shrinking_keep_it_out() {
-    out_with("ts[5] = new Token(1, 1)\n");
-    out_with("ts.length = 0\n");
-    out_with("const holes: Token[] = new Array<Token>(3)\nconsole.log(holes.length)\n");
+    out_with(
+        "ts[5] = new Token(1, 1)\n",
+        "Discard under a statement): Assign",
+    );
+    out_with("ts.length = 0\n", "name: \"length\", role: Write");
+    out_with(
+        "const holes: Token[] = new Array<Token>(3)\nconsole.log(holes.length)\n",
+        "is declared holding it but bound to another value",
+    );
 }
 
 #[test]
 fn a_push_between_view_and_read_keeps_it_out() {
-    out_with("const t = ts[0]\nts.push(new Token(7, 7))\nconsole.log(t.kind)\n");
+    out_with(
+        "const t = ts[0]\nts.push(new Token(7, 7))\nconsole.log(t.kind)\n",
+        "can come between the view `t` and its read",
+    );
 }
 
 #[test]
 fn other_array_operations_keep_it_out() {
-    out_with("for (const t of ts) s = s + t.kind\n");
-    out_with("ts.pop()\n");
-    out_with("console.log(ts.map((t) => t.kind).length)\n");
+    out_with(
+        "for (const t of ts) s = s + t.kind\n",
+        "Other under a statement): Index",
+    );
+    out_with("ts.pop()\n", "Discard under a statement): Call");
+    out_with(
+        "console.log(ts.map((t) => t.kind).length)\n",
+        "a parameter of `__closure_0` holds it in another shape",
+    );
 }
 
 #[test]
 fn reading_the_class_keeps_it_out() {
-    out_with("console.log(ts[0] instanceof Token)\n");
-    out_with("console.log(ts[0].constructor === Token)\n");
-    out_with("console.log(Object.getPrototypeOf(ts[0]) === null)\n");
+    out_with(
+        "console.log(ts[0] instanceof Token)\n",
+        "under InstanceOf): Index",
+    );
+    // `constructor` and `getPrototypeOf` are spellings that can reach a
+    // builtin prototype, so the program-wide check keeps these out
+    // before the walk meets the read
+    out_with(
+        "console.log(ts[0].constructor === Token)\n",
+        "an array read may run a prototype getter",
+    );
+    out_with(
+        "console.log(Object.getPrototypeOf(ts[0]) === null)\n",
+        "an array read may run a prototype getter",
+    );
 }
 
 #[test]
@@ -168,4 +259,82 @@ fn a_binding_read_as_any_keeps_it_out() {
        for (let i = 0; i < ts.length; i = i + 1) s = s + ts[i].kind\n\
        console.log(s)\n";
     assert!(classes(src).is_empty());
+}
+
+const BOXED: &str = "class Token {\n\
+     kind: number\n\
+     value: number\n\
+     constructor(kind: number, value: number) {\n\
+       this.kind = kind\n\
+       this.value = value\n\
+     }\n\
+   }\n\
+   class Holder {\n\
+     toks: Token[]\n\
+     constructor(toks: Token[]) {\n\
+       this.toks = toks\n\
+     }\n\
+   }\n\
+   function make(n: number): Token[] {\n\
+     const ts: Token[] = []\n\
+     for (let i = 0; i < n; i = i + 1) ts.push(new Token(i, i * 2))\n\
+     return ts\n\
+   }\n\
+   function main(): void {\n\
+     let s = 0\n\
+     BODY\n\
+     console.log(s)\n\
+   }\n\
+   main()\n";
+
+#[test]
+fn a_view_off_a_rooted_container_field_is_admitted() {
+    let src = BOXED.replace(
+        "BODY",
+        "const h = new Holder(make(3))\nconst t = h.toks[1]\ns = s + t.kind + h.toks[2].value\n",
+    );
+    assert_eq!(classes(&src), vec!["Token".to_string()]);
+}
+
+#[test]
+fn an_element_of_a_temporary_array_keeps_it_out() {
+    // the temporary is released right after the element is read
+    for body in [
+        "const t = make(3)[1]\ns = s + t.kind\n",
+        "s = s + make(3)[1].kind\n",
+        "const t = new Holder(make(3)).toks[0]\ns = s + t.kind\n",
+    ] {
+        let reason = token_reason(&BOXED.replace("BODY", body));
+        assert!(
+            reason.contains("temporary array"),
+            "{body}\nreason: {reason}"
+        );
+    }
+}
+
+#[test]
+fn a_view_shadowed_in_a_block_is_admitted() {
+    let tail = "const t = ts[0]\n{\n  const t = ts[1]\n  s = s + t.kind\n}\ns = s + t.kind\n";
+    assert_eq!(
+        classes(&BASE.replace("TAIL", tail)),
+        vec!["Token".to_string()]
+    );
+}
+
+#[test]
+fn a_closure_reading_a_shadowed_view_keeps_it_out() {
+    // the block's read of its own `t` must not stand in for the
+    // closure's read of the outer one
+    out_with(
+        "const t = ts[0]\n{\n  const t = ts[1]\n  s = s + t.kind\n}\nconst g = () => t.kind\nts.push(new Token(7, 7))\ns = s + g()\n",
+        "a read of `t` that no view in scope binds",
+    );
+}
+
+#[test]
+fn a_push_after_a_shadowed_view_keeps_it_out() {
+    out_with(
+        "const t = ts[0]\n{\n  const t = ts[1]\n  s = s + t.kind\n}\nts.push(new Token(7, 7))\ns = s + t.kind\n",
+        "can come between the view `t` and its read",
+    );
 }

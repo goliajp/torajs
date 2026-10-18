@@ -2,34 +2,70 @@
 //! expressions in, the view bindings it hands to the view scan, and the
 //! function bodies it enters.
 
+use std::collections::HashMap;
+
 use crate::ast::{Expr, ExprId, Param, Stmt};
 
 use super::super::program::Cat;
 use super::super::view;
 use super::{Ctx, Walk};
 
+/// Each view rescans the rest of its block, so a block with more views
+/// than this is judged as a failure rather than scanned in square time.
+const MAX_VIEWS_PER_BLOCK: usize = 32;
+
 impl<'p, 'a> Walk<'p, 'a> {
     pub(super) fn stmts(&mut self, list: &'a [Stmt]) {
         let mut flat: Vec<&'a Stmt> = Vec::new();
         flatten(list, &mut flat);
+        let mut block = HashMap::new();
+        for s in &flat {
+            for name in view::declared(s) {
+                block.insert(name, self.view_init(s));
+            }
+        }
+        if block.values().flatten().count() > MAX_VIEWS_PER_BLOCK {
+            self.fail(format!(
+                "more than {MAX_VIEWS_PER_BLOCK} views in one block"
+            ));
+            return;
+        }
+        self.blocks.push(block);
         for (k, s) in flat.iter().enumerate() {
-            if let Stmt::LetDecl {
-                name,
-                mutable: false,
-                init,
-                ..
-            } = s
-                && matches!(self.prog.ast.get_expr(*init), Expr::Index { .. })
-                && self.cat(*init) == Some(Cat::Elem)
-                && !self.exempt
-            {
+            if let (Some(init), Stmt::LetDecl { name, .. }) = (self.view_init(s), s) {
                 match view::reads(self.prog, self.h, name, &flat[k + 1..]) {
-                    Ok(n) => *self.view_reads.entry(name.as_str()).or_default() += n,
+                    Ok(n) => *self.view_reads.entry(init).or_default() += n,
                     Err(e) => self.fail(e),
                 }
             }
             self.stmt(s);
         }
+        self.blocks.pop();
+    }
+
+    /// The init of `s` when it binds a `const t = xs[i]` view.
+    fn view_init(&self, s: &Stmt) -> Option<ExprId> {
+        match s {
+            Stmt::LetDecl {
+                mutable: false,
+                init,
+                ..
+            } if matches!(self.prog.ast.get_expr(*init), Expr::Index { .. })
+                && self.cat(*init) == Some(Cat::Elem)
+                && !self.exempt =>
+            {
+                Some(*init)
+            }
+            _ => None,
+        }
+    }
+
+    /// Run `f` with `names` bound to no view.
+    fn bound(&mut self, names: Vec<&'a str>, f: impl FnOnce(&mut Self)) {
+        self.blocks
+            .push(names.into_iter().map(|n| (n, None)).collect());
+        f(self);
+        self.blocks.pop();
     }
 
     fn one(&mut self, s: &'a Stmt) {
@@ -79,39 +115,48 @@ impl<'p, 'a> Walk<'p, 'a> {
                 step,
                 body,
             } => {
-                if let Some(i) = init {
-                    if matches!(i.as_ref(), Stmt::LetDecl { init, .. } if self.cat(*init) == Some(Cat::Elem))
-                    {
-                        self.fail("a view bound in a `for` head".into());
+                let head = init.as_deref().map(view::declared).unwrap_or_default();
+                self.bound(head, |w| {
+                    if let Some(i) = init {
+                        if matches!(i.as_ref(), Stmt::LetDecl { init, .. } if w.cat(*init) == Some(Cat::Elem))
+                        {
+                            w.fail("a view bound in a `for` head".into());
+                        }
+                        w.stmt(i);
                     }
-                    self.one(i);
-                }
-                if let Some(c) = cond {
-                    self.expr(*c, Ctx::Other);
-                }
-                if let Some(st) = step {
-                    self.expr(*st, Ctx::Discard);
-                }
-                self.one(body);
+                    if let Some(c) = cond {
+                        w.expr(*c, Ctx::Other);
+                    }
+                    if let Some(st) = step {
+                        w.expr(*st, Ctx::Discard);
+                    }
+                    w.one(body);
+                });
             }
             Stmt::ForOf {
+                var_name,
                 elem_expr,
                 forin_obj,
                 body,
                 ..
             } => {
-                self.expr(*elem_expr, Ctx::Other);
                 if let Some(o) = forin_obj {
                     self.expr(*o, Ctx::Other);
                 }
-                self.one(body);
+                self.bound(vec![var_name], |w| {
+                    w.expr(*elem_expr, Ctx::Other);
+                    w.one(body);
+                });
             }
             Stmt::ForOfSplitIter {
-                parent, sep, body, ..
+                var_name,
+                parent,
+                sep,
+                body,
             } => {
                 self.expr(*parent, Ctx::Other);
                 self.expr(*sep, Ctx::Other);
-                self.one(body);
+                self.bound(vec![var_name], |w| w.one(body));
             }
             Stmt::Labeled { body, .. } => self.one(body),
             Stmt::Switch {
@@ -131,12 +176,14 @@ impl<'p, 'a> Walk<'p, 'a> {
             }
             Stmt::Try {
                 body,
+                catch_param,
                 catch_body,
                 finally_body,
                 ..
             } => {
                 self.stmts(body);
-                self.stmts(catch_body);
+                let param = catch_param.as_deref().into_iter().collect();
+                self.bound(param, |w| w.stmts(catch_body));
                 if let Some(f) = finally_body {
                     self.stmts(f);
                 }

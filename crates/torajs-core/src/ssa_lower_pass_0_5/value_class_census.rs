@@ -54,6 +54,10 @@ fn stats() -> bool {
     std::env::var_os("TORAJS_VALUE_CLASS_STATS").is_some()
 }
 
+/// The census walks the whole program once per candidate; past this
+/// many, every candidate is judged out rather than paid for.
+const MAX_CANDIDATES: usize = 8;
+
 /// The names of the classes the census admits, sorted.
 pub(crate) fn program_value_classes(
     ast: &Ast,
@@ -61,39 +65,52 @@ pub(crate) fn program_value_classes(
     dead: &ExprMask,
     arr_head_pinned: bool,
 ) -> Vec<String> {
-    let cands = decl::candidates(ast);
-    if cands.is_empty() {
-        return Vec::new();
-    }
     let stats = stats();
-    let why = |class: &str, reason: &str| {
-        if stats {
-            eprintln!("[value_class] out: {class}: {reason}");
-        }
-    };
-    let global = if !arr_head_pinned {
-        Some("an array head may move")
-    } else if ast.has_with_stmt || ast.program_reparents || ast.mints_absent_set {
-        Some("a `with`, a reparent or an absent-set mint")
-    } else if ast.accessor_field_names.may_freeze_or_delete() {
-        Some("the program may freeze or delete")
-    } else {
-        None
-    };
-    if let Some(reason) = global {
-        cands.iter().for_each(|c| why(c.name, reason));
-        return Vec::new();
-    }
-    let prog = Program::index(ast, expr_types, dead);
     let mut out = Vec::new();
-    for c in &cands {
-        match walk::judge(&prog, c) {
-            Ok(()) => out.push(c.name.to_string()),
-            Err(reason) => why(c.name, &reason),
+    for (class, verdict) in verdicts(ast, expr_types, dead, arr_head_pinned) {
+        match verdict {
+            Ok(()) => out.push(class.to_string()),
+            Err(reason) if stats => eprintln!("[value_class] out: {class}: {reason}"),
+            Err(_) => {}
         }
     }
     out.sort();
     out
+}
+
+/// Each candidate class in declaration order, admitted or with the
+/// first reason found to keep it out.
+pub(crate) fn verdicts<'a>(
+    ast: &'a Ast,
+    expr_types: &HashMap<ExprId, Type>,
+    dead: &ExprMask,
+    arr_head_pinned: bool,
+) -> Vec<(&'a str, Result<(), String>)> {
+    let cands = decl::candidates(ast);
+    let global = if cands.len() > MAX_CANDIDATES {
+        Some(format!("more than {MAX_CANDIDATES} candidate classes"))
+    } else if !arr_head_pinned {
+        Some("an array head may move".into())
+    } else if ast.has_with_stmt || ast.program_reparents || ast.mints_absent_set {
+        Some("a `with`, a reparent or an absent-set mint".into())
+    } else if ast.accessor_field_names.may_freeze_or_delete() {
+        Some("the program may freeze or delete".into())
+    } else if ast.array_prop_reads_may_raise {
+        // a read past the end can reach a getter on the prototype
+        // chain, whose answer no inline slot holds
+        Some("an array read may run a prototype getter".into())
+    } else {
+        None
+    };
+    if let Some(reason) = global {
+        return (cands.iter())
+            .map(|c| (c.name, Err(reason.clone())))
+            .collect();
+    }
+    let prog = Program::index(ast, expr_types, dead);
+    (cands.iter())
+        .map(|c| (c.name, walk::judge(&prog, c)))
+        .collect()
 }
 
 /// The sids of the admitted classes whose layout is all scalar slots

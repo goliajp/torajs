@@ -155,6 +155,8 @@ pub(super) struct Holder<'a> {
     /// Classes a field of which holds an instance, directly or through
     /// another container, with their field names.
     pub containers: Vec<(&'a str, Vec<&'a str>)>,
+    /// Per container, its field annotations in the order of `containers`.
+    anns: Vec<Vec<&'a str>>,
     /// Container fields whose type holds an instance.
     pub holding_fields: HashSet<&'a str>,
     /// Every declared name whose declaration mentions the class.
@@ -177,6 +179,7 @@ impl<'a> Holder<'a> {
         }
         let ast = prog.ast;
         let mut containers = Vec::new();
+        let mut anns = Vec::new();
         let mut holding_fields = HashSet::new();
         for (name, class, fields) in &prog.type_decls {
             if *name == c.name || !mention.contains(name) {
@@ -205,6 +208,7 @@ impl<'a> Holder<'a> {
                 return Err(format!("the container `{name}` is not a plain root class"));
             }
             let mut names = Vec::new();
+            anns.push(fields.iter().map(|(_, a)| a.as_str()).collect());
             for (k, a) in fields.iter() {
                 let std::borrow::Cow::Borrowed(f) = k.lossy() else {
                     return Err(format!("the container `{name}` has an ill-formed key"));
@@ -221,9 +225,16 @@ impl<'a> Holder<'a> {
             fields: &c.fields,
             arity: c.arity,
             containers,
+            anns,
             holding_fields,
             mention,
         })
+    }
+
+    /// What field `name` of container `i` is declared to hold.
+    pub(super) fn field_cat(&self, i: usize, name: &str) -> Option<Cat> {
+        let at = self.containers[i].1.iter().position(|f| *f == name)?;
+        self.ann_cat(self.anns[i][at])
     }
 
     pub(super) fn classify(&self, t: &Type) -> Option<Cat> {

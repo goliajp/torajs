@@ -33,6 +33,7 @@ pub(super) fn reads(
         any: false,
         reads: 0,
         stale: false,
+        shadowed: 0,
     };
     s.seq(rest);
     if s.stale {
@@ -52,6 +53,20 @@ struct Scan<'p, 'a> {
     any: bool,
     reads: usize,
     stale: bool,
+    /// How many enclosing blocks rebind `name`: their reads are of
+    /// another binding.
+    shadowed: usize,
+}
+
+/// The names `s` binds in the block it sits in.
+pub(super) fn declared(s: &Stmt) -> Vec<&str> {
+    match s {
+        Stmt::LetDecl { name, .. } | Stmt::UsingDecl { name, .. } | Stmt::FnDecl { name, .. } => {
+            vec![name.as_str()]
+        }
+        Stmt::Multi(v) => v.iter().flat_map(declared).collect(),
+        _ => Vec::new(),
+    }
 }
 
 impl Scan<'_, '_> {
@@ -86,6 +101,25 @@ impl Scan<'_, '_> {
         self.seq(&[s])
     }
 
+    /// Run `f` inside a scope that binds `names`.
+    fn scoped<'s, R>(
+        &mut self,
+        names: impl IntoIterator<Item = &'s str>,
+        f: impl FnOnce(&mut Self) -> R,
+    ) -> R {
+        let shadows = names.into_iter().any(|n| n == self.name);
+        self.shadowed += usize::from(shadows);
+        let r = f(self);
+        self.shadowed -= usize::from(shadows);
+        r
+    }
+
+    /// A block's statements, in a scope of their own.
+    fn block(&mut self, v: &[Stmt]) -> bool {
+        let list: Vec<&Stmt> = v.iter().collect();
+        self.scoped(v.iter().flat_map(declared), |s| s.seq(&list))
+    }
+
     fn stmt(&mut self, s: &Stmt) -> bool {
         match s {
             Stmt::Expr(e) | Stmt::LetDecl { init: e, .. } | Stmt::UsingDecl { init: e, .. } => {
@@ -108,7 +142,8 @@ impl Scan<'_, '_> {
                 true
             }
             Stmt::Break(_) | Stmt::Continue(_) => true,
-            Stmt::Block(v) | Stmt::Multi(v) => self.seq(&v.iter().collect::<Vec<_>>()),
+            Stmt::Block(v) => self.block(v),
+            Stmt::Multi(v) => self.seq(&v.iter().collect::<Vec<_>>()),
             Stmt::If {
                 cond,
                 then_branch,
@@ -144,21 +179,25 @@ impl Scan<'_, '_> {
                 step,
                 body,
             } => {
-                if let Some(i) = init {
-                    self.one(i);
-                }
-                self.region(2, &mut |s| {
-                    if let Some(c) = cond {
-                        s.expr(*c);
+                let head = init.as_deref().map(declared).unwrap_or_default();
+                self.scoped(head, |s| {
+                    if let Some(i) = init {
+                        s.one(i);
                     }
-                    s.one(body);
-                    if let Some(st) = step {
-                        s.expr(*st);
-                    }
+                    s.region(2, &mut |s| {
+                        if let Some(c) = cond {
+                            s.expr(*c);
+                        }
+                        s.one(body);
+                        if let Some(st) = step {
+                            s.expr(*st);
+                        }
+                    });
                 });
                 false
             }
             Stmt::ForOf {
+                var_name,
                 elem_expr,
                 forin_obj,
                 body,
@@ -167,21 +206,28 @@ impl Scan<'_, '_> {
                 if let Some(o) = forin_obj {
                     self.expr(*o);
                 }
-                self.region(2, &mut |s| {
-                    s.set_hazard();
-                    s.expr(*elem_expr);
-                    s.one(body);
+                self.scoped([var_name.as_str()], |s| {
+                    s.region(2, &mut |s| {
+                        s.set_hazard();
+                        s.expr(*elem_expr);
+                        s.one(body);
+                    })
                 });
                 false
             }
             Stmt::ForOfSplitIter {
-                parent, sep, body, ..
+                var_name,
+                parent,
+                sep,
+                body,
             } => {
                 self.expr(*parent);
                 self.expr(*sep);
-                self.region(2, &mut |s| {
-                    s.set_hazard();
-                    s.one(body);
+                self.scoped([var_name.as_str()], |s| {
+                    s.region(2, &mut |s| {
+                        s.set_hazard();
+                        s.one(body);
+                    })
                 });
                 false
             }
@@ -198,32 +244,40 @@ impl Scan<'_, '_> {
                 ..
             } => {
                 self.expr(*scrutinee);
-                self.region(1, &mut |s| {
-                    for c in cases {
-                        s.hazard |= s.any;
-                        s.expr(c.value);
-                        s.seq(&c.body.iter().collect::<Vec<_>>());
-                    }
-                    if let Some(d) = default {
-                        s.hazard |= s.any;
-                        s.seq(&d.iter().collect::<Vec<_>>());
-                    }
+                // every case body shares the one scope of the switch
+                let names = (cases.iter().flat_map(|c| &c.body))
+                    .chain(default.iter().flatten())
+                    .flat_map(declared);
+                self.scoped(names, |s| {
+                    s.region(1, &mut |s| {
+                        for c in cases {
+                            s.hazard |= s.any;
+                            s.expr(c.value);
+                            s.seq(&c.body.iter().collect::<Vec<_>>());
+                        }
+                        if let Some(d) = default {
+                            s.hazard |= s.any;
+                            s.seq(&d.iter().collect::<Vec<_>>());
+                        }
+                    })
                 });
                 false
             }
             Stmt::Try {
                 body,
+                catch_param,
                 catch_body,
                 finally_body,
                 ..
             } => {
                 self.region(1, &mut |s| {
-                    s.seq(&body.iter().collect::<Vec<_>>());
+                    s.block(body);
                     s.hazard |= s.any;
-                    s.seq(&catch_body.iter().collect::<Vec<_>>());
+                    let param = catch_param.as_deref();
+                    s.scoped(param, |s| s.block(catch_body));
                     s.hazard |= s.any;
                     if let Some(f) = finally_body {
-                        s.seq(&f.iter().collect::<Vec<_>>());
+                        s.block(f);
                     }
                 });
                 false

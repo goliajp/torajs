@@ -6,7 +6,9 @@
 //! typed expression of the program must have been met (an expression
 //! reached some other way is judged as a failure), and every read of
 //! a view binding must have been counted by the scan of its scope
-//! ([`super::view`]).
+//! ([`super::view`]). A read is matched to its view by where the view
+//! is declared, not by its name, so a block that rebinds the name
+//! cannot trade its reads for a read the scan never saw.
 
 use std::collections::HashMap;
 
@@ -24,7 +26,7 @@ use fns::Watched;
 use scope::Scope;
 
 /// The place an expression sits in.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum Ctx<'a> {
     /// An expression statement, or a `for` update.
     Discard,
@@ -60,7 +62,7 @@ enum Ctx<'a> {
 }
 
 /// What the parent does with the member or element it reads.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 enum Role {
     Read,
     Write,
@@ -89,10 +91,17 @@ struct Walk<'p, 'a> {
     /// container factory's seed literal.
     exempt: bool,
     err: Option<String>,
-    /// Reads of view bindings: met by the walk, counted by the scans.
-    ident_reads: HashMap<&'a str, usize>,
-    view_reads: HashMap<&'a str, usize>,
+    /// Reads of view bindings, keyed by the view's init: met by the
+    /// walk, counted by the scans.
+    ident_reads: HashMap<ExprId, usize>,
+    view_reads: HashMap<ExprId, usize>,
     scopes: Vec<Scope<'a>>,
+    /// The names each enclosing block, loop head, catch clause or
+    /// parameter list binds, innermost last: a view's init, or `None`
+    /// for any other binding.
+    blocks: Vec<HashMap<&'a str, Option<ExprId>>>,
+    /// The expression whose child is being met, for the reasons.
+    parent: Option<ExprId>,
 }
 
 pub(super) fn judge(prog: &Program<'_>, c: &Candidate<'_>) -> Result<(), String> {
@@ -113,26 +122,36 @@ pub(super) fn judge(prog: &Program<'_>, c: &Candidate<'_>) -> Result<(), String>
         ident_reads: HashMap::new(),
         view_reads: HashMap::new(),
         scopes: Vec::new(),
+        blocks: Vec::new(),
+        parent: None,
     };
     w.enter_scope(&[], &prog.ast.stmts);
     w.stmts(&prog.ast.stmts);
     if let Some(e) = w.err {
         return Err(e);
     }
-    for (id, ty) in prog.types {
-        if !w.visited.get(id.0 as usize).is_some_and(|v| *v)
-            && !prog.dead.contains(*id)
-            && h.classify(ty).is_some()
-        {
-            return Err(format!(
-                "an expression typed {ty:?} outside every statement"
-            ));
-        }
+    // the first failure in expression order, so the reason is the
+    // same on every run
+    let missed = (prog.types.iter())
+        .filter(|(id, ty)| {
+            !w.visited.get(id.0 as usize).is_some_and(|v| *v)
+                && !prog.dead.contains(**id)
+                && h.classify(ty).is_some()
+        })
+        .min_by_key(|(id, _)| id.0);
+    if let Some((_, ty)) = missed {
+        return Err(format!(
+            "an expression typed {ty:?} outside every statement"
+        ));
     }
-    for (n, k) in &w.ident_reads {
-        if w.view_reads.get(n) != Some(k) {
-            return Err(format!("a read of `{n}` outside the scope of its view"));
-        }
+    let stray = (w.ident_reads.iter())
+        .filter(|(v, k)| w.view_reads.get(*v) != Some(*k))
+        .map(|(v, _)| v.0)
+        .min();
+    if let Some(v) = stray {
+        return Err(format!(
+            "a read of the view bound to expression {v} outside the scope of its view"
+        ));
     }
     Ok(())
 }
@@ -144,6 +163,17 @@ impl<'p, 'a> Walk<'p, 'a> {
 
     fn cat(&self, e: ExprId) -> Option<Cat> {
         self.h.cat_of(self.prog, e)
+    }
+
+    /// The view a read of `name` resolves to (`None`: the innermost
+    /// binding of the name is no view, or there is none).
+    fn view_of(&self, name: &str) -> Option<ExprId> {
+        self.blocks
+            .iter()
+            .rev()
+            .find_map(|b| b.get(name))
+            .copied()
+            .flatten()
     }
 
     fn expr(&mut self, e: ExprId, ctx: Ctx<'a>) {
@@ -160,6 +190,8 @@ impl<'p, 'a> Walk<'p, 'a> {
             self.fail(why);
             return;
         }
+        let up = self.parent.replace(e);
         self.children(e, x, &ctx);
+        self.parent = up;
     }
 }
