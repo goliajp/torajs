@@ -88,6 +88,7 @@ pub(crate) fn uncast(t: &PlanTables<'_>, sid: StructId, ann: &str) -> Option<Cas
         vtables: vec![None],
         nullish,
         members: false,
+        proto_keys: false,
     })
 }
 

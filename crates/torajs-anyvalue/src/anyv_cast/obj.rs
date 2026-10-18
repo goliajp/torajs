@@ -41,9 +41,11 @@ use crate::arg_struct_coerce::{
 use crate::nanbox::{AnyValue, as_void_ptr, is_cell};
 
 /// OBJ node flags: the slot names a class; the node copies nothing
-/// (a field of the layout is of a type the plan cannot judge).
+/// (a field of the layout is of a type the plan cannot judge); the
+/// node lists its class's prototype-chain keys after its fields.
 const CLASS: u8 = 1;
 const FITS_ONLY: u8 = 2;
+pub(super) const PROTO_KEYS: u8 = 4;
 /// The OBJ node has no class list.
 const NO_LIST: u32 = u32::MAX;
 const OBJ_VTABLE_OFF: usize = 16;
@@ -87,7 +89,7 @@ pub unsafe extern "C" fn __torajs_anyv_cast_obj(
     vtables: *const *mut c_void,
     site: *const u8,
 ) -> *mut c_void {
-    unsafe { run(Plan::new(plan, vtables), v, site) }
+    unsafe { run(Plan::<false>::new(plan, vtables), v, site) }
 }
 
 /// The cast `plan` makes of `v`, rejecting a mismatch naming `site`.
@@ -95,7 +97,11 @@ pub unsafe extern "C" fn __torajs_anyv_cast_obj(
 /// # Safety
 /// As [`__torajs_anyv_cast_obj`].
 #[inline(always)]
-pub(super) unsafe fn run(plan: Plan, v: AnyValue, site: *const u8) -> *mut c_void {
+pub(super) unsafe fn run<const OWN: bool>(
+    plan: Plan<OWN>,
+    v: AnyValue,
+    site: *const u8,
+) -> *mut c_void {
     match unsafe { plan.cast(4, v) } {
         Ok(bits) => bits as *mut c_void,
         Err(Fail::Mismatch) => {
@@ -106,7 +112,7 @@ pub(super) unsafe fn run(plan: Plan, v: AnyValue, site: *const u8) -> *mut c_voi
     }
 }
 
-impl Plan {
+impl<const OWN: bool> Plan<OWN> {
     /// An object node (`at`): the cell itself when it is one of the
     /// slot's layout, else a fresh cell copied field by field.
     ///
@@ -145,8 +151,14 @@ impl Plan {
         if flags & FITS_ONLY != 0 {
             return Err(Fail::Mismatch);
         }
-        if let Some(copy) = self.copy_of(v, at) {
+        if let Some(copy) = self.copies.copy_of(v, at) {
             return Ok(copy);
+        }
+        // a property of its own under a method or accessor name would
+        // be lost to the class's member in the copy; a plan listing
+        // keys always comes through an own entry
+        if OWN && flags & PROTO_KEYS != 0 && unsafe { super::own::owns_key(self, v, at) } {
+            return Err(Fail::Mismatch);
         }
         let n = self.u16(at + 14) as usize;
         // the copy exists before its fields are read, so a field that
@@ -163,7 +175,7 @@ impl Plan {
             };
             *(cell.add(OBJ_VTABLE_OFF) as *mut *mut c_void) = vt;
         }
-        self.note_copy(v, at, cell as u64);
+        self.copies.note_copy(v, at, cell as u64);
         let mut field = at + 16;
         for _ in 0..n {
             let end = self.u32(field) as usize;

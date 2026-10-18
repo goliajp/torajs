@@ -21,6 +21,7 @@ use core::ffi::{c_char, c_void};
 mod as_is;
 mod members;
 mod obj;
+mod own;
 mod plan;
 
 use crate::STR_HDR_SIZE;

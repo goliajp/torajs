@@ -25,6 +25,7 @@ pub(super) struct ParamCast {
     vtables: Vec<Option<String>>,
     site: StringId,
     members: bool,
+    proto_keys: bool,
 }
 
 /// Per user slot of `t`, the cast of a class-typed parameter; `None`
@@ -63,6 +64,7 @@ pub(super) fn param_casts(
                 vtables: compiled.vtables,
                 site,
                 members: compiled.members,
+                proto_keys: compiled.proto_keys,
             })
         })
         .collect()
@@ -85,10 +87,8 @@ pub(super) fn emit_param_cast(
     let site =
         Operand::Value(f.append_inst(entry, InstKind::StaticStrRef(cast.site), Type::Str, None));
     let args = vec![av, plan_bits, vtables, site];
-    let kernel = match cast.members {
-        true => (coerce.ids.cast_obj_members).expect("a plan with a member declares its cast"),
-        false => coerce.ids.cast_obj,
-    };
+    let kernel =
+        (coerce.ids.cast_obj_entries).pick(coerce.ids.cast_obj, cast.members, cast.proto_keys);
     let p = f.append_inst(entry, InstKind::Call(kernel, args), Type::Ptr, None);
     let bits = f.append_inst(
         entry,

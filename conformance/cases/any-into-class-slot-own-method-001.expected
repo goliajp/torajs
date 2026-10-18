@@ -1,0 +1,8 @@
+let true cannot assign object to `W`
+member true cannot store object into `W`
+subclass inherited method true cannot assign object to `V`
+subclass accessor true cannot assign object to `V`
+3
+copied ok
+3
+member copied ok

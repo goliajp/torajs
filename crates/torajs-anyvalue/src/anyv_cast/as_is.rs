@@ -70,7 +70,7 @@ pub unsafe extern "C" fn __torajs_anyv_cast_obj_as_is(
     _vtables: *const *mut c_void,
     site: *const u8,
 ) -> *mut c_void {
-    let plan = Plan::new(plan, core::ptr::null());
+    let plan = Plan::<false>::new(plan, core::ptr::null());
     match unsafe { as_is(&plan, 4, v) } {
         Some(bits) => bits as *mut c_void,
         None => {

@@ -43,7 +43,7 @@ unsafe fn __torajs_arr_mark_kind(_arr: *mut c_void, _chain: u64) {
     unreachable!()
 }
 
-impl Plan {
+impl<const OWN: bool> Plan<OWN> {
     /// An array node: the slot's own copy of the array `arr`. A
     /// scalar or string element is judged by `__torajs_arr_any_to_typed`
     /// (which records its own TypeError); an `any` element takes the
@@ -68,7 +68,7 @@ impl Plan {
             }
             _ => {}
         }
-        if let Some(copy) = self.copy_of(arr as AnyValue, at) {
+        if let Some(copy) = self.copies.copy_of(arr as AnyValue, at) {
             return Ok(copy);
         }
         let len = unsafe { arr.cast::<u8>().add(ARR_LEN_OFF).cast::<u64>().read() };
@@ -76,7 +76,7 @@ impl Plan {
         // a release of a half-filled copy releases what it holds
         let out = unsafe { __torajs_arr_alloc(len) };
         unsafe { __torajs_arr_mark_kind(out.cast(), u64::from(ARR_KIND_HEAP)) };
-        self.note_copy(arr as AnyValue, at, out as u64);
+        self.copies.note_copy(arr as AnyValue, at, out as u64);
         for i in 0..len {
             let e = unsafe { __torajs_arr_get_any_boxed(arr, i) };
             match unsafe { self.cast(elem, e) } {

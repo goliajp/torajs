@@ -3,7 +3,8 @@
 // class slot like a `let` of that class: an instance of the class (or
 // of a subclass) crosses as it is, an object of the class's field types
 // that is no class instance becomes a fresh instance, and anything else
-// (an instance of another class, a number, undefined) throws a
+// (an instance of another class, a number, undefined, an object owning
+// a property under one of the class's method names) throws a
 // TypeError before the constructor runs. bun binds the argument as it
 // is, so those lines differ from it (the .expected).
 class P {

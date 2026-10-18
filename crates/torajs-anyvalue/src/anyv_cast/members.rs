@@ -36,7 +36,7 @@ pub unsafe extern "C" fn __torajs_anyv_cast_obj_members(
     vtables: *const *mut c_void,
     site: *const u8,
 ) -> *mut c_void {
-    let mut plan = Plan::new(plan, vtables);
+    let mut plan = Plan::<false>::new(plan, vtables);
     plan.member = Some(member);
     unsafe { run(plan, v, site) }
 }
@@ -48,8 +48,8 @@ pub unsafe extern "C" fn __torajs_anyv_cast_obj_members(
 /// # Safety
 /// `at.cell` is the fresh cell being built, with its header written;
 /// `v` is a live object cell.
-pub(super) unsafe fn member(
-    plan: &Plan,
+pub(super) unsafe fn member<const OWN: bool>(
+    plan: &Plan<OWN>,
     v: AnyValue,
     g: AnyValue,
     at: &Field,
@@ -64,7 +64,7 @@ pub(super) unsafe fn member(
     unsafe { plan.field_value(at.node, g) }
 }
 
-impl Plan {
+impl<const OWN: bool> Plan<OWN> {
     /// A `null` the value carries for an optional `number` member: the
     /// slot takes its undefined sentinel and the `null` goes to the
     /// field's sidecar behind `FLAG_OBJ_EXOTIC_FIELD` (§10.1.9.2 [[Set]]

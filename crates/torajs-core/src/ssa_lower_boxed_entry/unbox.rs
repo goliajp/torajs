@@ -48,9 +48,10 @@ pub(super) struct BoxedCoerceIds {
     /// The object cast of a class-typed parameter
     /// (`build_cast`), and the pending-throw test after it.
     pub(super) cast_obj: FuncId,
-    /// The same, for a plan with an optional member among its fields:
-    /// declared only in a program that has such a plan.
-    pub(super) cast_obj_members: Option<FuncId>,
+    /// The entries for a plan with an optional member or a class's
+    /// prototype-chain keys: declared only in a program that may have
+    /// such a plan.
+    pub(super) cast_obj_entries: crate::ssa_lower_intrinsics_any_cast::ObjCastEntries,
     pub(super) throw_check: FuncId,
 }
 
@@ -59,8 +60,7 @@ pub(super) fn declare_coerce_intrinsics(
     fn_table: &mut std::collections::HashMap<String, FuncId>,
 ) -> BoxedCoerceIds {
     use Type::{Any, I64, Ptr};
-    let cast_obj_members = fn_table.get(crate::ssa_lower_intrinsics_any_cast::MEMBERS_CAST);
-    let cast_obj_members = cast_obj_members.copied();
+    let cast_obj_entries = crate::ssa_lower_intrinsics_any_cast::ObjCastEntries::find(fn_table);
     let mut d = |name: &str, params: &[Type], ret: Type| {
         crate::ssa_lower_synthesize_main::declare_intrinsic(module, fn_table, name, params, ret)
     };
@@ -80,7 +80,7 @@ pub(super) fn declare_coerce_intrinsics(
             Any,
         ),
         cast_obj: d("__torajs_anyv_cast_obj", &[Any, I64, Ptr, Type::Str], Ptr),
-        cast_obj_members,
+        cast_obj_entries,
         throw_check: d("__torajs_throw_check", &[], I64),
     }
 }

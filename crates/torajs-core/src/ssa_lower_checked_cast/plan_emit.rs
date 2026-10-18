@@ -59,13 +59,8 @@ impl LowerCtx<'_> {
     /// The object cast kernel's call casting `op` by the compiled
     /// `plan` into a slot of type `ty`, without the throw check.
     fn emit_compiled_cast(&mut self, op: Operand, ty: Type, plan: CastPlan, site: &str) -> Operand {
-        let kernel = match plan.members {
-            true => *(self
-                .fn_table
-                .get(crate::ssa_lower_intrinsics_any_cast::MEMBERS_CAST))
-            .expect("a plan with a member declares its cast"),
-            false => self.intrinsics.anyv_cast_obj,
-        };
+        let entries = crate::ssa_lower_intrinsics_any_cast::ObjCastEntries::find(self.fn_table);
+        let kernel = entries.pick(self.intrinsics.anyv_cast_obj, plan.members, plan.proto_keys);
         self.emit_cast_call(kernel, op, ty, plan, site)
     }
 

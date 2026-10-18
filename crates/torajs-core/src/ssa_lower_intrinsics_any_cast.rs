@@ -63,14 +63,16 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
     }
 }
 
-/// The object cast kernels only some programs call: [`declare_members`]
-/// and [`declare_as_is`] each declare theirs when the program may.
+/// The object cast kernels only some programs call: [`declare_members`],
+/// [`declare_own`] and [`declare_as_is`] each declare theirs when the
+/// program may.
 pub(crate) fn declare_on_demand(
     module: &mut Module,
     fn_table: &mut HashMap<String, FuncId>,
     ast: &crate::ast::Ast,
 ) {
     declare_members(module, fn_table, ast);
+    declare_own(module, fn_table, ast);
     declare_as_is(module, fn_table, ast);
     declare_intrinsic(
         module,
@@ -102,6 +104,58 @@ fn declare_members(
 }
 
 pub(crate) const MEMBERS_CAST: &str = "__torajs_anyv_cast_obj_members";
+
+/// The object cast of a plan with a class node listing its
+/// prototype-chain keys (`ssa_lower_checked_cast::plan::proto_keys`),
+/// and the same with an optional member as well. Only a program with a
+/// class method or accessor has such a plan, so no other declares them.
+fn declare_own(module: &mut Module, fn_table: &mut HashMap<String, FuncId>, ast: &crate::ast::Ast) {
+    let methods = (ast.stmts.iter())
+        .any(|s| matches!(s, crate::ast::Stmt::FnDecl { name, .. } if name.starts_with("__cm_")));
+    if !(methods || !ast.accessor_getters.is_empty() || !ast.accessor_setters.is_empty()) {
+        return;
+    }
+    let params = [Type::Any, Type::I64, Type::Ptr, Type::Str];
+    declare_intrinsic(module, fn_table, OWN_CAST, &params, Type::Ptr);
+    if !ast.optional_members.none() {
+        declare_intrinsic(module, fn_table, MEMBERS_OWN_CAST, &params, Type::Ptr);
+    }
+}
+
+pub(crate) const OWN_CAST: &str = "__torajs_anyv_cast_obj_own";
+pub(crate) const MEMBERS_OWN_CAST: &str = "__torajs_anyv_cast_obj_members_own";
+
+/// The object cast entries a compiled plan may need beyond the plain
+/// one, as declared in the program.
+#[derive(Clone, Copy)]
+pub(crate) struct ObjCastEntries {
+    members: Option<FuncId>,
+    own: Option<FuncId>,
+    members_own: Option<FuncId>,
+}
+
+impl ObjCastEntries {
+    pub(crate) fn find(fn_table: &HashMap<String, FuncId>) -> ObjCastEntries {
+        ObjCastEntries {
+            members: fn_table.get(MEMBERS_CAST).copied(),
+            own: fn_table.get(OWN_CAST).copied(),
+            members_own: fn_table.get(MEMBERS_OWN_CAST).copied(),
+        }
+    }
+
+    /// The entry casting by a plan with an optional member (`members`)
+    /// and a class node listing prototype-chain keys (`own`); `plain`
+    /// when it has neither.
+    pub(crate) fn pick(self, plain: FuncId, members: bool, own: bool) -> FuncId {
+        let entry = match (members, own) {
+            (false, false) => return plain,
+            (true, false) => self.members,
+            (false, true) => self.own,
+            (true, true) => self.members_own,
+        };
+        entry.expect("a program with such a plan declares its cast")
+    }
+}
 
 /// The object cast of a slot a value crosses as it is or not at all
 /// (`ssa_lower_checked_cast::plan::uncast`): an interface dispatching

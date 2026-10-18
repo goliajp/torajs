@@ -22,6 +22,7 @@ use crate::ssa_lower_instanceof::tags::descendant_tags;
 use anns::{field_anns, nullable, opt_node};
 
 mod anns;
+mod proto_keys;
 pub(super) mod uncast;
 
 const ANY: u8 = 0;
@@ -36,9 +37,11 @@ const ARR: u8 = 8;
 const CELL: u8 = 9;
 const OPT: u8 = 10;
 const MEMBER: u8 = 11;
-/// OBJ node flags: a class slot; a slot whose node copies nothing.
+/// OBJ node flags: a class slot; a slot whose node copies nothing; a
+/// class slot whose prototype chain has keys, listed after the fields.
 const CLASS: u8 = 1;
 const FITS_ONLY: u8 = 2;
+const PROTO_KEYS: u8 = 4;
 const NO_LIST: u32 = u32::MAX;
 
 /// What a plan is compiled from.
@@ -95,6 +98,9 @@ pub(crate) struct CastPlan {
     /// Some object node has an optional member (`m?: T`) among its
     /// fields, which only the kernel's `_members` entry casts.
     pub(crate) members: bool,
+    /// Some class node lists its prototype-chain keys, which only the
+    /// kernel's `_own` entries test a copied object against.
+    pub(crate) proto_keys: bool,
 }
 
 /// The plan of a slot of type `ty` the program annotated `ann`. When
@@ -117,6 +123,7 @@ fn build(t: &PlanTables<'_>, ty: Type, ann: &str, fits_only: bool) -> Option<Cas
         open: HashMap::new(),
         nullish: false,
         members: false,
+        proto_keys: false,
     };
     b.node(ty, Some(ann))?;
     let lists_off = b.bytes.len() as u32;
@@ -131,6 +138,7 @@ fn build(t: &PlanTables<'_>, ty: Type, ann: &str, fits_only: bool) -> Option<Cas
         vtables: b.vtables,
         nullish: b.nullish,
         members: b.members,
+        proto_keys: b.proto_keys,
     })
 }
 
@@ -163,6 +171,7 @@ struct Builder<'t, 'a> {
     open: HashMap<(StructId, Option<String>), u32>,
     nullish: bool,
     members: bool,
+    proto_keys: bool,
 }
 
 impl Builder<'_, '_> {
@@ -222,6 +231,14 @@ impl Builder<'_, '_> {
             flags |= FITS_ONLY;
             layout.clear();
         }
+        let keys = match &class {
+            Some(c) if !self.fits_only => proto_keys::proto_keys(self.t.ast, c),
+            _ => Vec::new(),
+        };
+        if !keys.is_empty() {
+            flags |= PROTO_KEYS;
+            self.proto_keys = true;
+        }
         let (anns, optional) = field_anns(self.t.ast, class.as_deref().or(base)).unzip();
         let (tag, list, vtable) = match &class {
             Some(c) => {
@@ -265,6 +282,14 @@ impl Builder<'_, '_> {
             self.node(*fty, fann.as_deref())?;
             let end = self.bytes.len() as u32;
             self.bytes[start..start + 4].copy_from_slice(&end.to_le_bytes());
+        }
+        if !keys.is_empty() {
+            self.bytes.extend((keys.len() as u16).to_le_bytes());
+            for key in &keys {
+                let name = key.as_wtf8().as_bytes();
+                self.bytes.extend((name.len() as u16).to_le_bytes());
+                self.bytes.extend(name);
+            }
         }
         Some(())
     }
