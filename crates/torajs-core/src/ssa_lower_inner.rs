@@ -54,6 +54,7 @@ use crate::ast::Ast;
 use crate::check_monomorph::MonoOutput;
 use crate::ssa::{self, FuncId, Module, Type};
 use crate::ssa_lower_closure_order::CaptureFacts;
+use crate::ssa_lower_pass_0_5;
 use crate::ssa_lower_pass_2_5::cell_size;
 
 pub(crate) fn lower_inner(
@@ -63,6 +64,36 @@ pub(crate) fn lower_inner(
     mono: &MonoOutput,
     global_spellings: &HashMap<String, String>,
 ) -> Module {
+    // A value class the finished SSA contradicts leaves the set, and
+    // the whole module lowers again with its arrays holding cells: the
+    // set only shrinks, so this ends.
+    let mut held_as_cells: HashSet<ssa::StructId> = HashSet::new();
+    loop {
+        let (module, disagree) = lower_once(
+            expr_types,
+            arity_pad_count,
+            contextual_any,
+            mono,
+            global_spellings,
+            &held_as_cells,
+        );
+        if disagree.is_empty() {
+            return module;
+        }
+        held_as_cells.extend(disagree);
+    }
+}
+
+/// One lowering of the module, with the value classes in `held`
+/// kept out; answers the value classes the SSA check contradicted.
+fn lower_once(
+    expr_types: &HashMap<crate::ast::ExprId, crate::check::Type>,
+    arity_pad_count: &HashMap<crate::ast::ExprId, usize>,
+    contextual_any: &std::collections::HashSet<crate::ast::ExprId>,
+    mono: &MonoOutput,
+    global_spellings: &HashMap<String, String>,
+    held: &HashSet<ssa::StructId>,
+) -> (Module, Vec<ssa::StructId>) {
     // Monomorphization and the W1 num-width analysis ran at the end of
     // the check pipeline (check_monomorph.rs, check_monomorph/finish.rs)
     // — specializations are already appended and type-checked, demoted
@@ -78,16 +109,14 @@ pub(crate) fn lower_inner(
 
     let (init_a, init_b, init_c, init_d) = declare_intrinsic_batches(&mut module, &mut fn_table);
 
-    // Pass 0.5: type-alias registration + V3-05 two-phase TypeDecl
-    // resolution + Phase H.1.b class tag table + may-throw fixed-point
-    // (chunk-328 RFC continuation). All the mutable interner state
-    // threaded through Pass 1 / 2 — aliases, arr_layouts, fn_sigs,
-    // baked_regex_buf, inst_memo, generic_struct_decls, struct_layouts,
-    // class_sids, class_name_to_tag, plus the may_throw set — is built
-    // by [`crate::ssa_lower_pass_0_5::run`] and handed back through the
-    // `Pass05` holder. struct_layouts is `mem::take`'d off `module`
+    // Pass 0.5: type-alias registration + V3-05 two-phase TypeDecl resolution + Phase H.1.b
+    // class tag table + may-throw fixed-point (chunk-328 RFC continuation). All the mutable
+    // interner state threaded through Pass 1 / 2 — aliases, arr_layouts, fn_sigs,
+    // baked_regex_buf, inst_memo, generic_struct_decls, struct_layouts, class_sids,
+    // class_name_to_tag, plus the may_throw set — is built by [`ssa_lower_pass_0_5::run`] and
+    // handed back through the `Pass05` holder. struct_layouts is `mem::take`'d off `module`
     // inside the sibling; everything else is fresh.
-    let pass05 = crate::ssa_lower_pass_0_5::run(ast, expr_types, &mut module, num_f64_slots);
+    let pass05 = ssa_lower_pass_0_5::run(ast, expr_types, &mut module, num_f64_slots, held);
     let aliases = pass05.aliases;
     let mut arr_layouts = pass05.arr_layouts;
     let mut baked_regex_buf = pass05.baked_regex_buf;
@@ -253,8 +282,8 @@ pub(crate) fn lower_inner(
         &anon_stamp_pool,
         struct_layouts_pass15_len,
     );
-    cell_size::settle(&mut module, &closure_captures, ast, &facts);
-    module
+    let disagree = cell_size::settle(&mut module, &closure_captures, ast, &facts);
+    (module, disagree)
 }
 
 /// Pass 1.5 (K.3) — collect + register top-level data globals.

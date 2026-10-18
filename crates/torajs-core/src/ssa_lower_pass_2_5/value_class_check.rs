@@ -3,7 +3,10 @@
 //! and this reads what lowering emitted, so the two fail in different
 //! ways; where they disagree, the census has let in a class whose
 //! instances some code can tell apart from a copy of their fields, and
-//! the compile fails with an internal error instead of going on.
+//! the class leaves the set and the module lowers again with its arrays
+//! holding cells ([`report`]); with [`STRICT_ENV`] set (the tests and
+//! the conformance gate), the compile fails instead, so a hole in the
+//! census cannot hide behind the second lowering.
 //!
 //! In a live function, a cell of a value class, an array of them, or
 //! an element of one held in place (a view, [`Type::Inline`]), is
@@ -69,18 +72,33 @@ const CELL_ENTRIES: &[&str] = &[
     "__torajs_heap_nullish_check",
 ];
 
-/// Fails the compile when the SSA disagrees with the census. A method
+/// Set (to anything), a disagreement fails the compile.
+pub const STRICT_ENV: &str = "TORAJS_VALUE_CLASS_STRICT";
+
+/// Whether [`STRICT_ENV`] is set.
+pub(crate) fn strict() -> bool {
+    std::env::var_os(STRICT_ENV).is_some()
+}
+
+/// The value classes the SSA disagrees with the census on, sorted;
+/// when `strict`, a disagreement fails the compile instead. A method
 /// twin the census proved no receiver enters is not live, whatever
 /// references it.
-pub(crate) fn report(module: &Module, ast: &Ast, facts: &ProgramFacts, open: &[bool]) {
+pub(crate) fn report(
+    module: &Module,
+    ast: &Ast,
+    facts: &ProgramFacts,
+    open: &[bool],
+    strict: bool,
+) -> Vec<StructId> {
     if facts.value_classes.is_empty() {
-        return;
+        return Vec::new();
     }
     let dead_twin =
         |name: &str| facts.twins_unreachable && ast.cmany_twins.values().any(|t| t == name);
     let (found, live) = disagreements(module, &facts.value_classes, open, &dead_twin);
     if std::env::var_os("TORAJS_VALUE_CLASS_STATS").is_some() {
-        for d in &found {
+        for (_, d) in &found {
             eprintln!("[value_class] census and SSA disagree: {d}");
         }
         eprintln!(
@@ -88,12 +106,18 @@ pub(crate) fn report(module: &Module, ast: &Ast, facts: &ProgramFacts, open: &[b
             found.len()
         );
     }
-    if let Some(first) = found.first() {
+    if let Some((_, first)) = found.first()
+        && strict
+    {
         panic!(
             "internal error: the value-class census and the SSA disagree ({} in all): {first}",
             found.len()
         );
     }
+    let mut sids: Vec<StructId> = found.into_iter().map(|(s, _)| s).collect();
+    sids.sort_by_key(|s| s.0);
+    sids.dedup();
+    sids
 }
 
 /// Every disagreement, and how many live functions were read.
@@ -102,12 +126,12 @@ pub(super) fn disagreements(
     value_classes: &HashSet<StructId>,
     open: &[bool],
     skip: &dyn Fn(&str) -> bool,
-) -> (Vec<String>, usize) {
+) -> (Vec<(StructId, String)>, usize) {
     let mut sids: Vec<&StructId> = value_classes.iter().collect();
     sids.sort_by_key(|s| s.0);
-    let mut found: Vec<String> = (sids.iter())
+    let mut found: Vec<(StructId, String)> = (sids.iter())
         .filter(|s| open[s.0 as usize])
-        .map(|s| format!("sid {} / open slot", s.0))
+        .map(|s| (**s, format!("sid {} / open slot", s.0)))
         .collect();
     let dead = dead_adapters(module);
     let mut live = 0;
@@ -120,11 +144,11 @@ pub(super) fn disagreements(
         for b in &f.blocks {
             for inst in &b.insts {
                 for (sid, what) in r.inst(&inst.kind) {
-                    found.push(format!("sid {} / {} / {what}", sid.0, f.name));
+                    found.push((sid, format!("sid {} / {} / {what}", sid.0, f.name)));
                 }
             }
             if let Some((sid, what)) = r.ret(&b.term) {
-                found.push(format!("sid {} / {} / {what}", sid.0, f.name));
+                found.push((sid, format!("sid {} / {} / {what}", sid.0, f.name)));
             }
         }
     }

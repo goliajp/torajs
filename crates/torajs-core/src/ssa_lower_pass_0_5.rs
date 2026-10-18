@@ -45,6 +45,7 @@ pub(crate) fn run(
     expr_types: &HashMap<ExprId, crate::check::Type>,
     module: &mut Module,
     num_f64_slots: &WidthTable,
+    held_as_cells: &HashSet<ssa::StructId>,
 ) -> Pass05 {
     let mut aliases: HashMap<String, Type> = HashMap::new();
     let mut arr_layouts = crate::ssa::ArrLayouts::default();
@@ -205,7 +206,14 @@ pub(crate) fn run(
     }
 
     let class_name_to_tag = class_tags(ast);
-    let value_inits = value_class_census::value_sids(&value_class_names, &aliases, &struct_layouts);
+    let mut value_inits = value_class_census::value_sids(
+        &value_class_names,
+        &aliases,
+        &struct_layouts,
+        ast,
+        num_f64_slots,
+    );
+    value_inits.retain(|sid, _| !held_as_cells.contains(sid));
 
     Pass05 {
         aliases,
@@ -232,7 +240,13 @@ pub(crate) fn run(
 /// The classes the value-class census admits, by name, sorted.
 pub fn value_class_names(artifacts: &crate::check::CheckArtifacts) -> Vec<String> {
     let (ast, widths) = (&artifacts.5.mono_ast, &artifacts.5.widths);
-    let p = run(ast, &artifacts.1, &mut Module::default(), widths);
+    let p = run(
+        ast,
+        &artifacts.1,
+        &mut Module::default(),
+        widths,
+        &HashSet::new(),
+    );
     let mut out: Vec<String> = (p.aliases.iter())
         .filter(|(_, t)| matches!(t, Type::Obj(s) if p.facts.value_classes.contains(s)))
         .map(|(n, _)| n.clone())

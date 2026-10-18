@@ -34,6 +34,7 @@ use std::collections::HashMap;
 
 use crate::ast::{Ast, ExprId, PropKey};
 use crate::check::Type;
+use crate::num_width::WidthTable;
 use crate::ssa;
 
 use super::arr_head_census::ExprMask;
@@ -48,6 +49,18 @@ pub(super) struct Candidate<'a> {
     arity: usize,
     /// The value each field of a new instance holds, by `fields`.
     inits: Vec<FieldInit>,
+}
+
+impl<'a> Candidate<'a> {
+    /// A class kept out before it became a candidate.
+    fn named(name: &'a str) -> Self {
+        Candidate {
+            name,
+            fields: Vec::new(),
+            arity: 0,
+            inits: Vec::new(),
+        }
+    }
 }
 
 /// What a field of a newly built instance holds: an argument of the
@@ -119,7 +132,8 @@ fn judged<'a>(
     dead: &ExprMask,
     arr_head_pinned: bool,
 ) -> Vec<(Candidate<'a>, Result<(), String>)> {
-    let cands = decl::candidates(ast);
+    let (cands, refused) = decl::candidates(ast);
+    let refused = (refused.into_iter()).map(|(name, reason)| (Candidate::named(name), Err(reason)));
     let global = if cands.len() > MAX_CANDIDATES {
         Some(format!("more than {MAX_CANDIDATES} candidate classes"))
     } else if !arr_head_pinned {
@@ -138,41 +152,139 @@ fn judged<'a>(
     if let Some(reason) = global {
         return (cands.into_iter())
             .map(|c| (c, Err(reason.clone())))
+            .chain(refused)
             .collect();
     }
     let prog = Program::index(ast, expr_types, dead);
     let found: Vec<_> = cands.iter().map(|c| walk::judge(&prog, c)).collect();
-    cands.into_iter().zip(found).collect()
+    cands.into_iter().zip(found).chain(refused).collect()
 }
 
 /// The sids of the admitted classes whose layout is all scalar slots
-/// and is no other name's, each with what a new instance's fields hold.
+/// and is no other name's, and whose every field can take what a new
+/// instance holds there ([`field_takes`]), each with those values.
 pub(crate) fn value_sids(
     admitted: &[Admitted],
     aliases: &HashMap<String, ssa::Type>,
     struct_layouts: &[Vec<(PropKey, ssa::Type)>],
+    ast: &Ast,
+    widths: &WidthTable,
 ) -> HashMap<ssa::StructId, Vec<(String, FieldInit)>> {
-    use ssa::Type as T;
     let mut out = HashMap::new();
     let stats = !admitted.is_empty() && stats();
     for (n, inits) in admitted {
-        let Some(T::Obj(sid)) = aliases.get(n) else {
+        let Some(ssa::Type::Obj(sid)) = aliases.get(n) else {
             continue;
         };
-        let scalar = struct_layouts[sid.0 as usize]
-            .iter()
-            .all(|(_, t)| matches!(t, T::I64 | T::F64 | T::I32 | T::Bool));
-        let shared = aliases.iter().any(|(m, t)| m != n && *t == T::Obj(*sid));
-        if scalar && !shared {
-            out.insert(*sid, inits.clone());
-            if stats {
-                eprintln!("[value_class] hit: {n}");
+        let verdict = layout_takes(n, inits, *sid, aliases, struct_layouts, ast, widths);
+        match verdict {
+            Ok(()) => {
+                out.insert(*sid, inits.clone());
+                if stats {
+                    eprintln!("[value_class] hit: {n}");
+                }
             }
-        } else if stats {
-            eprintln!(
-                "[value_class] out: {n}: a field is not a scalar slot or another name shares the layout"
-            );
+            Err(reason) if stats => eprintln!("[value_class] out: {n}: {reason}"),
+            Err(_) => {}
         }
     }
     out
+}
+
+fn layout_takes(
+    class: &str,
+    inits: &[(String, FieldInit)],
+    sid: ssa::StructId,
+    aliases: &HashMap<String, ssa::Type>,
+    struct_layouts: &[Vec<(PropKey, ssa::Type)>],
+    ast: &Ast,
+    widths: &WidthTable,
+) -> Result<(), String> {
+    let layout = &struct_layouts[sid.0 as usize];
+    if aliases
+        .iter()
+        .any(|(m, t)| m != class && *t == ssa::Type::Obj(sid))
+    {
+        return Err("another name shares the layout".into());
+    }
+    let factory = format!("__new_{class}");
+    let params = decl::fn_params(ast, &factory).unwrap_or_default();
+    for (f, slot) in layout {
+        let Some((_, init)) = inits.iter().find(|(n, _)| f == n.as_str()) else {
+            return Err(format!("field `{}` has no value", f.lossy()));
+        };
+        let param = match init {
+            FieldInit::Arg(i) => params.get(*i).map(|p| param_ty(widths, &factory, p)),
+            _ => None,
+        };
+        if !field_takes(*slot, *init, param.flatten()) {
+            return Err(format!(
+                "field `{}` ({slot:?}) cannot hold {init:?}",
+                f.lossy()
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// The slot type the factory's parameter `p` lowers to: a `number`
+/// widens to a float when the width analysis says one reaches it.
+fn param_ty(widths: &WidthTable, factory: &str, p: &crate::ast::Param) -> Option<ssa::Type> {
+    match p.type_ann.as_deref() {
+        Some("number") => {
+            let key = crate::num_width::SlotKey::Param(factory.to_string(), p.name.clone());
+            Some(if widths.slot_is_f64(&key) {
+                ssa::Type::F64
+            } else {
+                ssa::Type::I64
+            })
+        }
+        Some("boolean") => Some(ssa::Type::Bool),
+        _ => None,
+    }
+}
+
+/// Whether a field slot of type `slot` holds `init` as the cell's
+/// field would: an argument of the slot's own type (or an integer
+/// into a float slot), a number literal a float slot holds, or an
+/// integer slot holds exactly (no fraction, no `-0`, inside 2^53), a
+/// boolean literal into a boolean slot.
+fn field_takes(slot: ssa::Type, init: FieldInit, param: Option<ssa::Type>) -> bool {
+    use ssa::Type as T;
+    match (slot, init) {
+        (T::F64, FieldInit::Number(_)) | (T::Bool, FieldInit::Bool(_)) => true,
+        (T::I64, FieldInit::Number(n)) => {
+            n.fract() == 0.0 && n.abs() < (1u64 << 53) as f64 && !(n == 0.0 && n.is_sign_negative())
+        }
+        (slot, FieldInit::Arg(_)) => match param {
+            Some(p) => p == slot || (slot == T::F64 && p == T::I64),
+            None => false,
+        },
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{FieldInit, field_takes};
+    use crate::ssa::Type;
+
+    #[test]
+    fn a_slot_takes_only_what_it_holds_exactly() {
+        let num = FieldInit::Number;
+        assert!(field_takes(Type::F64, num(0.5), None));
+        assert!(field_takes(Type::I64, num(3.0), None));
+        assert!(!field_takes(Type::I64, num(0.5), None));
+        assert!(!field_takes(Type::I64, num(-0.0), None));
+        assert!(!field_takes(Type::I64, num(1e16), None));
+        assert!(!field_takes(Type::I32, num(1.0), None));
+        assert!(field_takes(Type::Bool, FieldInit::Bool(true), None));
+        assert!(!field_takes(Type::F64, FieldInit::Bool(true), None));
+        let arg = FieldInit::Arg(0);
+        assert!(field_takes(Type::F64, arg, Some(Type::I64)));
+        assert!(field_takes(Type::I64, arg, Some(Type::I64)));
+        assert!(!field_takes(Type::I64, arg, Some(Type::F64)));
+        assert!(!field_takes(Type::Bool, arg, Some(Type::I64)));
+        assert!(!field_takes(Type::I64, arg, None));
+    }
 }

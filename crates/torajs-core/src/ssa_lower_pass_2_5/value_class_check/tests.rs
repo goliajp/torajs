@@ -68,7 +68,11 @@ fn array(f: &mut Function, b: BlockId) -> Operand {
 
 pub(super) fn found(m: &Module) -> Vec<String> {
     let classes = HashSet::from([StructId(0)]);
-    disagreements(m, &classes, &[false, false], &|_| false).0
+    (disagreements(m, &classes, &[false, false], &|_| false)
+        .0
+        .into_iter())
+    .map(|(_, d)| d)
+    .collect()
 }
 
 pub(super) fn reports(m: &Module, what: &str) {
@@ -174,12 +178,10 @@ fn an_open_slot_is_reported() {
     let m = module();
     let classes = HashSet::from([StructId(0)]);
     let got = disagreements(&m, &classes, &[true, false], &|_| false).0;
-    assert_eq!(got, vec!["sid 0 / open slot".to_string()]);
+    assert_eq!(got, vec![(StructId(0), "sid 0 / open slot".to_string())]);
 }
 
-#[test]
-#[should_panic(expected = "internal error: the value-class census and the SSA disagree")]
-fn a_disagreement_fails_the_compile() {
+fn disagreeing() -> (Module, ProgramFacts) {
     let mut m = module();
     func(&mut m, "f", Type::Void, |f, b| {
         let c = cell(f, b, 0);
@@ -189,5 +191,19 @@ fn a_disagreement_fails_the_compile() {
         value_classes: HashSet::from([StructId(0)]),
         ..Default::default()
     };
-    report(&m, &Ast::default(), &facts, &[false, false]);
+    (m, facts)
+}
+
+#[test]
+fn a_disagreement_names_the_class_to_hold_as_cells() {
+    let (m, facts) = disagreeing();
+    let got = report(&m, &Ast::default(), &facts, &[false, false], false);
+    assert_eq!(got, vec![StructId(0)]);
+}
+
+#[test]
+#[should_panic(expected = "internal error: the value-class census and the SSA disagree")]
+fn a_strict_disagreement_fails_the_compile() {
+    let (m, facts) = disagreeing();
+    report(&m, &Ast::default(), &facts, &[false, false], true);
 }

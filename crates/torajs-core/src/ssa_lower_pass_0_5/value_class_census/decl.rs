@@ -8,8 +8,11 @@ use crate::ast::{Ast, Expr, ExprId, PropKey, Stmt};
 use super::{Candidate, FieldInit};
 
 /// Classes whose declaration and desugared factory / constructor pass
-/// the checks of the census's first paragraph.
-pub(super) fn candidates(ast: &Ast) -> Vec<Candidate<'_>> {
+/// the checks of the census's first paragraph; and the classes whose
+/// only failing check is what a new instance's fields hold, each with
+/// the reason.
+#[allow(clippy::type_complexity)] // the candidates, and the refusals
+pub(super) fn candidates(ast: &Ast) -> (Vec<Candidate<'_>>, Vec<(&str, String)>) {
     let mut decls: Vec<(&str, &[(PropKey, String)])> = Vec::new();
     for s in &ast.stmts {
         if let Stmt::TypeDecl {
@@ -24,11 +27,12 @@ pub(super) fn candidates(ast: &Ast) -> Vec<Candidate<'_>> {
         }
     }
     if decls.is_empty() {
-        return Vec::new();
+        return (Vec::new(), Vec::new());
     }
     let mut fns: HashMap<&str, Vec<&Stmt>> = HashMap::new();
     collect_fns(&ast.stmts, &mut fns);
     let mut out = Vec::new();
+    let mut refused = Vec::new();
     for (name, fields) in decls {
         let Some(fields) = plain_fields(ast, name, fields) else {
             continue;
@@ -84,6 +88,11 @@ pub(super) fn candidates(ast: &Ast) -> Vec<Candidate<'_>> {
             })
             .collect();
         let Some(inits) = inits else {
+            refused.push((
+                name,
+                "a field of a new instance holds no number or boolean literal or argument"
+                    .to_string(),
+            ));
             continue;
         };
         out.push(Candidate {
@@ -93,7 +102,7 @@ pub(super) fn candidates(ast: &Ast) -> Vec<Candidate<'_>> {
             inits,
         });
     }
-    out
+    (out, refused)
 }
 
 /// The declared fields, when every one is a non-optional `number` or
@@ -128,6 +137,16 @@ fn has_members(fns: &HashMap<&str, Vec<&Stmt>>, class: &str) -> bool {
     let cmany = format!("__cmany_{class}__");
     fns.keys()
         .any(|n| (n.starts_with(&cm) && n[cm.len()..] != *"ctor") || n.starts_with(&cmany))
+}
+
+/// The parameters of the one function named `name`.
+pub(super) fn fn_params<'a>(ast: &'a Ast, name: &str) -> Option<&'a [crate::ast::Param]> {
+    let mut fns: HashMap<&str, Vec<&Stmt>> = HashMap::new();
+    collect_fns(&ast.stmts, &mut fns);
+    match fns.get(name).map(Vec::as_slice) {
+        Some([Stmt::FnDecl { params, .. }]) => Some(params),
+        _ => None,
+    }
 }
 
 fn collect_fns<'a>(stmts: &'a [Stmt], out: &mut HashMap<&'a str, Vec<&'a Stmt>>) {

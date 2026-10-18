@@ -50,6 +50,10 @@ pub(crate) fn exec_with_timeout(
 ) -> Result<(String, String), String> {
     let mut child = Command::new(cmd)
         .args(args)
+        // a value class the compiler's own SSA check contradicts fails
+        // the compile here, where a release build would quietly lower
+        // it again with its arrays holding cells
+        .env("TORAJS_VALUE_CLASS_STRICT", "1")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         // tr run AOT-compiles and spawns `torajs-run-new-*` as a

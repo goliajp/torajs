@@ -142,39 +142,37 @@ fn store_fields(ctx: &mut LowerCtx<'_>, addr: ValueId, fields: &[Operand]) {
 }
 
 /// The fields of the instance `arg` builds, in layout order, each in
-/// its slot's type. The construction's arguments, or the literal's
-/// members, run in source order before any field is stored.
+/// its slot's type. The construction's arguments run in source order
+/// before any field is stored. The census admits no other argument (an
+/// object literal is a struct to the checker, not an instance), and
+/// checked that each field's slot takes what the construction puts
+/// there.
 fn field_values(ctx: &mut LowerCtx<'_>, arg: ExprId, sid: StructId) -> Vec<Operand> {
     let layout = ctx.struct_layouts[sid.0 as usize].clone();
-    let by_name: Vec<(String, Operand)> = if let Some(args) = construction_args(ctx, arg) {
-        let argv = factory_args(ctx, arg, args);
-        let inits = ctx.proofs.value_inits(sid).to_vec();
-        assert_eq!(
-            inits.len(),
-            layout.len(),
-            "ssa-lower: inits of sid {}",
-            sid.0
-        );
-        (inits.into_iter())
-            .map(|(f, init)| {
-                let v = match init {
-                    FieldInit::Arg(i) => argv[i],
-                    FieldInit::Number(n) => Operand::ConstF64(n),
-                    FieldInit::Bool(b) => Operand::ConstBool(b),
-                };
-                (f, v)
-            })
-            .collect()
-    } else if let Expr::ObjectLit { fields } = ctx.ast.get_expr(arg) {
-        (fields.iter())
-            .map(|(k, v)| (k.lossy().into_owned(), ctx.lower_expr(*v)))
-            .collect()
-    } else {
+    let Some(args) = construction_args(ctx, arg) else {
         panic!(
             "internal error: an inline element built from {:?}",
             ctx.ast.get_expr(arg)
         )
     };
+    let argv = factory_args(ctx, arg, args);
+    let inits = ctx.proofs.value_inits(sid).to_vec();
+    assert_eq!(
+        inits.len(),
+        layout.len(),
+        "ssa-lower: inits of sid {}",
+        sid.0
+    );
+    let by_name: Vec<(String, Operand)> = (inits.into_iter())
+        .map(|(f, init)| {
+            let v = match init {
+                FieldInit::Arg(i) => argv[i],
+                FieldInit::Number(n) => Operand::ConstF64(n),
+                FieldInit::Bool(b) => Operand::ConstBool(b),
+            };
+            (f, v)
+        })
+        .collect();
     (layout.iter())
         .map(|(k, ty)| {
             let (_, v) = (by_name.iter())

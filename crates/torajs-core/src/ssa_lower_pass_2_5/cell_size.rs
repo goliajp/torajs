@@ -51,16 +51,17 @@ fn cell_bytes(n_fields: usize) -> usize {
 /// body (env drops, class releases) is in place. `captures` and the
 /// AST's `widen_clone_origin` are the closure side channels the env
 /// layouts are read from (`cell_slot_flow::env_layouts`); `facts` names
-/// the value classes the SSA is held to (`value_class_check`).
+/// the value classes the SSA is held to (`value_class_check`); the
+/// ones it contradicts are the answer.
 pub(crate) fn settle(
     module: &mut Module,
     captures: &HashMap<String, Vec<(String, Type, bool)>>,
     ast: &crate::ast::Ast,
     facts: &crate::ssa_lower::proofs::ProgramFacts,
-) {
+) -> Vec<crate::ssa::StructId> {
     let envs = env_layouts(module, captures, &ast.widen_clone_origin);
     let unsettled = settle_alloc_sizes_to_rows(module);
-    settle_typed_frees(module, &envs, &unsettled, ast, facts);
+    settle_typed_frees(module, &envs, &unsettled, ast, facts)
 }
 
 /// A typed object drop leaves lowering as `obj_drop_sized(p, size,
@@ -75,7 +76,7 @@ fn settle_typed_frees(
     unsettled: &HashSet<usize>,
     ast: &crate::ast::Ast,
     facts: &crate::ssa_lower::proofs::ProgramFacts,
-) {
+) -> Vec<crate::ssa::StructId> {
     let find = |name: &str| {
         let at = module.funcs.iter().position(|f| f.name == name)?;
         Some(FuncId(at as u32))
@@ -91,7 +92,12 @@ fn settle_typed_frees(
     .filter_map(|(s, b)| Some((find(s)?, find(b)?)))
     .collect();
     let open = open_sids(module, envs);
-    super::value_class_check::report(module, ast, facts, &open);
+    let strict = super::value_class_check::strict();
+    let disagree = super::value_class_check::report(module, ast, facts, &open, strict);
+    if !disagree.is_empty() {
+        // the module lowers again without them
+        return disagree;
+    }
     let layouts = &module.struct_layouts;
     let mut admits_wider: HashMap<i64, bool> = HashMap::new();
     for f in &mut module.funcs {
@@ -117,6 +123,7 @@ fn settle_typed_frees(
             }
         }
     }
+    disagree
 }
 
 /// True when some layout extends `sid`'s by field-name prefix into
