@@ -11,16 +11,13 @@
 //! walk, exactly as `def[B]` kills in the equations. The work is linear
 //! in the total size of the sets instead of blocks × values per round.
 //!
-//! Positions use the global inst-slot numbering of
+//! Positions use the global inst-slot numbering of codegen's
 //! `liveness::compute_intervals`: one index per inst, then one for the
 //! terminator. Interval extension and copy coalescing both read the
 //! result.
 
-use torajs_core::ssa::id_hash::HashMap;
-
-use torajs_core::ssa::{Function, Terminator};
-
-use crate::liveness::{visit_inst_operands, visit_terminator_operands};
+use super::id_hash::HashMap;
+use super::{Function, Operand, Terminator, ValueId, visit_value_operands};
 
 /// Per-block liveness, index-aligned with `func.blocks`.
 pub struct BlockLiveness {
@@ -128,13 +125,13 @@ fn scan(func: &Function) -> Scan {
         let b = i as u32;
         s.start[i] = cursor;
         for inst in &block.insts {
-            visit_inst_operands(&inst.kind, |v| s.read(v.0, b));
+            visit_value_operands(&inst.kind, |v| s.read(v.0, b));
             if let Some(r) = inst.result {
                 s.write(r.0, b);
             }
             cursor += 1;
         }
-        visit_terminator_operands(&block.term, |v| s.read(v.0, b));
+        visit_terminator_values(&block.term, |v| s.read(v.0, b));
         s.end[i] = cursor;
         cursor += 1;
 
@@ -151,6 +148,18 @@ fn scan(func: &Function) -> Scan {
         }
     }
     s
+}
+
+/// Call `f` with the value a terminator reads, if any.
+fn visit_terminator_values(term: &Terminator, mut f: impl FnMut(ValueId)) {
+    match term {
+        Terminator::Ret(Some(Operand::Value(v)))
+        | Terminator::CondBr {
+            cond: Operand::Value(v),
+            ..
+        } => f(*v),
+        _ => {}
+    }
 }
 
 pub fn compute_block_liveness(func: &Function) -> BlockLiveness {

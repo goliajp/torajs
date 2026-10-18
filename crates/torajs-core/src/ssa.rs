@@ -15,6 +15,7 @@ pub mod branch_prob;
 pub mod dominator;
 mod function_methods;
 pub mod id_hash;
+pub mod liveness_blocks;
 pub mod loop_analysis;
 mod module_class_layouts;
 mod module_extras;

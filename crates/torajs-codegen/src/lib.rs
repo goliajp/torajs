@@ -35,7 +35,7 @@ mod linear_scan_spill;
 pub(crate) mod linear_scan_sweep;
 mod live_ranges;
 pub mod liveness;
-pub mod liveness_blocks;
+pub use torajs_core::ssa::liveness_blocks;
 pub mod reg;
 pub mod regalloc;
 pub mod reloc;

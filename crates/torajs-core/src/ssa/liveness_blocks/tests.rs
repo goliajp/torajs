@@ -1,11 +1,10 @@
 use std::collections::BTreeSet;
 
-use torajs_core::ssa::{
+use super::{compute_block_liveness, visit_terminator_values};
+use crate::ssa::{
     BinOp, Block, BlockId, Function, Inst, InstKind, Operand, Terminator, Type, ValueId, ValueInfo,
+    visit_value_operands,
 };
-
-use super::compute_block_liveness;
-use crate::liveness::{visit_inst_operands, visit_terminator_operands};
 
 type Sets = Vec<BTreeSet<u32>>;
 
@@ -19,7 +18,7 @@ fn dense_fix_point(func: &Function) -> (Sets, Sets) {
     let mut succs: Vec<Vec<usize>> = vec![Vec::new(); n];
     for (i, block) in func.blocks.iter().enumerate() {
         for inst in &block.insts {
-            visit_inst_operands(&inst.kind, |v| {
+            visit_value_operands(&inst.kind, |v| {
                 if !defs[i].contains(&v.0) {
                     uses[i].insert(v.0);
                 }
@@ -28,7 +27,7 @@ fn dense_fix_point(func: &Function) -> (Sets, Sets) {
                 defs[i].insert(r.0);
             }
         }
-        visit_terminator_operands(&block.term, |v| {
+        visit_terminator_values(&block.term, |v| {
             if !defs[i].contains(&v.0) {
                 uses[i].insert(v.0);
             }
