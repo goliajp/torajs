@@ -309,19 +309,19 @@ impl OwnedPair {
 
 impl Drop for OwnedPair {
     fn drop(&mut self) {
-        if !self.owned {
-            return;
+        if self.owned {
+            // SAFETY: `owned` means the value came out of a getter and
+            // the +1 is ours.
+            unsafe { release_owned(self.tag, self.payload) };
         }
-        // SAFETY: `owned` means the value came out of a getter and the
-        // +1 is ours. A non-cell answer re-boxes to an immediate,
-        // which `rc_dec` passes over.
-        unsafe {
-            crate::nanbox_ffi::__torajs_anyv_rc_dec(
-                crate::nanbox_encode::__torajs_anyv_box_from_pair(
-                    self.tag as i64,
-                    self.payload as i64,
-                ),
-            )
-        };
     }
+}
+
+/// Out of line, so no consumer carries its own copy of the decode. A
+/// non-cell answer re-boxes to an immediate, which `rc_dec` passes over.
+#[cold]
+#[inline(never)]
+unsafe fn release_owned(tag: u64, payload: u64) {
+    use crate::nanbox_encode::__torajs_anyv_box_from_pair as boxed;
+    unsafe { crate::nanbox_ffi::__torajs_anyv_rc_dec(boxed(tag as i64, payload as i64)) };
 }
