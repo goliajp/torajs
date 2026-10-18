@@ -49,7 +49,7 @@ pub(crate) fn who_census(
         return Vec::new();
     }
     for (&key, m) in &r.members {
-        let member = &merged.per_archive_members[key.0][key.1];
+        let member = &merged.member(key.0, key.1);
         for (si, sa) in m.sects.iter().enumerate() {
             if sa.no_file_storage {
                 continue;

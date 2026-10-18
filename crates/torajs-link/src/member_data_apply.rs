@@ -213,7 +213,7 @@ pub fn collect_member_data_payloads(
     let mut lv_cursor: usize = 0;
     for (i, per_member) in layout.data_non_text_layouts.iter().enumerate() {
         let m_key = layout.member_layouts[i].key;
-        let member = &merged.per_archive_members[m_key.0][m_key.1];
+        let member = &merged.member(m_key.0, m_key.1);
         for s in per_member {
             if !s.has_file_storage {
                 continue;

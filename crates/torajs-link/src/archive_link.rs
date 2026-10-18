@@ -122,13 +122,13 @@ pub(crate) fn compute_archive_layout_with_required<'a>(
             MemberSymtabList::default()
         } else {
             let dead = dead_rows.get(&key).map_or(&[][..], Vec::as_slice);
-            list_member_symbols(merged.per_archive_members[key.0][key.1].data, dead).map_err(
-                |err| ArchiveLayoutError::MemberSymtab {
+            list_member_symbols(merged.member(key.0, key.1).data, dead).map_err(|err| {
+                ArchiveLayoutError::MemberSymtab {
                     archive_idx: key.0,
                     member_idx: key.1,
                     err,
-                },
-            )?
+                }
+            })?
         };
         member_layouts.push(MemberLayout {
             key,

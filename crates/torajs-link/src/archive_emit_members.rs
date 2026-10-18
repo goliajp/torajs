@@ -22,7 +22,7 @@ pub(crate) fn member_text_payloads(
     let mut text: Vec<Vec<u8>> = Vec::with_capacity(layout.member_layouts.len());
     let mut non_text: Vec<Vec<u8>> = Vec::new();
     for (mi, m) in layout.member_layouts.iter().enumerate() {
-        let member = &merged.per_archive_members[m.key.0][m.key.1];
+        let member = &merged.member(m.key.0, m.key.1);
         let off = m.member_text_offset_in_member as usize;
         let end = off + m.text_size as usize;
         let mut bytes = member.data[off..end].to_vec();

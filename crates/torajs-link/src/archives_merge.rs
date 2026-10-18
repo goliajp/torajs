@@ -26,37 +26,74 @@ pub use crate::archive_link_extra_syms::ExtraDefined;
 use crate::dead_strip_reach_cache::ReachCache;
 
 /// One entry in a `MergedArchives` global lookup. Tells the link
-/// driver *which* archive owns the symbol, *which* `.o` member
-/// inside that archive defines it, and the section-relative offset
-/// inside that member's `__TEXT,__text`.
+/// driver *which* archive owns the symbol and *which* `.o` member
+/// inside that archive defines it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MergedSymbol {
     /// Archive position in the runtime image (link search order).
     pub archive_idx: usize,
-    /// Index into `per_archive_members[archive_idx]`.
+    /// Member position inside archive `archive_idx`.
     pub member_idx: usize,
-    /// `nlist_64.n_value` for the defining symbol — section-
-    /// relative offset inside that member's `__TEXT,__text`.
-    pub n_value: u64,
 }
 
-/// Result of merging every archive: the per-archive parsed
-/// `ArMember` list (so a later resolver can pull member bytes)
-/// plus the unified `name → MergedSymbol` lookup.
-///
-/// Borrows the image bytes — no copying of member payloads.
+/// The runtime image read as the link pipeline's member lists and
+/// merged symbol lookup. The lookup is a binary search over the
+/// image's sorted symbol rows, so nothing is built per symbol.
 #[derive(Debug)]
 pub struct MergedArchives<'a> {
-    /// `per_archive_members[i]` = parsed members of `archives[i]`,
-    /// in the same order `parse_archive` returned them. The
-    /// resolver pairs `(archive_idx, member_idx)` with this Vec
-    /// to grab the underlying `.o` bytes.
-    pub per_archive_members: Vec<Vec<ArMember<'a>>>,
-    /// Global defined-external lookup. First archive defining a
-    /// given name wins (Apple `ld64` search-order semantics).
-    /// Names borrow the archive bytes — the index build was
-    /// ~17ms/case as owned Strings (phase-timing.md merge split).
-    pub index: BTreeMap<&'a str, MergedSymbol>,
+    image: Image<'a>,
+    /// Members of each archive in archive order. The dead-strip
+    /// pre-pass swaps rewritten bodies in
+    /// ([`crate::dead_strip_repack::swap_in_stripped`]).
+    members: Vec<Vec<ArMember<'a>>>,
+}
+
+impl<'a> MergedArchives<'a> {
+    pub fn archive_count(&self) -> usize {
+        self.members.len()
+    }
+
+    pub fn member_count(&self, archive_idx: usize) -> usize {
+        self.members[archive_idx].len()
+    }
+
+    pub fn member(&self, archive_idx: usize, member_idx: usize) -> ArMember<'a> {
+        self.members[archive_idx][member_idx]
+    }
+
+    /// The members of archive `archive_idx`, in archive order.
+    pub fn members(&self, archive_idx: usize) -> impl Iterator<Item = ArMember<'a>> + '_ {
+        self.members[archive_idx].iter().copied()
+    }
+
+    pub(crate) fn swap_member_data(&mut self, (a, m): (usize, usize), data: &'a [u8]) {
+        self.members[a][m].data = data;
+    }
+
+    pub fn symbol_count(&self) -> usize {
+        self.image.symbol_count()
+    }
+
+    /// The merged entry for `name`. First archive defining a given
+    /// name wins (Apple `ld64` search-order semantics).
+    pub fn symbol(&self, name: &str) -> Option<MergedSymbol> {
+        let (archive_idx, member_idx) = self.image.symbol_owner(self.image.find_symbol(name)?);
+        Some(MergedSymbol {
+            archive_idx,
+            member_idx,
+        })
+    }
+
+    /// Every merged entry, sorted by name.
+    pub fn symbols(&self) -> impl Iterator<Item = (&'a str, MergedSymbol)> + '_ {
+        self.image.symbols().map(|s| {
+            let sym = MergedSymbol {
+                archive_idx: s.archive_idx,
+                member_idx: s.member_idx,
+            };
+            (s.name, sym)
+        })
+    }
 }
 
 /// Failures `merge_archive_indexes` can report: the bytes are not a
@@ -66,32 +103,14 @@ pub enum ArchiveMergeError {
     Image(ImageError),
 }
 
-/// Read the runtime image back into the per-archive member lists and
-/// the merged symbol lookup. The image's symbol table is sorted by
-/// name, so the `BTreeMap` is bulk-built from it.
+/// Read the runtime image as the per-archive member lists and the
+/// merged symbol lookup.
 pub fn merge_archive_indexes<'a>(image: &'a [u8]) -> Result<MergedArchives<'a>, ArchiveMergeError> {
     let image = Image::parse(image).map_err(ArchiveMergeError::Image)?;
-    let per_archive_members: Vec<Vec<ArMember<'a>>> = (0..image.archive_count())
+    let members = (0..image.archive_count())
         .map(|a| image.members(a).collect())
         .collect();
-    let index: BTreeMap<&'a str, MergedSymbol> = image
-        .symbols()
-        .map(|s| {
-            (
-                s.name,
-                MergedSymbol {
-                    archive_idx: s.archive_idx,
-                    member_idx: s.member_idx,
-                    n_value: s.n_value,
-                },
-            )
-        })
-        .collect();
-
-    Ok(MergedArchives {
-        per_archive_members,
-        index,
-    })
+    Ok(MergedArchives { image, members })
 }
 
 // ---- S7-C2: worklist closure of required archive members ----
@@ -143,7 +162,7 @@ pub enum ArchiveLinkError {
 /// Algorithm: start with the set of extern names referenced by
 /// `user_funcs`'s relocs (minus names that are defined by another
 /// `user_funcs[i]`). For each name, look it up in
-/// `merged.index`:
+/// `merged.symbol`:
 ///
 ///   - hit  → mark that `(archive_idx, member_idx)` as required,
 ///     then parse the member's `LC_SYMTAB` and enqueue
@@ -206,7 +225,7 @@ pub(crate) fn compute_required_members_cached<'a>(
         if defined_in_user.contains(name) {
             continue;
         }
-        let Some(sym) = merged.index.get(name) else {
+        let Some(sym) = merged.symbol(name) else {
             // SD-1 / SD-4b: dyld-class externs (libSystem or
             // libcurl) bind through `LC_LOAD_DYLIB`, not through
             // any archive's defined-extern set. Classify them out
@@ -227,7 +246,7 @@ pub(crate) fn compute_required_members_cached<'a>(
             // satisfied) or are about to be on this branch.
             continue;
         }
-        let member = &merged.per_archive_members[sym.archive_idx][sym.member_idx];
+        let member = &merged.member(sym.archive_idx, sym.member_idx);
         let undefs = cache
             .undef_externs(member)
             .map_err(|err| ArchiveLinkError::Member {
@@ -251,7 +270,7 @@ pub(crate) fn compute_required_members_cached<'a>(
     if std::env::var_os("TORAJS_LINK_CLOSURE_DIAG").is_some() {
         let names: Vec<&str> = required
             .iter()
-            .map(|&(a, m)| merged.per_archive_members[a][m].name)
+            .map(|&(a, m)| merged.member(a, m).name)
             .collect();
         eprintln!(
             "[closure-diag] members={} dyld={} names={names:?}",
@@ -382,8 +401,8 @@ mod tests {
     fn empty_archives_merge_to_empty_index() {
         let image = torajs_rtimage::image::build(&[]).unwrap();
         let merged = merge_archive_indexes(&image).expect("empty input must merge cleanly");
-        assert!(merged.per_archive_members.is_empty());
-        assert!(merged.index.is_empty());
+        assert_eq!(merged.archive_count(), 0);
+        assert_eq!(merged.symbol_count(), 0);
     }
 
     #[test]
@@ -393,13 +412,12 @@ mod tests {
         let image = torajs_rtimage::image::build(&[archive.as_slice()]).unwrap();
 
         let merged = merge_archive_indexes(&image).unwrap();
-        assert_eq!(merged.per_archive_members.len(), 1);
-        assert_eq!(merged.per_archive_members[0].len(), 1);
-        assert_eq!(merged.index.len(), 1);
-        let sym = &merged.index["_foo"];
+        assert_eq!(merged.archive_count(), 1);
+        assert_eq!(merged.member_count(0), 1);
+        assert_eq!(merged.symbol_count(), 1);
+        let sym = merged.symbol("_foo").unwrap();
         assert_eq!(sym.archive_idx, 0);
         assert_eq!(sym.member_idx, 0);
-        assert_eq!(sym.n_value, 0);
     }
 
     /// Two archives, each defining one unique symbol plus a
@@ -422,25 +440,25 @@ mod tests {
         let merged = merge_archive_indexes(&image).unwrap();
 
         // Three distinct names — _shared collapses to one entry.
-        assert_eq!(merged.index.len(), 3);
+        assert_eq!(merged.symbol_count(), 3);
 
         // _foo lives only in archive_a.
-        let foo_sym = &merged.index["_foo"];
+        let foo_sym = merged.symbol("_foo").unwrap();
         assert_eq!(foo_sym.archive_idx, 0);
         assert_eq!(foo_sym.member_idx, 0);
 
         // _bar lives only in archive_b.
-        let bar_sym = &merged.index["_bar"];
+        let bar_sym = merged.symbol("_bar").unwrap();
         assert_eq!(bar_sym.archive_idx, 1);
         assert_eq!(bar_sym.member_idx, 0);
 
         // _shared is defined in both — first-wins picks archive_a.
-        let shared_sym = &merged.index["_shared"];
+        let shared_sym = merged.symbol("_shared").unwrap();
         assert_eq!(shared_sym.archive_idx, 0);
 
-        assert_eq!(merged.per_archive_members.len(), 2);
-        assert_eq!(merged.per_archive_members[0].len(), 1);
-        assert_eq!(merged.per_archive_members[1].len(), 1);
+        assert_eq!(merged.archive_count(), 2);
+        assert_eq!(merged.member_count(0), 1);
+        assert_eq!(merged.member_count(1), 1);
     }
 
     /// Real-world spot check: merge `libtorajs_syscall.a` +
@@ -474,30 +492,30 @@ mod tests {
         let borrowed: Vec<&[u8]> = archives.iter().map(Vec::as_slice).collect();
         let image = torajs_rtimage::image::build(&borrowed).expect("real archives must build");
         let merged = merge_archive_indexes(&image).expect("real archives must merge");
-        assert_eq!(merged.per_archive_members.len(), 2);
+        assert_eq!(merged.archive_count(), 2);
 
         // Per-archive sym counts via build_archive_index.
-        let idx_a = build_archive_index(&merged.per_archive_members[0]).unwrap();
-        let idx_b = build_archive_index(&merged.per_archive_members[1]).unwrap();
+        let idx_a = build_archive_index(&merged.members(0).collect::<Vec<_>>()).unwrap();
+        let idx_b = build_archive_index(&merged.members(1).collect::<Vec<_>>()).unwrap();
         assert!(!idx_a.is_empty(), "syscall archive must define externs");
         assert!(!idx_b.is_empty(), "str archive must define externs");
 
         let max_individual = std::cmp::max(idx_a.len(), idx_b.len());
         assert!(
-            merged.index.len() >= max_individual,
+            merged.symbol_count() >= max_individual,
             "merged index ({}) must cover at least the larger archive ({})",
-            merged.index.len(),
+            merged.symbol_count(),
             max_individual,
         );
         // And cannot exceed the unduped union.
-        assert!(merged.index.len() <= idx_a.len() + idx_b.len());
+        assert!(merged.symbol_count() <= idx_a.len() + idx_b.len());
 
         // Every entry in the merged index must point at a real
         // archive/member pair we recorded.
-        for sym in merged.index.values() {
-            assert!(sym.archive_idx < merged.per_archive_members.len());
+        for (_, sym) in merged.symbols() {
+            assert!(sym.archive_idx < merged.archive_count());
             assert!(
-                sym.member_idx < merged.per_archive_members[sym.archive_idx].len(),
+                sym.member_idx < merged.member_count(sym.archive_idx),
                 "sym.member_idx out of range",
             );
         }
@@ -510,6 +528,32 @@ mod tests {
         let bad: Vec<u8> = b"not an image".to_vec();
         let err = merge_archive_indexes(&bad).unwrap_err();
         assert!(matches!(err, ArchiveMergeError::Image(_)), "{err:?}");
+    }
+
+    /// A swapped-in body replaces only its own member and leaves the
+    /// owners in the lookup as they were.
+    #[test]
+    fn swapped_body_replaces_only_its_member() {
+        let foo = make_ret_const_fn("_foo", 1);
+        let shared_a = make_ret_const_fn("_shared", 2);
+        let archive_a = wrap_two_fns_in_archive("a.o", &foo, &shared_a);
+        let bar = make_ret_const_fn("_bar", 3);
+        let shared_b = make_ret_const_fn("_shared", 4);
+        let archive_b = wrap_two_fns_in_archive("b.o", &bar, &shared_b);
+        let image =
+            torajs_rtimage::image::build(&[archive_a.as_slice(), archive_b.as_slice()]).unwrap();
+        let body = vec![0xAB; 8];
+        let mut merged = merge_archive_indexes(&image).unwrap();
+        let a_body = merged.member(0, 0).data;
+        let before: Vec<_> = merged.symbols().collect();
+
+        merged.swap_member_data((1, 0), &body);
+
+        assert_eq!(merged.member(1, 0).data, body.as_slice());
+        assert_eq!(merged.member(1, 0).name, "b.o");
+        assert_eq!(merged.member(0, 0).data.as_ptr(), a_body.as_ptr());
+        assert_eq!(merged.symbols().collect::<Vec<_>>(), before);
+        assert_eq!(merged.symbol("_missing"), None);
     }
 
     // ---- S7-C2 tests: compute_required_members worklist closure ----

@@ -87,14 +87,14 @@ pub fn build_rtlinked_image(
 /// Every global a `torajs*` member defines.
 fn roots<'a>(merged: &MergedArchives<'a>) -> Vec<&'a str> {
     merged
-        .index
-        .iter()
+        .symbols()
         .filter(|(_, s)| {
-            merged.per_archive_members[s.archive_idx][s.member_idx]
+            merged
+                .member(s.archive_idx, s.member_idx)
                 .name
                 .starts_with("torajs")
         })
-        .map(|(n, _)| *n)
+        .map(|(n, _)| n)
         .collect()
 }
 

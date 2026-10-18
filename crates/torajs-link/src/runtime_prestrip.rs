@@ -56,15 +56,9 @@ pub fn prestripped_runtime_image(archives: &[&[u8]]) -> Result<Vec<u8>, Prestrip
 pub fn prestrip_image(image: &[u8]) -> Result<Vec<u8>, PrestripError> {
     let merged = merge_archive_indexes(image).map_err(|e| PrestripError::Link(format!("{e:?}")))?;
     let roots: Vec<&str> = merged
-        .index
-        .iter()
-        .filter(|(n, s)| {
-            nameable_by_program(
-                n,
-                merged.per_archive_members[s.archive_idx][s.member_idx].name,
-            )
-        })
-        .map(|(n, _)| *n)
+        .symbols()
+        .filter(|(n, s)| nameable_by_program(n, merged.member(s.archive_idx, s.member_idx).name))
+        .map(|(n, _)| n)
         .collect();
     let mut cfg = link_cfg(&[], root_fn(&roots));
     let mut cache = ReachCache::default();
@@ -93,7 +87,7 @@ pub fn prestrip_image(image: &[u8]) -> Result<Vec<u8>, PrestripError> {
 
     let mut rewritten: BTreeMap<(usize, usize), Vec<u8>> = BTreeMap::new();
     for (&(a, m), r) in &reach.members {
-        let member = &merged.per_archive_members[a][m];
+        let member = &merged.member(a, m);
         // an object that does not split at its symbols has nothing to
         // cut short of a whole section: it stays as it is
         if !splits_at_symbols(member.data) {
@@ -120,7 +114,9 @@ pub fn prestrip_image(image: &[u8]) -> Result<Vec<u8>, PrestripError> {
             .map_err(|e| PrestripError::Link(format!("{}: {e}", member.name)))?;
         rewritten.insert((a, m), bytes);
     }
-    let mut members = merged.per_archive_members.clone();
+    let mut members: Vec<Vec<_>> = (0..merged.archive_count())
+        .map(|a| merged.members(a).collect())
+        .collect();
     for (&(a, m), bytes) in &rewritten {
         members[a][m].data = bytes;
     }

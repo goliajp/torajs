@@ -72,7 +72,7 @@ pub(crate) fn compute_member_data_rebase_targets(
     for (mi, sections) in layout.data_non_text_layouts.iter().enumerate() {
         let member_layout = &layout.member_layouts[mi];
         let (archive_idx, member_idx) = member_layout.key;
-        let member = &merged.per_archive_members[archive_idx][member_idx];
+        let member = &merged.member(archive_idx, member_idx);
         collect_member_targets(
             member,
             sections,
@@ -359,10 +359,9 @@ mod tests {
     #[test]
     fn empty_layout_yields_empty() {
         use crate::archives_merge::MergedArchives;
-        let merged: MergedArchives<'_> = MergedArchives {
-            per_archive_members: Vec::new(),
-            index: std::collections::BTreeMap::new(),
-        };
+        let image = torajs_rtimage::image::build(&[]).unwrap();
+        let merged: MergedArchives<'_> =
+            crate::archives_merge::merge_archive_indexes(&image).unwrap();
         let layout = empty_archive_layout();
         let sym_table = SymTable::new();
         let targets =

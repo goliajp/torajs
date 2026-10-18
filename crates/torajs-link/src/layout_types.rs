@@ -35,7 +35,7 @@ use crate::user_vtables_layout::UserVtablesLayout;
 #[derive(Debug, Clone)]
 pub struct MemberLayout {
     /// `(archive_idx, member_idx)` into `cfg.archives` /
-    /// `MergedArchives::per_archive_members`.
+    /// `MergedArchives::member`.
     pub key: (usize, usize),
     /// Byte length of the member's `__TEXT,__text` payload.
     pub text_size: u32,

@@ -20,7 +20,7 @@ pub(crate) fn node_for_global_name(
     merged: &MergedArchives<'_>,
     reach: &BTreeMap<(usize, usize), MemberReach<'_>>,
 ) -> Option<Node> {
-    let sym = merged.index.get(name)?;
+    let sym = merged.symbol(name)?;
     let key = (sym.archive_idx, sym.member_idx);
     let r = reach.get(&key)?;
     let &(n_sect, n_value) = r.defined.get(name)?;

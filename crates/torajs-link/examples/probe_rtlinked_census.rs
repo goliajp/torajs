@@ -128,14 +128,14 @@ fn link_cfg(image: Vec<u8>, main: CompiledFunction, user: &BTreeSet<String>) -> 
 
 fn roots<'a>(merged: &MergedArchives<'a>) -> Vec<&'a str> {
     merged
-        .index
-        .iter()
+        .symbols()
         .filter(|(_, s)| {
-            merged.per_archive_members[s.archive_idx][s.member_idx]
+            merged
+                .member(s.archive_idx, s.member_idx)
                 .name
                 .starts_with("torajs")
         })
-        .map(|(n, _)| *n)
+        .map(|(n, _)| n)
         .collect()
 }
 
@@ -182,7 +182,7 @@ fn census_relocs(layout: &ArchiveLayout, merged: &MergedArchives<'_>, user: &BTr
     let mut user_hits = BTreeMap::new();
     let mut rebases = 0usize;
     for (mi, m) in layout.member_layouts.iter().enumerate() {
-        let member = &merged.per_archive_members[m.key.0][m.key.1];
+        let member = &merged.member(m.key.0, m.key.1);
         let text = parse_member_text_relocs(member).expect("text relocs");
         tally_relocs(member, "text", &text, user, &mut tally, &mut user_hits);
         for s in &m.non_text_sections {

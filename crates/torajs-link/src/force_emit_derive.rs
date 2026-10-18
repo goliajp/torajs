@@ -60,7 +60,7 @@ pub(crate) fn derive_force_emit<'a>(
         .map_err(ArchiveLayoutError::Link)?;
     let mut undefs: BTreeSet<&str> = BTreeSet::new();
     for &(a, m) in &required.members {
-        let member = &merged.per_archive_members[a][m];
+        let member = &merged.member(a, m);
         let names =
             cache
                 .undef_externs(member)

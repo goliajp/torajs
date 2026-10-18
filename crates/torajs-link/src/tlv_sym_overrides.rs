@@ -280,7 +280,7 @@ pub fn compute_tlv_sym_overrides(
             continue;
         }
 
-        let member = &merged.per_archive_members[key.0][key.1];
+        let member = &merged.member(key.0, key.1);
         let bytes = member.data;
         let (symoff, nsyms, strtab) = match parse_member_symtab(bytes, key)? {
             Some(v) => v,

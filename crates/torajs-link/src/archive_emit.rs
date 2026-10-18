@@ -116,7 +116,7 @@ fn link(cfg: &LinkConfig, release: Release) -> Result<Vec<u8>, ArchiveLayoutErro
             None => (None, DeadRows::new(), StrippedMembers::new()),
         };
     t.tick("dead_strip_prepass");
-    swap_in_stripped(&mut merged, &stripped_members).map_err(ArchiveLayoutError::DeadStrip)?;
+    swap_in_stripped(&mut merged, &stripped_members);
     t.tick("swap_in_stripped");
     let cfg = stripped_cfg.as_ref().unwrap_or(cfg);
 

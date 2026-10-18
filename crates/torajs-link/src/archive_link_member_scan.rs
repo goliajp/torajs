@@ -22,7 +22,7 @@ pub fn scan_member_text_and_symbols(
     let mut text_offsets: Vec<u32> = Vec::with_capacity(n);
     let mut defined_syms: Vec<Vec<(String, u64, u8)>> = Vec::with_capacity(n);
     for &(a_idx, m_idx) in member_keys {
-        let member = &merged.per_archive_members[a_idx][m_idx];
+        let member = &merged.member(a_idx, m_idx);
         let (text_off, text_size) =
             parse_member_text_section(member).map_err(|err| ArchiveLayoutError::MemberText {
                 archive_idx: a_idx,

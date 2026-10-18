@@ -230,7 +230,7 @@ pub fn compute_data_section_layouts(
     // Collect once so the two passes share an iterator-free view.
     let mut per_member_raw: Vec<Vec<MemberSectionInfo>> = Vec::with_capacity(member_keys.len());
     for &(a_idx, m_idx) in member_keys {
-        let member = &merged.per_archive_members[a_idx][m_idx];
+        let member = &merged.member(a_idx, m_idx);
         let all = collect_member_sections(member).map_err(|err| NonTextLayoutError {
             archive_idx: a_idx,
             member_idx: m_idx,

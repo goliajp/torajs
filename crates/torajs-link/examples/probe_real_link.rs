@@ -131,7 +131,7 @@ fn main() {
                 for m in &layout.member_layouts {
                     let merged = torajs_link::archives_merge::merge_archive_indexes(&cfg.image)
                         .expect("merge");
-                    let member = &merged.per_archive_members[m.key.0][m.key.1];
+                    let member = &merged.member(m.key.0, m.key.1);
                     eprintln!(
                         "  archive={} member_idx={} member_name={} text_size={}",
                         m.key.0, m.key.1, member.name, m.text_size

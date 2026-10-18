@@ -156,7 +156,7 @@ pub(crate) fn compute_reachability<'a>(
     let mut t = PhaseTimer::start(4);
     let mut reach: BTreeMap<(usize, usize), MemberReach<'a>> = BTreeMap::new();
     for &(a, m) in &required.members {
-        let member = &merged.per_archive_members[a][m];
+        let member = &merged.member(a, m);
         reach.insert((a, m), cache.member_reach(member)?);
     }
     t.tick("reach_build_members");
@@ -355,7 +355,7 @@ fn expand_node<'a>(
         }
     };
 
-    let member = &merged.per_archive_members[key.0][key.1];
+    let member = &merged.member(key.0, key.1);
     let r = reach.get(&key).ok_or("member vanished")?;
     if r.sects
         .get(sect_ord as usize - 1)

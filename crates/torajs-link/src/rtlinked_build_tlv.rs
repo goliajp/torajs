@@ -84,7 +84,7 @@ fn descriptor_init(
 ) -> Result<u64, RtLinkedBuildError> {
     let mi = member_index[&d.member_key];
     let m = &layout.member_layouts[mi];
-    let member = &merged.per_archive_members[m.key.0][m.key.1];
+    let member = &merged.member(m.key.0, m.key.1);
     let data_sections = member_data_layouts(layout, mi);
     let sec = data_sections
         .iter()

@@ -17,7 +17,6 @@ use torajs_obj::{
 
 use torajs_codegen::CompiledFunction;
 
-use crate::archive::parse_member_defined_externs;
 use crate::archive_link_extra_syms::collect_extra_defined_syms;
 use crate::archives_merge::{MergedArchives, compute_required_members_cached};
 use crate::dead_strip_reach::{MemberReach, SectAtoms, compute_reachability};
@@ -88,7 +87,7 @@ pub(crate) fn strip_archives<'a>(
     let mut members = StrippedMembers::new();
     let mut dead_rows = DeadRows::new();
     for (&key, r) in &reach.members {
-        let m = &merged.per_archive_members[key.0][key.1];
+        let m = &merged.member(key.0, key.1);
         if let Some(StrippedMember {
             bytes,
             dead_rows: mut dead,
@@ -118,27 +117,11 @@ pub(crate) fn strip_archives<'a>(
 /// Point `merged` at the rewritten member bodies. This is what
 /// re-merging archives repacked with them would give: the rewrite
 /// keeps every nlist row and its type (only `n_value` moves, and only
-/// undef rows lose `N_EXT`), so every defined extern keeps its owner
-/// and only an owner's rewritten `n_value` is re-read.
-pub(crate) fn swap_in_stripped<'a>(
-    merged: &mut MergedArchives<'a>,
-    stripped: &'a StrippedMembers,
-) -> Result<(), String> {
-    for (&(a, m), bytes) in stripped {
-        let member = &mut merged.per_archive_members[a][m];
-        member.data = bytes;
-        let syms = parse_member_defined_externs(member)
-            .map_err(|e| format!("{}: stripped symtab: {e:?}", member.name))?;
-        // first row wins, as in the index build
-        for &(name, n_value, _) in syms.iter().rev() {
-            if let Some(s) = merged.index.get_mut(name)
-                && (s.archive_idx, s.member_idx) == (a, m)
-            {
-                s.n_value = n_value;
-            }
-        }
+/// undef rows lose `N_EXT`), so every defined extern keeps its owner.
+pub(crate) fn swap_in_stripped<'a>(merged: &mut MergedArchives<'a>, stripped: &'a StrippedMembers) {
+    for (&key, bytes) in stripped {
+        merged.swap_member_data(key, bytes);
     }
-    Ok(())
 }
 
 /// Which sections the rewriter may subset (S2 blade 3): regular

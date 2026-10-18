@@ -68,7 +68,7 @@ pub(crate) fn text(
     let mut buf = vec![0u8; off(stubs_end, origin)? as usize];
     let (mut const_lo, mut const_hi) = (u64::MAX, 0u64);
     for (mi, m) in layout.member_layouts.iter().enumerate() {
-        let member = &merged.per_archive_members[m.key.0][m.key.1];
+        let member = &merged.member(m.key.0, m.key.1);
         let relocs = parse_member_text_relocs(member).map_err(|e| reloc_err(m.key, e.into()))?;
         if let Some(r) = relocs.iter().find(|r| r.r_type == ARM64_RELOC_UNSIGNED) {
             return Err(RtLinkedBuildError::Unsupported(format!(
