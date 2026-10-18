@@ -211,6 +211,11 @@ pub fn apply_member_relocs_with_got(
     // ld64 / lld walk the reloc table linearly and accumulate the
     // addend, then consume it when the next non-ADDEND reloc fires.
     let mut pending_addend: i64 = 0;
+    // A named target is a function of the symbol index alone, and a
+    // member names the same symbols many times over (a runtime crate
+    // calls its throw check hundreds of times): each one is looked up
+    // by name once.
+    let mut by_sym: Vec<Option<u64>> = vec![None; symtab.nsyms as usize];
 
     for r in &relocs {
         // Meta-reloc — accumulate then continue.
@@ -236,16 +241,31 @@ pub fn apply_member_relocs_with_got(
             continue;
         }
 
-        let sym_vaddr = resolve_reloc_target(
-            r,
-            &mut pending_addend,
-            member,
-            &symtab,
-            member_vaddr,
-            sym_table,
-            non_text_sections,
-            data_non_text_sections,
-        )?;
+        let cached = match by_sym.get(r.r_symbolnum as usize) {
+            Some(&v) if r.r_extern != 0 => v,
+            _ => None,
+        };
+        let sym_vaddr = match cached {
+            Some(v) => v,
+            None => {
+                let v = resolve_reloc_target(
+                    r,
+                    &mut pending_addend,
+                    member,
+                    &symtab,
+                    member_vaddr,
+                    sym_table,
+                    non_text_sections,
+                    data_non_text_sections,
+                )?;
+                if r.r_extern != 0
+                    && let Some(slot) = by_sym.get_mut(r.r_symbolnum as usize)
+                {
+                    *slot = Some(v);
+                }
+                v
+            }
+        };
         // Apply (then clear) the pending addend from any preceding
         // ARM64_RELOC_ADDEND. Sign-extension is preserved through
         // the wrapping add — Mach-O addends commonly point past
