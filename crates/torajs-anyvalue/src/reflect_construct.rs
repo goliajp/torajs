@@ -220,9 +220,18 @@ pub(crate) unsafe fn construct_with_new_target(
         if __torajs_throw_check() != 0 {
             return obj;
         }
-        // §9.1.13 — [[Prototype]] from newTarget when it differs.
-        if new_target != target && is_cell(obj) {
-            if let Some(proto) = iter_result_get(new_target, as_void_ptr(new_target), b"prototype")
+        // §9.1.13 — [[Prototype]] from newTarget when it differs from
+        // what the bottom of a bound chain was constructed with: the
+        // layers swap a newTarget naming one of them for its target
+        // (§10.4.1.2), and that construction already chose.
+        let (bottom, resolved_nt) = if target_tag == Tag::Closure as u16 {
+            let (b, nt, _) = crate::construct_bound::resolve_bound(target, new_target);
+            (b, nt)
+        } else {
+            (target, new_target)
+        };
+        if resolved_nt != bottom && is_cell(obj) {
+            if let Some(proto) = iter_result_get(resolved_nt, as_void_ptr(resolved_nt), b"prototype")
             {
                 // Step 4 — a non-object `prototype` (a string and a symbol
                 // are cells too) falls back to the realm intrinsic the

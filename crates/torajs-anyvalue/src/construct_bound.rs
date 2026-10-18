@@ -26,20 +26,7 @@ pub(crate) unsafe fn construct_bound(
     new_target: AnyValue,
 ) -> AnyValue {
     unsafe {
-        let mut nt = new_target;
-        let mut layer = callee;
-        let mut bound_total = 0usize;
-        let bottom = loop {
-            let Some((1, target, bn)) = bound_closure_meta(as_void_ptr(layer)) else {
-                break layer;
-            };
-            bound_total += bn;
-            let target_av = __torajs_anyv_box_pointer(target as *mut c_void);
-            if nt == layer {
-                nt = target_av;
-            }
-            layer = target_av;
-        };
+        let (bottom, nt, bound_total) = resolve_bound(callee, new_target);
         // Innermost layer's partials first, the outermost layer's
         // right before the call's own arguments — borrowed slots.
         let cn = argc.max(0) as usize;
@@ -61,6 +48,36 @@ pub(crate) unsafe fn construct_bound(
             layer = __torajs_anyv_box_pointer(target as *mut c_void);
         }
         crate::construct::construct_with_nt(bottom, merged.as_ptr(), merged.len() as i64, nt)
+    }
+}
+
+/// The first target down `callee`'s bound chain that is not a bound
+/// cell, the newTarget it is constructed with (each layer swaps a
+/// newTarget SameValue to itself for its target, §10.4.1.2 step 4),
+/// and the number of partials the layers carry. `callee` itself when
+/// it is not bound.
+///
+/// # Safety
+/// `callee` and `new_target` are live AnyValues; `callee` is a cell.
+pub(crate) unsafe fn resolve_bound(
+    callee: AnyValue,
+    new_target: AnyValue,
+) -> (AnyValue, AnyValue, usize) {
+    unsafe {
+        let mut nt = new_target;
+        let mut layer = callee;
+        let mut bound_total = 0usize;
+        loop {
+            let Some((1, target, bn)) = bound_closure_meta(as_void_ptr(layer)) else {
+                return (layer, nt, bound_total);
+            };
+            bound_total += bn;
+            let target_av = __torajs_anyv_box_pointer(target as *mut c_void);
+            if nt == layer {
+                nt = target_av;
+            }
+            layer = target_av;
+        }
     }
 }
 
