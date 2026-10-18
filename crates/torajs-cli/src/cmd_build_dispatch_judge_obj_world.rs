@@ -41,7 +41,7 @@ use torajs_rc::any_method_family as fam;
 /// be a fallback trigger: it would kill the judgment for the empty
 /// program too. `SYNTH_ERROR_FNS` in the judge is what keeps that
 /// per-program tax off; it cannot retire while ToString is here.)
-pub(crate) const COERCION_PREFIXES: [&str; 57] = [
+pub(crate) const COERCION_PREFIXES: [&str; 58] = [
     "__torajs_anyv_to_number",
     // `x++` / `x--` run ToNumeric in the kernel (`eval++` asks for valueOf).
     "__torajs_anyv_incr_",
@@ -128,6 +128,8 @@ pub(crate) const COERCION_PREFIXES: [&str; 57] = [
     "__torajs_error_tostring_dispatch",
     "__torajs_fnsig_to_primitive_str",
     "__torajs_instanceof_dynamic",
+    // a bound layer's own @@hasInstance is called (§7.3.21 step 2)
+    "__torajs_instanceof_fn_value",
     "__torajs_iterator_zip",
     // the combinators walk an arbitrary iterable (§27.2.4.1.1): its
     // `next` is dispatched on whatever `@@iterator` answered.
