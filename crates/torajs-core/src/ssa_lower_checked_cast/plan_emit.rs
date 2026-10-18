@@ -17,6 +17,7 @@ impl LowerCtx<'_> {
             class_name_to_tag: self.class_name_to_tag,
             aliases: self.aliases,
             anon_stamp_pool: self.anon_stamp_pool,
+            proto_keys: &self.proto_keys,
         }
     }
 

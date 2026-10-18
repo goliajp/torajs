@@ -206,6 +206,7 @@ pub(crate) fn lower_fn(
         owned_member_reads: std::collections::HashSet::new(),
         pins: Default::default(),
         proofs: crate::ssa_lower::proofs::Proofs::new(facts),
+        proto_keys: Default::default(),
     };
 
     let assigned_in_body = ctx.prime_body_binding_sets(body.iter());

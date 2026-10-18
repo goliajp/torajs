@@ -155,6 +155,7 @@ pub(crate) fn synthesize_main(
             owned_member_reads: std::collections::HashSet::new(),
             pins: Default::default(),
             proofs: crate::ssa_lower::proofs::Proofs::new(facts),
+            proto_keys: Default::default(),
         };
         crate::undef_f64_fields::prime(&mut ctx);
         // T-15.g.5 — prime the binding sets BEFORE lowering any

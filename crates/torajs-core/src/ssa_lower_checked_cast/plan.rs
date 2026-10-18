@@ -13,6 +13,7 @@
 //! of its layout and nothing else.
 
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use crate::ast::Ast;
 use crate::check_type_ann::strip_nullable;
@@ -24,6 +25,8 @@ use anns::{field_anns, nullable, opt_node};
 mod anns;
 mod proto_keys;
 pub(super) mod uncast;
+
+pub(crate) use proto_keys::ProtoKeyCache;
 
 const ANY: u8 = 0;
 const INT: u8 = 1;
@@ -52,6 +55,8 @@ pub(crate) struct PlanTables<'a> {
     pub(crate) class_name_to_tag: &'a HashMap<String, u32>,
     pub(crate) aliases: &'a HashMap<String, Type>,
     pub(crate) anon_stamp_pool: &'a AnonStampPoolCell,
+    /// The prototype-chain keys of the classes plans were built for.
+    pub(crate) proto_keys: &'a ProtoKeyCache,
 }
 
 impl PlanTables<'_> {
@@ -232,8 +237,8 @@ impl Builder<'_, '_> {
             layout.clear();
         }
         let keys = match &class {
-            Some(c) if !self.fits_only => proto_keys::proto_keys(self.t.ast, c),
-            _ => Vec::new(),
+            Some(c) if !self.fits_only => proto_keys::proto_keys(self.t.ast, self.t.proto_keys, c),
+            _ => Rc::from([]),
         };
         if !keys.is_empty() {
             flags |= PROTO_KEYS;
@@ -285,7 +290,7 @@ impl Builder<'_, '_> {
         }
         if !keys.is_empty() {
             self.bytes.extend((keys.len() as u16).to_le_bytes());
-            for key in &keys {
+            for key in keys.iter() {
                 let name = key.as_wtf8().as_bytes();
                 self.bytes.extend((name.len() as u16).to_le_bytes());
                 self.bytes.extend(name);

@@ -129,6 +129,7 @@ pub(crate) fn synthesize_boxed_entries(
         return entries;
     }
     let ids = declare_coerce_intrinsics(module, fn_table);
+    let proto_keys = crate::ssa_lower_checked_cast::plan::ProtoKeyCache::default();
     let (twins, monos): (Vec<_>, Vec<_>) = targets.into_iter().partition(|t| {
         is_twin_name(&t.name) || crate::check_monomorph_any_widen::struct_escape::is_twin(&t.name)
     });
@@ -142,6 +143,7 @@ pub(crate) fn synthesize_boxed_entries(
             class_name_to_tag,
             aliases,
             anon_stamp_pool,
+            proto_keys: &proto_keys,
         };
         let casts = build_cast::param_casts(&t, &tables, &mut module.strings);
         let argc_fixed = fixed_argc_of(ast, &t.name);

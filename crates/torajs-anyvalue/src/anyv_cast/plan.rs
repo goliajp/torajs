@@ -12,7 +12,8 @@
 //!           (u32::MAX: none), u32 vtable index, u16 field count,
 //!           fields, [keys]
 //!   keys    u16 count, then per key: u16 length, name (WTF-8): the
-//!           class's prototype-chain keys (`super::own`)
+//!           class's prototype-chain keys (`super::own`), a
+//!           well-known symbol key spelled `__sym_Symbol_<x>__`
 //!   REF     u32 offset of an OBJ node (a type that contains itself)
 //!   ARR     u8 element kind (`__torajs_arr_any_to_typed`), node
 //!   CELL    u16 heap tag
@@ -236,8 +237,12 @@ impl<const OWN: bool> Plan<OWN> {
             },
             OPT if !(is_undefined(v) || is_null(v)) => unsafe { self.cast_own(at + 1, v) },
             // SAFETY: the two walks share one layout, and the plain
-            // walk reaches no object node from a node that holds none
-            _ => unsafe { (*(self as *const Self).cast::<Plan>()).cast(at, v) },
+            // walk reaches no object node (nor the `member` cast an
+            // object node's fields take) from a node that holds none
+            node => {
+                debug_assert!(!matches!(node, OBJ | REF | MEMBER));
+                unsafe { (*(self as *const Self).cast::<Plan>()).cast(at, v) }
+            }
         }
     }
 

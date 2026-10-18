@@ -489,4 +489,6 @@ pub(crate) struct LowerCtx<'a> {
     pub(crate) pins: crate::ssa_lower_assign::SharedPins,
     /// What the lowering has proven so far (see the struct doc).
     pub(crate) proofs: crate::ssa_lower::proofs::Proofs,
+    /// The prototype-chain keys of the classes cast plans were built for.
+    pub(crate) proto_keys: crate::ssa_lower_checked_cast::plan::ProtoKeyCache,
 }
