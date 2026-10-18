@@ -353,15 +353,47 @@ impl<'a> Image<'a> {
 
     /// The merged first-archive-wins index, sorted by name.
     pub fn symbols(&self) -> impl Iterator<Item = ImageSymbol<'a>> + '_ {
-        (0..self.n_syms).map(move |i| {
-            let s = self.syms_off + i * SYM_LEN;
-            ImageSymbol {
-                name: self.name_at(self.u32_at(s), self.u32_at(s + 4)),
-                archive_idx: self.u32_at(s + 8),
-                member_idx: self.u32_at(s + 12),
-                n_value: u64::from_le_bytes(self.bytes[s + 16..s + 24].try_into().unwrap()),
+        (0..self.n_syms).map(move |i| self.symbol(i))
+    }
+
+    pub fn symbol_count(&self) -> usize {
+        self.n_syms
+    }
+
+    /// Row `i` of the sorted index.
+    pub fn symbol(&self, i: usize) -> ImageSymbol<'a> {
+        let s = self.syms_off + i * SYM_LEN;
+        let (archive_idx, member_idx) = self.symbol_owner(i);
+        ImageSymbol {
+            name: self.name_at(self.u32_at(s), self.u32_at(s + 4)),
+            archive_idx,
+            member_idx,
+            n_value: u64::from_le_bytes(self.bytes[s + 16..s + 24].try_into().unwrap()),
+        }
+    }
+
+    /// `(archive_idx, member_idx)` of row `i`, without reading its name.
+    pub fn symbol_owner(&self, i: usize) -> (usize, usize) {
+        let s = self.syms_off + i * SYM_LEN;
+        (self.u32_at(s + 8), self.u32_at(s + 12))
+    }
+
+    /// Row of `name` in the sorted index, by binary search over the
+    /// name bytes.
+    pub fn find_symbol(&self, name: &str) -> Option<usize> {
+        let key = name.as_bytes();
+        let (mut lo, mut hi) = (0, self.n_syms);
+        while lo < hi {
+            let mid = lo + (hi - lo) / 2;
+            let s = self.syms_off + mid * SYM_LEN;
+            let off = self.u32_at(s);
+            match self.names[off..off + self.u32_at(s + 4)].cmp(key) {
+                std::cmp::Ordering::Less => lo = mid + 1,
+                std::cmp::Ordering::Greater => hi = mid,
+                std::cmp::Ordering::Equal => return Some(mid),
             }
-        })
+        }
+        None
     }
 }
 
@@ -487,6 +519,30 @@ mod tests {
         assert_eq!(mb, ["b.o"]);
         let b_sym = v.symbols().find(|s| s.name == "_b").unwrap();
         assert_eq!((b_sym.archive_idx, b_sym.member_idx), (1, 0));
+    }
+
+    #[test]
+    fn symbol_rows_are_found_by_name() {
+        let shared = object_with_syms(&["_core_x"]);
+        let a = archive_of(&[
+            ("a.o", &object_with_syms(&["_a", "_aa"])),
+            ("std.o", &shared),
+        ]);
+        let b = archive_of(&[
+            ("std.o", &shared),
+            ("b.o", &object_with_syms(&["_b", "_core_x", "_z"])),
+        ]);
+        let img = build(&[&a, &b]).unwrap();
+        let v = Image::parse(&img).unwrap();
+        let syms: Vec<_> = v.symbols().collect();
+        assert_eq!(v.symbol_count(), syms.len());
+        for (i, s) in syms.iter().enumerate() {
+            assert_eq!(v.find_symbol(s.name), Some(i));
+            assert_eq!(v.symbol_owner(i), (s.archive_idx, s.member_idx));
+        }
+        for miss in ["", "_", "_ab", "_core", "_core_x0", "_zz", "~"] {
+            assert_eq!(v.find_symbol(miss), None, "{miss}");
+        }
     }
 
     #[test]
