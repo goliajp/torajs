@@ -5,11 +5,6 @@
 //! proved at its exit plus what its edge proves; a def kills, a box
 //! or a copy of a proven value proves.
 
-use std::cmp::Reverse;
-use std::collections::BinaryHeap;
-
-use crate::id_hash::HashMap;
-
 use torajs_core::ssa::{
     ANY_SLOT_TAG_HEAP, BinOp, BlockId, Function, IPred, Inst, InstKind, Operand, TAG_TYPE_NUMBER,
     Terminator, Type, ValueId,
@@ -89,20 +84,22 @@ fn proven_by(insts: &[Inst], end: usize, c: ValueId, consts: &IntConsts, out: &m
 /// most functions hold no bit test that compares against a cell.
 struct IntConsts<'f> {
     func: &'f Function,
-    map: std::cell::OnceCell<HashMap<ValueId, i64>>,
+    map: std::cell::OnceCell<Vec<Option<Option<i64>>>>,
 }
 
 impl IntConsts<'_> {
     fn get(&self, v: ValueId) -> Option<i64> {
         let map = self.map.get_or_init(|| int_consts(self.func));
-        map.get(&v).copied()
+        map.get(v.0 as usize).copied().flatten().flatten()
     }
 }
 
 /// Values defined once, as a copy of an integer constant: the hoisted
-/// `iconst` cells the bit tests compare against.
-fn int_consts(func: &Function) -> HashMap<ValueId, i64> {
-    let mut seen: HashMap<ValueId, Option<i64>> = HashMap::default();
+/// `iconst` cells the bit tests compare against. By value id: `None`
+/// for a value with no def, `Some(None)` for one defined otherwise or
+/// more than once.
+fn int_consts(func: &Function) -> Vec<Option<Option<i64>>> {
+    let mut seen: Vec<Option<Option<i64>>> = vec![None; func.values.len()];
     for block in &func.blocks {
         for inst in &block.insts {
             let Some(r) = inst.result else {
@@ -112,12 +109,11 @@ fn int_consts(func: &Function) -> HashMap<ValueId, i64> {
                 InstKind::Copy(Type::I64, Operand::ConstI64(k)) => Some(*k),
                 _ => None,
             };
-            seen.entry(r).and_modify(|e| *e = None).or_insert(k);
+            let e = &mut seen[r.0 as usize];
+            *e = Some(if e.is_some() { None } else { k });
         }
     }
-    seen.into_iter()
-        .filter_map(|(v, k)| k.map(|k| (v, k)))
-        .collect()
+    seen
 }
 
 /// The values a set can hold, as bit positions: only the values the
@@ -306,13 +302,14 @@ impl NumberFacts {
         reached[0] = true;
         let mut via = vec![0u64; w];
         // lowest index first: blocks come mostly in program order, so a
-        // block tends to be visited after its forward predecessors
+        // block tends to be visited after its forward predecessors; no
+        // block below `next` is queued
         let mut queued = vec![false; n];
-        let mut work: BinaryHeap<Reverse<usize>> = BinaryHeap::new();
-        work.push(Reverse(0));
         queued[0] = true;
-        while let Some(Reverse(bi)) = work.pop() {
+        let mut next = 0;
+        while let Some(bi) = (next..n).find(|&i| queued[i]) {
             queued[bi] = false;
+            next = bi + 1;
             let out = &mut live_out[bi * w..(bi + 1) * w];
             out.copy_from_slice(&live_in[bi * w..(bi + 1) * w]);
             for inst in &func.blocks[bi].insts {
@@ -344,7 +341,7 @@ impl NumberFacts {
                 };
                 if moved && !queued[si] {
                     queued[si] = true;
-                    work.push(Reverse(si));
+                    next = next.min(si);
                 }
             }
         }
