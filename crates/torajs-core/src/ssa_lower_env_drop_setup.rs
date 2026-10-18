@@ -101,6 +101,7 @@ pub(crate) fn run(
             after_props,
             env_pid,
             CLOSURE_CAP_BASE_OFF,
+            crate::ssa_lower::CLOSURE_DROP_FN_OFF,
             init_a.obj_capture.obj_drop_sized,
         );
         module.funcs.push(f);

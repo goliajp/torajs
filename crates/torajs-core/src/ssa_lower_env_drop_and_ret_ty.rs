@@ -106,6 +106,7 @@ pub(crate) fn synthesize_env_drop(
         entry,
         env_pid,
         env_block_size,
+        CLOSURE_DROP_FN_OFF,
         intrinsics.obj_drop_sized,
     );
     f
@@ -117,15 +118,18 @@ pub(crate) fn synthesize_env_drop(
 /// it, so the buffer entry leaves in O(1) and this path makes no call.
 /// Nothing in front of the block records its size and the collector
 /// has no layout row for an env, so the parked env carries the size
-/// itself: this leg writes `env_block_size` over the drop-fn slot,
-/// which nothing reads again once the drop has run
-/// (`torajs_cycle::cell_free::free_parked`). Only `cycle_buffer` sets
-/// FLAG_BUFFERED, so an unbuffered env pays one load. Both legs return.
+/// itself: this leg writes `env_block_size` at `size_word_off`, the
+/// word the collector reads it back from for the block's tag (an env's
+/// drop-fn slot, an async frame's desc), which nothing reads again
+/// once the drop has run (`torajs_cycle::cell_free::free_parked`).
+/// Only `cycle_buffer` sets FLAG_BUFFERED, so an unbuffered block pays
+/// one load. Both legs return.
 pub(crate) fn emit_env_free_or_defer(
     f: &mut ssa::Function,
     blk: ssa::BlockId,
     env: ssa::ValueId,
     env_block_size: u64,
+    size_word_off: u64,
     obj_drop_sized: ssa::FuncId,
 ) {
     let env_op = Operand::Value(env);
@@ -176,7 +180,7 @@ pub(crate) fn emit_env_free_or_defer(
         InstKind::Store(
             Operand::ConstI64(env_block_size as i64),
             env_op,
-            CLOSURE_DROP_FN_OFF,
+            size_word_off,
         ),
     );
     f.set_term(defer_blk, Terminator::Ret(None));
