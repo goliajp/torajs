@@ -27,7 +27,7 @@ pub(crate) fn run(
     fn_dflt_lits: &crate::ssa_lower_boxed_entry::FnDfltLits,
     intrinsics: &Intrinsics,
     aliases: &HashMap<String, Type>,
-    arr_layouts: &mut Vec<Type>,
+    arr_layouts: &mut crate::ssa::ArrLayouts,
     baked_regex_buf: &mut Vec<BakedRegexEntry>,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
     struct_layouts: &mut Vec<Vec<(PropKey, Type)>>,

@@ -127,7 +127,7 @@ pub(crate) fn value_repr(
     ast: &Ast,
     types: &HashMap<ExprId, T>,
     widened: bool,
-    arr_layouts: &mut Vec<Type>,
+    arr_layouts: &mut crate::ssa::ArrLayouts,
 ) -> Option<Type> {
     if matches!(slot, Type::Obj(_))
         && (any_cast(init, ast, types) || held_read(ann, init, ast, types))

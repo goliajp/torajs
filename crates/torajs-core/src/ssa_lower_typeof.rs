@@ -239,6 +239,7 @@ fn lower_by_ssa_type_inner(ctx: &mut LowerCtx<'_>, expr: ExprId, v: Operand, ty:
         Type::BigInt => "bigint",
         Type::Closure(_) | Type::FnSig(_) => "function",
         Type::Obj(_)
+        | Type::Inline(_)
         | Type::Arr(_)
         | Type::RegExp
         | Type::Date

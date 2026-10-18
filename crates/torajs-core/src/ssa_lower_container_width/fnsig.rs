@@ -27,7 +27,7 @@ fn widen_face(
     ann: Option<&str>,
     key: &SlotKey,
     table: &WidthTable,
-    arr_layouts: &mut Vec<Type>,
+    arr_layouts: &mut crate::ssa::ArrLayouts,
     struct_layouts: &mut Vec<Vec<(PropKey, Type)>>,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
 ) -> Type {
@@ -68,7 +68,7 @@ fn widen_face(
 /// and the types already proven to lead nowhere back.
 fn cyclic(
     ty: Type,
-    arr_layouts: &[Type],
+    arr_layouts: &crate::ssa::ArrLayouts,
     struct_layouts: &[Vec<(PropKey, Type)>],
     fn_sigs: &[(Vec<Type>, Type)],
     walk: &mut (Vec<Type>, Vec<Type>),
@@ -123,7 +123,7 @@ pub(crate) fn widen_fn_sig(
     ann: Option<&str>,
     key: &SlotKey,
     table: &WidthTable,
-    arr_layouts: &mut Vec<Type>,
+    arr_layouts: &mut crate::ssa::ArrLayouts,
     struct_layouts: &mut Vec<Vec<(PropKey, Type)>>,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
 ) -> Type {
@@ -208,7 +208,7 @@ pub(crate) fn widen_fn_sig_by_key(
     parsed: Type,
     key: &SlotKey,
     table: &WidthTable,
-    arr_layouts: &mut Vec<Type>,
+    arr_layouts: &mut crate::ssa::ArrLayouts,
     struct_layouts: &mut Vec<Vec<(PropKey, Type)>>,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
 ) -> Type {

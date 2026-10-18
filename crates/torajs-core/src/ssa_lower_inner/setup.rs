@@ -34,7 +34,7 @@ pub(super) fn build_intrinsics_and_boxed_entries(
     anon_stamp_pool: &crate::ssa_lower_anon_stamp::AnonStampPoolCell,
     class_name_to_tag: &HashMap<String, u32>,
     aliases: &HashMap<String, crate::ssa::Type>,
-    arr_layouts: &[crate::ssa::Type],
+    arr_layouts: &crate::ssa::ArrLayouts,
     struct_layouts: &[Vec<(crate::ast::PropKey, crate::ssa::Type)>],
     env_drop_trivial_fid: (FuncId, crate::ssa::SigId),
     init_a: &crate::ssa_lower_intrinsics_init_a::InitA,

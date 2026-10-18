@@ -77,7 +77,7 @@ pub(crate) struct LowerCtx<'a> {
     /// Let-decl annotations encountered during body lowering may
     /// introduce new `T[]` instantiations; they intern lazily here.
     /// Written into `module.arr_layouts` at the end of `lower()`.
-    pub(crate) arr_layouts: &'a mut Vec<Type>,
+    pub(crate) arr_layouts: &'a mut crate::ssa::ArrLayouts,
     /// V0.2 P14 chunk 7.7 v2 step 12 C2 Phase C-6 — host-built baked
     /// DFA buffer. `try_bake_regex_dfa` pushes one entry per AOT-
     /// eligible literal regex; written into

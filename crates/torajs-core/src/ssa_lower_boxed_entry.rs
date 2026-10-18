@@ -106,7 +106,7 @@ pub(crate) fn synthesize_boxed_entries(
     anon_stamp_pool: &crate::ssa_lower_anon_stamp::AnonStampPoolCell,
     class_name_to_tag: &HashMap<String, u32>,
     aliases: &HashMap<String, Type>,
-    arr_layouts: &[Type],
+    arr_layouts: &crate::ssa::ArrLayouts,
     struct_layouts: &[Vec<(crate::ast::PropKey, Type)>],
 ) -> HashMap<FuncId, (FuncId, ssa::SigId)> {
     let mut kins = kin::Kins::new(

@@ -55,7 +55,7 @@ pub(crate) fn widen_container_ty(
     ann: Option<&str>,
     key: &SlotKey,
     table: &WidthTable,
-    arr_layouts: &mut Vec<Type>,
+    arr_layouts: &mut crate::ssa::ArrLayouts,
     struct_layouts: &mut Vec<Vec<(PropKey, Type)>>,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
 ) -> Type {
@@ -96,7 +96,7 @@ pub(crate) fn widen_container_ty(
 fn ty_reaches(
     ty: Type,
     target: StructId,
-    arr_layouts: &[Type],
+    arr_layouts: &crate::ssa::ArrLayouts,
     struct_layouts: &[Vec<(PropKey, Type)>],
     seen: &mut Vec<StructId>,
 ) -> bool {
@@ -133,7 +133,7 @@ pub(crate) fn widen_struct_fields(
     parsed: Type,
     key: &SlotKey,
     table: &WidthTable,
-    arr_layouts: &mut Vec<Type>,
+    arr_layouts: &mut crate::ssa::ArrLayouts,
     struct_layouts: &mut Vec<Vec<(PropKey, Type)>>,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
 ) -> Type {
@@ -217,7 +217,7 @@ fn widen_struct_fields_in_place(
     sid: StructId,
     key: &SlotKey,
     table: &WidthTable,
-    arr_layouts: &mut Vec<Type>,
+    arr_layouts: &mut crate::ssa::ArrLayouts,
     struct_layouts: &mut Vec<Vec<(PropKey, Type)>>,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
     visiting: &mut Vec<StructId>,
@@ -298,7 +298,7 @@ pub(crate) fn widen_arr_elem(
     ann: Option<&str>,
     key: &SlotKey,
     table: &WidthTable,
-    arr_layouts: &mut Vec<Type>,
+    arr_layouts: &mut crate::ssa::ArrLayouts,
     struct_layouts: &mut Vec<Vec<(PropKey, Type)>>,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
 ) -> Type {

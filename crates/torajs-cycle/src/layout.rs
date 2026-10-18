@@ -132,6 +132,9 @@ pub const ARR_ELEM_KIND_MASK: u16 = 0b111 << ARR_ELEM_KIND_SHIFT;
 /// Heap-pointer element slots — the only kind whose 8-byte slots are
 /// guaranteed cell pointers the walk may dereference.
 pub const ARR_KIND_HEAP: u16 = 4;
+/// Value-class fields in place (torajs-rc `ARR_KIND_INLINE` mirror):
+/// no slot is a cell pointer, so the walk never descends.
+pub const ARR_KIND_INLINE: u16 = 5;
 
 /// Universal heap header — 8 bytes, ABI-shared with
 /// `torajs_rc::HeapHeader` + every `__torajs_heap_header_t` typedef

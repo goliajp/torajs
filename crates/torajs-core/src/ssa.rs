@@ -9,6 +9,7 @@
 // - The per-function value table holds each ValueId's type and an
 //   optional debug name the pretty printer prefers over the number.
 
+mod arr_layouts;
 pub mod block_freq;
 pub mod branch_prob;
 pub mod dominator;
@@ -50,6 +51,7 @@ pub const HEADER_WORD_ARR_ANY: i64 = (torajs_rc::FLAG_ARR_ANY as i64) << 48;
 /// bits, and the offset a double's bits are shifted by.
 pub use torajs_anyvalue::nanbox::{DOUBLE_ENCODE_OFFSET, TAG_TYPE_NUMBER};
 
+pub use arr_layouts::ArrLayouts;
 pub use module_class_layouts::{ClassLayoutMeta, FieldMetaSpec, MethodMetaSpec, field_type_tag_of};
 pub use module_extras::{LOCAL_LABEL_PREFIX, demo_fib40, is_local_label};
 pub use module_methods::{

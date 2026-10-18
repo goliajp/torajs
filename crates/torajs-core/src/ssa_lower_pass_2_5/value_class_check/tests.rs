@@ -26,7 +26,7 @@ fn module() -> Module {
             ],
             vec![(PropKey::from("x"), Type::F64)],
         ],
-        arr_layouts: vec![Type::Obj(StructId(0))],
+        arr_layouts: vec![Type::Obj(StructId(0))].into(),
         ..Default::default()
     };
     let mut sort = Function::new("__torajs_arr_sort", Type::Void);

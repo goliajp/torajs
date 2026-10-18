@@ -51,7 +51,7 @@ const NO_LIST: u32 = u32::MAX;
 pub(crate) struct PlanTables<'a> {
     pub(crate) ast: &'a Ast,
     pub(crate) struct_layouts: &'a [Vec<(crate::ast::PropKey, Type)>],
-    pub(crate) arr_layouts: &'a [Type],
+    pub(crate) arr_layouts: &'a crate::ssa::ArrLayouts,
     pub(crate) class_name_to_tag: &'a HashMap<String, u32>,
     pub(crate) aliases: &'a HashMap<String, Type>,
     pub(crate) anon_stamp_pool: &'a AnonStampPoolCell,

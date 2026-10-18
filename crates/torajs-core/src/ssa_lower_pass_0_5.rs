@@ -29,7 +29,7 @@ use crate::ssa_lower_parse_type::{parse_struct_field_type, parse_type};
 
 pub(crate) struct Pass05 {
     pub aliases: HashMap<String, Type>,
-    pub arr_layouts: Vec<Type>,
+    pub arr_layouts: crate::ssa::ArrLayouts,
     pub baked_regex_buf: Vec<BakedRegexEntry>,
     pub fn_sigs: Vec<(Vec<Type>, Type)>,
     pub may_throw: HashSet<String>,
@@ -47,7 +47,7 @@ pub(crate) fn run(
     num_f64_slots: &WidthTable,
 ) -> Pass05 {
     let mut aliases: HashMap<String, Type> = HashMap::new();
-    let mut arr_layouts: Vec<Type> = Vec::new();
+    let mut arr_layouts = crate::ssa::ArrLayouts::default();
     let baked_regex_buf: Vec<BakedRegexEntry> = Vec::new();
     let mut fn_sigs: Vec<(Vec<Type>, Type)> = Vec::new();
     let (may_throw, nonint_reads_run_code) =

@@ -18,7 +18,7 @@ pub(super) fn parse_generic(
     s: &str,
     open_idx: usize,
     aliases: &HashMap<String, Type>,
-    arr_layouts: &mut Vec<Type>,
+    arr_layouts: &mut crate::ssa::ArrLayouts,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
     generic_struct_decls: &GenericStructDecls,
     struct_layouts: &mut Vec<Vec<(PropKey, Type)>>,

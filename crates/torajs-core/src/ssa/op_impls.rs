@@ -92,6 +92,7 @@ impl Type {
             Type::Date => "date",
             Type::Obj(_) => "obj",
             Type::Arr(_) => "arr",
+            Type::Inline(_) => "inline",
             Type::FnSig(_) => "fnsig",
             Type::Closure(_) => "closure",
             Type::Any => "any",
@@ -123,6 +124,7 @@ impl Type {
                 | Type::Void
                 | Type::FnSig(_)
                 | Type::Ptr
+                | Type::Inline(_)
         )
         // Str + Obj + Arr are heap-owned, affine.
         // FnSig is just a fn pointer — Copy semantics, no drop.
@@ -212,7 +214,9 @@ impl Type {
             | Type::MapIter
             | Type::ArrIter
             | Type::Ptr => true,
-            Type::Str | Type::Substr | Type::FnSig(_) | Type::Any => false,
+            // an inline element is never a slot of its own; the array
+            // it sits in answers for a missing one
+            Type::Str | Type::Substr | Type::FnSig(_) | Type::Any | Type::Inline(_) => false,
             Type::I64 | Type::F64 | Type::I32 | Type::Bool | Type::Void | Type::Vec(_) => false,
         }
     }
@@ -233,7 +237,7 @@ impl Type {
     /// and registered a fresh anon (cb: Ptr) shape the member reader
     /// never saw.
     pub fn is_pointer_shaped(self) -> bool {
-        self.is_refcounted() || matches!(self, Type::Ptr | Type::FnSig(_))
+        self.is_refcounted() || matches!(self, Type::Ptr | Type::FnSig(_) | Type::Inline(_))
     }
 }
 

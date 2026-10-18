@@ -30,15 +30,8 @@ use crate::ssa;
 use crate::ssa::{InstKind, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
 
-pub(crate) fn intern_arr_layout(arr_layouts: &mut Vec<Type>, elem: Type) -> ssa::ArrId {
-    for (i, ex) in arr_layouts.iter().enumerate() {
-        if *ex == elem {
-            return ssa::ArrId(i as u32);
-        }
-    }
-    let id = ssa::ArrId(arr_layouts.len() as u32);
-    arr_layouts.push(elem);
-    id
+pub(crate) fn intern_arr_layout(arr_layouts: &mut ssa::ArrLayouts, elem: Type) -> ssa::ArrId {
+    arr_layouts.intern(elem)
 }
 
 pub(crate) fn intern_fn_sig(

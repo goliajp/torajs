@@ -218,7 +218,7 @@ pub use any_method_intern::any_method_id;
 pub use any_method_meta::{any_method_meta, any_method_meta_for};
 pub use arr_kind::{
     ARR_ELEM_KIND_MASK, ARR_ELEM_KIND_SHIFT, ARR_KIND_BOOL, ARR_KIND_F64, ARR_KIND_HEAP,
-    ARR_KIND_I64, ARR_KIND_UNSET,
+    ARR_KIND_I64, ARR_KIND_INLINE, ARR_KIND_UNSET,
 };
 pub use color::{COLOR_MASK, COLOR_SHIFT, Color};
 pub use flags::{

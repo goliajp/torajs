@@ -56,7 +56,7 @@ pub(crate) fn parse_struct_field_type(
     ann: &str,
     plain_optional: bool,
     aliases: &HashMap<String, Type>,
-    arr_layouts: &mut Vec<Type>,
+    arr_layouts: &mut crate::ssa::ArrLayouts,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
     generic_struct_decls: &GenericStructDecls,
     struct_layouts: &mut Vec<Vec<(PropKey, Type)>>,
@@ -85,7 +85,7 @@ pub(crate) fn parse_struct_field_type(
 pub(crate) fn parse_type(
     ann: Option<&str>,
     aliases: &HashMap<String, Type>,
-    arr_layouts: &mut Vec<Type>,
+    arr_layouts: &mut crate::ssa::ArrLayouts,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
     generic_struct_decls: &GenericStructDecls,
     struct_layouts: &mut Vec<Vec<(PropKey, Type)>>,
@@ -318,7 +318,7 @@ pub(crate) fn parse_type(
 fn parse_arr_suffix(
     elem_ann: &str,
     aliases: &HashMap<String, Type>,
-    arr_layouts: &mut Vec<Type>,
+    arr_layouts: &mut crate::ssa::ArrLayouts,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
     generic_struct_decls: &GenericStructDecls,
     struct_layouts: &mut Vec<Vec<(PropKey, Type)>>,

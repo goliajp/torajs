@@ -17,7 +17,7 @@ use super::{parse_struct_field_type, parse_type};
 pub(super) fn parse_struct(
     inner: &str,
     aliases: &HashMap<String, Type>,
-    arr_layouts: &mut Vec<Type>,
+    arr_layouts: &mut crate::ssa::ArrLayouts,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
     generic_struct_decls: &GenericStructDecls,
     struct_layouts: &mut Vec<Vec<(PropKey, Type)>>,
@@ -65,7 +65,7 @@ pub(super) fn parse_cls(
     s: &str,
     rest: &str,
     aliases: &HashMap<String, Type>,
-    arr_layouts: &mut Vec<Type>,
+    arr_layouts: &mut crate::ssa::ArrLayouts,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
     generic_struct_decls: &GenericStructDecls,
     struct_layouts: &mut Vec<Vec<(PropKey, Type)>>,

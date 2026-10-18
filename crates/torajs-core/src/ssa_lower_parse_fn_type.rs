@@ -26,7 +26,7 @@ use crate::ssa_lower_parse_type::parse_type;
 pub(crate) fn try_parse_fn_type(
     s: &str,
     aliases: &HashMap<String, Type>,
-    arr_layouts: &mut Vec<Type>,
+    arr_layouts: &mut crate::ssa::ArrLayouts,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
     generic_struct_decls: &GenericStructDecls,
     struct_layouts: &mut Vec<Vec<(PropKey, Type)>>,

@@ -39,6 +39,10 @@ pub const ARR_KIND_BOOL: u16 = 3;
 /// any other refcounted cell. Consumers treat each slot as a cell
 /// pointer and dispatch on its heap header tag.
 pub const ARR_KIND_HEAP: u16 = 4;
+/// The fields of a value-class instance in place, 8 bytes each, with
+/// no header: no slot is a pointer, and a reader that does not know
+/// the class cannot read one.
+pub const ARR_KIND_INLINE: u16 = 5;
 
 /// Width of one array level in a slot shape word — the typed-slot
 /// test the boxed adapter asks of an array (`__torajs_anyv_arr_cell`)

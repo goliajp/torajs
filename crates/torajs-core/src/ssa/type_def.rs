@@ -65,6 +65,11 @@ pub enum Type {
     /// store a pointer. M1.2 MVP. The element type interns into
     /// `module.arr_layouts[id]`.
     Arr(ArrId),
+    /// One element of an array that holds the instances of a value
+    /// class in place: the address of its fields, 8 bytes each in
+    /// `struct_layouts[id]` order, with no header. Borrowed from the
+    /// array's data block, so Copy and never counted.
+    Inline(StructId),
     /// Function-pointer value, typed by interned signature. Lowers to
     /// pointer-width at codegen; the signature info routes indirect
     /// calls (`InstKind::CallIndirect`) so backends can build the

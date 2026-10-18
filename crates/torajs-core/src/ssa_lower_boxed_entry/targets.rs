@@ -26,7 +26,7 @@ pub(super) struct TargetTables<'a> {
     pub(super) fn_table: &'a HashMap<String, FuncId>,
     pub(super) fn_sigs: &'a [(Vec<Type>, Type)],
     pub(super) fn_sig_ids: &'a HashMap<FuncId, ssa::SigId>,
-    pub(super) arr_layouts: &'a [Type],
+    pub(super) arr_layouts: &'a crate::ssa::ArrLayouts,
 }
 
 /// `true` iff the type can cross the boxed boundary in either

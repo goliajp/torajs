@@ -221,8 +221,7 @@ fn the_four_element_channels_open_the_element_layout() {
     // typed declaration's conversion passes it
     let mut m = module();
     let arr = arr_of(&mut m, 2);
-    let any_arr = ArrId(m.arr_layouts.len() as u32);
-    m.arr_layouts.push(Type::Any);
+    let any_arr = m.intern_arr(Type::Any);
     body(&mut m, |f, entry| {
         let v = f.append_inst(entry, InstKind::AllocaBytes(8), Type::Arr(any_arr), None);
         f.append_inst(

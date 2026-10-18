@@ -215,7 +215,7 @@ fn a_member_kind_is_the_kind_of_the_slot_the_lowering_gives_it() {
             ann,
             false,
             &HashMap::new(),
-            &mut Vec::new(),
+            &mut Default::default(),
             &mut Vec::new(),
             &Default::default(),
             &mut Vec::new(),

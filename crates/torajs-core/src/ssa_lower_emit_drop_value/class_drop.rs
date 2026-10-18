@@ -52,7 +52,7 @@ use crate::ssa_lower_emit_drop_value::class_drop_worklist::{self as worklist, Wo
 /// What a release expansion reads besides the function it writes into.
 pub(crate) struct Cx<'a> {
     pub layouts: &'a [Vec<(PropKey, Type)>],
-    pub arr_layouts: &'a [Type],
+    pub arr_layouts: &'a crate::ssa::ArrLayouts,
     /// sids a declared class is aliased to (they buffer as cycle roots
     /// and notify the WeakRef registry; anonymous shapes do neither)
     pub class_sids: &'a HashSet<u32>,
@@ -83,7 +83,7 @@ pub(crate) fn populate_class_drop_bodies(
     class_name_to_tag: &HashMap<String, u32>,
     aliases: &HashMap<String, Type>,
     struct_layouts: &[Vec<(PropKey, Type)>],
-    arr_layouts: &[Type],
+    arr_layouts: &crate::ssa::ArrLayouts,
     anon_stamp_pool: &crate::ssa_lower_anon_stamp::AnonStampPoolCell,
     intrinsics: &Intrinsics,
     module: &mut Module,

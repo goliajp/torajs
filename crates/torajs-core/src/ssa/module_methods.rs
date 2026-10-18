@@ -10,7 +10,7 @@ use std::fmt::Write;
 use crate::ast::PropKey;
 
 use super::module_class_layouts::ClassLayoutMeta;
-use super::{ArrId, FuncId, Function, SigId, StringId, StructId, Type};
+use super::{ArrId, ArrLayouts, FuncId, Function, SigId, StringId, StructId, Type};
 
 #[derive(Debug, Clone, Default)]
 pub struct Module {
@@ -37,7 +37,7 @@ pub struct Module {
     pub struct_layouts: Vec<Vec<(PropKey, Type)>>,
     /// Interned `Array<T>` element types. ArrId = index. Two arrays of
     /// the same element type share one ArrId via `intern_arr`.
-    pub arr_layouts: Vec<Type>,
+    pub arr_layouts: ArrLayouts,
     /// Interned fn-pointer signatures `(Vec<param_types>, ret_type)`.
     /// SigId = index. Used by `InstKind::CallIndirect` to look up the
     /// calling convention at codegen. M2 Phase B Stage 2.
@@ -351,14 +351,7 @@ impl Module {
     /// Intern an `Array<T>` element type. Returns the existing ArrId if
     /// the same element type was already registered.
     pub fn intern_arr(&mut self, elem: Type) -> ArrId {
-        for (i, existing) in self.arr_layouts.iter().enumerate() {
-            if *existing == elem {
-                return ArrId(i as u32);
-            }
-        }
-        let id = ArrId(self.arr_layouts.len() as u32);
-        self.arr_layouts.push(elem);
-        id
+        self.arr_layouts.intern(elem)
     }
 
     pub fn arr_elem(&self, id: ArrId) -> Type {

@@ -48,7 +48,11 @@ impl<'a> LowerCtx<'a> {
 /// [`LowerCtx::arr_kind_chain`] without a `LowerCtx` — the boxed-entry
 /// synthesis runs before one exists and needs the same answer for a
 /// body's ARRAY RETURN (RFC 20260823-proxy-substrate 刀 4b).
-pub(crate) fn arr_kind_chain_of(arr_layouts: &[Type], elem: &Type, depth: u32) -> u64 {
+pub(crate) fn arr_kind_chain_of(
+    arr_layouts: &crate::ssa::ArrLayouts,
+    elem: &Type,
+    depth: u32,
+) -> u64 {
     if depth >= 21 {
         return 0;
     }
@@ -62,6 +66,7 @@ pub(crate) fn arr_kind_chain_of(arr_layouts: &[Type], elem: &Type, depth: u32) -
             let inner = arr_layouts[id.0 as usize];
             4 | (arr_kind_chain_of(arr_layouts, &inner, depth + 1) << 3)
         }
+        Type::Inline(_) => torajs_rc::ARR_KIND_INLINE.into(),
         t if t.is_refcounted() => 4,
         _ => 0,
     }

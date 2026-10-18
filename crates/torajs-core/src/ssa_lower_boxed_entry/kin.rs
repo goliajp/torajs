@@ -31,7 +31,7 @@ pub(super) struct Kins<'a> {
     class_parents: &'a HashMap<String, Option<String>>,
     class_name_to_tag: &'a HashMap<String, u32>,
     aliases: &'a HashMap<String, Type>,
-    arr_layouts: &'a [Type],
+    arr_layouts: &'a crate::ssa::ArrLayouts,
     pool: &'a AnonStampPoolCell,
     named_sid_to_tag: HashMap<StructId, u32>,
     type_aliases: HashMap<String, String>,
@@ -43,7 +43,7 @@ impl<'a> Kins<'a> {
         ast: &'a Ast,
         class_name_to_tag: &'a HashMap<String, u32>,
         aliases: &'a HashMap<String, Type>,
-        arr_layouts: &'a [Type],
+        arr_layouts: &'a crate::ssa::ArrLayouts,
         pool: &'a AnonStampPoolCell,
     ) -> Self {
         // S2.36 — sid → class_tag for the struct-param coercion call.

@@ -18,7 +18,7 @@ pub(crate) struct FitTag {
 /// of cells at any depth. `None` for every other type.
 pub(crate) fn fit_tag(
     ty: Type,
-    arr_layouts: &[Type],
+    arr_layouts: &crate::ssa::ArrLayouts,
     sid_tag: &dyn Fn(ssa::StructId) -> u32,
 ) -> Option<FitTag> {
     let mut depth = 0;
@@ -57,7 +57,7 @@ pub(crate) struct SlotTest {
 
 pub(crate) fn slot_test(
     ty: Type,
-    arr_layouts: &[Type],
+    arr_layouts: &crate::ssa::ArrLayouts,
     sid_tag: &dyn Fn(ssa::StructId) -> u32,
     undef_misses: bool,
 ) -> SlotTest {
@@ -77,7 +77,7 @@ pub(crate) fn slot_test(
 /// every level under it. Past four levels nothing passes, and a heap
 /// element other than a string or an array names no tag, so the test
 /// sends such arguments to the twin.
-fn level(elem: Type, arr_layouts: &[Type], depth: u32) -> u64 {
+fn level(elem: Type, arr_layouts: &crate::ssa::ArrLayouts, depth: u32) -> u64 {
     use torajs_rc::arr_kind::{SLOT_KIND_NONE, SLOT_LEVEL_BITS, SLOT_TAG_NONE};
     let heap = |tag: u64| u64::from(torajs_rc::ARR_KIND_HEAP) | tag << 3;
     if depth >= 4 {

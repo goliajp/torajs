@@ -212,7 +212,7 @@ fn emit_rest_collect(
 pub(super) fn rest_slot_kind(
     params: &[crate::ast::Param],
     user_tys: &[Type],
-    arr_layouts: &[Type],
+    arr_layouts: &crate::ssa::ArrLayouts,
 ) -> Option<(bool, Option<i64>)> {
     // Rest-param body: direct call sites pack trailing args into
     // an array literal (apply_rest_args), so the LAST param is an
