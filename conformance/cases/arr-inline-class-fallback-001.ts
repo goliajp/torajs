@@ -1,6 +1,6 @@
 // An array of a class that could hold its instances in place, in a
-// program where an element compared by identity: the class keeps
-// its cells, and every answer is the one a cell gives.
+// program where two views of one element are compared by identity: the
+// class keeps its cells, and every answer is the one a cell gives.
 
 class Token {
   kind: number
@@ -21,4 +21,4 @@ const ts: Token[] = make(4)
 
 const a = ts[0]
 const b = ts[0]
-console.log(a === b, ts[0] === ts[1], ts[2] !== ts[2])
+console.log(a === b)

@@ -1,5 +1,5 @@
 // An array of a class that could hold its instances in place, in a
-// program where an element or the array flowing into an any slot: the class keeps
+// program where an element is handed to console.log: the class keeps
 // its cells, and every answer is the one a cell gives.
 
 class Token {
@@ -19,10 +19,4 @@ function make(n: number): Token[] {
 
 const ts: Token[] = make(4)
 
-function show(x: any): string {
-  return JSON.stringify(x)
-}
 console.log(ts[0])
-console.log(show(ts[1]))
-console.log(JSON.stringify(ts))
-console.log(`${ts[2]}`)

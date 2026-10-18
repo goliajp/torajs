@@ -1,6 +1,6 @@
 // An array of a class that could hold its instances in place, in a
-// program where an element or the array frozen: the class keeps
-// its cells, and every answer is the one a cell gives.
+// program where an element is frozen: the class keeps its cells, and
+// every answer is the one a cell gives.
 
 class Token {
   kind: number
@@ -25,11 +25,4 @@ try {
   console.log("wrote", ts[0].kind)
 } catch (e) {
   console.log("element", e instanceof TypeError)
-}
-Object.freeze(ts)
-try {
-  ts.push(new Token(5, 5))
-  console.log("pushed", ts.length)
-} catch (e) {
-  console.log("array", e instanceof TypeError, ts.length)
 }

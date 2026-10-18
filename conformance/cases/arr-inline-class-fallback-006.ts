@@ -1,6 +1,6 @@
 // An array of a class that could hold its instances in place, in a
-// program where a subclass instance pushed: the class keeps
-// its cells, and every answer is the one a cell gives.
+// program where a subclass instance is pushed: the class keeps its
+// cells, and every answer is the one a cell gives.
 
 class Token {
   kind: number
@@ -28,5 +28,3 @@ class Wide extends Token {
 }
 ts.push(new Wide(7, 8, 9))
 console.log(ts.length, ts[4].kind, ts[4].value)
-const last = ts[4]
-console.log(last instanceof Wide)

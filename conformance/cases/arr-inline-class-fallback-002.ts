@@ -1,6 +1,6 @@
 // An array of a class that could hold its instances in place, in a
-// program where an element used as a key of a keyed collection or searched for: the class keeps
-// its cells, and every answer is the one a cell gives.
+// program where an element is a key of a Map: the class keeps its
+// cells, and every answer is the one a cell gives.
 
 class Token {
   kind: number
@@ -22,10 +22,3 @@ const ts: Token[] = make(4)
 const m = new Map<Token, number>()
 m.set(ts[0], 1)
 console.log(m.get(ts[0]), m.has(ts[1]))
-const s = new Set<Token>(ts)
-console.log(s.has(ts[2]), s.size)
-const t = ts[3]
-console.log(ts.indexOf(t), ts.includes(ts[1]))
-const w = new WeakMap<Token, string>()
-w.set(ts[1], "one")
-console.log(w.get(ts[1]))

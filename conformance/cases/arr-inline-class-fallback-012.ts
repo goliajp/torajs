@@ -1,5 +1,5 @@
 // An array of a class that could hold its instances in place, in a
-// program where an element's class or prototype read: the class keeps
+// program where an element is tested with instanceof: the class keeps
 // its cells, and every answer is the one a cell gives.
 
 class Token {
@@ -20,4 +20,4 @@ function make(n: number): Token[] {
 const ts: Token[] = make(4)
 
 const t = ts[1]
-console.log(t instanceof Token, t.constructor === Token, Object.getPrototypeOf(t) === Token.prototype)
+console.log(t instanceof Token)

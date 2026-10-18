@@ -1,5 +1,5 @@
 // An array of a class that could hold its instances in place, in a
-// program where a structurally wider object pushed: the class keeps
+// program where a structurally wider object is pushed: the class keeps
 // its cells, and every answer is the one a cell gives.
 
 class Token {
@@ -21,4 +21,4 @@ const ts: Token[] = make(4)
 
 const w = { kind: 1, value: 2, extra: 3 }
 ts.push(w)
-console.log(ts.length, ts[4].kind, ts[4].value, JSON.stringify(ts[4]))
+console.log(ts.length, ts[4].kind, ts[4].value)

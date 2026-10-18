@@ -1,6 +1,6 @@
 // An array of a class that could hold its instances in place, in a
-// program where an element read by iteration or an array method: the class keeps
-// its cells, and every answer is the one a cell gives.
+// program where the array is iterated with for-of: the class keeps its
+// cells, and every answer is the one a cell gives.
 
 class Token {
   kind: number
@@ -22,6 +22,3 @@ const ts: Token[] = make(4)
 let s = 0
 for (const t of ts) s = s + t.kind
 console.log(s)
-const p = ts.pop()
-console.log(p === undefined ? -1 : p.kind, ts.length)
-console.log(ts.map((t) => t.value).join(","))

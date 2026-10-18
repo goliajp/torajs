@@ -390,3 +390,93 @@ fn an_admitted_class_records_what_each_field_starts_with() {
         )]
     );
 }
+
+// one test per spelling the fallback fixtures put together in a program,
+// since the census stops at the first reason it finds
+
+#[test]
+fn each_identity_spelling_keeps_it_out() {
+    for tail in [
+        "console.log(ts[0] === ts[1])\n",
+        "console.log(ts[2] !== ts[2])\n",
+    ] {
+        out_with(tail, "(Other under BinOp): Index");
+    }
+}
+
+#[test]
+fn searching_freezing_or_redefining_keep_it_out() {
+    out_with(
+        "console.log(ts.includes(ts[1]))\n",
+        "name: \"includes\", role: Call",
+    );
+    out_with("Object.freeze(ts)\n", "the program may freeze or delete");
+    out_with(
+        "Object.defineProperty(ts[0], \"kind\", { get() { return 42 } })\n",
+        "not a candidate",
+    );
+}
+
+#[test]
+fn pushes_in_a_loop_between_view_and_read_keep_it_out() {
+    out_with(
+        "const t = ts[0]\nfor (let i = 0; i < 40; i = i + 1) ts.push(new Token(i, i))\nconsole.log(t.kind)\n",
+        "can come between the view `t` and its read",
+    );
+}
+
+#[test]
+fn an_optional_field_fixture_keeps_it_out() {
+    let src = include_str!("../../../conformance/cases/arr-inline-class-fallback-014.ts");
+    assert_eq!(token_reason(src), "not a candidate");
+}
+
+#[test]
+fn a_container_reached_through_any_keeps_it_out() {
+    // its methods then run on an `any` receiver, through their twins
+    let src = include_str!("../../../conformance/cases/arr-inline-class-fallback-015.ts");
+    let reason = token_reason(src);
+    assert!(
+        reason.contains("ClassRef(\"Parser\")") && reason.contains("ann: Some(\"any\")"),
+        "reason: {reason}"
+    );
+}
+
+#[test]
+fn a_container_whose_method_twins_nothing_reaches_is_admitted() {
+    let src = include_str!("../../../conformance/cases/arr-inline-class-007.ts");
+    assert_eq!(classes(src), vec!["Token".to_string()]);
+}
+
+/// Where the shared part of a one-spelling fallback fixture ends.
+const FALLBACK_SHARED: &str = "const ts: Token[] = make(4)\n\n";
+
+#[test]
+fn each_fallback_fixture_is_out_for_its_own_spelling() {
+    // the shared part with a plain read is admitted, so the one
+    // spelling after it is what keeps the class out
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../conformance/cases");
+    let mut seen = 0;
+    for e in std::fs::read_dir(dir).expect("cases") {
+        let path = e.expect("entry").path();
+        let name = path
+            .file_name()
+            .expect("name")
+            .to_string_lossy()
+            .into_owned();
+        if !(name.starts_with("arr-inline-class-fallback-") && name.ends_with(".ts")) {
+            continue;
+        }
+        let src = std::fs::read_to_string(&path).expect("fixture");
+        let Some(at) = src.find(FALLBACK_SHARED) else {
+            continue;
+        };
+        let shared = &src[..at + FALLBACK_SHARED.len()];
+        let plain = format!("{shared}console.log(ts[0].kind)\n");
+        assert_eq!(classes(&plain), vec!["Token".to_string()], "{name}");
+        let got = classes(&src);
+        assert!(!got.iter().any(|c| c == "Token"), "{name} admits Token");
+        seen += 1;
+    }
+    assert_eq!(seen, 29);
+}
