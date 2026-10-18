@@ -57,6 +57,8 @@ pub(crate) fn grown_cap(cap: u64) -> u64 {
 /// range copied, preserving deque head layout); later grows realloc
 /// the buffer in place.
 pub(crate) unsafe fn grow_data_buffer(arr: *mut u8, new_cap: u64) {
+    // the header keeps the capacity as a u32
+    debug_assert!(new_cap <= u32::MAX as u64);
     unsafe {
         let new_bytes = (new_cap as usize) * 8;
         let old_data = arr_data(arr);

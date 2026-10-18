@@ -62,16 +62,8 @@ impl<'p, 'a> Walk<'p, 'a> {
                         && self.construct_args_ok(args)
                         && matches!(ctx, Ctx::PushArg | Ctx::Discard)
                 }
-                Expr::ObjectLit { fields } => {
-                    fields.len() == h.fields.len()
-                        && h.fields
-                            .iter()
-                            .all(|f| fields.iter().any(|(k, _)| k.lossy() == *f))
-                        && fields
-                            .iter()
-                            .all(|(_, v)| !matches!(ast.get_expr(*v), Expr::Spread { .. }))
-                        && matches!(ctx, Ctx::PushArg)
-                }
+                // an object literal is a struct, not an instance: the
+                // in-place push builds only from a construction
                 _ => false,
             },
             Cat::Arr | Cat::Boxed(_) => self.shape_ok(x, cat) && self.place_ok(cat, ctx),

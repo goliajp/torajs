@@ -3,31 +3,16 @@
 //! of the `Expr::Call` god-arm decomp (chunks 1-3 = Arr higher-order +
 //! Map dispatch + Set dispatch).
 //!
-//! Four legal receiver shapes (other shapes like `getArr().push(v)` are
-//! rejected upstream; B1 fixed the cell across grow so the historical
-//! "no place to store a realloc'd pointer" concern is gone — remaining
-//! rejections are just unwired shapes):
-//! - (a) Ident bound to a mutable `Type::Arr` local — load cur ptr from
-//!   the slot, call `arr_push` (which may realloc), store result back
-//!   into the slot. Includes the v0.6+1 push-loop pre-reserve fast-path:
-//!   if the enclosing for-loop's lowerer detected the canonical fill
-//!   pattern and emitted `arr_reserve(xs, len + N)`, skip the runtime
-//!   call entirely and write the slot directly at
-//!   `slot0 + len*8`. The Phase 2 captured-array writeback
-//!   then mirrors the new ptr into the env block so re-invoked closures
-//!   see the live buffer.
-//! - K.8 — Ident-receiver where the binding is a top-level refcount
-//!   global (registered by the K.6 globals pass). Load cur ptr from the
-//!   global slot via `GlobalRef`, push, store back.
-//! - (b) `obj.field.push(v)` where `field` is `Type::Arr` inside a struct
-//!   — load cur ptr from `struct + offset`, push, store back at the
-//!   same offset.
+//! Four receiver shapes: a local binding, a top-level binding, an
+//! element or other borrowed place (`xs[i]`, `(0, xs)`, an owned
+//! temporary), and a field (`obj.items`). Each reads the array out and
+//! hands it to one push core, [`push_onto`]; B1 fixed the cell across
+//! grow, so nothing is stored back. A local filled by a pre-reserved
+//! loop stores the slot directly at the running length instead.
 //!
-//! All three paths handle `Type::Any` element arrays via
-//! [`crate::ssa_lower_arr_any_push::SsaLower::emit_arr_any_push_at_slot`]
-//! to dodge the 8-byte / 16-byte tagged-slot ABI mismatch that pre-P0.10
-//! tora's typed `arr_push` introduced (raw int into Any slot → SIGSEGV on
-//! next decode).
+//! `Array<Any>` takes the 16-byte tagged-slot push
+//! ([`crate::ssa_lower_arr_any_push`]); routing it through the 8-byte
+//! typed `arr_push` wrote raw words into tagged slots.
 //!
 //! Returns `Some(new_len)` when callee shape matches; `None` lets the
 //! caller fall through to the Phase I.1 sibling-class static dispatch
@@ -109,45 +94,17 @@ fn try_lower_index(ctx: &mut LowerCtx<'_>, recv_id: ExprId, args: &[ExprId]) -> 
         _ => return None,
     };
     let tok = ctx.park_owned_temp(recv_id, &recv_val);
+    // a borrowed element or place may be overwritten by the argument
+    let hold = match owned_temp {
+        true => None,
+        false => push_recv_hold::hold_place(ctx, args[0], recv_val),
+    };
     let elem_ty = ctx.arr_layouts[arr_id.0 as usize];
-    if matches!(elem_ty, Type::Any) {
-        let n = ctx.emit_arr_any_push_at_value(recv_val, args[0], recv_ty);
-        ctx.unpark_owned_temp(tok);
-        ctx.release_owned_temp(recv_id, &recv_val);
-        return Some(n);
-    }
-    if let Type::Inline(sid) = elem_ty {
-        let n = crate::ssa_lower::inline_push::push(ctx, recv_val, args[0], sid);
-        ctx.unpark_owned_temp(tok);
-        ctx.release_owned_temp(recv_id, &recv_val);
-        return Some(n);
-    }
-    let (val, val_owned_from_substr) = coerce_push_value(ctx, args[0], elem_ty);
-    let push_arg = ctx.raw_slot_arg(val);
-    // Chunk 733's stake dance (owned-shape arg hands its +1 to the
-    // array; probes P1 closure-push 30.5MB / P6 nested-arr 44.9MB /
-    // P7 owned-str 16MB vs 6.3MB flat) lives in the helper now, on
-    // both edges.
-    let new_arr = emit_grow_kernel_checked(
-        ctx,
-        ctx.intrinsics.arr_push,
-        recv_val,
-        push_arg,
-        args[0],
-        val,
-        elem_ty,
-        val_owned_from_substr,
-        recv_ty,
-    );
-    let new_len = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Load(Type::I64, Operand::Value(new_arr), ARR_LEN_OFF),
-        Type::I64,
-        None,
-    );
+    let n = push_onto(ctx, recv_val, args[0], elem_ty, recv_ty);
+    push_recv_hold::release(ctx, hold);
     ctx.unpark_owned_temp(tok);
     ctx.release_owned_temp(recv_id, &recv_val);
-    Some(Operand::Value(new_len))
+    Some(n)
 }
 
 /// (a) Ident-receiver path: local binding to mutable `Type::Arr`. Includes
@@ -169,42 +126,29 @@ fn try_lower_ident_local(
     };
     let arr_ty = info.ty;
     let elem_ty = ctx.arr_layouts[arr_id.0 as usize];
-    // P0.10 — Array<Any>.push(<concrete>) routes through arr_push_any
-    // with a (tag, value) pair. Pre-fix tora called the regular arr_push
-    // intrinsic which uses 8-byte slots and corrupted the Array<Any>'s
-    // 16-byte tagged-slot layout. Same boxing scheme as the Index-assign
-    // Any path shipped earlier.
-    if matches!(elem_ty, Type::Any) {
-        return Some(ctx.emit_arr_any_push_at_slot(Operand::Value(info.slot), 0, args[0], arr_ty));
-    }
     let cur_arr = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Load(arr_ty, Operand::Value(info.slot), 0),
         arr_ty,
         None,
     );
-    // a fill loop's arguments cannot call, so they cannot rebind it
-    let fast = ctx.prereserve.unchecked_for.get(recv_name).copied();
-    let hold = match fast {
-        Some(_) => None,
-        None => push_recv_hold::hold(ctx, recv_name, false, args[0], Operand::Value(cur_arr)),
+    // P0.10 — Array<Any>.push(<concrete>) routes through arr_push_any
+    // with a (tag, value) pair, never through the 8-byte-slot fast push.
+    let fast = match elem_ty {
+        Type::Any => None,
+        _ => ctx.prereserve.unchecked_for.get(recv_name).copied(),
     };
-    if let Type::Inline(sid) = elem_ty {
-        let n = match fast {
-            Some(st) => Operand::Value(inline_push::push_prereserved(ctx, st, args[0], sid)),
-            None => inline_push::push(ctx, Operand::Value(cur_arr), args[0], sid),
-        };
-        push_recv_hold::release(ctx, hold);
-        return Some(n);
-    }
-    let (val, val_owned_from_substr) = coerce_push_value(ctx, args[0], elem_ty);
     // v0.6+1 perf checkpoint — push-loop pre-reserve. If the enclosing
-    // for-loop's lowerer detected the canonical fill pattern and emitted
-    // `arr_reserve(xs, len + N)`, this push is guaranteed to fit without
-    // a buffer grow. Inline the fast-path: read hoisted len, write the
-    // slot at slot0 + len*8, bump len_slot (B1: slot0 is hoisted off
-    // the data pointer; the reserve guarantees it stays valid).
-    if let Some(state) = ctx.prereserve.unchecked_for.get(recv_name).copied() {
+    // loop's lowerer detected the canonical fill pattern and reserved
+    // room for it, this push is guaranteed to fit without a buffer
+    // grow: store the slot at the running length and bump it. A fill
+    // loop's arguments cannot call, so they cannot rebind the receiver.
+    if let Some(state) = fast {
+        if let Type::Inline(sid) = elem_ty {
+            let n = inline_push::push_prereserved(ctx, state, args[0], sid);
+            return Some(Operand::Value(n));
+        }
+        let (val, val_owned_from_substr) = coerce_push_value(ctx, args[0], elem_ty);
         let len_next = ctx.emit_prereserved_push(state, val);
         crate::ssa_lower_arr_grow_kernel::take_pushed_stake(
             ctx,
@@ -213,39 +157,18 @@ fn try_lower_ident_local(
             elem_ty,
             val_owned_from_substr,
         );
-        // chunk 9c — fast-push spec parity: ret new length (already in SSA
-        // as `len_next`, mirrors arr[#8]).
+        // push answers the new length (§23.1.3.23)
         return Some(Operand::Value(len_next));
     }
-    let push_arg = ctx.raw_slot_arg(val);
-    let new_arr = emit_grow_kernel_checked(
-        ctx,
-        ctx.intrinsics.arr_push,
-        Operand::Value(cur_arr),
-        push_arg,
-        args[0],
-        val,
-        elem_ty,
-        val_owned_from_substr,
-        arr_ty,
-    );
-    // B1 (RFC 20260706-arr-grow-alias-stability): the cell never
-    // moves, so the historical slot write-back + captured-env mirror
-    // are retired — every alias already sees the grown buffer.
-    // chunk 9c — push spec parity: ret new length per JS spec §22.1.3.20.
-    let new_len = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Load(Type::I64, Operand::Value(new_arr), ARR_LEN_OFF),
-        Type::I64,
-        None,
-    );
+    let hold = push_recv_hold::hold(ctx, recv_name, false, args[0], Operand::Value(cur_arr));
+    let n = push_onto(ctx, Operand::Value(cur_arr), args[0], elem_ty, arr_ty);
     push_recv_hold::release(ctx, hold);
-    Some(Operand::Value(new_len))
+    Some(n)
 }
 
 /// K.8 — Ident-receiver where the binding is a top-level refcount global
 /// (registered by the K.6 globals pass). Load cur ptr from the global slot
-/// via `GlobalRef`, push, store back. Mirror semantic of the local path
+/// via `GlobalRef` and push onto it. Mirror semantic of the local path
 /// above — including refcount inc on the pushed value for refcounted
 /// element types. P0.10 mirror: `const a: any[] = []` routes through
 /// `arr_alloc_any(0)` so push must use the 16-byte tagged-slot intrinsic.
@@ -274,9 +197,6 @@ fn try_lower_ident_global(
         Type::Ptr,
         None,
     );
-    if matches!(elem_ty, Type::Any) {
-        return Some(ctx.emit_arr_any_push_at_slot(Operand::Value(slot_ptr), 0, args[0], arr_ty));
-    }
     let cur_arr = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Load(arr_ty, Operand::Value(slot_ptr), 0),
@@ -284,38 +204,14 @@ fn try_lower_ident_global(
         None,
     );
     let hold = push_recv_hold::hold(ctx, recv_name, true, args[0], Operand::Value(cur_arr));
-    if let Type::Inline(sid) = elem_ty {
-        let n = inline_push::push(ctx, Operand::Value(cur_arr), args[0], sid);
-        push_recv_hold::release(ctx, hold);
-        return Some(n);
-    }
-    let (val, val_owned_from_substr) = coerce_push_value(ctx, args[0], elem_ty);
-    let push_arg = ctx.raw_slot_arg(val);
-    let new_arr = emit_grow_kernel_checked(
-        ctx,
-        ctx.intrinsics.arr_push,
-        Operand::Value(cur_arr),
-        push_arg,
-        args[0],
-        val,
-        elem_ty,
-        val_owned_from_substr,
-        arr_ty,
-    );
-    // B1 — cell fixed across grow; global-slot write-back retired.
-    let new_len = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Load(Type::I64, Operand::Value(new_arr), ARR_LEN_OFF),
-        Type::I64,
-        None,
-    );
+    let n = push_onto(ctx, Operand::Value(cur_arr), args[0], elem_ty, arr_ty);
     push_recv_hold::release(ctx, hold);
-    Some(Operand::Value(new_len))
+    Some(n)
 }
 
 /// (b) `obj.field.push(v)` — field-receiver path. Load the struct pointer
-/// once (borrow), find the field's offset, then load → push → store-back
-/// at that offset. P0.10 mirror: `class W { items: any[] = [] }` allocates
+/// once (borrow), find the field's offset, read the array there and push
+/// onto it. P0.10 mirror: `class W { items: any[] = [] }` allocates
 /// via arr_alloc_any (16B tagged slots) so push must use arr_push_any too.
 fn try_lower_field(ctx: &mut LowerCtx<'_>, recv_id: ExprId, args: &[ExprId]) -> Option<Operand> {
     let (struct_id, field_name) = match ctx.ast.get_expr(recv_id) {
@@ -342,46 +238,56 @@ fn try_lower_field(ctx: &mut LowerCtx<'_>, recv_id: ExprId, args: &[ExprId]) -> 
     };
     let elem_ty = ctx.arr_layouts[arr_id.0 as usize];
     let offset = OBJ_HEADER_SIZE + (idx as u64) * 8;
-    if matches!(elem_ty, Type::Any) {
-        return Some(ctx.emit_arr_any_push_at_slot(obj_val, offset, args[0], field_ty));
-    }
     let cur_arr = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Load(field_ty, obj_val, offset),
         field_ty,
         None,
     );
+    // the argument may overwrite the field, or release the object
+    let hold = push_recv_hold::hold_place(ctx, args[0], Operand::Value(cur_arr));
+    let n = push_onto(ctx, Operand::Value(cur_arr), args[0], elem_ty, field_ty);
+    push_recv_hold::release(ctx, hold);
+    Some(n)
+}
+
+/// `arr.push(arg)` onto an array already read out, of any element type.
+fn push_onto(
+    ctx: &mut LowerCtx<'_>,
+    arr: Operand,
+    arg: ExprId,
+    elem_ty: Type,
+    arr_ty: Type,
+) -> Operand {
+    if matches!(elem_ty, Type::Any) {
+        return ctx.emit_arr_any_push_at_value(arr, arg, arr_ty);
+    }
     if let Type::Inline(sid) = elem_ty {
-        return Some(inline_push::push(
-            ctx,
-            Operand::Value(cur_arr),
-            args[0],
-            sid,
-        ));
+        return inline_push::push(ctx, arr, arg, sid);
     }
     // The shared push coercion (chain-mark, bool → i64, W4 width
     // align, Substr / Any materialize) — the field path's historical
     // inline copy lacked the Substr and Any arms, so an admitted Any
     // arg would have raw-written box bits into the typed slot.
-    let (val, val_owned_from_substr) = coerce_push_value(ctx, args[0], elem_ty);
+    let (val, val_owned_from_substr) = coerce_push_value(ctx, arg, elem_ty);
     let push_arg = ctx.raw_slot_arg(val);
     let new_arr = emit_grow_kernel_checked(
         ctx,
         ctx.intrinsics.arr_push,
-        Operand::Value(cur_arr),
+        arr,
         push_arg,
-        args[0],
+        arg,
         val,
         elem_ty,
         val_owned_from_substr,
-        field_ty,
+        arr_ty,
     );
-    // B1 — cell fixed across grow; field write-back retired.
+    // B1 — the cell is fixed across grow; nothing to write back.
     let new_len = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Load(Type::I64, Operand::Value(new_arr), ARR_LEN_OFF),
         Type::I64,
         None,
     );
-    Some(Operand::Value(new_len))
+    Operand::Value(new_len)
 }

@@ -63,6 +63,7 @@ pub(crate) fn lower_while_inner(
      * either returns matched (bound_eid, names) or None; on None we
      * fall through to the plain while-lower below. */
     let mut reserve_emitted: Vec<String> = Vec::new();
+    let mut slow = None;
     if let Some(counter_name) = counter_name_opt
         && let Some((bound_eid, names)) =
             detect_push_loop_arrays_while(ctx.ast, counter_name, cond, body)
@@ -112,7 +113,8 @@ pub(crate) fn lower_while_inner(
                 Type::I64,
                 None,
             );
-            let target_cap = ctx.emit_reserve_slots(info.ty, initial_len_v, bound_op, per_trip);
+            let target_cap =
+                ctx.emit_reserve_slots(info.ty, initial_len_v, bound_op, per_trip, &mut slow);
             let reserved = ctx.f.append_inst(
                 ctx.cur_block,
                 InstKind::Call(
@@ -130,6 +132,34 @@ pub(crate) fn lower_while_inner(
         }
     }
 
+    lower_loop(ctx, cond, body);
+
+    /* Settle the length word for a lane that deferred it, then remove
+     * the PreReserve entry so a follow-up while/for on the
+     * same array doesn't accidentally inherit it. */
+    for name in &reserve_emitted {
+        if let Some(state) = ctx.prereserve.unchecked_for.get(name).copied() {
+            ctx.emit_prereserved_len_writeback(state);
+        }
+    }
+    for name in &reserve_emitted {
+        ctx.prereserve.unchecked_for.remove(name);
+    }
+    // the trips may outgrow what an array can hold: the loop runs again
+    // from its first trip with checked pushes, the arrays' reserve
+    // entries gone (see `emit_reserve_slots`)
+    if let Some(slow) = slow {
+        let join = ctx.f.add_block();
+        ctx.f.set_term(ctx.cur_block, Terminator::Br(join));
+        ctx.cur_block = slow;
+        lower_loop(ctx, cond, body);
+        ctx.f.set_term(ctx.cur_block, Terminator::Br(join));
+        ctx.cur_block = join;
+    }
+}
+
+/// The loop proper, ending in the open block it leaves by.
+fn lower_loop(ctx: &mut LowerCtx<'_>, cond: ExprId, body: &Stmt) {
     let header = ctx.f.add_block();
     let body_blk = ctx.f.add_block();
     let after = ctx.f.add_block();
@@ -171,16 +201,4 @@ pub(crate) fn lower_while_inner(
     ctx.loop_stack.pop();
 
     ctx.cur_block = after;
-
-    /* Settle the length word for a lane that deferred it, then remove
-     * the PreReserve entry so a follow-up while/for on the
-     * same array doesn't accidentally inherit it. */
-    for name in &reserve_emitted {
-        if let Some(state) = ctx.prereserve.unchecked_for.get(name).copied() {
-            ctx.emit_prereserved_len_writeback(state);
-        }
-    }
-    for name in &reserve_emitted {
-        ctx.prereserve.unchecked_for.remove(name);
-    }
 }

@@ -1,9 +1,10 @@
 //! Whole programs whose `Token` the value-class census admits, lowered
 //! to the end. Pass 2.5 reads the finished SSA of each against the
-//! census and fails the lowering on any disagreement, so each of these
-//! lowering at all is the SSA's agreement with the census.
+//! census and lowers the module again with the class held as cells on
+//! any disagreement, so an array still holding `Token` in place at the
+//! end is the SSA's agreement with the census.
 
-use torajs_core::{check, ssa_lower};
+use torajs_core::{check, ssa, ssa_lower};
 
 use crate::value_class_census_tests::{BASE, BOXED, classes, desugared};
 
@@ -17,6 +18,11 @@ fn admitted_and_lowered(src: &str) {
         ssa_lower::value_class_verdicts(&artifacts)
     );
     let m = ssa_lower::lower_with_arity(&ast, &artifacts);
+    // a disagreement lowers the module again with the class out
+    assert!(
+        (0..m.arr_layouts.len()).any(|i| matches!(m.arr_layouts[i], ssa::Type::Inline(_))),
+        "the SSA check put the class back into cells"
+    );
     // the check reads live function bodies; a program with none would
     // pass it unread
     assert!(

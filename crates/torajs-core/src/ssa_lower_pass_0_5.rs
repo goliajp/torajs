@@ -45,7 +45,7 @@ pub(crate) fn run(
     expr_types: &HashMap<ExprId, crate::check::Type>,
     module: &mut Module,
     num_f64_slots: &WidthTable,
-    held_as_cells: &HashSet<ssa::StructId>,
+    held_as_cells: &HashSet<String>,
 ) -> Pass05 {
     let mut aliases: HashMap<String, Type> = HashMap::new();
     let mut arr_layouts = crate::ssa::ArrLayouts::default();
@@ -57,8 +57,9 @@ pub(crate) fn run(
     let arr_head_pinned = arr_head_census::program_pins_arr_head(ast, expr_types, &dead_twins);
     let live_fields =
         live_field_census::program_live_fields(ast, expr_types, num_f64_slots, &dead_twins);
-    let value_class_names =
+    let mut value_class_names =
         value_class_census::program_value_classes(ast, expr_types, &dead_twins, arr_head_pinned);
+    value_class_names.retain(|(n, _)| !held_as_cells.contains(n));
 
     let mut generic_struct_decls: GenericStructDecls = HashMap::new();
     let mut struct_layouts: Vec<Vec<(PropKey, Type)>> = std::mem::take(&mut module.struct_layouts);
@@ -206,14 +207,14 @@ pub(crate) fn run(
     }
 
     let class_name_to_tag = class_tags(ast);
-    let mut value_inits = value_class_census::value_sids(
+    let value_inits = value_class_census::value_sids(
         &value_class_names,
         &aliases,
         &struct_layouts,
         ast,
         num_f64_slots,
     );
-    value_inits.retain(|sid, _| !held_as_cells.contains(sid));
+    arr_layouts.hold_in_place(value_inits.keys().copied());
 
     Pass05 {
         aliases,

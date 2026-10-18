@@ -27,7 +27,7 @@
 //! - Drop init-scope locals + restore shadowed bindings.
 
 use crate::ast::{ExprId, Stmt};
-use crate::ssa::{InstKind, Operand, Terminator, Type, ValueId};
+use crate::ssa::{BlockId, InstKind, Operand, Terminator, Type, ValueId};
 use crate::ssa_lower::{ARR_LEN_OFF, LocalInfo, LowerCtx};
 use crate::ssa_lower_push_loop_detect::detect_push_loop_arrays;
 
@@ -107,73 +107,8 @@ pub(crate) fn lower(
         ctx.escape_captured_lets.insert(name.clone());
     }
     let mut per_iter = setup_per_iter_vars(ctx, candidates);
-    let reserve_emitted = emit_push_loop_reserve(ctx, init, cond, step, body);
-    let header = ctx.f.add_block();
-    let body_blk = ctx.f.add_block();
-    let step_blk = ctx.f.add_block();
-    let after = ctx.f.add_block();
-
-    ctx.f.set_term(ctx.cur_block, Terminator::Br(header));
-
-    ctx.cur_block = header;
-    let c = match cond {
-        Some(eid) => {
-            let raw = ctx.lower_expr(eid);
-            let c = ctx.coerce_to_bool(raw);
-            // Chunk 636 — release an owned condition temp after the
-            // truthiness test (see ssa_lower_stmt_if.rs).
-            ctx.release_owned_temp(eid, &raw);
-            c
-        }
-        None => Operand::ConstBool(true),
-    };
-    ctx.f.set_term(
-        ctx.cur_block,
-        Terminator::CondBr {
-            cond: c,
-            then_blk: body_blk,
-            else_blk: after,
-        },
-    );
-
-    // RFC 20260901-scope-exit-drops — the for-init frame is closed by
-    // the `after` block on every path, so a jump only owes the body's
-    // frames (pushed by `lower_stmt(body)` below): depth = `len()`.
-    ctx.loop_stack
-        .push(crate::ssa_lower_scope_exit::LoopTargets {
-            cont: Some(step_blk),
-            brk: after,
-            scope_depth: ctx.scope_stack.len(),
-            teardown_depth: ctx.for_of_teardown_stack.len(),
-        });
-    ctx.cur_block = body_blk;
-    mint_per_iter_boxes(ctx, &mut per_iter);
-    ctx.lower_stmt(body);
-    if ctx.cur_open() {
-        ctx.f.set_term(ctx.cur_block, Terminator::Br(step_blk));
-    }
-    ctx.loop_stack.pop();
-
-    ctx.cur_block = step_blk;
-    close_per_iter_boxes(ctx, &per_iter);
-    if let Some(eid) = step {
-        // The step's value is read by nobody — the `Stmt::Expr`
-        // contract: an Ident-target assignment mints no consumer
-        // stake, and an owned temp (a call answering an object or a
-        // string) is released here. Neither happened before, so a
-        // refcounted step leaked one reference per iteration.
-        let saved_discard_expr = ctx.discarded_stmt_expr;
-        ctx.discarded_stmt_expr = Some(eid);
-        let op = ctx.lower_expr(eid);
-        ctx.discarded_stmt_expr = saved_discard_expr;
-        ctx.release_owned_temp(eid, &op);
-    }
-    if ctx.cur_open() {
-        ctx.f.set_term(ctx.cur_block, Terminator::Br(header));
-    }
-
-    ctx.cur_block = after;
-    release_broken_iter_boxes(ctx, &per_iter);
+    let (reserve_emitted, slow) = emit_push_loop_reserve(ctx, init, cond, step, body);
+    lower_loop(ctx, cond, step, body, &mut per_iter);
     for name in &reserve_emitted {
         if let Some(state) = ctx.prereserve.unchecked_for.get(name).copied() {
             ctx.emit_prereserved_len_writeback(state);
@@ -181,6 +116,17 @@ pub(crate) fn lower(
     }
     for name in &reserve_emitted {
         ctx.prereserve.unchecked_for.remove(name);
+    }
+    // the trips may outgrow what an array can hold: the loop runs again
+    // from its first trip with checked pushes, the arrays' reserve
+    // entries gone
+    if let Some(slow) = slow {
+        let join = ctx.f.add_block();
+        ctx.f.set_term(ctx.cur_block, Terminator::Br(join));
+        ctx.cur_block = slow;
+        lower_loop(ctx, cond, step, body, &mut per_iter);
+        ctx.f.set_term(ctx.cur_block, Terminator::Br(join));
+        ctx.cur_block = join;
     }
     let frame = ctx.scope_stack.pop().expect("for-init scope");
     let shadows = ctx.shadow_stack.pop().expect("shadow frame");
@@ -220,6 +166,83 @@ pub(crate) fn lower(
         }
         ctx.locals.insert(name, prev);
     }
+}
+
+/// The loop proper: header, body and step, ending in the open block
+/// the loop leaves by, its broken iteration's boxes released.
+fn lower_loop(
+    ctx: &mut LowerCtx,
+    cond: Option<ExprId>,
+    step: Option<ExprId>,
+    body: &Stmt,
+    per_iter: &mut [PerIterVar],
+) {
+    let header = ctx.f.add_block();
+    let body_blk = ctx.f.add_block();
+    let step_blk = ctx.f.add_block();
+    let after = ctx.f.add_block();
+
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(header));
+
+    ctx.cur_block = header;
+    let c = match cond {
+        Some(eid) => {
+            let raw = ctx.lower_expr(eid);
+            let c = ctx.coerce_to_bool(raw);
+            // Chunk 636 — release an owned condition temp after the
+            // truthiness test (see ssa_lower_stmt_if.rs).
+            ctx.release_owned_temp(eid, &raw);
+            c
+        }
+        None => Operand::ConstBool(true),
+    };
+    ctx.f.set_term(
+        ctx.cur_block,
+        Terminator::CondBr {
+            cond: c,
+            then_blk: body_blk,
+            else_blk: after,
+        },
+    );
+
+    // RFC 20260901-scope-exit-drops — the for-init frame is closed by
+    // the `after` block on every path, so a jump only owes the body's
+    // frames (pushed by `lower_stmt(body)` below): depth = `len()`.
+    ctx.loop_stack
+        .push(crate::ssa_lower_scope_exit::LoopTargets {
+            cont: Some(step_blk),
+            brk: after,
+            scope_depth: ctx.scope_stack.len(),
+            teardown_depth: ctx.for_of_teardown_stack.len(),
+        });
+    ctx.cur_block = body_blk;
+    mint_per_iter_boxes(ctx, per_iter);
+    ctx.lower_stmt(body);
+    if ctx.cur_open() {
+        ctx.f.set_term(ctx.cur_block, Terminator::Br(step_blk));
+    }
+    ctx.loop_stack.pop();
+
+    ctx.cur_block = step_blk;
+    close_per_iter_boxes(ctx, per_iter);
+    if let Some(eid) = step {
+        // The step's value is read by nobody — the `Stmt::Expr`
+        // contract: an Ident-target assignment mints no consumer
+        // stake, and an owned temp (a call answering an object or a
+        // string) is released here. Neither happened before, so a
+        // refcounted step leaked one reference per iteration.
+        let saved_discard_expr = ctx.discarded_stmt_expr;
+        ctx.discarded_stmt_expr = Some(eid);
+        let op = ctx.lower_expr(eid);
+        ctx.discarded_stmt_expr = saved_discard_expr;
+        ctx.release_owned_temp(eid, &op);
+    }
+    if ctx.cur_open() {
+        ctx.f.set_term(ctx.cur_block, Terminator::Br(header));
+    }
+
+    ctx.cur_block = after;
+    release_broken_iter_boxes(ctx, per_iter);
 }
 
 /// Chunk 725 — allocate the per-iteration tracking state for each
@@ -389,14 +412,16 @@ fn release_broken_iter_boxes(ctx: &mut LowerCtx, per_iter: &[PerIterVar]) {
 /// the canonical `for (let i = 0; i < N; i++) { xs.push(_) }`
 /// pattern and reserve capacity once before the loop so the body's
 /// pushes skip the per-iter grow check. Answers the array names a
-/// matching reserve was emitted for.
+/// matching reserve was emitted for, and the block the length test
+/// leaves for when the trips may outgrow an array (see
+/// `emit_reserve_slots`).
 fn emit_push_loop_reserve(
     ctx: &mut LowerCtx,
     init: Option<&Stmt>,
     cond: Option<ExprId>,
     step: Option<ExprId>,
     body: &Stmt,
-) -> Vec<String> {
+) -> (Vec<String>, Option<BlockId>) {
     let pushed_arrays = detect_push_loop_arrays(ctx.ast, init, cond, step, body);
     // Only a body whose every push argument is inert may keep the
     // length word in a register until the loop ends — see
@@ -404,6 +429,7 @@ fn emit_push_loop_reserve(
     let filled: &[String] = pushed_arrays.as_ref().map_or(&[], |(_, n)| n);
     let defer_len = crate::ssa_lower_push_loop_detect::push_args_all_inert(ctx, body, filled);
     let mut reserve_emitted: Vec<String> = Vec::new();
+    let mut slow = None;
     if let Some((bound_eid, names)) = &pushed_arrays {
         // The install gate: the bound is read once here and trusted
         // for the whole loop, and each array is reserved on its own
@@ -411,7 +437,7 @@ fn emit_push_loop_reserve(
         let Some(bound_op) =
             crate::ssa_lower_push_loop_detect::lower_reserve_bound(ctx, *bound_eid, names, body)
         else {
-            return reserve_emitted;
+            return (reserve_emitted, slow);
         };
         for (name, per_trip) in crate::ssa_lower_arr_prereserve::push_counts(names) {
             let Some(info) = ctx.locals.get(&name).copied() else {
@@ -446,7 +472,8 @@ fn emit_push_loop_reserve(
                 Type::I64,
                 None,
             );
-            let target_cap = ctx.emit_reserve_slots(info.ty, initial_len_v, bound_op, per_trip);
+            let target_cap =
+                ctx.emit_reserve_slots(info.ty, initial_len_v, bound_op, per_trip, &mut slow);
             let reserved = ctx.f.append_inst(
                 ctx.cur_block,
                 InstKind::Call(
@@ -463,5 +490,5 @@ fn emit_push_loop_reserve(
             reserve_emitted.push(name.clone());
         }
     }
-    reserve_emitted
+    (reserve_emitted, slow)
 }

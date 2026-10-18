@@ -16,9 +16,9 @@ pub struct ArrLayouts {
     /// The value classes whose arrays hold their fields in place.
     /// An element type interned before this set is filled (a field's
     /// array type pass 0.5 resolves with its class layouts, such as a
-    /// container's `toks: Token[]`) still reads `Obj`; filling the set
-    /// has to rewrite those entries in place, so that every array of
-    /// the class keeps sharing one id.
+    /// container's `toks: Token[]`) still reads `Obj`;
+    /// [`Self::hold_in_place`] rewrites those entries in place, so that
+    /// every array of the class keeps sharing one id.
     value_sids: HashSet<StructId>,
 }
 
@@ -58,15 +58,26 @@ impl ArrLayouts {
         self.value_sids.contains(&sid)
     }
 
+    /// Hold the arrays of `sids` in place from now on, and rewrite the
+    /// arrays of them interned so far, keeping their ids.
+    pub(crate) fn hold_in_place(&mut self, sids: impl IntoIterator<Item = StructId>) {
+        self.value_sids.extend(sids);
+        for e in &mut self.elems {
+            if let Type::Obj(sid) = *e
+                && self.value_sids.contains(&sid)
+            {
+                *e = Type::Inline(sid);
+            }
+        }
+    }
+
     /// An empty table whose arrays of `sids` hold their fields in
-    /// place, for tests that lower an inline array by hand; no program
-    /// interns one yet.
+    /// place, for tests that lower an inline array by hand.
     #[cfg(test)]
     pub(crate) fn with_value_classes(sids: &[StructId]) -> Self {
-        ArrLayouts {
-            elems: Vec::new(),
-            value_sids: sids.iter().copied().collect(),
-        }
+        let mut t = ArrLayouts::default();
+        t.hold_in_place(sids.iter().copied());
+        t
     }
 }
 

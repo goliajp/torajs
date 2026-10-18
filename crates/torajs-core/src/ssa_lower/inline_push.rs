@@ -3,13 +3,21 @@
 //! field by field, with no cell and no factory call.
 //!
 //! The argument runs first and in full (it may push to the same array
-//! itself), and only then is the slot found: a lock bit (frozen,
-//! sealed, not extensible, read-only `length`) raises the TypeError a
-//! push raises; a buffer with no room for the element grows on a cold
-//! edge; each field is stored at `data + len * stride + 8k` and the
-//! length moves up by one. The grow asks for the slots in use plus the
-//! slots needed, at least twice what the buffer holds, since the
-//! runtime grows by exactly what it is asked.
+//! itself), and only then is the slot found: a buffer with no room for
+//! the element grows on a cold edge; each field is stored at
+//! `data + len * stride + 8k` and the length moves up by one. The grow
+//! asks for the slots in use plus the slots needed, at least twice what
+//! the buffer holds, since the runtime grows by exactly what it is
+//! asked, and never past the u32 slot count a capacity can hold; an
+//! append that needs more raises the RangeError of §10.4.2.4.
+//!
+//! There is no test of the header's lock bits (frozen, sealed, not
+//! extensible, read-only `length`), which refuse a push with a
+//! TypeError (§10.1.8.1): the census admits a class only when its
+//! arrays reach nothing but the places it lists, and none of them can
+//! set a lock bit, so no array that holds its elements in place has
+//! one. A debug compiler, and the strict switch the conformance gate
+//! sets, emit a trap on a lock bit instead ([`assert_unlocked`]).
 //!
 //! The pre-reserved fill loops (`crate::ssa_lower_arr_prereserve`)
 //! reserve `fields` slots per element for such an array and append
@@ -24,13 +32,6 @@ use crate::ssa_lower_checked_cast::{Admits, CastScope, CastSlot};
 use crate::ssa_lower_pass_0_5::value_class_census::FieldInit;
 
 use super::inline_elem::{elem_addr, elem_stride, emit_elem_addr, emit_scaled_index};
-
-/// The header bits that refuse an append (§10.1.8.1) or the length
-/// write that follows it.
-const APPEND_LOCK_BITS: u16 = torajs_rc::FLAG_FROZEN
-    | torajs_rc::FLAG_SEALED
-    | torajs_rc::FLAG_NON_EXTENSIBLE
-    | torajs_rc::FLAG_ARR_LENGTH_RO;
 
 /// The arguments of `eid` when it builds an instance of a class whose
 /// arrays hold it in place (`new C(..)`, or the `__new_C(..)` call the
@@ -59,15 +60,9 @@ pub(crate) fn construction_args<'e>(ctx: &LowerCtx<'e>, eid: ExprId) -> Option<&
 /// `arr.push(arg)`; answers the new length.
 pub(crate) fn push(ctx: &mut LowerCtx<'_>, arr: Operand, arg: ExprId, sid: StructId) -> Operand {
     let fields = field_values(ctx, arg, sid);
-    // raises the TypeError the runtime push raises, reading only the
-    // array's header
-    crate::ssa_lower_str_arr_inplace::emit_arr_lock_bits_guard(
-        ctx,
-        arr,
-        APPEND_LOCK_BITS,
-        None,
-        None,
-    );
+    if cfg!(debug_assertions) || crate::ssa_lower_pass_2_5::value_class_check::strict() {
+        assert_unlocked(ctx, arr);
+    }
     let k = fields.len() as u64;
     let load = |ctx: &mut LowerCtx<'_>, off: u64| {
         let cb = ctx.cur_block;
@@ -100,11 +95,23 @@ pub(crate) fn push(ctx: &mut LowerCtx<'_>, arr: Operand, arg: ExprId, sid: Struc
         },
     );
     ctx.cur_block = grow_blk;
-    let target = ctx.bin(BinOp::Add, need, cap, Type::I64);
+    // the capacity is a u32 count of slots, so an array of `k`-slot
+    // elements holds at most `u32::MAX / k` of them
+    let max = (u32::MAX as u64 / k * k) as i64;
+    let over = ctx.cmp(IPred::Sgt, need, Operand::ConstI64(max));
+    ctx.emit_too_long_guard(over);
+    let doubled = ctx.bin(BinOp::Add, need, cap, Type::I64);
+    // min(doubled, max) by arithmetic: the lowering may not form a
+    // select, which only the passes after the egraph introduce
+    let room = ctx.bin(BinOp::Sub, Operand::ConstI64(max), doubled, Type::I64);
+    let sign = ctx.bin(BinOp::AShr, room, Operand::ConstI64(63), Type::I64);
+    let short = ctx.bin(BinOp::And, room, sign, Type::I64);
+    let target = ctx.bin(BinOp::Add, doubled, short, Type::I64);
+    let cb = ctx.cur_block;
     let arr_ty = ctx.operand_ty(&arr);
     let reserve = InstKind::Call(ctx.intrinsics.arr_reserve, vec![arr, target]);
-    ctx.f.append_inst(grow_blk, reserve, arr_ty, None);
-    ctx.f.set_term(grow_blk, Terminator::Br(fast_blk));
+    ctx.f.append_inst(cb, reserve, arr_ty, None);
+    ctx.f.set_term(cb, Terminator::Br(fast_blk));
     ctx.cur_block = fast_blk;
     let addr = elem_addr(ctx, arr, len, sid, true);
     store_fields(ctx, addr, &fields);
@@ -112,6 +119,40 @@ pub(crate) fn push(ctx: &mut LowerCtx<'_>, arr: Operand, arg: ExprId, sid: Struc
     ctx.f
         .append_void(cb, InstKind::Store(len_next, arr, ARR_LEN_OFF));
     len_next
+}
+
+/// The header bits that refuse an append (§10.1.8.1) or the length
+/// write that follows it.
+const APPEND_LOCK_BITS: u16 = torajs_rc::FLAG_FROZEN
+    | torajs_rc::FLAG_SEALED
+    | torajs_rc::FLAG_NON_EXTENSIBLE
+    | torajs_rc::FLAG_ARR_LENGTH_RO;
+
+/// Traps when `arr` carries a lock bit, which the census promises no
+/// array holding its elements in place can. Emitted only by a debug
+/// compiler or under the value-class strict switch (the conformance
+/// gate), so a shipped program pays nothing.
+fn assert_unlocked(ctx: &mut LowerCtx<'_>, arr: Operand) {
+    let cb = ctx.cur_block;
+    let word = ctx
+        .f
+        .append_inst(cb, InstKind::Load(Type::I32, arr, 4), Type::I32, None);
+    let mask = Operand::ConstI32(((APPEND_LOCK_BITS as u32) << 16) as i32);
+    let bits = ctx.bin(BinOp::And, Operand::Value(word), mask, Type::I32);
+    let locked = ctx.cmp(IPred::Ne, bits, Operand::ConstI32(0));
+    let trap_blk = ctx.f.add_block();
+    let cont_blk = ctx.f.add_block();
+    let cb = ctx.cur_block;
+    ctx.f.set_term(
+        cb,
+        Terminator::CondBr {
+            cond: locked,
+            then_blk: trap_blk,
+            else_blk: cont_blk,
+        },
+    );
+    ctx.f.set_term(trap_blk, Terminator::Unreachable);
+    ctx.cur_block = cont_blk;
 }
 
 /// The append of a pre-reserved fill loop: the slot at the running

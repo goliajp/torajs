@@ -8,7 +8,9 @@
 //! binding something can write while it runs: a top-level binding
 //! assigned anywhere in the program, a local a closure shares and
 //! writes (it lives in a capture box), or a local the argument itself
-//! assigns.
+//! assigns. A receiver read out of a place (`o.items`, `rows[i]`) is
+//! held whenever the argument can run code or assign: any alias of the
+//! container can overwrite that place, or drop the container with it.
 
 use crate::ast::ExprId;
 use crate::ssa::{Operand, Type};
@@ -42,11 +44,24 @@ pub(crate) fn hold(
     if !written {
         return None;
     }
+    Some(take(ctx, arr))
+}
+
+/// Holds `arr`, read out of a place, when running `arg` may write
+/// anything.
+pub(crate) fn hold_place(ctx: &mut LowerCtx<'_>, arg: ExprId, arr: Operand) -> Option<Hold> {
+    if crate::ssa_lower_push_loop_gate::expr_cannot_call(ctx, arg) {
+        return None;
+    }
+    Some(take(ctx, arr))
+}
+
+fn take(ctx: &mut LowerCtx<'_>, arr: Operand) -> Hold {
     let ty = ctx.operand_ty(&arr);
     ctx.emit_rc_inc(arr);
     // the throw edges of the arguments release it too
     let token = ctx.push_throw_temp(arr, ty);
-    Some(Hold { arr, ty, token })
+    Hold { arr, ty, token }
 }
 
 /// Releases what [`hold`] took, once the append is done.

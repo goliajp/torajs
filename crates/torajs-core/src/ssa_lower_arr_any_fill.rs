@@ -3,7 +3,7 @@
 //! clamped range. Lifted out of `ssa_lower_str.rs` so the Any-elem
 //! arm doesn't grow the str-method dispatcher's known-debt and so
 //! the (tag, value) encoding shape stays close to the sibling
-//! `emit_arr_any_push_at_slot` helper.
+//! `emit_arr_any_push_at_value` helper.
 //!
 //! Pre-fix `arr.fill(v)` on Array<Any> typed-checked against
 //! `v: Any` ([S127-4-style typecheck-only escape unblocks the

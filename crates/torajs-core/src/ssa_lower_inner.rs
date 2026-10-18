@@ -66,8 +66,9 @@ pub(crate) fn lower_inner(
 ) -> Module {
     // A value class the finished SSA contradicts leaves the set, and
     // the whole module lowers again with its arrays holding cells: the
-    // set only shrinks, so this ends.
-    let mut held_as_cells: HashSet<ssa::StructId> = HashSet::new();
+    // set only shrinks, so this ends. Classes are kept out by name:
+    // nothing promises a second lowering numbers its structs alike.
+    let mut held_as_cells: HashSet<String> = HashSet::new();
     loop {
         let (module, disagree) = lower_once(
             expr_types,
@@ -80,20 +81,26 @@ pub(crate) fn lower_inner(
         if disagree.is_empty() {
             return module;
         }
+        let before = held_as_cells.len();
         held_as_cells.extend(disagree);
+        assert!(
+            held_as_cells.len() > before,
+            "internal error: a value class contradicted again after it was held as cells"
+        );
     }
 }
 
-/// One lowering of the module, with the value classes in `held`
-/// kept out; answers the value classes the SSA check contradicted.
+/// One lowering of the module, with the value classes named in
+/// `held` kept out; answers the names of the value classes the SSA
+/// check contradicted.
 fn lower_once(
     expr_types: &HashMap<crate::ast::ExprId, crate::check::Type>,
     arity_pad_count: &HashMap<crate::ast::ExprId, usize>,
     contextual_any: &std::collections::HashSet<crate::ast::ExprId>,
     mono: &MonoOutput,
     global_spellings: &HashMap<String, String>,
-    held: &HashSet<ssa::StructId>,
-) -> (Module, Vec<ssa::StructId>) {
+    held: &HashSet<String>,
+) -> (Module, Vec<String>) {
     // Monomorphization and the W1 num-width analysis ran at the end of
     // the check pipeline (check_monomorph.rs, check_monomorph/finish.rs)
     // — specializations are already appended and type-checked, demoted
@@ -283,7 +290,18 @@ fn lower_once(
         struct_layouts_pass15_len,
     );
     let disagree = cell_size::settle(&mut module, &closure_captures, ast, &facts);
-    (module, disagree)
+    (module, struct_names(&aliases, &disagree))
+}
+
+/// The names that denote the structs in `sids`.
+fn struct_names(aliases: &HashMap<String, Type>, sids: &[ssa::StructId]) -> Vec<String> {
+    let names: Vec<String> = (aliases.iter())
+        .filter(|(_, t)| matches!(t, Type::Obj(s) if sids.contains(s)))
+        .map(|(n, _)| n.clone())
+        .collect();
+    // an empty answer reads as "no disagreement" and keeps the lowering
+    debug_assert!(sids.is_empty() || !names.is_empty());
+    names
 }
 
 /// Pass 1.5 (K.3) — collect + register top-level data globals.

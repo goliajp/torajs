@@ -1,0 +1,7 @@
+Token {
+  kind: 0,
+  value: 0,
+}
+{"kind":1,"value":2}
+[{"kind":0,"value":0},{"kind":1,"value":2},{"kind":2,"value":4},{"kind":3,"value":6}]
+[object Object]

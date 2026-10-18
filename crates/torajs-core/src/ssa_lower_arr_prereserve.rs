@@ -165,7 +165,7 @@ impl PreReserve {
     }
 }
 
-use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Terminator, Type, ValueId};
+use crate::ssa::{BinOp as SsaBinOp, BlockId, IPred, InstKind, Operand, Terminator, Type, ValueId};
 use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx, PreReserveState};
 use crate::ssa_lower_str_arr_inplace::emit_arr_lock_bits_guard;
 
@@ -196,40 +196,32 @@ pub(crate) fn push_counts(names: &[String]) -> Vec<(String, i64)> {
 const ARRAY_LENGTH_MAX: i64 = u32::MAX as i64;
 
 impl LowerCtx<'_> {
-    /// The fill loop stores slots inline, so the refusal of a
-    /// non-extensible receiver (§10.1.8.1 through Set's TypeError) has
-    /// to come from the lowering. The install admits only push
-    /// arguments that cannot run user code
-    /// (`ssa_lower_push_loop_gate::push_args_cannot_call`) — a literal,
-    /// a local, arithmetic over primitives, a typed array element — and
-    /// those can neither freeze the receiver nor observe the order
-    /// between their own evaluation and the throw, so ONE check in the
-    /// preheader, gated on `bound > 0` (a zero-trip loop never touches
-    /// the array), is exact and costs the loop nothing.
-    ///
-    /// The first version of this gate cost array-sum-1m +55% with the
-    /// loop byte-identical: its header read took the array out of the
-    /// interval analysis's element points, and the SUM loop after the
-    /// fill lost float demotion (`interval/elem.rs` admits the read
-    /// since). Measure the second loop, not only the one touched.
     /// The capacity, in slots, that `bound` trips of `per_trip`
     /// appends each need on top of `len` elements of the array
     /// `arr_ty`: an element held in place takes one slot per field.
     /// One plain append a trip is `len + bound`, the shape nearly
     /// every fill loop has.
     ///
-    /// Any other shape multiplies, and a product past what the buffer
-    /// can hold would leave the loop's unchecked stores writing past
-    /// it. Those trips would take the length past 2^32 - 1, where the
-    /// append that crosses it raises the RangeError of §10.4.2.4
-    /// whatever else the loop does; the body is appends alone, so the
-    /// error is raised here, before the loop, on a cold edge.
+    /// Any other shape multiplies, and a count past what the buffer's
+    /// u32 capacity can hold would leave the loop's unchecked stores
+    /// writing past it. Such trips may take the length past 2^32 - 1
+    /// (or, `k` slots an element, past the `u32::MAX / k` elements an
+    /// in-place array can hold), where an append raises the RangeError
+    /// of §10.4.2.4 and every append before it stays. So the test
+    /// branches to `slow`, minted on the first test a loop needs: the
+    /// caller lowers the whole loop there once more with checked
+    /// pushes, which append up to the one that crosses and raise
+    /// there, or never raise when a trip's pushes sit in branches that
+    /// do not all run. The test counts the elements already there; the
+    /// trips' product is only trusted once the trips alone are known
+    /// not to overflow it.
     pub(crate) fn emit_reserve_slots(
         &mut self,
         arr_ty: Type,
         len: ValueId,
         bound: Operand,
         per_trip: i64,
+        slow: &mut Option<BlockId>,
     ) -> ValueId {
         let k = match arr_ty {
             Type::Arr(a) => {
@@ -246,45 +238,43 @@ impl LowerCtx<'_> {
                 None,
             );
         }
-        self.emit_too_long_guard(bound, ARRAY_LENGTH_MAX / per_trip);
-        let len_slots = if k == 1 {
-            Operand::Value(len)
-        } else {
-            self.emit_i64(InstKind::BinOp(
-                SsaBinOp::Mul,
-                Operand::Value(len),
-                Operand::ConstI64(k),
-            ))
-        };
-        let room = self.emit_i64(InstKind::BinOp(
-            SsaBinOp::Mul,
-            bound,
-            Operand::ConstI64(per_trip * k),
-        ));
-        self.f.append_inst(
+        let max = ARRAY_LENGTH_MAX / k;
+        let added = self.bin(SsaBinOp::Mul, bound, Operand::ConstI64(per_trip), Type::I64);
+        let total = self.bin(SsaBinOp::Add, Operand::Value(len), added, Type::I64);
+        let many = self.cmp(IPred::Sgt, bound, Operand::ConstI64(max / per_trip));
+        let past = self.cmp(IPred::Sgt, total, Operand::ConstI64(max));
+        let long = self.bin(SsaBinOp::Or, many, past, Type::Bool);
+        let slow_blk = *slow.get_or_insert_with(|| self.f.add_block());
+        let cont_blk = self.f.add_block();
+        self.f.set_term(
             self.cur_block,
-            InstKind::BinOp(SsaBinOp::Add, len_slots, room),
-            Type::I64,
-            None,
-        )
+            Terminator::CondBr {
+                cond: long,
+                then_blk: slow_blk,
+                else_blk: cont_blk,
+            },
+        );
+        self.cur_block = cont_blk;
+        let slots = match k {
+            1 => total,
+            _ => self.bin(SsaBinOp::Mul, total, Operand::ConstI64(k), Type::I64),
+        };
+        match slots {
+            Operand::Value(v) => v,
+            _ => unreachable!("an emitted product is a value"),
+        }
     }
 
-    /// `bound > max` raises "Invalid array length" (the length check
-    /// of `__torajs_arr_set_length_validate`, handed a length one past
-    /// the largest) and leaves by the throw edge.
-    fn emit_too_long_guard(&mut self, bound: Operand, max: i64) {
-        let long = self.f.append_inst(
-            self.cur_block,
-            InstKind::ICmp(IPred::Sgt, bound, Operand::ConstI64(max)),
-            Type::Bool,
-            None,
-        );
+    /// `long` raises "Invalid array length" (the length check of
+    /// `__torajs_arr_set_length_validate`, handed a length one past the
+    /// largest) and leaves by the throw edge.
+    pub(crate) fn emit_too_long_guard(&mut self, long: Operand) {
         let raise_blk = self.f.add_block();
         let cont_blk = self.f.add_block();
         self.f.set_term(
             self.cur_block,
             Terminator::CondBr {
-                cond: Operand::Value(long),
+                cond: long,
                 then_blk: raise_blk,
                 else_blk: cont_blk,
             },
@@ -305,10 +295,22 @@ impl LowerCtx<'_> {
         self.cur_block = cont_blk;
     }
 
-    fn emit_i64(&mut self, kind: InstKind) -> Operand {
-        Operand::Value(self.f.append_inst(self.cur_block, kind, Type::I64, None))
-    }
-
+    /// The fill loop stores slots inline, so the refusal of a
+    /// non-extensible receiver (§10.1.8.1 through Set's TypeError) has
+    /// to come from the lowering. The install admits only push
+    /// arguments that cannot run user code
+    /// (`ssa_lower_push_loop_gate::push_args_cannot_call`) — a literal,
+    /// a local, arithmetic over primitives, a typed array element — and
+    /// those can neither freeze the receiver nor observe the order
+    /// between their own evaluation and the throw, so ONE check in the
+    /// preheader, gated on `bound > 0` (a zero-trip loop never touches
+    /// the array), is exact and costs the loop nothing.
+    ///
+    /// The first version of this gate cost array-sum-1m +55% with the
+    /// loop byte-identical: its header read took the array out of the
+    /// interval analysis's element points, and the SUM loop after the
+    /// fill lost float demotion (`interval/elem.rs` admits the read
+    /// since). Measure the second loop, not only the one touched.
     pub(crate) fn emit_prereserve_entry_gate(&mut self, reserved: ValueId, bound: Operand) {
         let trips = self.f.append_inst(
             self.cur_block,

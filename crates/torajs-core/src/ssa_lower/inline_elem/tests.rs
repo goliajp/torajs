@@ -110,6 +110,18 @@ fn a_value_class_interns_in_place_in_every_spelling() {
 }
 
 #[test]
+fn holding_a_class_in_place_rewrites_its_arrays_interned_before() {
+    let mut t = ArrLayouts::default();
+    let early = t.intern(Type::Obj(StructId(0)));
+    let other = t.intern(Type::Obj(StructId(1)));
+    t.hold_in_place([StructId(0)]);
+    assert_eq!(t[early.0 as usize], Type::Inline(StructId(0)));
+    assert_eq!(t.intern(Type::Obj(StructId(0))), early);
+    assert_eq!(t[other.0 as usize], Type::Obj(StructId(1)));
+    assert_eq!(t.len(), 2);
+}
+
+#[test]
 fn an_inline_array_releases_as_a_scalar_one() {
     for no_refs in [Type::I64, Type::F64, Type::Bool, Type::Inline(StructId(0))] {
         assert!(no_refs.elems_release_nothing(), "{no_refs:?}");
