@@ -29,7 +29,9 @@ pub mod expand;
 pub mod inc_sink;
 mod live;
 mod number_facts;
+mod preds;
 pub mod rc_fold;
+mod retain_walk;
 mod web;
 
 use crate::id_hash::HashSet;
