@@ -48,8 +48,8 @@ use torajs_core::ssa::dominator::DominatorTree;
 use torajs_core::ssa::loop_analysis::LoopAnalysis;
 use torajs_core::ssa::{BlockId, Function, Inst, InstKind, Module, Operand, Terminator, ValueId};
 
+use crate::anynum::motion_facts::MotionFacts;
 use crate::anynum::number_facts::NumberFacts;
-use crate::anynum::preds::Preds;
 use crate::anynum::retain_walk::{Walk, exit_at, walk};
 use crate::float_demote::cfg::successors;
 
@@ -66,9 +66,9 @@ pub struct IncSinkStats {
     pub retains_placed: u32,
 }
 
-pub fn sink_number_retains(module: &mut Module) -> IncSinkStats {
+pub fn sink_number_retains(module: &mut Module, motion: &MotionFacts) -> IncSinkStats {
     let mut stats = IncSinkStats::default();
-    for func in module.funcs.iter_mut() {
+    for (f, func) in module.funcs.iter_mut().enumerate() {
         let dense = func
             .blocks
             .iter()
@@ -77,7 +77,7 @@ pub fn sink_number_retains(module: &mut Module) -> IncSinkStats {
         if func.is_declaration() || !dense {
             continue;
         }
-        let (sunk, placed) = sink_in_function(func);
+        let (sunk, placed) = sink_in_function(func, f, motion);
         stats.retains_sunk += sunk;
         stats.retains_placed += placed;
     }
@@ -87,7 +87,7 @@ pub fn sink_number_retains(module: &mut Module) -> IncSinkStats {
 /// (block index, instruction index).
 type Site = (usize, usize);
 
-fn sink_in_function(func: &mut Function) -> (u32, u32) {
+fn sink_in_function(func: &mut Function, f: usize, motion: &MotionFacts) -> (u32, u32) {
     let mut sites: Vec<(Site, ValueId)> = Vec::new();
     for (b, block) in func.blocks.iter().enumerate() {
         for (i, inst) in block.insts.iter().enumerate() {
@@ -102,13 +102,15 @@ fn sink_in_function(func: &mut Function) -> (u32, u32) {
     // without a test that proves a value a number, every path keeps the
     // retain and the walk could only move it about
     let seeds: Vec<ValueId> = sites.iter().map(|&(_, v)| v).collect();
-    let Some(facts) = NumberFacts::compute_if_any_edge_proof(func, &seeds) else {
+    let Some(facts) = motion.facts(f, func, seeds) else {
         return (0, 0);
     };
     let shape = Shape {
         func,
         facts,
-        cfg: OnceCell::new(),
+        motion,
+        f,
+        loops: OnceCell::new(),
     };
     let mut remove: HashSet<Site> = HashSet::default();
     let mut place: Vec<(Site, Inst)> = Vec::new();
@@ -164,17 +166,20 @@ fn sink_in_function(func: &mut Function) -> (u32, u32) {
 
 struct Shape<'f> {
     func: &'f Function,
-    facts: NumberFacts,
-    /// The loops and the predecessors, built when a walk first
-    /// reaches a block it might enter: most retains stop before.
-    cfg: OnceCell<(LoopAnalysis, Preds)>,
+    facts: &'f NumberFacts,
+    /// Where the predecessors of `func` (function `f`) are kept; they
+    /// and the loops are built when a walk first reaches a block it
+    /// might enter: most retains stop before.
+    motion: &'f MotionFacts,
+    f: usize,
+    loops: OnceCell<LoopAnalysis>,
 }
 
 impl Shape<'_> {
-    fn cfg(&self) -> &(LoopAnalysis, Preds) {
-        self.cfg.get_or_init(|| {
+    fn loops(&self) -> &LoopAnalysis {
+        self.loops.get_or_init(|| {
             let dom = DominatorTree::compute(self.func);
-            (LoopAnalysis::compute(self.func, &dom), Preds::of(self.func))
+            LoopAnalysis::compute(self.func, &dom)
         })
     }
 
@@ -182,15 +187,14 @@ impl Shape<'_> {
     /// in a loop the site is outside of would run once per trip.
     fn within_loops_of(&self, b: usize, home: usize) -> bool {
         let (b, home) = (BlockId(b as u32), BlockId(home as u32));
-        self.cfg()
-            .0
+        self.loops()
             .loops()
             .iter()
             .all(|l| !l.contains(&b) || l.contains(&home))
     }
 
     fn preds(&self, b: usize) -> &[usize] {
-        self.cfg().1.of_block(b)
+        self.motion.preds(self.f, self.func).of_block(b)
     }
 }
 
@@ -313,6 +317,11 @@ mod tests {
         m
     }
 
+    fn sink(m: &mut Module) -> IncSinkStats {
+        let motion = MotionFacts::new(m);
+        sink_number_retains(m, &motion)
+    }
+
     fn incs(block: &Block) -> Vec<ValueId> {
         block
             .insts
@@ -367,7 +376,7 @@ mod tests {
             &[Type::Any, Type::Bool, Type::Any, Type::I64, Type::I64],
             blocks,
         );
-        let st = sink_number_retains(&mut m);
+        let st = sink(&mut m);
         assert_eq!(
             st,
             IncSinkStats {
@@ -415,7 +424,7 @@ mod tests {
             },
         ];
         let mut m = module(vec![0, 1], &[Type::Any, Type::Bool], blocks);
-        let st = sink_number_retains(&mut m);
+        let st = sink(&mut m);
         assert_eq!(st, IncSinkStats::default());
         assert_eq!(incs(&m.funcs[0].blocks[1]), vec![ValueId(0)]);
     }
@@ -481,7 +490,7 @@ mod tests {
             ],
             blocks,
         );
-        let st = sink_number_retains(&mut m);
+        let st = sink(&mut m);
         assert_eq!(
             st,
             IncSinkStats {
@@ -570,7 +579,7 @@ mod tests {
             ],
             blocks,
         );
-        assert_eq!(sink_number_retains(&mut m).retains_placed, 1);
+        assert_eq!(sink(&mut m).retains_placed, 1);
         let b3 = &m.funcs[0].blocks[3].insts;
         assert!(matches!(b3[1].kind, InstKind::RcIncAny(_)));
         assert!(matches!(b3[2].kind, InstKind::ICmp(..)));
@@ -617,7 +626,7 @@ mod tests {
             },
         ];
         let mut m = module(vec![0], &[Type::Any, Type::Bool, Type::Bool], blocks);
-        let st = sink_number_retains(&mut m);
+        let st = sink(&mut m);
         assert_eq!(
             st,
             IncSinkStats {
@@ -674,7 +683,7 @@ mod tests {
             &[Type::Any, Type::Bool, Type::Ptr, Type::I32, Type::I32],
             blocks,
         );
-        assert_eq!(sink_number_retains(&mut m).retains_placed, 1);
+        assert_eq!(sink(&mut m).retains_placed, 1);
         let b2 = &m.funcs[0].blocks[2].insts;
         assert!(matches!(b2[0].kind, InstKind::RcIncAny(_)));
         assert!(matches!(b2[1].kind, InstKind::Load(..)));
@@ -706,7 +715,7 @@ mod tests {
             },
         ];
         let mut m = module(vec![0, 1], &[Type::Any, Type::Bool], blocks);
-        let st = sink_number_retains(&mut m);
+        let st = sink(&mut m);
         assert_eq!(st, IncSinkStats::default());
         assert_eq!(incs(&m.funcs[0].blocks[0]), vec![ValueId(0)]);
     }

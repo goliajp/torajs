@@ -21,13 +21,14 @@
 //!
 //! Runs right after the retain sinking, on the releases it left at
 //! the head of a block: a retain sunk there keeps the releases behind
-//! it in place. `TORAJS_ANYNUM_DEC_SPLIT_OFF=1` skips,
+//! it in place. Both read the facts of [`super::motion_facts`]. `TORAJS_ANYNUM_DEC_SPLIT_OFF=1` skips,
 //! `TORAJS_ANYNUM_DEC_SPLIT_STATS=1` dumps counters.
 
 use crate::id_hash::HashSet;
 
 use torajs_core::ssa::{BlockId, Function, InstKind, Module, Operand, ValueId};
 
+use crate::anynum::motion_facts::MotionFacts;
 use crate::anynum::number_facts::NumberFacts;
 use crate::anynum::preds::Preds;
 use crate::float_demote::cfg::successors;
@@ -40,9 +41,9 @@ pub struct DecSplitStats {
     pub releases_placed: u32,
 }
 
-pub fn split_join_releases(module: &mut Module) -> DecSplitStats {
+pub fn split_join_releases(module: &mut Module, motion: &MotionFacts) -> DecSplitStats {
     let mut stats = DecSplitStats::default();
-    for func in module.funcs.iter_mut() {
+    for (f, func) in module.funcs.iter_mut().enumerate() {
         let dense = func
             .blocks
             .iter()
@@ -55,12 +56,12 @@ pub fn split_join_releases(module: &mut Module) -> DecSplitStats {
         if cands.is_empty() {
             continue;
         }
-        let seeds: Vec<ValueId> = cands.iter().map(|&(_, v)| v).collect();
-        let Some(facts) = NumberFacts::compute_if_any_edge_proof(func, &seeds) else {
+        // the candidates are among the releases the facts always cover
+        let Some(facts) = motion.facts(f, func, Vec::new()) else {
             continue;
         };
-        let preds = Preds::of(func);
-        let (split, placed) = split(func, &facts, &preds, &cands);
+        let preds = motion.preds(f, func);
+        let (split, placed) = split(func, facts, preds, &cands);
         stats.releases_split += split;
         stats.releases_placed += placed;
     }
@@ -149,8 +150,9 @@ fn plan(
 
 #[cfg(test)]
 mod tests {
-    use super::split_join_releases;
+    use super::{DecSplitStats, split_join_releases};
     use crate::anynum::inc_sink::sink_number_retains;
+    use crate::anynum::motion_facts::MotionFacts;
     use crate::pass_gates::gated_pass;
     use torajs_core::ssa::{
         Block, BlockId, FuncId, Function, Inst, InstKind, Module, Operand, Terminator, Type,
@@ -209,6 +211,11 @@ mod tests {
             .count()
     }
 
+    fn split(m: &mut Module) -> DecSplitStats {
+        let motion = MotionFacts::new(m);
+        split_join_releases(m, &motion)
+    }
+
     fn call() -> Inst {
         inst(None, InstKind::Call(FuncId(0), vec![v(0)]))
     }
@@ -232,7 +239,7 @@ mod tests {
                 Terminator::Ret(None),
             ),
         ]);
-        let st = split_join_releases(&mut m);
+        let st = split(&mut m);
         assert_eq!((st.releases_split, st.releases_placed), (1, 1));
         assert_eq!((decs(&m, 1), decs(&m, 2), decs(&m, 3)), (0, 1, 0));
         // behind the arm's own call, where the join used to start
@@ -261,7 +268,7 @@ mod tests {
             ),
             block(4, vec![], cond(2, 2, 3)),
         ]);
-        let st = split_join_releases(&mut m);
+        let st = split(&mut m);
         assert_eq!(st.releases_split, 0);
         assert_eq!(decs(&m, 3), 1);
     }
@@ -285,7 +292,7 @@ mod tests {
             ),
             block(4, vec![], Terminator::Ret(None)),
         ]);
-        let st = split_join_releases(&mut m);
+        let st = split(&mut m);
         assert_eq!(st.releases_split, 0);
         assert_eq!(decs(&m, 3), 1);
     }
@@ -311,8 +318,10 @@ mod tests {
                 Terminator::Ret(None),
             ),
         ]);
-        assert_eq!(sink_number_retains(&mut m).retains_sunk, 1);
-        assert_eq!(split_join_releases(&mut m).releases_split, 0);
+        // one set of facts for both, as the pipeline runs them
+        let motion = MotionFacts::new(&m);
+        assert_eq!(sink_number_retains(&mut m, &motion).retains_sunk, 1);
+        assert_eq!(split_join_releases(&mut m, &motion).releases_split, 0);
         let b3 = &m.funcs[0].blocks[3].insts;
         assert!(matches!(b3[0].kind, InstKind::RcIncAny(_)));
         assert!(matches!(b3[1].kind, InstKind::RcDecAny(_)));
@@ -340,7 +349,7 @@ mod tests {
             ])
         };
         let mut on = join();
-        assert!(gated_pass("ANYNUM_DEC_SPLIT", &mut on, split_join_releases).is_some());
+        assert!(gated_pass("ANYNUM_DEC_SPLIT", &mut on, split).is_some());
         assert_eq!(decs(&on, 3), 0);
         let mut off = join();
         let before = format!("{off:?}");
@@ -349,7 +358,7 @@ mod tests {
         unsafe {
             std::env::set_var("TORAJS_ANYNUM_DEC_SPLIT_OFF", "1");
         }
-        let ran = gated_pass("ANYNUM_DEC_SPLIT", &mut off, split_join_releases);
+        let ran = gated_pass("ANYNUM_DEC_SPLIT", &mut off, split);
         unsafe {
             std::env::remove_var("TORAJS_ANYNUM_DEC_SPLIT_OFF");
         }

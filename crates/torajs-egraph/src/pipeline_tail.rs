@@ -112,21 +112,19 @@ pub(crate) fn finish_pipeline(
     // number arms of a `+` carry no cell test. After the loop
     // versioning, whose copies have the shape the walk can pass.
     // `TORAJS_ANYNUM_INC_SINK_OFF=1` skips.
-    gated_pass(
-        "ANYNUM_INC_SINK",
-        module,
-        crate::anynum::inc_sink::sink_number_retains,
-    );
     // A release opening a join moves onto the edges that did not prove
     // its value a number (`anynum::dec_split`), so the number arms of
     // the `+` that feeds it carry no cell test either. After the retain
     // sinking: a retain sunk to the head of a join keeps the releases
-    // behind it in place. `TORAJS_ANYNUM_DEC_SPLIT_OFF=1` skips.
-    gated_pass(
-        "ANYNUM_DEC_SPLIT",
-        module,
-        crate::anynum::dec_split::split_join_releases,
-    );
+    // behind it in place. `TORAJS_ANYNUM_DEC_SPLIT_OFF=1` skips; the
+    // two read one set of number facts and gate independently.
+    let motion = crate::anynum::motion_facts::MotionFacts::new(module);
+    gated_pass("ANYNUM_INC_SINK", module, |m| {
+        crate::anynum::inc_sink::sink_number_retains(m, &motion)
+    });
+    gated_pass("ANYNUM_DEC_SPLIT", module, |m| {
+        crate::anynum::dec_split::split_join_releases(m, &motion)
+    });
     // Map lookup sharing — a repeated string-key find on the same Map
     // with no Map write between reuses the earlier index; set_str takes
     // it as a checked hint. `TORAJS_MAP_FIND_CSE_OFF=1` skips.

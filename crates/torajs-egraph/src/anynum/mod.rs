@@ -29,6 +29,7 @@ pub mod dec_split;
 pub mod expand;
 pub mod inc_sink;
 mod live;
+pub mod motion_facts;
 mod number_facts;
 mod preds;
 pub mod rc_fold;

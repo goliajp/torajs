@@ -1,5 +1,5 @@
 //! The predecessor lists of a function's blocks, shared by the ARC
-//! code motion passes ([`super::inc_sink`]).
+//! code motion passes ([`super::inc_sink`], [`super::dec_split`]).
 
 use torajs_core::ssa::Function;
 
