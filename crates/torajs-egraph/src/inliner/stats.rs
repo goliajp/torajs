@@ -47,6 +47,8 @@ pub struct InlinerStats {
     pub skipped_link_judged_unit: u32,
     /// Sites rejected by `SkipReason::ClassDropUnit`.
     pub skipped_class_drop_unit: u32,
+    /// Sites rejected by `SkipReason::Suspends`.
+    pub skipped_suspends: u32,
     /// Indirect call sites observed. Tracked separately from
     /// `candidates` because at Phase 0 they are categorically out of
     /// scope rather than a per-site cost-benefit miss.
@@ -100,6 +102,10 @@ impl InlinerStats {
                     SkipReason::ClassDropUnit => {
                         self.candidates += 1;
                         self.skipped_class_drop_unit += 1;
+                    }
+                    SkipReason::Suspends => {
+                        self.candidates += 1;
+                        self.skipped_suspends += 1;
                     }
                 },
             }

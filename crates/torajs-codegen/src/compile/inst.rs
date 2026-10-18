@@ -113,6 +113,9 @@ pub(super) fn emit_plain(
         InstKind::RcDecAny(v) => super::rc_dec::emit_rc_dec_any(bytes, relocs, v, alloc, &[]),
         // a marker for the `Ret` after it; no machine code
         InstKind::ThrowSignal => {}
+        InstKind::Suspend(..) => {
+            unreachable!("suspend reached aarch64 emit: the suspend split pass did not run")
+        }
         InstKind::AnyIsNumber(_)
         | InstKind::AnyIsInt32(_)
         | InstKind::AnyToInt32(_)

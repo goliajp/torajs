@@ -1,7 +1,7 @@
 use super::*;
 use torajs_core::ssa::{
-    BinOp, Block, BlockId, FuncId, Function, Inst, InstKind, Module, Operand, SigId, Terminator,
-    Type, ValueId, ValueInfo,
+    BinOp, Block, BlockId, FuncId, Function, Inst, InstKind, Module, Operand, SigId, SuspendKind,
+    SuspendLane, Terminator, Type, ValueId, ValueInfo,
 };
 
 mod recursion;
@@ -191,6 +191,51 @@ fn spliced_body_drops_the_throw_mark() {
     let insts = &m.funcs[0].blocks[0].insts;
     assert_eq!(insts.len(), 8);
     assert!(!insts.iter().any(|i| i.kind == InstKind::ThrowSignal));
+}
+
+/// A callee that parks keeps its body and its call: the splice would
+/// move the suspension into a function without its frame. The parking
+/// function itself still inlines its own callees.
+#[test]
+fn suspending_callee_is_not_inlined() {
+    let mut parks = alu_body("step", 2);
+    let v = ValueId(parks.values.len() as u32);
+    parks.values.push(ValueInfo {
+        ty: Type::I64,
+        name: None,
+    });
+    parks.blocks[0].insts.push(val_inst(
+        v,
+        InstKind::Suspend(
+            SuspendKind::Await,
+            SuspendLane::Direct,
+            Operand::ConstI64(0),
+        ),
+    ));
+    parks.blocks[0]
+        .insts
+        .push(void_inst(InstKind::Call(FuncId(2), vec![])));
+    let leaf = alu_body("leaf", 2);
+    let main = caller("main", vec![void_inst(InstKind::Call(FuncId(1), vec![]))]);
+    let mut m = module_of(vec![main, parks, leaf]);
+    let stats = inline_module(&mut m);
+    assert_eq!(stats.skipped_suspends, 1);
+    assert_eq!(stats.inlined, 1, "step inlines leaf");
+    assert!(!m.funcs[1].is_declaration());
+    let main_insts = &m.funcs[0].blocks[0].insts;
+    assert_eq!(main_insts.len(), 1);
+    assert!(matches!(main_insts[0].kind, InstKind::Call(FuncId(1), _)));
+    let step_insts = &m.funcs[1].blocks[0].insts;
+    assert!(
+        step_insts
+            .iter()
+            .any(|i| matches!(i.kind, InstKind::Suspend(..)))
+    );
+    assert!(
+        !step_insts
+            .iter()
+            .any(|i| matches!(i.kind, InstKind::Call(..)))
+    );
 }
 
 /// A compiler-minted function (`__` prefix) may sit in a metadata

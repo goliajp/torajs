@@ -163,6 +163,10 @@ pub enum SkipReason {
     /// peephole pairs it by fid. Spliced back per site it would be
     /// the inline expansion it replaced.
     ClassDropUnit,
+    /// The callee contains an `InstKind::Suspend`: its body parks and
+    /// is re-entered through its own frame, which a splice into the
+    /// caller would not have. Such a function still inlines others.
+    Suspends,
 }
 
 /// Sum `cost_of_kind` over every instruction in every block of `func`.
@@ -179,6 +183,11 @@ pub fn callee_body_cost(func: &Function) -> Cost {
         }
     }
     total
+}
+
+/// Whether `func` parks anywhere (an `InstKind::Suspend` in its body).
+fn suspends(func: &Function) -> bool {
+    (func.blocks.iter().flat_map(|b| &b.insts)).any(|i| matches!(i.kind, InstKind::Suspend(..)))
 }
 
 /// Classify every `InstKind::Call` site in `module.funcs[caller_idx]`
@@ -199,6 +208,7 @@ fn classify_caller_sites(
     budget: &InlineBudget,
     callee_costs: &[Cost],
     sole: &[bool],
+    parks: &[bool],
     self_only: bool,
 ) -> Vec<(usize, usize, InlineDecision)> {
     let caller = &module.funcs[caller_idx];
@@ -217,6 +227,14 @@ fn classify_caller_sites(
                             blk_idx,
                             site_idx,
                             InlineDecision::Skip(SkipReason::CalleeIsDeclaration),
+                        ));
+                        continue;
+                    }
+                    if parks[callee_ix] {
+                        decisions.push((
+                            blk_idx,
+                            site_idx,
+                            InlineDecision::Skip(SkipReason::Suspends),
                         ));
                         continue;
                     }
@@ -324,6 +342,9 @@ pub fn inline_module_with_budget(module: &mut Module, budget: InlineBudget) -> I
     let mut callee_costs: Vec<Cost> = module.funcs.iter().map(callee_body_cost).collect();
     let mut stats = InlinerStats::default();
     let sole = sole_site::sole_site_callees(module);
+    // inlining never moves a `Suspend` into a function, so this holds
+    // for the whole pass
+    let parks: Vec<bool> = module.funcs.iter().map(suspends).collect();
     for caller_idx in order::bottom_up(module) {
         let mut self_snapshot = None;
         for round in 0..budget.max_recursion_depth.max(1) {
@@ -332,8 +353,15 @@ pub fn inline_module_with_budget(module: &mut Module, budget: InlineBudget) -> I
             if round > 0 && self_snapshot.is_none() {
                 break;
             }
-            let decisions =
-                classify_caller_sites(module, caller_idx, &budget, &callee_costs, &sole, round > 0);
+            let decisions = classify_caller_sites(
+                module,
+                caller_idx,
+                &budget,
+                &callee_costs,
+                &sole,
+                &parks,
+                round > 0,
+            );
             stats.tally(&decisions);
             if dry_run {
                 break;

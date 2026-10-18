@@ -125,7 +125,7 @@ pub fn cost_of_kind(kind: &InstKind) -> Cost {
         InstKind::FCmp(_, _, _) => FALU_COST,
 
         // Call frame overhead only — callee body cost lives elsewhere.
-        InstKind::Call(_, _) | InstKind::RcDecAny(_) => CALL_COST,
+        InstKind::Call(_, _) | InstKind::RcDecAny(_) | InstKind::Suspend(..) => CALL_COST,
 
         // Stack adjust folded into prologue.
         InstKind::Alloca(_) | InstKind::AllocaBytes(_) => ALLOCA_COST,

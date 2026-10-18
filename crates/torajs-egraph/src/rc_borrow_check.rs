@@ -221,6 +221,8 @@ fn window_ok(kind: &InstKind, env: &Env) -> bool {
         | InstKind::ThrowSignal => true,
         InstKind::Store(_, Operand::Value(p), _) => env.slots.contains(p),
         InstKind::Call(f, _) => env.readonly.contains(&f.0),
+        // the function parks: any code may run before it resumes
+        InstKind::Suspend(..) => false,
         _ => false,
     }
 }

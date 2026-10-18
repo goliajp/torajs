@@ -151,6 +151,8 @@ fn plan(func: &Function, me: FuncId, mark: Option<usize>) -> Option<Vec<Option<W
             InstKind::Call(f, args) if *f == me => self_calls.push(args),
             // `arguments` reads the parameters as they arrived
             InstKind::Call(f, _) if Some(f.0 as usize) == mark => return None,
+            // a suspending body needs its own frame layout and resume
+            InstKind::Suspend(..) => return None,
             _ => {}
         }
     }

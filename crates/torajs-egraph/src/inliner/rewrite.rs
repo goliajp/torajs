@@ -103,5 +103,9 @@ pub(super) fn rewrite_inst_kind(kind: &InstKind, map: &HashMap<ValueId, Operand>
             "InstKind::Vec reached the inliner — loop widening introduces \
              it only after the egraph pass"
         ),
+        InstKind::Suspend(..) => unreachable!(
+            "InstKind::Suspend reached the inliner's rewrite — the classifier \
+             skips every callee that suspends"
+        ),
     }
 }

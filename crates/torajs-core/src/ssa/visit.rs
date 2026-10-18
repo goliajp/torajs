@@ -86,7 +86,8 @@ pub fn visit_value_operands(kind: &InstKind, mut f: impl FnMut(ValueId)) {
         | InstKind::Neg(o)
         | InstKind::Ctpop(o)
         | InstKind::Cttz(o)
-        | InstKind::Copy(_, o) => v(o),
+        | InstKind::Copy(_, o)
+        | InstKind::Suspend(_, _, o) => v(o),
         InstKind::Vec(vi) => vi.operands().into_iter().flatten().for_each(v),
         InstKind::Alloca(_)
         | InstKind::AllocaBytes(_)
@@ -183,7 +184,8 @@ pub fn rewrite_value_operands(kind: &mut InstKind, mut f: impl FnMut(ValueId) ->
         | InstKind::Neg(o)
         | InstKind::Ctpop(o)
         | InstKind::Cttz(o)
-        | InstKind::Copy(_, o) => v(o),
+        | InstKind::Copy(_, o)
+        | InstKind::Suspend(_, _, o) => v(o),
         InstKind::Vec(vi) => vi.operands_mut().into_iter().flatten().for_each(v),
         InstKind::Alloca(_)
         | InstKind::AllocaBytes(_)
@@ -202,7 +204,8 @@ pub fn rewrite_value_operands(kind: &mut InstKind, mut f: impl FnMut(ValueId) ->
 ///   - `BinOp(FRem)`, a libm `_fmod` call,
 ///   - `RcDecAny`, whose slow arm calls `__torajs_value_drop_heap`,
 ///   - `CtpopRangeSum`, no `BL`, but its SIMD loop clobbers V0-V7,
-///     V16-V18 and X9-X12.
+///     V16-V18 and X9-X12,
+///   - `Suspend`, a call until the split pass replaces it.
 ///
 /// The allocator moves values live across one to callee-saved homes
 /// and the prologue saves the link register; the mid-end reads it to
@@ -216,5 +219,6 @@ pub fn lowers_to_call(kind: &InstKind) -> bool {
             | InstKind::BinOp(BinOp::FRem, ..)
             | InstKind::CtpopRangeSum(..)
             | InstKind::RcDecAny(_)
+            | InstKind::Suspend(..)
     )
 }

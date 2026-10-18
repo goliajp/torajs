@@ -15,7 +15,8 @@
 use std::fmt::Write;
 
 use super::{
-    BlockId, Function, Inst, InstKind, Module, Operand, Terminator, Type, ValueId, ValueInfo,
+    BlockId, Function, Inst, InstKind, Module, Operand, SuspendLane, Terminator, Type, ValueId,
+    ValueInfo,
 };
 
 impl Function {
@@ -309,6 +310,15 @@ impl Function {
             }
             InstKind::ThrowSignal => {
                 write!(w, "throw_signal")?;
+            }
+            InstKind::Suspend(kind, lane, src) => {
+                match lane {
+                    SuspendLane::Direct => write!(w, "suspend {} direct ", kind.name())?,
+                    SuspendLane::Promise(t) => {
+                        write!(w, "suspend {} promise<{}> ", kind.name(), t.as_str())?
+                    }
+                }
+                self.write_operand(w, src)?;
             }
             InstKind::CallIndirect(sig, ptr, args) => {
                 write!(w, "call_indirect <sig{}> ", sig.0)?;

@@ -350,6 +350,8 @@ pub(crate) fn is_pure(kind: &InstKind) -> bool {
         | InstKind::RcIncAny(_)
         | InstKind::RcDecAny(_)
         | InstKind::Call(_, _) => false,
+        // a call that parks the function: runs arbitrary code
+        InstKind::Suspend(..) => false,
         // a pure encode: no refcount, no memory, never traps; escape
         // tracking (heap_to_stack, interval, the slot family) is by
         // mention anywhere in the function, not by position
