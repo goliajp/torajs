@@ -24,7 +24,7 @@ use crate::ssa::id_hash::{HashMap, HashSet};
 use crate::ssa::{FuncId, Function, InstKind, Module, Operand, StructId, Type, ValueId};
 
 mod reach;
-use reach::dead_adapters;
+pub(super) use reach::dead_adapters;
 use reach::reached_and_taken;
 
 const UNBOX_VALUE: &str = "__torajs_anyv_unbox_value";

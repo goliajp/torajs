@@ -39,7 +39,7 @@ pub(super) fn reached_and_taken(
 /// enters an adapter only through an address stored for it, so such a
 /// body never runs. Not transitive: an adapter referenced only from a
 /// dead one counts as live.
-pub(super) fn dead_adapters(module: &Module) -> Vec<bool> {
+pub(in crate::ssa_lower_pass_2_5) fn dead_adapters(module: &Module) -> Vec<bool> {
     let mut live = table_held_fns(module);
     for inst in module
         .funcs
