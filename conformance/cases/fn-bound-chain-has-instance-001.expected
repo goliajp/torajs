@@ -1,0 +1,25 @@
+getter true
+getter false
+getter calls 2 true
+proxy true
+proxy false
+proxy this true
+apply trap true
+apply trap false
+apply calls 2
+class throws TypeError
+throwing handler true no
+throwing getter true get
+number throws TypeError
+object throws TypeError
+null true
+undefined true
+null miss false
+coerced true
+coerced false
+reflect 1 true true true
+bound reflect 2 true true true
+bound self 3 true true true
+new bound 4 true true
+bare 5 true true
+done
