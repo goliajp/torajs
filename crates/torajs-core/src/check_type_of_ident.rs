@@ -28,7 +28,7 @@ use crate::check::{Checker, Type};
 /// Iterator grew their arms in their own RFCs). `eval` / `globalThis`
 /// are NOT here: they type Any (runtime cells riding the any lanes),
 /// not namespace objects.
-pub(crate) const NS_OBJECT_IDENTS: [&str; 41] = [
+pub(crate) const NS_OBJECT_IDENTS: [&str; 42] = [
     "console",
     "Math",
     "Object",
@@ -72,6 +72,7 @@ pub(crate) const NS_OBJECT_IDENTS: [&str; 41] = [
     "fs_promises",
     "process",
     "Bun",
+    "performance",
 ];
 
 pub(crate) fn check(

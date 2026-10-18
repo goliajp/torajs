@@ -66,6 +66,7 @@ pub(crate) const GLOBAL_NAMES: &[&str] = &[
     "fs_promises",
     "process",
     "Bun",
+    "performance",
     // Numeric constants
     "NaN",
     "Infinity",

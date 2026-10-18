@@ -127,63 +127,7 @@ fn try_ident_global_typeof(ctx: &LowerCtx<'_>, expr: ExprId) -> Option<&'static 
     {
         return None;
     }
-    builtin_global_typeof(name)
-}
-
-/// The static `typeof` of a builtin global's bare name — what §9.3's
-/// global object exposes under that name, so the same table answers
-/// `typeof globalThis.<name>` (rotation 635; `ssa_lower_typeof_ns`).
-/// A name outside it is not decidable here.
-pub(crate) fn builtin_global_typeof(name: &str) -> Option<&'static str> {
-    match name {
-        "undefined" => Some("undefined"),
-        "Math" | "JSON" | "Reflect" | "globalThis" | "console" => Some("object"),
-        "Number"
-        | "String"
-        | "Boolean"
-        | "Symbol"
-        | "Date"
-        | "Array"
-        | "Object"
-        | "RegExp"
-        | "Error"
-        | "Function"
-        | "Promise"
-        | "Map"
-        | "Set"
-        | "WeakMap"
-        | "WeakSet"
-        | "WeakRef"
-        | "FinalizationRegistry"
-        | "Proxy"
-        | "Iterator"
-        | "BigInt"
-        | "ArrayBuffer"
-        | "DataView"
-        | "TypeError"
-        | "RangeError"
-        | "SyntaxError"
-        | "ReferenceError"
-        | "EvalError"
-        | "URIError"
-        | "parseInt"
-        | "parseFloat"
-        | "isNaN"
-        | "isFinite"
-        | "encodeURI"
-        | "decodeURI"
-        | "encodeURIComponent"
-        | "decodeURIComponent"
-        | "escape"
-        | "unescape"
-        | "eval" => Some("function"),
-        // RFC 20260823-typedarray-substrate 刀 4 — the eleven §23.2
-        // constructors. `typeof Float16Array` deliberately stays
-        // out: the harness feature-tests it against `"undefined"`,
-        // and tr does not have it.
-        n if crate::ssa_lower_call_typedarray::kind_of_name(n).is_some() => Some("function"),
-        _ => None,
-    }
+    crate::ssa_lower_typeof_ns::builtin_global_typeof(name)
 }
 
 /// §13.5.1.1 — `typeof` on a name that resolves to no binding.

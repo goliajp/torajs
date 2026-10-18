@@ -111,6 +111,12 @@ impl<'a> LowerCtx<'a> {
                         other => panic!("ssa-lower: unknown fs method `{other}`"),
                     };
                 }
+                if matches!(self.ast.get_expr(*obj), Expr::Ident(n) if n == "performance") {
+                    return match name.as_str() {
+                        "now" => self.fn_table[crate::ssa_lower_intrinsics_date::perf::NOW],
+                        other => panic!("ssa-lower: unknown performance method `{other}`"),
+                    };
+                }
                 /* v0.3 #3 — process.<method>. */
                 let is_process =
                     matches!(self.ast.get_expr(*obj), Expr::Ident(n) if n == "process");

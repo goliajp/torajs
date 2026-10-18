@@ -29,6 +29,7 @@ pub mod civil;
 pub mod getters;
 pub mod make_time;
 pub mod parse;
+pub mod perf;
 pub mod setters_utc;
 pub mod subclass;
 pub mod tm;

@@ -52,6 +52,14 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx<'_>, obj: ExprId, name: &str) -> Opti
             );
             return Some(Operand::Value(v));
         }
+        if n == "performance" && name == "timeOrigin" {
+            let f = ctx.fn_table[crate::ssa_lower_intrinsics_date::perf::TIME_ORIGIN];
+            let cur_block = ctx.cur_block;
+            let v = ctx
+                .f
+                .append_inst(cur_block, InstKind::Call(f, Vec::new()), Type::F64, None);
+            return Some(Operand::Value(v));
+        }
         if n == "process" && name == "env" {
             return Some(Operand::ConstPtrNull);
         }

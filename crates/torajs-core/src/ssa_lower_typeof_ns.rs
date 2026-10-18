@@ -94,7 +94,7 @@ pub(crate) fn try_member_typeof(ctx: &LowerCtx<'_>, expr: ExprId) -> Option<&'st
     // name's answer. Guessing "function" for the rest made `typeof
     // globalThis.B` answer function for any name (rotation 635).
     if ns == "globalThis" {
-        return crate::ssa_lower_typeof::builtin_global_typeof(member_name);
+        return builtin_global_typeof(member_name);
     }
     if let Some(s) = classify_ns_member(ns, member_name) {
         return Some(s);
@@ -195,4 +195,63 @@ fn classify_ns_member(ns: &str, member_name: &str) -> Option<&'static str> {
     } else {
         return None;
     })
+}
+
+/// The static `typeof` of a builtin global's bare name — what §9.3's
+/// global object exposes under that name, so the same table answers
+/// `typeof globalThis.<name>` (rotation 635; `ssa_lower_typeof_ns`).
+/// A name outside it is not decidable here.
+pub(crate) fn builtin_global_typeof(name: &str) -> Option<&'static str> {
+    match name {
+        "undefined" => Some("undefined"),
+        "Math" | "JSON" | "Reflect" | "globalThis" | "console" => Some("object"),
+        // the runtime's own namespaces: Node's `process`, Bun's `Bun`,
+        // and the High Resolution Time `performance`
+        "process" | "Bun" | "performance" => Some("object"),
+        "Number"
+        | "String"
+        | "Boolean"
+        | "Symbol"
+        | "Date"
+        | "Array"
+        | "Object"
+        | "RegExp"
+        | "Error"
+        | "Function"
+        | "Promise"
+        | "Map"
+        | "Set"
+        | "WeakMap"
+        | "WeakSet"
+        | "WeakRef"
+        | "FinalizationRegistry"
+        | "Proxy"
+        | "Iterator"
+        | "BigInt"
+        | "ArrayBuffer"
+        | "DataView"
+        | "TypeError"
+        | "RangeError"
+        | "SyntaxError"
+        | "ReferenceError"
+        | "EvalError"
+        | "URIError"
+        | "parseInt"
+        | "parseFloat"
+        | "isNaN"
+        | "isFinite"
+        | "encodeURI"
+        | "decodeURI"
+        | "encodeURIComponent"
+        | "decodeURIComponent"
+        | "escape"
+        | "unescape"
+        | "eval" => Some("function"),
+        // RFC 20260823-typedarray-substrate 刀 4 — the eleven §23.2
+        // constructors. `typeof Float16Array` deliberately stays
+        // out: the harness feature-tests it against `"undefined"`,
+        // and tr does not have it.
+        n if crate::ssa_lower_call_typedarray::kind_of_name(n).is_some() => Some("function"),
+        _ => None,
+    }
 }

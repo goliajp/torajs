@@ -25,6 +25,8 @@
 //!   `from_iso(s) -> Date` (`new Date(string)`),
 //!   `parse_iso(s) -> F64` (Date.parse).
 
+pub(crate) mod perf;
+
 use std::collections::HashMap;
 
 use crate::ssa::{FuncId, Module, Type};

@@ -116,6 +116,10 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
             Type::Function(Vec::new(), Box::new(Type::Promise(Box::new(Type::String))))
         }
         (Type::Object("Response"), "status") => Type::Number,
+        // W3C High Resolution Time: `performance.now()` and
+        // `performance.timeOrigin`, both milliseconds as a double
+        (Type::Object("performance"), "now") => Type::Function(Vec::new(), Box::new(Type::Number)),
+        (Type::Object("performance"), "timeOrigin") => Type::Number,
         /* v0.3 #3 — process surface (minimum). */
         (Type::Object("process"), "exit") => {
             Type::Function(vec![Type::Number], Box::new(Type::Void))
