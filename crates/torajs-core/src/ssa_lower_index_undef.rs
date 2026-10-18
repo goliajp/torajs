@@ -45,7 +45,9 @@ pub(crate) fn oob_undef_value(
         // constant out-of-range index folds the first compare away and
         // takes that block with it, leaving the reference with no
         // definition (`nested[-1]` aborted the compile).
-        t if t.spells_undef_with_generic_cell() => {
+        // An inline element has no cell of its own; its view takes the
+        // same cell, so a field read through it raises as on a cell.
+        t if t.spells_undef_with_generic_cell() || matches!(t, Type::Inline(_)) => {
             let sentinel = ctx.f.append_inst(
                 oob_blk,
                 InstKind::GlobalRef(UNDEF_CELL_SYM.to_string()),

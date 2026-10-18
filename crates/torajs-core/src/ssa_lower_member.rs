@@ -168,6 +168,9 @@ pub(crate) fn lower_with_val(
     obj_ty: Type,
     name: &str,
 ) -> Operand {
+    if let Type::Inline(sid) = obj_ty {
+        return crate::ssa_lower::inline_elem::lower_field(ctx, obj, obj_val, sid, name);
+    }
     if name == "__proto__" {
         // Annex B §B.2.2.1 — `o.__proto__` IS the [[Prototype]]
         // getter, and it answers for every receiver shape, so it sits

@@ -101,7 +101,7 @@ impl<'a> LowerCtx<'a> {
         v: Operand,
     ) {
         let (offset_base, offset) =
-            self.emit_arr_slot_byte_offset(arr_val, idx_val, 3, is_non_deque);
+            self.emit_arr_slot_byte_offset(arr_val, idx_val, 8, is_non_deque);
         if !elem_ty.is_copy() {
             let old = self.f.append_inst(
                 self.cur_block,

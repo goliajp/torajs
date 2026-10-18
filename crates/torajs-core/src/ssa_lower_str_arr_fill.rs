@@ -125,7 +125,7 @@ fn emit_fill_rc_loop(
     );
     ctx.cur_block = body;
     // T-13.5: head-aware offset for arr.fill loop.
-    let (off_base, off) = ctx.emit_arr_slot_byte_offset(recv_op, Operand::Value(i_now), 3, false);
+    let (off_base, off) = ctx.emit_arr_slot_byte_offset(recv_op, Operand::Value(i_now), 8, false);
     let old = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::LoadDyn(elem_ty, off_base, off),

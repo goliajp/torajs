@@ -180,7 +180,7 @@ fn read_elem(
         );
     }
     let (off_base, off) =
-        ctx.emit_arr_slot_byte_offset(Operand::Value(src_arr), Operand::Value(i_now), 3, false);
+        ctx.emit_arr_slot_byte_offset(Operand::Value(src_arr), Operand::Value(i_now), 8, false);
     let v = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::LoadDyn(elem_ty, off_base, off),

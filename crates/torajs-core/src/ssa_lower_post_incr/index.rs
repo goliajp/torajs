@@ -70,7 +70,7 @@ pub(super) fn lower_index(
         );
     }
     let idx_val = ctx.lower_index_operand(index);
-    let (offset_base, offset) = ctx.emit_arr_slot_byte_offset(arr_val, idx_val, 3, is_non_deque);
+    let (offset_base, offset) = ctx.emit_arr_slot_byte_offset(arr_val, idx_val, 8, is_non_deque);
     let cur_block = ctx.cur_block;
     let old = ctx.f.append_inst(
         cur_block,

@@ -5,7 +5,7 @@
 use torajs_core::ast::Ast;
 use torajs_core::{check, lexer, parser, ssa_lower};
 
-fn desugared(src: &str) -> Ast {
+pub(crate) fn desugared(src: &str) -> Ast {
     let tokens = lexer::tokenize(src).expect("fixture lexes");
     let mut ast = parser::parse(src, &tokens).expect("fixture parses");
     ast.source = src.to_string();
@@ -15,7 +15,7 @@ fn desugared(src: &str) -> Ast {
     ast
 }
 
-fn classes(src: &str) -> Vec<String> {
+pub(crate) fn classes(src: &str) -> Vec<String> {
     let artifacts = check::check_with_arity(&desugared(src)).expect("fixture checks");
     ssa_lower::value_class_names(&artifacts)
 }
@@ -32,7 +32,7 @@ fn token_reason(src: &str) -> String {
     }
 }
 
-const BASE: &str = "class Token {\n\
+pub(crate) const BASE: &str = "class Token {\n\
      kind: number\n\
      value: number\n\
      constructor(kind: number, value: number) {\n\
@@ -187,6 +187,25 @@ fn holes_and_shrinking_keep_it_out() {
 }
 
 #[test]
+fn an_index_that_is_not_a_number_keeps_it_out() {
+    // a key that is not a number names a property, which the keyed read
+    // can find on the prototype chain; an inline element has none
+    out_with(
+        "console.log(typeof ts[Symbol.iterator])\n",
+        "(IndexObj { index",
+    );
+    // a string or `any` key may spell `shift`, so the program is out
+    // before its index is read
+    for tail in [
+        "console.log(ts[\"0\"].kind)\n",
+        "const k: string = \"1\"\nconst t = ts[k]\nconsole.log(t.kind)\n",
+        "const k: any = 1\nconsole.log(ts[k].kind)\n",
+    ] {
+        out_with(tail, "an array head may move");
+    }
+}
+
+#[test]
 fn a_push_between_view_and_read_keeps_it_out() {
     out_with(
         "const t = ts[0]\nts.push(new Token(7, 7))\nconsole.log(t.kind)\n",
@@ -261,7 +280,7 @@ fn a_binding_read_as_any_keeps_it_out() {
     assert!(classes(src).is_empty());
 }
 
-const BOXED: &str = "class Token {\n\
+pub(crate) const BOXED: &str = "class Token {\n\
      kind: number\n\
      value: number\n\
      constructor(kind: number, value: number) {\n\

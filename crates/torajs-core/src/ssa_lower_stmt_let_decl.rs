@@ -191,6 +191,7 @@ pub(crate) fn lower(
     // view is not a cell a retain can keep alive — its bytes belong to
     // the container — so it stays a borrow.
     let init_ty = ctx.operand_ty(&init_val);
+    crate::ssa_lower::inline_elem::assert_view_binding(ctx, name, init, init_ty);
     let released = init_ty != Type::Substr && ctx.proofs.released_alias_inits.contains(&init);
     let owned_alias = is_alias_init
         && !boxed_any
@@ -347,6 +348,11 @@ fn finalize_and_bind(
         && ctx.arr_layouts[ann_id.0 as usize] == Type::Str
         && ctx.arr_layouts[init_id.0 as usize] == Type::Substr
     {
+        ty = init_ty;
+    } else if let (Type::Obj(a), Type::Inline(b)) = (ty, init_ty)
+        && a == b
+    {
+        // an element held in place binds as the view it is
         ty = init_ty;
     }
     crate::ssa_lower_stmt_let_decl_general::bind_let_slot(

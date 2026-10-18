@@ -342,7 +342,7 @@ pub(crate) fn emit_per_method_body(
         let (off_base, off) = ctx.emit_arr_slot_byte_offset(
             Operand::Value(src_arr),
             Operand::Value(i_now2),
-            3,
+            8,
             false,
         );
         ctx.f.append_inst(

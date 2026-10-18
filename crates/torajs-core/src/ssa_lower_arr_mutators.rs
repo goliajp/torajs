@@ -299,7 +299,7 @@ impl<'a> LowerCtx<'a> {
                 let (off_base, off) = self.emit_arr_slot_byte_offset(
                     Operand::Value(cur_arr),
                     Operand::Value(new_len),
-                    3,
+                    8,
                     recv_non_deque,
                 );
                 let elem = self.f.append_inst(

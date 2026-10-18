@@ -314,7 +314,7 @@ fn emit_insertion_sort(
     );
     // T-13.5: head-aware byte offset for arr.sort() reads.
     let (off_i_base, off_i) =
-        ctx.emit_arr_slot_byte_offset(Operand::Value(arr_ptr), Operand::Value(i_now2), 3, false);
+        ctx.emit_arr_slot_byte_offset(Operand::Value(arr_ptr), Operand::Value(i_now2), 8, false);
     let cur = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::LoadDyn(elem_ty, off_i_base, off_i),
@@ -352,7 +352,7 @@ fn emit_insertion_sort(
         None,
     );
     let (off_jf_base, off_jf) =
-        ctx.emit_arr_slot_byte_offset(Operand::Value(arr_ptr), Operand::Value(j_final), 3, false);
+        ctx.emit_arr_slot_byte_offset(Operand::Value(arr_ptr), Operand::Value(j_final), 8, false);
     ctx.f.append_void(
         ctx.cur_block,
         InstKind::StoreDyn(Operand::Value(cur), off_jf_base, off_jf),

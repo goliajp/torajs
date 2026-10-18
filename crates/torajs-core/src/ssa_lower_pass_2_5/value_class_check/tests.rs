@@ -17,7 +17,7 @@ const TAKES_ANY: FuncId = FuncId(2);
 /// taking the array through a pointer: one that reads its slots, and
 /// the element push, which an inline array replaces; func 2 takes an
 /// `any`.
-fn module() -> Module {
+pub(super) fn module() -> Module {
     let mut m = Module {
         struct_layouts: vec![
             vec![
@@ -43,7 +43,12 @@ fn module() -> Module {
 }
 
 /// A function `name` returning `ret`, its body built by `build`.
-fn func(m: &mut Module, name: &str, ret: Type, build: impl FnOnce(&mut Function, BlockId)) {
+pub(super) fn func(
+    m: &mut Module,
+    name: &str,
+    ret: Type,
+    build: impl FnOnce(&mut Function, BlockId),
+) {
     let mut f = Function::new(name, ret);
     let entry = f.add_block();
     build(&mut f, entry);
@@ -61,12 +66,12 @@ fn array(f: &mut Function, b: BlockId) -> Operand {
     Operand::Value(f.append_inst(b, InstKind::AllocaBytes(40), Type::Arr(ArrId(0)), None))
 }
 
-fn found(m: &Module) -> Vec<String> {
+pub(super) fn found(m: &Module) -> Vec<String> {
     let classes = HashSet::from([StructId(0)]);
     disagreements(m, &classes, &[false, false], &|_| false).0
 }
 
-fn reports(m: &Module, what: &str) {
+pub(super) fn reports(m: &Module, what: &str) {
     let got = found(m);
     assert!(
         got.len() == 1 && got[0].contains(what),

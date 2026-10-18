@@ -62,7 +62,7 @@ pub(crate) fn lower_typed_arr(
     // The receiver of a field read: the exits that would answer
     // `undefined` raise the TypeError that read would raise on it,
     // and the element flows on without a merge.
-    if let Type::Obj(sid) = elem_ty
+    if let Type::Obj(sid) | Type::Inline(sid) = elem_ty
         && nonint.is_none()
         && ctx.proofs.recv_field.get(&eid).is_some_and(|field| {
             ctx.struct_layouts[sid.0 as usize]

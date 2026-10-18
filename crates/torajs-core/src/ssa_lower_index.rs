@@ -359,17 +359,22 @@ pub(crate) fn lower_typed_index_checked(
         .append_void(oob_blk, InstKind::Store(oob_val, Operand::Value(slot), 0));
     ctx.f.set_term(oob_blk, Terminator::Br(merge));
     ctx.cur_block = in_blk;
-    let (offset_base, offset) = ctx.emit_arr_slot_byte_offset(arr_val, idx_val, 3, is_non_deque);
-    // A boolean element loads as its raw word: a hole is the word 2,
-    // which the check below has to see before it becomes a boolean.
-    let load_ty = if promote_bool { Type::I64 } else { elem_ty };
-    let cur = ctx.cur_block;
-    let v = ctx.f.append_inst(
-        cur,
-        InstKind::LoadDyn(load_ty, offset_base, offset),
-        load_ty,
-        None,
-    );
+    let v = match elem_ty {
+        // an element held in place answers its address, and has no hole
+        Type::Inline(sid) => {
+            crate::ssa_lower::inline_elem::elem_addr(ctx, arr_val, idx_val, sid, is_non_deque)
+        }
+        _ => {
+            let (base, offset) = ctx.emit_arr_slot_byte_offset(arr_val, idx_val, 8, is_non_deque);
+            // A boolean element loads as its raw word: a hole is the
+            // word 2, which the check below has to see before it
+            // becomes a boolean.
+            let load_ty = if promote_bool { Type::I64 } else { elem_ty };
+            let cur = ctx.cur_block;
+            let load = InstKind::LoadDyn(load_ty, base, offset);
+            ctx.f.append_inst(cur, load, load_ty, None)
+        }
+    };
     crate::ssa_lower_index_undef::hole_slot_is_undefined(ctx, v, elem_ty, slot, merge);
     // the getter exits answer an owned Str, so the element joins them
     // owned (`lower_typed_arr` records the read)

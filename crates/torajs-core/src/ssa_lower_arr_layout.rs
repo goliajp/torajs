@@ -167,11 +167,12 @@ impl<'a> LowerCtx<'a> {
     /// the cell's data pointer, not the cell). Use at element-walk
     /// sites that may operate on a shifted array (Index, sort,
     /// map/filter/reduce closures, JSON.stringify, console.log).
-    /// `stride_log2` is 3 for every array shape in the runtime today
-    /// — an Array<Any> slot is a single 8-byte NaN-boxed AnyValue,
-    /// not the 16-byte (tag, value) pair it once was. The non-3
-    /// scaling below survives for a future wider slot; passing 4 for
-    /// Array<Any> is a layout error, and one that hides at index 0.
+    /// `stride` is the element's size in bytes: 8 for every array
+    /// whose slot is one word (an Array<Any> slot is a single 8-byte
+    /// NaN-boxed AnyValue), `8 * fields` for an array holding a value
+    /// class in place. A walker that stepped an inline array by words
+    /// would read field words as elements, so the stride is checked
+    /// against the array's layout here.
     ///
     /// 11-A1: `is_non_deque = true` ⇒ skip head load + lshr + shl +
     /// extra add chain. Caller proves safety via
@@ -180,44 +181,35 @@ impl<'a> LowerCtx<'a> {
         &mut self,
         arr: Operand,
         idx: Operand,
-        stride_log2: i64,
+        stride: u64,
         is_non_deque: bool,
     ) -> (Operand, Operand) {
+        if let Type::Arr(a) = self.operand_ty(&arr) {
+            let elem = self.arr_layouts[a.0 as usize];
+            let want = crate::ssa_lower::inline_elem::elem_stride(self.struct_layouts, elem);
+            assert_eq!(
+                stride, want,
+                "ssa-lower: a {elem:?} element stepped by {stride} bytes"
+            );
+            // the head counts 8-byte slots, and nothing shifts an
+            // inline array
+            assert!(
+                is_non_deque || !matches!(elem, Type::Inline(_)),
+                "ssa-lower: an inline array read through its deque head"
+            );
+        }
+        let scale = crate::ssa_lower::inline_elem::emit_scaled_index;
         let data = self.emit_arr_data_ptr(arr);
         if is_non_deque {
             // 11-A1 fast-path: head ≡ 0 by escape analysis.
-            let scaled = self.f.append_inst(
-                self.cur_block,
-                InstKind::BinOp(SsaBinOp::Shl, idx, Operand::ConstI64(stride_log2)),
-                Type::I64,
-                None,
-            );
-            return (data, Operand::Value(scaled));
+            let scaled = Operand::Value(scale(self.f, self.cur_block, idx, stride));
+            return (data, scaled);
         }
         let head_x8 = self.emit_arr_head_x8(arr);
-        let head_scaled = if stride_log2 == 3 {
-            head_x8
-        } else {
-            // Wider-than-8 slots: head is counted in 8-byte units, so
-            // the byte distance for `head` slots is head_x8 scaled by
-            // the extra stride bits. No caller takes this branch today.
-            let h2 = self.f.append_inst(
-                self.cur_block,
-                InstKind::BinOp(SsaBinOp::Shl, head_x8, Operand::ConstI64(stride_log2 - 3)),
-                Type::I64,
-                None,
-            );
-            Operand::Value(h2)
-        };
-        let scaled = self.f.append_inst(
-            self.cur_block,
-            InstKind::BinOp(SsaBinOp::Shl, idx, Operand::ConstI64(stride_log2)),
-            Type::I64,
-            None,
-        );
+        let scaled = Operand::Value(scale(self.f, self.cur_block, idx, stride));
         let off = self.f.append_inst(
             self.cur_block,
-            InstKind::BinOp(SsaBinOp::Add, Operand::Value(scaled), head_scaled),
+            InstKind::BinOp(SsaBinOp::Add, scaled, head_x8),
             Type::I64,
             None,
         );

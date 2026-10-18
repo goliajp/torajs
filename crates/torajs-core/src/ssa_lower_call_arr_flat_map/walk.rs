@@ -76,7 +76,7 @@ pub(super) fn emit_inner_walk(
         let (joff_base, joff) = ctx.emit_arr_slot_byte_offset(
             Operand::Value(inner_arr),
             Operand::Value(j_now),
-            3,
+            8,
             false,
         );
         ctx.f.append_inst(

@@ -83,7 +83,7 @@ pub(crate) fn lower_map_from_arr(
         None,
     );
     let (outer_off_base, outer_off) =
-        ctx.emit_arr_slot_byte_offset(Operand::Value(outer_arr), Operand::Value(i_body), 3, false);
+        ctx.emit_arr_slot_byte_offset(Operand::Value(outer_arr), Operand::Value(i_body), 8, false);
     let cur_block = ctx.cur_block;
     let inner_arr = ctx.f.append_inst(
         cur_block,
@@ -165,9 +165,9 @@ fn emit_pair_entry(
     // entry landed with a null value.
     ctx.cur_block = fast_blk;
     let (k_base, k_off) =
-        ctx.emit_arr_slot_byte_offset(Operand::Value(inner_arr), Operand::ConstI64(0), 3, false);
+        ctx.emit_arr_slot_byte_offset(Operand::Value(inner_arr), Operand::ConstI64(0), 8, false);
     let (v_base, v_off) =
-        ctx.emit_arr_slot_byte_offset(Operand::Value(inner_arr), Operand::ConstI64(1), 3, false);
+        ctx.emit_arr_slot_byte_offset(Operand::Value(inner_arr), Operand::ConstI64(1), 8, false);
     let cur_block = ctx.cur_block;
     let k_loaded = ctx.f.append_inst(
         cur_block,
@@ -301,7 +301,7 @@ pub(crate) fn lower_set_from_arr(
         None,
     );
     let (off_base, off) =
-        ctx.emit_arr_slot_byte_offset(Operand::Value(arr_val), Operand::Value(i_body), 3, false);
+        ctx.emit_arr_slot_byte_offset(Operand::Value(arr_val), Operand::Value(i_body), 8, false);
     let cur_block = ctx.cur_block;
     let elem = ctx.f.append_inst(
         cur_block,

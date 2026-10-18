@@ -5,18 +5,23 @@
 //! instances some code can tell apart from a copy of their fields, and
 //! the compile fails with an internal error instead of going on.
 //!
-//! In a live function, a cell of a value class, or an array of them,
-//! is never:
+//! In a live function, a cell of a value class, an array of them, or
+//! an element of one held in place (a view, [`Type::Inline`]), is
+//! never:
 //! - boxed into `any` or taken apart into raw bits (`BoxAny`,
 //!   `PtrToInt`);
 //! - passed where the callee takes an `any`, a cell or array of
 //!   another layout, an integer (but the element word of a push onto
 //!   an array of its own class), or a pointer the runtime reads
-//!   through (all but [`ARRAY_ENTRIES`] / [`CELL_ENTRIES`]);
+//!   through (all but [`ARRAY_ENTRIES`] / [`CELL_ENTRIES`], and
+//!   [`inline::INLINE_ARRAY_ENTRIES`] / [`inline::VIEW_ENTRIES`] for an
+//!   array holding its elements in place and a view);
 //! - compared with another cell (`ICmp`: identity; a test against a
-//!   sentinel the module names is not one);
+//!   sentinel the module names is not one), nor a view with anything
+//!   but NULL or such a sentinel;
 //! - stored anywhere but a local slot of its own type, nor returned
-//!   but by its own factory (a cell, not an array, in both cases);
+//!   but by its own factory (a cell, not an array, in both cases; a
+//!   view is never returned);
 //!
 //! and no slot of its layout is open to a cell of another
 //! ([`super::cell_slot_flow::open_sids`]).
@@ -33,6 +38,7 @@ use crate::ssa_lower::proofs::ProgramFacts;
 
 use super::any_holds::dead_adapters;
 
+mod inline;
 #[cfg(test)]
 mod tests;
 
@@ -158,8 +164,8 @@ impl<'a> Reader<'a> {
         r
     }
 
-    /// The value class an operand holds a cell or an array of, with
-    /// the operand's type.
+    /// The value class an operand holds a cell, a view or an array of,
+    /// with the operand's type.
     fn held(&self, o: &Operand) -> Option<(StructId, Type)> {
         let Operand::Value(v) = o else { return None };
         // a sentinel typed as the cell is not an instance
@@ -168,9 +174,9 @@ impl<'a> Reader<'a> {
         }
         let t = self.f.value_type(*v);
         let sid = match t {
-            Type::Obj(sid) => sid,
+            Type::Obj(sid) | Type::Inline(sid) => sid,
             Type::Arr(a) => match self.module.arr_layouts[a.0 as usize] {
-                Type::Obj(sid) => sid,
+                Type::Obj(sid) | Type::Inline(sid) => sid,
                 _ => return None,
             },
             _ => return None,
@@ -186,6 +192,12 @@ impl<'a> Reader<'a> {
     }
 
     fn inst(&self, kind: &InstKind) -> Vec<(StructId, String)> {
+        let mut found = self.view_inst(kind);
+        found.extend(self.cell_inst(kind));
+        found
+    }
+
+    fn cell_inst(&self, kind: &InstKind) -> Vec<(StructId, String)> {
         match kind {
             InstKind::BoxAny(_, v) => self
                 .held(v)
@@ -243,6 +255,8 @@ impl<'a> Reader<'a> {
         let entry = |own: Type| {
             let list = match own {
                 Type::Obj(_) => CELL_ENTRIES,
+                Type::Inline(_) => inline::VIEW_ENTRIES,
+                Type::Arr(a) if self.holds_in_place(a) => inline::INLINE_ARRAY_ENTRIES,
                 _ => ARRAY_ENTRIES,
             };
             callee.is_declaration() && list.contains(&name)
@@ -273,6 +287,8 @@ impl<'a> Reader<'a> {
             .filter_map(|(i, a)| {
                 let (sid, own) = self.held(a)?;
                 let escapes = match params.get(i).copied() {
+                    // a view goes only where the callee never reads it
+                    Some(p) if matches!(own, Type::Inline(_)) => p != Type::Ptr || !entry(own),
                     Some(p) if p == own => false,
                     Some(Type::Obj(_) | Type::Arr(_) | Type::Any) | None => true,
                     Some(Type::I64) => !elem_home(own),
@@ -284,11 +300,14 @@ impl<'a> Reader<'a> {
             .collect()
     }
 
-    /// A cell returned by anything but its own factory.
+    /// A cell returned by anything but its own factory, or a view.
     fn ret(&self, term: &Terminator) -> Option<(StructId, String)> {
         let Terminator::Ret(Some(v)) = term else {
             return None;
         };
+        if let Some(sid) = self.view(v) {
+            return Some((sid, "a view returned".to_string()));
+        }
         let sid = self.cell(v)?;
         let factory = self.f.name.starts_with("__new_") && self.f.ret == Type::Obj(sid);
         (!factory).then(|| (sid, "returned".to_string()))

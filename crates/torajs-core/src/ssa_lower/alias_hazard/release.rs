@@ -165,9 +165,8 @@ impl Scan<'_, '_> {
                     Some(CT::Array(elem)) => (
                         "Array",
                         match name.as_str() {
-                            "push" | "at" | "slice" | "indexOf" | "lastIndexOf" | "includes" => {
-                                true
-                            }
+                            "push" => !self.env.appends_move,
+                            "at" | "slice" | "indexOf" | "lastIndexOf" | "includes" => true,
                             "join" => matches!(**elem, CT::Number | CT::String | CT::Boolean),
                             _ => false,
                         },

@@ -48,22 +48,32 @@ type ExprTypes = std::collections::HashMap<ExprId, CT>;
 pub(crate) fn prime<'s>(ctx: &mut LowerCtx<'_>, body: impl Iterator<Item = &'s Stmt>) {
     let list: Vec<&Stmt> = body.collect();
     let mut out = HashSet::new();
-    with_env(ctx, &list, |env| visit_list(env, &list, &mut out));
+    with_env(ctx, &list, false, |env| visit_list(env, &list, &mut out));
     ctx.proofs.released_alias_inits = out;
+    let mut moved = HashSet::new();
+    if ctx.arr_layouts.has_value_classes() {
+        with_env(ctx, &list, true, |env| visit_list(env, &list, &mut moved));
+    }
+    ctx.proofs.moved_view_inits = moved;
 }
 
 /// The same question for a for-of variable bound as a borrow of the
 /// element: one iteration's body, which is the binding's whole scope
 /// (the next iteration binds the next element).
 pub(crate) fn loop_var_read_after_release(ctx: &LowerCtx<'_>, body: &Stmt, name: &str) -> bool {
-    with_env(ctx, &[body], |env| {
+    with_env(ctx, &[body], false, |env| {
         let mut scan = Scan::new(env, name, None);
         scan.stmt(body);
         scan.verdict()
     })
 }
 
-fn with_env<R>(ctx: &LowerCtx<'_>, frame: &[&Stmt], f: impl FnOnce(&Env) -> R) -> R {
+fn with_env<R>(
+    ctx: &LowerCtx<'_>,
+    frame: &[&Stmt],
+    appends_move: bool,
+    f: impl FnOnce(&Env) -> R,
+) -> R {
     let field_slot = |obj: ExprId, field: &str| field_slot_ty(ctx, obj, field);
     let env = Env {
         ast: ctx.ast,
@@ -71,6 +81,7 @@ fn with_env<R>(ctx: &LowerCtx<'_>, frame: &[&Stmt], f: impl FnOnce(&Env) -> R) -
         leaf_names: decls::leaf_names(ctx, frame),
         field_slot: &field_slot,
         shadow: &ctx.scans.proto_shadow,
+        appends_move,
     };
     f(&env)
 }
@@ -106,6 +117,9 @@ struct Env<'a> {
     /// writes: a call or a spread the typed tier routes through a
     /// written one may run user code.
     shadow: &'a crate::builtin_proto_shadow::ShadowSet,
+    /// An append may move the array's data block, which an inline
+    /// element view points into.
+    appends_move: bool,
 }
 
 /// `Multi` shares its parent's scope, so its lets live to the end of

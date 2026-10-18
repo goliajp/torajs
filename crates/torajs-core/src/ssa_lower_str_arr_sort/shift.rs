@@ -69,7 +69,7 @@ pub(super) fn emit_inner_shift_loop(
         let (off_jm1_base, off_jm1) = ctx.emit_arr_slot_byte_offset(
             Operand::Value(arr_ptr),
             Operand::Value(j_minus_1),
-            3,
+            8,
             false,
         );
         ctx.f.append_inst(
@@ -122,11 +122,11 @@ pub(super) fn emit_inner_shift_loop(
     // inner body: xs[j] = xs[j-1]; j--
     ctx.cur_block = inner_body;
     let (off_j_base, off_j) =
-        ctx.emit_arr_slot_byte_offset(Operand::Value(arr_ptr), Operand::Value(j_now), 3, false);
+        ctx.emit_arr_slot_byte_offset(Operand::Value(arr_ptr), Operand::Value(j_now), 8, false);
     // off_jm1 was computed in inner_check; recompute
     // here since this is a different block.
     let (off_jm1_base, off_jm1_b) =
-        ctx.emit_arr_slot_byte_offset(Operand::Value(arr_ptr), Operand::Value(j_minus_1), 3, false);
+        ctx.emit_arr_slot_byte_offset(Operand::Value(arr_ptr), Operand::Value(j_minus_1), 8, false);
     let prev2 = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::LoadDyn(elem_ty, off_jm1_base, off_jm1_b),

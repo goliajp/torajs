@@ -69,6 +69,11 @@ pub(crate) struct Proofs {
     /// something may have released its source
     /// (`crate::ssa_lower::alias_hazard`): they bind owned.
     pub(crate) released_alias_inits: HashSet<ExprId>,
+    /// The same, with an append counted too, filled only when some
+    /// class has its arrays held in place: an inline element read
+    /// bound here could see its array's buffer move
+    /// (`crate::ssa_lower::inline_elem::assert_view_binding`).
+    pub(crate) moved_view_inits: HashSet<ExprId>,
     /// Element stores `xs[i] = s` that may take the `const` binding's
     /// own stake: the rest of its block only reads `s`
     /// (`crate::ssa_lower_index_assign::move_const_temp`).

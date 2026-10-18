@@ -420,7 +420,7 @@ fn emit_src_elem_load(
         )
     } else {
         let (off_base, off) =
-            ctx.emit_arr_slot_byte_offset(Operand::Value(src_arr), Operand::Value(i_now), 3, false);
+            ctx.emit_arr_slot_byte_offset(Operand::Value(src_arr), Operand::Value(i_now), 8, false);
         ctx.f.append_inst(
             ctx.cur_block,
             InstKind::LoadDyn(src_elem_ty, off_base, off),

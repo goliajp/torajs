@@ -201,7 +201,7 @@ pub(crate) fn emit_map_loop(
     let (off_base, off) = ctx.emit_arr_slot_byte_offset(
         Operand::Value(src_arr_val),
         Operand::Value(i_body),
-        3,
+        8,
         false,
     );
     let elem = ctx.f.append_inst(

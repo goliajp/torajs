@@ -52,6 +52,8 @@ mod util;
 #[cfg(test)]
 mod value_class_census_tests;
 #[cfg(test)]
+mod value_class_lower_tests;
+#[cfg(test)]
 mod widen_ret_tests;
 
 use std::env;

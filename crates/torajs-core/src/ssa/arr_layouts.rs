@@ -14,6 +14,11 @@ use super::{ArrId, StructId, Type};
 pub struct ArrLayouts {
     elems: Vec<Type>,
     /// The value classes whose arrays hold their fields in place.
+    /// An element type interned before this set is filled (a field's
+    /// array type pass 0.5 resolves with its class layouts, such as a
+    /// container's `toks: Token[]`) still reads `Obj`; filling the set
+    /// has to rewrite those entries in place, so that every array of
+    /// the class keeps sharing one id.
     value_sids: HashSet<StructId>,
 }
 
@@ -41,6 +46,22 @@ impl ArrLayouts {
 
     pub fn get(&self, i: usize) -> Option<&Type> {
         self.elems.get(i)
+    }
+
+    /// Whether some class of the program has its arrays held in place.
+    pub fn has_value_classes(&self) -> bool {
+        !self.value_sids.is_empty()
+    }
+
+    /// An empty table whose arrays of `sids` hold their fields in
+    /// place, for tests that lower an inline array by hand; no program
+    /// interns one yet.
+    #[cfg(test)]
+    pub(crate) fn with_value_classes(sids: &[StructId]) -> Self {
+        ArrLayouts {
+            elems: Vec::new(),
+            value_sids: sids.iter().copied().collect(),
+        }
     }
 }
 

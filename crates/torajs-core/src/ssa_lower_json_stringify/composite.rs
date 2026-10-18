@@ -381,7 +381,7 @@ fn lower_arr_walk(
     ctx.cur_block = body_blk;
     emit_elem_separator(ctx, acc, comma, i_now);
     let (off_base, off) =
-        ctx.emit_arr_slot_byte_offset(Operand::Value(arr_ptr), Operand::Value(i_now), 3, false);
+        ctx.emit_arr_slot_byte_offset(Operand::Value(arr_ptr), Operand::Value(i_now), 8, false);
     // A boolean element loads as its raw word — a hole holds 2.
     let load_ty = if elem_ty == Type::Bool {
         Type::I64

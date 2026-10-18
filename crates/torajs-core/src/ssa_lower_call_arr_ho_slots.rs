@@ -238,7 +238,7 @@ fn emit_present_seed(
     ctx.emit_throw_check(None);
     if elem_ty != Type::Any {
         let (off_base, off) =
-            ctx.emit_arr_slot_byte_offset(Operand::Value(src_arr), Operand::Value(k), 3, false);
+            ctx.emit_arr_slot_byte_offset(Operand::Value(src_arr), Operand::Value(k), 8, false);
         let seed = ctx.f.append_inst(
             ctx.cur_block,
             InstKind::LoadDyn(elem_ty, off_base, off),
