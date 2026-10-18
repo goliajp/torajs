@@ -137,7 +137,13 @@ impl LowerCtx<'_> {
         scope: CastScope,
         admits: Admits,
     ) -> Option<Operand> {
-        if !gate_covers(scope) || self.operand_ty(&op) != Type::Any {
+        if self.operand_ty(&op) != Type::Any {
+            return None;
+        }
+        if let Type::Closure(_) = target {
+            return self.check_fn_slot(op, slot, admits);
+        }
+        if !gate_covers(scope) {
             return None;
         }
         let site = site_text(slot, target)?;
@@ -162,5 +168,26 @@ impl LowerCtx<'_> {
         } else {
             v
         })
+    }
+
+    /// The check of `op` (an `any` operand) written into a function
+    /// slot, gate or not: a function object (any `Closure` cell: a
+    /// compiled closure, a bound or builtin function) is stored as it
+    /// is, anything else is a TypeError where the value is stored, as
+    /// for an object slot. The slot's calls go through the boxed entry
+    /// (`check::face_slots`). A return and a slot that admits
+    /// `undefined` are not checked. Always `None`: the boundary stores
+    /// the value as it did.
+    fn check_fn_slot(&mut self, op: Operand, slot: CastSlot, admits: Admits) -> Option<Operand> {
+        if matches!(slot, CastSlot::Return) || admits == Admits::OrUndefined {
+            return None;
+        }
+        let site = site_line(slot, "function");
+        let site = Operand::Value(self.intern_string_literal(site.as_str()));
+        let f = self.fn_table[crate::ssa_lower_intrinsics_any_cast::CHECK_FN];
+        self.f
+            .append_void(self.cur_block, InstKind::Call(f, vec![op, site]));
+        self.emit_throw_check(None);
+        None
     }
 }

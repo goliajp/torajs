@@ -1,0 +1,19 @@
+arrow ran
+let arrow ok
+2
+let bound ok
+let bound no args ok
+4
+let builtin ok
+store let true
+store reassign true
+1
+index arrow ok
+store index true
+store field true
+6
+field bound ok
+store global true
+arrow ran
+arrow ran
+1

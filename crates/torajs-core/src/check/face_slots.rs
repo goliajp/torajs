@@ -147,7 +147,9 @@ pub(crate) fn faces_differ(value_ty: &Type, slot_ty: &Type) -> bool {
     let discards = matches!(**fret, Type::Void | Type::Undefined);
     let (aps, aret) = match value_ty {
         Type::Function(aps, aret) => (aps, aret),
-        Type::Any => return !(fps.is_empty() && discards),
+        // an `any` value may be a bound or builtin function, whose own
+        // entry only the boxed call reaches, whatever the slot passes
+        Type::Any => return true,
         _ => return false,
     };
     if matches!(aps.last(), Some(Type::Rest(_))) {

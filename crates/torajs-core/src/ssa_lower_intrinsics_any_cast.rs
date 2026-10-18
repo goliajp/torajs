@@ -72,7 +72,18 @@ pub(crate) fn declare_on_demand(
 ) {
     declare_members(module, fn_table, ast);
     declare_as_is(module, fn_table, ast);
+    declare_intrinsic(
+        module,
+        fn_table,
+        CHECK_FN,
+        &[Type::Any, Type::Str],
+        Type::Void,
+    );
 }
+
+/// The check of an `any` value written into a function slot
+/// (`ssa_lower_checked_cast`).
+pub(crate) const CHECK_FN: &str = "__torajs_anyv_check_fn";
 
 /// The object cast of a plan with an optional member among its fields,
 /// which the emitters find by name (`ssa_lower_checked_cast::plan_emit`,

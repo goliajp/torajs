@@ -227,6 +227,21 @@ pub unsafe extern "C" fn __torajs_anyv_cast_cell(
     core::ptr::null_mut()
 }
 
+/// Check a value written into a function slot: a function object (any
+/// `Closure` cell, a bound or builtin function included) passes as it
+/// is, anything else records a TypeError. The value's stake stays with
+/// the caller either way.
+///
+/// # Safety
+/// As [`__torajs_anyv_cast_number`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_check_fn(v: AnyValue, site: *const u8) {
+    if is_cell(v) && unsafe { cell_tag(v) } == Tag::Closure as u16 {
+        return;
+    }
+    unsafe { reject(v, site) };
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
