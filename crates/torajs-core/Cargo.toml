@@ -185,10 +185,11 @@ torajs-ucd = { path = "../torajs-ucd" }
 # Host-side only: WTF-8 is the compile-time spelling of a string
 # literal's value (UTF-16 code units, lone surrogates included).
 torajs-wtf8 = { path = "../torajs-wtf8" }
-# NOT depended on here: torajs-panic-runtime. It is `#![panic_runtime]`
-# when `--cfg torajs_panic_runtime_active` is set (release-build.sh),
-# and a panic-runtime crate inside this crate graph would collide with
-# the build-std panic_abort runtime ("multiple panic runtimes"). Its
-# staticlib still comes from the workspace build; cold-cache builds
-# rely on `cargo build --workspace` scheduling it before torajs-core
-# (see build.rs STATICLIBS).
+# Ordering-only edges for the last archives build.rs lists; nothing in
+# this crate names them. torajs-panic-runtime is `#![panic_runtime]`
+# under release-build.sh, which is harmless here: rustc loads an
+# `--extern` crate only when a path names it, so it never joins this
+# crate graph beside build-std's panic_abort.
+torajs-wrapper = { path = "../torajs-wrapper" }
+torajs-fnname = { path = "../torajs-fnname" }
+torajs-panic-runtime = { path = "../torajs-panic-runtime" }

@@ -8,19 +8,18 @@
 //! machines that have no Rust toolchain. Each Layer-1+ staticlib
 //! has to be baked into `tr` at the build time of `tr` itself.
 //!
-//! Why env var → include_bytes (not OUT_DIR copy): an earlier
-//! version of this script copied each sub-crate's `.a` into
-//! `OUT_DIR` and `lib.rs` did `include_bytes!(env!("OUT_DIR")/...)`.
-//! That introduces a race — build.rs can run BEFORE the sub-crate's
-//! staticlib emit completes, copying a stale `.a`. The `staticlib`
-//! crate-type artifact is emitted in parallel with the rlib, and
-//! cargo's dep graph only guarantees the rlib finishes before
-//! `torajs-core`'s build.rs runs — not the staticlib. By contrast,
-//! `include_bytes!` resolves at THIS crate's compile time (after
-//! build.rs, after every sub-crate is fully built), so reading
-//! straight from `target/<profile>/lib<name>.a` is always fresh.
-//! The env var just teaches rustc where to look — the bytes
-//! themselves are read at compile time.
+//! Why env var -> read at compile time (not an OUT_DIR copy): a build
+//! script runs without waiting for its package's dependencies to
+//! compile, so a copy made here can predate the archive. The archives
+//! are read inside this crate's compilation (and torajs-cli's), and
+//! that is ordered after each one is written only through a
+//! `[dependencies]` edge: cargo does not pipeline a dependency whose
+//! crate types include `staticlib` (rustc emits it without a separate
+//! `metadata` step), so the dependent starts only once that rustc has
+//! finished and cargo has lifted `lib<name>.a` into
+//! `target/<profile>/`. A listed archive with no edge is read whenever
+//! the scheduler happens to get to it — missing on a clean target,
+//! stale on a dirty one — so `main` refuses one.
 
 use std::env;
 use std::path::PathBuf;
@@ -33,7 +32,8 @@ use compiler_sources::COMPILER_SOURCE_FILES;
 /// `__torajs_*` symbols to the final `tr build` user binary. New
 /// sub-crates added during the architecture rewrite go in this
 /// list, with a matching one-line entry in `staticlibs.rs`'s
-/// `runtime_image!` call naming `"TORAJS_<NAME>_STATICLIB_PATH"`.
+/// `runtime_image!` call naming `"TORAJS_<NAME>_STATICLIB_PATH"` and
+/// a `[dependencies]` entry in this package's Cargo.toml.
 const STATICLIBS: &[&str] = &[
     "torajs_syscall",         // Layer-0: aarch64/x86_64 raw syscall trampoline (v0.7-A1)
     "torajs_io",              // Layer-0: 0-libc buffered stdout writer (v0.7-A3 Step 14-a)
@@ -81,6 +81,7 @@ fn main() {
     // this crate has no [lints] table, so it declares the name itself.
     println!("cargo::rustc-check-cfg=cfg(torajs_census)");
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR not set by cargo"));
+    require_dependency_edges();
 
     // OUT_DIR layout (cargo internal):
     //   <target>/<profile>/build/<crate>-<hash>/out
@@ -160,4 +161,26 @@ fn main() {
         println!("cargo:rerun-if-changed={rel}");
     }
     println!("cargo:rustc-env=TORAJS_COMPILER_REV={:016x}", h.finish());
+}
+
+/// Every archive in `STATICLIBS` must be a `[dependencies]` entry of
+/// this package: the edge is what orders its compile before the read.
+fn require_dependency_edges() {
+    println!("cargo:rerun-if-changed=Cargo.toml");
+    let manifest = std::fs::read_to_string("Cargo.toml")
+        .expect("build.rs: cannot read torajs-core Cargo.toml");
+    let deps = manifest
+        .split_once("\n[dependencies]\n")
+        .map(|(_, rest)| rest.split("\n[").next().unwrap_or(rest))
+        .expect("build.rs: torajs-core Cargo.toml has no [dependencies] table");
+    let missing: Vec<String> = STATICLIBS
+        .iter()
+        .map(|name| name.replace('_', "-"))
+        .filter(|pkg| !deps.lines().any(|l| l.starts_with(&format!("{pkg} = "))))
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "build.rs: STATICLIBS lists {missing:?} without a [dependencies] edge, \
+         so nothing orders their archives before this crate reads them"
+    );
 }
