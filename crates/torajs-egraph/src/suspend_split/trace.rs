@@ -11,14 +11,25 @@
 //! release once it lands, and is not reported. A value listed twice
 //! is two references, reported twice.
 //!
+//! A word is reported only where it is known to hold the value at the
+//! park: a reported word whose value was replaced would have the
+//! collector take one reference too many off whatever it holds now.
+//! So the cell must not be written between the read (or the store)
+//! and the park, and a store the value was forwarded from must
+//! dominate the park. A slot that lives in the frame may also be
+//! written through its address, so for one of those a use of the
+//! address or a call in between counts as a write.
+//!
 //! The trace (built by the lowering with the links and the parameter
 //! words) then reads the state and, for each point that keeps any
 //! word, visits those words with index `TRACE_STATE_WORD | word`.
 
+use torajs_core::ssa::dominator::DominatorTree;
 use torajs_core::ssa::id_hash::HashMap;
 use torajs_core::ssa::suspend::{FRAME_STATE_OFF, TRACE_STATE_WORD};
 use torajs_core::ssa::{
-    BinOp, BlockId, Function, InstKind, Operand, SigId, Terminator, Type, ValueId,
+    BinOp, BlockId, Function, InstKind, Operand, SigId, Terminator, Type, ValueId, lowers_to_call,
+    visit_value_operands,
 };
 
 use super::cut::{Point, fresh_block};
@@ -45,6 +56,7 @@ pub(super) fn point_words(
         }
     }
     let (succ, pred) = edges(f);
+    let dom = DominatorTree::compute(f);
     let held_at = |p: &Point| match f.blocks[p.cut].insts.last().map(|i| &i.kind) {
         Some(InstKind::Suspend(_, _, _, held)) => held.clone(),
         _ => unreachable!("a cut block ends at its suspension"),
@@ -63,6 +75,7 @@ pub(super) fn point_words(
                 cut: p.cut,
                 succ: &succ,
                 to_cut: reach(p.cut, &pred),
+                dom: &dom,
             };
             (held_at(p).iter())
                 .filter_map(|h| match h {
@@ -87,6 +100,7 @@ struct Find<'a> {
     succ: &'a [Vec<usize>],
     /// the blocks that reach the cut block
     to_cut: Vec<bool>,
+    dom: &'a DominatorTree,
 }
 
 impl Find<'_> {
@@ -104,29 +118,47 @@ impl Find<'_> {
             return None;
         };
         if let Some(&base) = self.layout.moved.get(&a) {
-            return Some(base + off);
+            return (!self.written_between(a, db, di, true)).then_some(base + off);
         }
         let word = *self.crossing.get(&a).filter(|_| off == 0)?;
-        (!self.stored_between(a, db, di)).then_some(word)
+        (!self.written_between(a, db, di, false)).then_some(word)
     }
 
     /// `h` stored into a cell nothing stores to again before the park
-    /// (a read of the cell the e-graph forwarded the store to).
+    /// (a read of the cell the e-graph forwarded the store to), by a
+    /// store every path to the park passes.
     fn stored_into(&self, h: ValueId) -> Option<u64> {
+        let cut = BlockId(self.cut as u32);
         (self.stored.get(&h)?.iter())
-            .filter(|&&(_, sb, _)| sb == self.cut || self.to_cut[sb])
+            .filter(|&&(_, sb, _)| self.dom.dominates(BlockId(sb as u32), cut))
             .find_map(|&(a, sb, si)| {
                 let word = *self.crossing.get(&a)?;
-                (!self.stored_between(a, sb, si)).then_some(word)
+                (!self.written_between(a, sb, si, false)).then_some(word)
             })
     }
 
-    /// Is there a store to `a` on a path from instruction `di` of
-    /// block `db` to the end of the cut block?
-    fn stored_between(&self, a: ValueId, db: usize, di: usize) -> bool {
+    /// May the cell `a` be written on a path from instruction `di` of
+    /// block `db` to the park at the end of the cut block? A store to
+    /// it is a write; for a cell whose address may be held elsewhere
+    /// (`aliased`) so are a use of the address and a call.
+    fn written_between(&self, a: ValueId, db: usize, di: usize, aliased: bool) -> bool {
+        let writes = |k: &InstKind| match k {
+            InstKind::Store(_, Operand::Value(p), _) if *p == a => true,
+            InstKind::Load(..) => false,
+            // through the address held elsewhere: a call, or another
+            // park (other code runs before the body is back)
+            k if aliased => {
+                let mut used = false;
+                visit_value_operands(k, |v| used |= v == a);
+                used || lowers_to_call(k)
+            }
+            _ => false,
+        };
+        // the cut block's own suspension is the park itself
         let stores = |b: usize, from: usize| {
-            (self.f.blocks[b].insts[from..].iter())
-                .any(|i| matches!(i.kind, InstKind::Store(_, Operand::Value(p), _) if p == a))
+            let insts = &self.f.blocks[b].insts;
+            let end = insts.len() - usize::from(b == self.cut);
+            (insts.get(from..end).unwrap_or_default().iter()).any(|i| writes(&i.kind))
         };
         if stores(db, di + 1) {
             return true;

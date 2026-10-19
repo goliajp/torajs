@@ -403,3 +403,77 @@ fn many_points_dispatch_through_a_binary_search() {
     assert_eq!(compares(IPred::Slt), 2);
     assert_eq!(compares(IPred::Eq), 1 + 3 + 1 + 2);
 }
+
+/// `s` in a cell whose address escapes (so the cell lives in the
+/// frame), read and held at the suspension; `called` makes a call
+/// between the read and the park, which may write through the address.
+fn held_in_moved_cell(called: bool) -> Vec<Vec<u64>> {
+    let (mut f, _, _) = body(Type::Void, &[]);
+    let b = f.blocks[0].id;
+    let slot = f.append_inst(b, InstKind::Alloca(Type::Str), Type::Ptr, None);
+    let s = f.append_inst(b, InstKind::Call(FuncId(51), vec![]), Type::Str, None);
+    f.append_void(
+        b,
+        InstKind::Store(Operand::Value(s), Operand::Value(slot), 0),
+    );
+    f.append_void(b, InstKind::Call(FuncId(53), vec![Operand::Value(slot)]));
+    let read = InstKind::Load(Type::Str, Operand::Value(slot), 0);
+    let held = f.append_inst(b, read, Type::Str, None);
+    if called {
+        f.append_void(b, InstKind::Call(FuncId(54), vec![]));
+    }
+    f.append_void(b, direct(vec![Operand::Value(held)]));
+    f.set_term(b, Terminator::Ret(None));
+    split_function(&mut f, &sfn(0, 7), &RT).0
+}
+
+/// A value read from a cell that lives in the frame is reported from
+/// that word only when nothing between the read and the park may write
+/// it: a call may, through the address the cell gave out.
+#[test]
+fn a_frame_cell_written_after_the_read_is_not_reported() {
+    assert_eq!(held_in_moved_cell(false), vec![vec![FRAME_PARAMS_OFF]]);
+    assert_eq!(held_in_moved_cell(true), vec![Vec::<u64>::new()]);
+}
+
+/// `s` stored into a cell on one arm of a branch only, the cell holding
+/// another value on the other arm, and held at a suspension after the
+/// join: the store does not dominate the park, so the cell's word is
+/// not known to hold `s` there and is not reported.
+#[test]
+fn a_store_on_one_arm_does_not_report_the_cell() {
+    let (mut f, _, _) = body(Type::Void, &[]);
+    let entry = f.blocks[0].id;
+    let (arm, join) = (f.add_block(), f.add_block());
+    let slot = f.append_inst(entry, InstKind::Alloca(Type::Str), Type::Ptr, None);
+    let other = f.append_inst(entry, InstKind::Call(FuncId(52), vec![]), Type::Str, None);
+    f.append_void(
+        entry,
+        InstKind::Store(Operand::Value(other), Operand::Value(slot), 0),
+    );
+    let s = f.append_inst(entry, InstKind::Call(FuncId(51), vec![]), Type::Str, None);
+    let c = f.append_inst(entry, InstKind::Call(FuncId(55), vec![]), Type::Bool, None);
+    f.set_term(
+        entry,
+        Terminator::CondBr {
+            cond: Operand::Value(c),
+            then_blk: arm,
+            else_blk: join,
+        },
+    );
+    f.append_void(
+        arm,
+        InstKind::Store(Operand::Value(s), Operand::Value(slot), 0),
+    );
+    f.set_term(arm, Terminator::Br(join));
+    f.append_void(join, direct(vec![Operand::Value(s)]));
+    let read = InstKind::Load(Type::Str, Operand::Value(slot), 0);
+    let after = f.append_inst(join, read, Type::Str, None);
+    f.append_void(
+        join,
+        InstKind::Call(FuncId(50), vec![Operand::Value(after)]),
+    );
+    f.set_term(join, Terminator::Ret(None));
+    let (words, _) = split_function(&mut f, &sfn(0, 7), &RT);
+    assert_eq!(words, vec![Vec::<u64>::new()]);
+}
