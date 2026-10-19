@@ -119,28 +119,7 @@ pub(crate) fn reach_from_table<'a>(member: &ArMember<'a>, tab: &[u8]) -> MemberR
             }
         })
         .collect();
-    let b = member.data;
-    let nlist: Rc<[NlEntry<'a>]> = (0..n_nlist)
-        .map(|i| {
-            let off = symoff + i * NLIST_64_SIZE as usize;
-            let row: &[u8; 16] = b[off..off + 16].try_into().unwrap();
-            // a length of 0 is a row without a name or with one that
-            // is not UTF-8; any other length is a checked UTF-8 name
-            let len = u32_at(tab, lens_off + i * 4) as usize;
-            let name = if len == 0 {
-                ""
-            } else {
-                let strx = u32::from_le_bytes(row[0..4].try_into().unwrap()) as usize;
-                std::str::from_utf8(&b[stroff + strx..][..len]).unwrap_or("")
-            };
-            NlEntry {
-                name,
-                n_type: row[4],
-                n_sect: row[5],
-                n_value: u64::from_le_bytes(row[8..16].try_into().unwrap()),
-            }
-        })
-        .collect();
+    let nlist = table_nlist(member.data, tab, (symoff, stroff, n_nlist), lens_off);
     let row = |off: usize, k: usize| &nlist[u32_at(tab, off + k * 4) as usize];
     let defined = (0..n_defined)
         .map(|k| {
@@ -158,6 +137,46 @@ pub(crate) fn reach_from_table<'a>(member: &ArMember<'a>, tab: &[u8]) -> MemberR
         dup_defined,
         no_dead_strip,
     }
+}
+
+/// The member's nlist rows, each named by the length the table gives
+/// it.
+fn table_nlist<'a>(
+    b: &'a [u8],
+    tab: &[u8],
+    (symoff, stroff, n_nlist): (usize, usize, usize),
+    lens_off: usize,
+) -> Rc<[NlEntry<'a>]> {
+    // the string table checked as UTF-8 once, up to its first bad
+    // byte: a name in there that starts and ends on a char boundary is
+    // that slice, any other name is checked on its own
+    let strs = match std::str::from_utf8(&b[stroff..]) {
+        Ok(s) => s,
+        Err(e) => std::str::from_utf8(&b[stroff..stroff + e.valid_up_to()]).unwrap_or(""),
+    };
+    (0..n_nlist)
+        .map(|i| {
+            let off = symoff + i * NLIST_64_SIZE as usize;
+            let row: &[u8; 16] = b[off..off + 16].try_into().unwrap();
+            // a length of 0 is a row without a name or with one that
+            // is not UTF-8; any other length is a checked UTF-8 name
+            let len = u32_at(tab, lens_off + i * 4) as usize;
+            let name = if len == 0 {
+                ""
+            } else {
+                let strx = u32::from_le_bytes(row[0..4].try_into().unwrap()) as usize;
+                strs.get(strx..strx + len)
+                    .or_else(|| std::str::from_utf8(&b[stroff + strx..][..len]).ok())
+                    .unwrap_or("")
+            };
+            NlEntry {
+                name,
+                n_type: row[4],
+                n_sect: row[5],
+                n_value: u64::from_le_bytes(row[8..16].try_into().unwrap()),
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]
