@@ -73,7 +73,7 @@
   "split-materialize-store-1m": {"kind": "same", "why": "the split of main.c: counts the separators, allocates the Vec<&str> once at its final size and fills it with views into the line, then stores it into a 1024-slot Vec<Vec<&str>>, dropping the Vec it replaces; every slot is read after the loop; the rebuilt String grows by doubling from 16, as main.c"},
   "throw-unwind-depth8-1m": {"kind": "different", "why": "Result<i64, Box<Fail>> propagation stands in for throw / catch; the finally body runs inline in every frame, no unwinder"},
   "str-build-1mb": {"kind": "same", "why": "String appended in place, grown by doubling from empty; no capacity hint"},
-  "tokenizer-parser-eval-10k": {"kind": "same", "why": "Box per token and per AST node; int32 wrapping arithmetic in evaluate"},
+  "tokenizer-parser-eval-10k": {"kind": "same", "why": "tokens stored inline in a Vec (the Rust best form; tr also stores them inline), Box per AST node; int32 wrapping arithmetic in evaluate"},
   "regex-capture-exec-1m": {"kind": "different", "why": "a hand-written matcher for ([a-z]+)=(\\d+) stands in for a general regex engine; both captures are written as their own String and the digits parsed from the captured one, but only the length of the key is read, so rustc is free to remove that allocation"},
   "regex-replace-callback-1m": {"kind": "different", "why": "a hand-written matcher for ([a-z]+)=(\\d+) stands in for a general regex engine; both captures and the replacer's result are their own String, the output String is appended in place with no capacity hint"}
 }

@@ -58,9 +58,9 @@ struct Token {
     value: i32,
 }
 
-fn tokenize(src: &str) -> Vec<Box<Token>> {
+fn tokenize(src: &str) -> Vec<Token> {
     let src = src.as_bytes();
-    let mut out: Vec<Box<Token>> = Vec::new();
+    let mut out: Vec<Token> = Vec::new();
     let mut i = 0;
     while i < src.len() {
         let c = src[i];
@@ -76,15 +76,15 @@ fn tokenize(src: &str) -> Vec<Box<Token>> {
                 v = v * 10 + (d - 48) as i32;
                 i += 1;
             }
-            out.push(Box::new(Token {
+            out.push(Token {
                 kind: NUM,
                 value: v,
-            }));
+            });
         } else if c >= 97 && c <= 122 {
-            out.push(Box::new(Token {
+            out.push(Token {
                 kind: IDENT,
                 value: (c - 97) as i32,
-            }));
+            });
             i += 1;
         } else {
             let mut kind = RPAREN;
@@ -97,14 +97,14 @@ fn tokenize(src: &str) -> Vec<Box<Token>> {
             } else if c == 40 {
                 kind = LPAREN;
             }
-            out.push(Box::new(Token { kind, value: 0 }));
+            out.push(Token { kind, value: 0 });
             i += 1;
         }
     }
-    out.push(Box::new(Token {
+    out.push(Token {
         kind: END,
         value: 0,
-    }));
+    });
     out
 }
 
@@ -118,7 +118,7 @@ struct Expr {
 }
 
 struct Parser<'a> {
-    toks: Vec<Box<Token>>,
+    toks: Vec<Token>,
     pos: usize,
     nodes: &'a mut i64,
 }
@@ -158,7 +158,7 @@ impl<'a> Parser<'a> {
     }
 
     fn factor(&mut self) -> Box<Expr> {
-        let t = *self.toks[self.pos];
+        let t = self.toks[self.pos];
         self.pos += 1;
         *self.nodes += 1;
         if t.kind == NUM || t.kind == IDENT {

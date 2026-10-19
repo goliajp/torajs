@@ -80,20 +80,19 @@ typedef struct {
 } Token;
 
 typedef struct {
-    Token **ptr;
+    Token *ptr;
     size_t len;
     size_t cap;
 } TokenVec;
 
 static void push_token(TokenVec *v, int32_t kind, int32_t value) {
-    Token *t = malloc(sizeof(Token));
-    t->kind = kind;
-    t->value = value;
     if (v->len == v->cap) {
         v->cap = v->cap ? v->cap * 2 : 8;
-        v->ptr = realloc(v->ptr, v->cap * sizeof(Token *));
+        v->ptr = realloc(v->ptr, v->cap * sizeof(Token));
     }
-    v->ptr[v->len++] = t;
+    v->ptr[v->len].kind = kind;
+    v->ptr[v->len].value = value;
+    v->len++;
 }
 
 static TokenVec tokenize(const char *src, size_t len) {
@@ -164,14 +163,14 @@ static void expr_free(Expr *e) {
 static int64_t nodes = 0;
 
 typedef struct {
-    Token **toks;
+    const Token *toks;
     size_t pos;
 } Parser;
 
 static Expr *parse_expr(Parser *p);
 
 static Expr *parse_factor(Parser *p) {
-    const Token *t = p->toks[p->pos];
+    const Token *t = &p->toks[p->pos];
     p->pos = p->pos + 1;
     nodes = nodes + 1;
     if (t->kind == NUM) {
@@ -191,7 +190,7 @@ static Expr *parse_factor(Parser *p) {
 
 static Expr *parse_term(Parser *p) {
     Expr *left = parse_factor(p);
-    while (p->toks[p->pos]->kind == STAR) {
+    while (p->toks[p->pos].kind == STAR) {
         p->pos = p->pos + 1;
         Expr *right = parse_factor(p);
         nodes = nodes + 1;
@@ -202,8 +201,8 @@ static Expr *parse_term(Parser *p) {
 
 static Expr *parse_expr(Parser *p) {
     Expr *left = parse_term(p);
-    while (p->toks[p->pos]->kind == PLUS || p->toks[p->pos]->kind == MINUS) {
-        int32_t kind = p->toks[p->pos]->kind;
+    while (p->toks[p->pos].kind == PLUS || p->toks[p->pos].kind == MINUS) {
+        int32_t kind = p->toks[p->pos].kind;
         p->pos = p->pos + 1;
         Expr *right = parse_term(p);
         nodes = nodes + 1;
@@ -259,9 +258,6 @@ int main(int argc, char **argv) {
             Expr *e = parse_expr(&p);
             total = (int32_t)((uint32_t)total + (uint32_t)evaluate(e, env));
             expr_free(e);
-            for (size_t k = 0; k < toks.len; k++) {
-                free(toks.ptr[k]);
-            }
             free(toks.ptr);
         }
         env[r & 7] = (int32_t)((uint32_t)env[r & 7] + (uint32_t)total);
