@@ -54,8 +54,11 @@ pub(super) struct Scopes<'a> {
     /// Every parameter name of every function.
     pub(super) param_names: HashSet<&'a str>,
     /// The binders each read reaches, as answered so far.
-    memo: RefCell<HashMap<(Owner, &'a str), Option<Rc<Reach<'a>>>>>,
+    memo: RefCell<ReachMemo<'a>>,
 }
+
+/// A read's reach by the function it is in and the name it reads.
+type ReachMemo<'a> = HashMap<(Owner, &'a str), Option<Rc<Reach<'a>>>>;
 
 /// The binders other than parameters one function declares for a name.
 #[derive(Default)]
