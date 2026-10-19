@@ -11,7 +11,7 @@
 
 use core::ffi::c_void;
 
-use crate::combinator::{repr_arr_kind_chain, unbox_target};
+use crate::combinator::repr_arr_kind_chain;
 use crate::combinator_all_fanin::{AllBlock, MODE_ALLSETTLED, MODE_ANY};
 use crate::layout::{Promise, REPR_ANY, REPR_HEAP, REPR_UNSTAMPED, STATE_FULFILLED, as_promise};
 use crate::state::{__torajs_promise_reject, __torajs_promise_resolve};
@@ -89,10 +89,7 @@ pub(crate) unsafe fn store_element(b: *mut AllBlock, index: u64, ep: *mut Promis
         if (*b).elem_repr == REPR_UNSTAMPED {
             (*b).elem_repr = (*ep).value_repr;
         }
-        let v = match unbox_target((*ep).value_repr, (*b).elem_repr) {
-            Some(lane) => crate::then_box::unbox_settled(lane, (*ep).value),
-            None => (*ep).value,
-        };
+        let v = crate::settled_form::into_form((*ep).value_repr, (*b).elem_repr, (*ep).value);
         // Same payment the sync kernel makes: a heap-chained result
         // array drops every slot it holds, while the element promise
         // keeps its own stake.

@@ -54,6 +54,7 @@ pub mod micro;
 pub mod pool;
 pub mod print;
 pub mod reaction;
+pub(crate) mod settled_form;
 pub mod state;
 pub mod then;
 pub mod then_adopt;

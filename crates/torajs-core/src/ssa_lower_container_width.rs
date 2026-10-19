@@ -28,7 +28,7 @@ use crate::ssa_lower::intern_arr_layout;
 /// TypeDecl intern walk); widened twins get fresh StructIds so
 /// differently-classed slots of one structural annotation can carry
 /// different field widths.
-fn intern_struct_layout(
+pub(crate) fn intern_struct_layout(
     layouts: &mut Vec<Vec<(PropKey, Type)>>,
     fields: Vec<(PropKey, Type)>,
 ) -> StructId {

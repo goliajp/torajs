@@ -54,10 +54,12 @@ impl Analysis<'_> {
     /// (`all` / `race` / `any`) fan the source elements' `value`
     /// points into the result's: `all` resolves to an ARRAY of those
     /// values (Elem of the result point), `race` / `any` to ONE of
-    /// them (the result point itself). `allSettled` stays out — its
-    /// value is an array of {status, value} wrappers, a struct face
-    /// this table doesn't model yet. Fired from member_call_effects
-    /// (every call site), keyed by the call's Anon origin.
+    /// them (the result point itself). `allSettled` resolves to an
+    /// array of `{status, value}` records whose `value` field holds
+    /// what each source settled with, so that field joins the source
+    /// points (the rejected `{status, reason}` twin shares its layout).
+    /// Fired from member_call_effects (every call site), keyed by the
+    /// call's Anon origin.
     pub(super) fn promise_static_wiring(
         &mut self,
         eid: ExprId,
@@ -97,12 +99,18 @@ impl Analysis<'_> {
                 }
             }
         }
-        if matches!(name, "all" | "race" | "any")
+        if matches!(name, "all" | "race" | "any" | "allSettled")
             && let Some(a0) = args.first()
             && let Some(ak) = self.container_key_of(*a0, scope)
         {
             let src_elem_pv = SlotKey::Field(Box::new(SlotKey::Elem(Box::new(ak))), "value".into());
-            if name == "all" {
+            if name == "allSettled" {
+                self.mark_containerish(&pv);
+                let rec = SlotKey::Elem(Box::new(pv.clone()));
+                self.mark_containerish(&rec);
+                self.uf
+                    .union(&SlotKey::Field(Box::new(rec), "value".into()), &src_elem_pv);
+            } else if name == "all" {
                 // The result's value is a fresh array the runtime
                 // fills from each source promise's raw value slot —
                 // container evidence on the point itself, so the

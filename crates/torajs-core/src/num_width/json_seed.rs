@@ -56,6 +56,17 @@ impl<'a> Analysis<'a> {
     fn seed_number_faces(&mut self, key: &SlotKey, ann: Option<&str>, seen: &mut HashSet<String>) {
         let Some(ann) = ann else { return };
         let ann = crate::check_type_ann::strip_nullable(ann).trim();
+        // a promise handed in from `any` settles with what its own
+        // resolver gave it, at whatever width that was
+        if let Some(inner) = (ann.strip_prefix("Promise<")).and_then(|r| r.strip_suffix('>')) {
+            let vk = SlotKey::Field(Box::new(key.clone()), "value".into());
+            self.mark_containerish(key);
+            if number_domain(Some(inner.trim())) {
+                self.add_container_constraint(vk.clone(), super::magnitude::f64_flow());
+            }
+            self.seed_number_faces(&vk, Some(inner.trim()), seen);
+            return;
+        }
         if let Some(elem) = ann.strip_suffix("[]") {
             let ek = SlotKey::Elem(Box::new(key.clone()));
             self.mark_containerish(key);

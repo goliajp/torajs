@@ -1,0 +1,21 @@
+w await 41
+w resolve 41
+top settled [{"status":"fulfilled","value":9},{"status":"fulfilled","value":3},{"status":"fulfilled","value":1.5}]
+w all 41 2.5 43.5
+w settled [{"status":"fulfilled","value":41},{"status":"fulfilled","value":2.5}]
+w settled value 41.25
+w settled value 2.75
+w race 41
+w any 41
+n first 2
+n await 6.5
+n resolve 6.5
+n all 6.5 6 12.5
+n settled [{"status":"fulfilled","value":6.5},{"status":"fulfilled","value":6},{"status":"rejected","reason":2}]
+n settled value 6.75
+n settled value 6.25
+n race 6.5
+n any 6.5
+o settled [{"status":"fulfilled","value":6.5},{"status":"fulfilled","value":41},{"status":"fulfilled","value":3}]
+n then 6.5
+w then 41

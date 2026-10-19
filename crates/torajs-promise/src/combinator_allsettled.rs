@@ -10,7 +10,7 @@
 
 use core::ffi::c_void;
 
-use crate::combinator::{absorb_inputs, arr_len, arr_slot_ptr, defer_settle, unbox_target};
+use crate::combinator::{absorb_inputs, arr_len, arr_slot_ptr, defer_settle};
 use crate::layout::{
     ALLSETTLED_OBJ_HEADER_SIZE, ALLSETTLED_OBJ_TAG, REPR_ANY, REPR_HEAP, REPR_STR, REPR_VOID,
     STATE_FULFILLED, STATE_REJECTED, STR_HDR_SIZE,
@@ -84,17 +84,9 @@ pub(crate) unsafe fn record_slot(src_repr: u8, target_repr: u8, v: i64) -> (i64,
         return (boxed, false);
     }
     (
-        unsafe { record_value(src_repr, target_repr, v) },
+        unsafe { crate::settled_form::into_form(src_repr, target_repr, v) },
         value_field_is_owned(target_repr),
     )
-}
-
-#[inline]
-unsafe fn record_value(src_repr: u8, target_repr: u8, v: i64) -> i64 {
-    match unbox_target(src_repr, target_repr) {
-        Some(lane) => unsafe { crate::then_box::unbox_settled(lane, v) },
-        None => v,
-    }
 }
 
 /// Does the record co-own what sits in its value slot? The layout walk

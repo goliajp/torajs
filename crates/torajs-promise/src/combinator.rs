@@ -202,7 +202,7 @@ pub unsafe extern "C" fn __torajs_promise_all_sync(
         }
         if elem_repr == REPR_UNSTAMPED {
             let src = unsafe { (*pp).value_repr };
-            elem_repr = unbox_target(src, target_repr).unwrap_or(src);
+            elem_repr = crate::settled_form::read_form(src, target_repr);
         }
     }
     // All fulfilled. The call site typed the result element `any`, so
@@ -232,12 +232,7 @@ pub unsafe extern "C" fn __torajs_promise_all_sync(
         let v = if pp.is_null() {
             0
         } else {
-            unsafe {
-                match unbox_target((*pp).value_repr, target_repr) {
-                    Some(lane) => crate::then_box::unbox_settled(lane, (*pp).value),
-                    None => (*pp).value,
-                }
-            }
+            unsafe { crate::settled_form::into_form((*pp).value_repr, elem_repr, (*pp).value) }
         };
         if co_owns && v != 0 {
             unsafe { __torajs_rc_inc(v as *mut c_void) };
