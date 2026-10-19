@@ -27,7 +27,7 @@
 
 use crate::archives_merge::MergedArchives;
 use crate::lc::TEXT_VMADDR_BASE;
-use crate::member_sections::{MemberSectionInfo, collect_member_sections, is_no_file_storage};
+use crate::member_sections::{MemberSectionInfo, is_no_file_storage};
 use crate::non_text_layout::NonTextLayoutError;
 
 const DATA_SEGNAME: &[u8] = b"__DATA";
@@ -142,12 +142,12 @@ pub struct DataSectionLayoutResult {
 /// The distinct `(segname, sectname)` names among `raw`'s `__DATA`
 /// sections of one storage kind, in first-seen order.
 fn section_name_groups(
-    per_member_raw: &[Vec<MemberSectionInfo>],
+    per_member_raw: &[&[MemberSectionInfo]],
     file_storage: bool,
 ) -> Vec<([u8; 16], [u8; 16])> {
     let mut groups: Vec<([u8; 16], [u8; 16])> = Vec::new();
     for raw in per_member_raw {
-        for sec in raw {
+        for sec in *raw {
             if !is_data_segment(sec) || is_no_file_storage(sec.flags) == file_storage {
                 continue;
             }
@@ -228,16 +228,16 @@ pub fn compute_data_section_layouts(
     vaddr_start: u64,
 ) -> Result<DataSectionLayoutResult, NonTextLayoutError> {
     // Collect once so the two passes share an iterator-free view.
-    let mut per_member_raw: Vec<Vec<MemberSectionInfo>> = Vec::with_capacity(member_keys.len());
+    let mut objs = Vec::with_capacity(member_keys.len());
     for &(a_idx, m_idx) in member_keys {
-        let member = &merged.member(a_idx, m_idx);
-        let all = collect_member_sections(member).map_err(|err| NonTextLayoutError {
+        let obj = merged.obj(a_idx, m_idx).map_err(|err| NonTextLayoutError {
             archive_idx: a_idx,
             member_idx: m_idx,
             err,
         })?;
-        per_member_raw.push(all);
+        objs.push(obj);
     }
+    let per_member_raw: Vec<&[MemberSectionInfo]> = objs.iter().map(|o| o.sections()).collect();
 
     // r503 — same-named sections across members lay out back to
     // back (the way ld merges input sections), so one `section_64`
@@ -254,7 +254,7 @@ pub fn compute_data_section_layouts(
     for (segname, sectname) in section_name_groups(&per_member_raw, true) {
         let mut group: Option<MergedDataSection> = None;
         for (i, raw) in per_member_raw.iter().enumerate() {
-            for sec in raw {
+            for sec in *raw {
                 if !is_data_segment(sec)
                     || is_no_file_storage(sec.flags)
                     || (sec.segname, sec.sectname) != (segname, sectname)
@@ -303,7 +303,7 @@ pub fn compute_data_section_layouts(
     for (segname, sectname) in section_name_groups(&per_member_raw, false) {
         let mut group: Option<MergedDataSection> = None;
         for (i, raw) in per_member_raw.iter().enumerate() {
-            for sec in raw {
+            for sec in *raw {
                 if !is_data_segment(sec)
                     || !is_no_file_storage(sec.flags)
                     || (sec.segname, sec.sectname) != (segname, sectname)

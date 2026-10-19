@@ -27,7 +27,7 @@
 use crate::archives_merge::MergedArchives;
 use crate::lc::TEXT_VMADDR_BASE;
 use crate::member_reloc::MemberRelocError;
-use crate::member_sections::{MemberSectionInfo, collect_member_sections, is_no_file_storage};
+use crate::member_sections::{MemberSectionInfo, is_no_file_storage};
 
 const TEXT_SECTNAME: &[u8] = b"__text";
 const TEXT_SEGNAME: &[u8] = b"__TEXT";
@@ -156,15 +156,14 @@ pub fn compute_non_text_layouts(
     // `(offset >> 4) << 4`, loading garbage 11 bytes early.
     let mut file_cursor: u64 = u64::from(region_file_offset);
     for &(a_idx, m_idx) in member_keys {
-        let member = &merged.member(a_idx, m_idx);
-        let all = collect_member_sections(member).map_err(|err| NonTextLayoutError {
+        let obj = merged.obj(a_idx, m_idx).map_err(|err| NonTextLayoutError {
             archive_idx: a_idx,
             member_idx: m_idx,
             err,
         })?;
         let mut layouts: Vec<NonTextSectionLayout> = Vec::new();
-        for sec in all {
-            if is_member_text(&sec) {
+        for sec in obj.sections() {
+            if is_member_text(sec) {
                 continue;
             }
             // SD-4c-prereq-c-fix-c1 — only `__TEXT,*` regular
@@ -173,7 +172,7 @@ pub fn compute_non_text_layouts(
             // current __TEXT-only emit can't host without permission
             // mismatches or vmsize/filesize confusion) are deferred
             // to fix-c2/3/4's dedicated __DATA layout pass.
-            if !keeps_in_text_non_text_region(&sec) {
+            if !keeps_in_text_non_text_region(sec) {
                 continue;
             }
             file_cursor += round_up_pad(file_cursor, sec.align);
@@ -253,6 +252,7 @@ mod tests {
     use super::*;
     use crate::archive::{AR_HEADER_SIZE, AR_MAGIC, parse_archive};
     use crate::archives_merge::merge_archive_indexes;
+    use crate::member_sections::collect_member_sections;
     use torajs_codegen::CompiledFunction;
     use torajs_codegen::frame::FrameLayout;
 

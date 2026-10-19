@@ -100,6 +100,7 @@ pub mod member_apply;
 mod member_apply_patch;
 pub mod member_data_apply;
 pub(crate) mod member_data_rebase_layout;
+pub(crate) mod member_obj;
 pub mod member_reloc;
 pub mod member_resolve;
 pub mod member_sections;

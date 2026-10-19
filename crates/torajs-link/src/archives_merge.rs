@@ -42,10 +42,10 @@ pub struct MergedSymbol {
 #[derive(Debug)]
 pub struct MergedArchives<'a> {
     pub(crate) image: Image<'a>,
-    /// Members of each archive in archive order. The dead-strip
-    /// pre-pass swaps rewritten bodies in
-    /// ([`crate::dead_strip_repack::swap_in_stripped`]).
+    /// Members of each archive in archive order; the dead-strip
+    /// pre-pass swaps rewritten bodies in (`swap_in_stripped`).
     members: Vec<Vec<ArMember<'a>>>,
+    pub(crate) objs: crate::member_obj::MemberObjs<'a>,
 }
 
 impl<'a> MergedArchives<'a> {
@@ -68,6 +68,7 @@ impl<'a> MergedArchives<'a> {
 
     pub(crate) fn swap_member_data(&mut self, (a, m): (usize, usize), data: &'a [u8]) {
         self.members[a][m].data = data;
+        self.forget_obj((a, m));
     }
 
     pub fn symbol_count(&self) -> usize {
@@ -110,10 +111,13 @@ pub fn merge_archive_indexes<'a>(image: &'a [u8]) -> Result<MergedArchives<'a>, 
     let members = (0..image.archive_count())
         .map(|a| image.members(a).collect())
         .collect();
-    Ok(MergedArchives { image, members })
+    let objs = Default::default();
+    Ok(MergedArchives {
+        image,
+        members,
+        objs,
+    })
 }
-
-// ---- S7-C2: worklist closure of required archive members ----
 
 /// Set of `(archive_idx, member_idx)` pairs that must be
 /// integrated into the final binary so every undefined extern
@@ -300,15 +304,9 @@ pub(crate) fn reloc_target_name(kind: &RelocKind) -> Option<&str> {
     }
 }
 
-/// Walk one `.o` member's `LC_SYMTAB` and return every
-/// `(N_UNDF | N_EXT)` symbol name — those are the *imports* the
-/// member needs satisfied by something else in the link.
-///
-/// Mirror of `archive::parse_member_defined_externs` with the
-/// filter flipped to `N_UNDF`. Defined externs (the things
-/// `build_archive_index` collects) and undefined externs (the
-/// things this returns) sit in the same `LC_SYMTAB`,
-/// distinguished only by `n_type & N_TYPE`.
+/// Every `N_UNDF | N_EXT` name of one `.o` member's `LC_SYMTAB`: the
+/// imports something else in the link must satisfy (the mirror of
+/// `archive::parse_member_defined_externs`).
 pub fn parse_member_undef_externs(member: &ArMember<'_>) -> Result<Vec<String>, MemberSymtabError> {
     let names = member_undef_extern_names(member)?;
     Ok(names.into_iter().map(str::to_string).collect())

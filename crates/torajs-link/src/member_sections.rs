@@ -160,40 +160,44 @@ pub fn collect_member_sections(
         }
         for i in 0..nsects {
             let sec = sections_start + i * SECTION_64_SIZE as usize;
-            let mut sectname = [0u8; 16];
-            sectname.copy_from_slice(&bytes[sec..sec + 16]);
-            let mut segname = [0u8; 16];
-            segname.copy_from_slice(&bytes[sec + 16..sec + 32]);
-            let addr = u64::from_le_bytes(bytes[sec + 32..sec + 40].try_into().unwrap());
-            let size = u64::from_le_bytes(bytes[sec + 40..sec + 48].try_into().unwrap());
-            let offset = u32::from_le_bytes(bytes[sec + 48..sec + 52].try_into().unwrap());
-            let align_raw = u32::from_le_bytes(bytes[sec + 52..sec + 56].try_into().unwrap());
-            let flags = u32::from_le_bytes(bytes[sec + 64..sec + 68].try_into().unwrap());
-            // Mach-O section align is a small log2 exponent (≤ 14 in
-            // practice); clamp to 31 so `1 << align` never overflows a
-            // u64 even on a malformed input.
-            debug_assert!(
-                align_raw <= 31,
-                "section align log2 out of range: {align_raw}"
-            );
-            let align = align_raw.min(31) as u8;
             let section_index =
                 u8::try_from(next_index).expect("> 255 sections per Mach-O image not supported");
-            out.push(MemberSectionInfo {
-                section_index,
-                sectname,
-                segname,
-                member_internal_offset: offset,
-                size: size as u32,
-                flags,
-                member_addr: addr,
-                align,
-            });
+            out.push(section_info(bytes, sec, section_index));
             next_index += 1;
         }
         cursor += cmdsize;
     }
     Ok(out)
+}
+
+/// The `section_64` header at `sec` of `bytes`, ordinal `section_index`.
+pub(crate) fn section_info(bytes: &[u8], sec: usize, section_index: u8) -> MemberSectionInfo {
+    let mut sectname = [0u8; 16];
+    sectname.copy_from_slice(&bytes[sec..sec + 16]);
+    let mut segname = [0u8; 16];
+    segname.copy_from_slice(&bytes[sec + 16..sec + 32]);
+    let addr = u64::from_le_bytes(bytes[sec + 32..sec + 40].try_into().unwrap());
+    let size = u64::from_le_bytes(bytes[sec + 40..sec + 48].try_into().unwrap());
+    let offset = u32::from_le_bytes(bytes[sec + 48..sec + 52].try_into().unwrap());
+    let align_raw = u32::from_le_bytes(bytes[sec + 52..sec + 56].try_into().unwrap());
+    let flags = u32::from_le_bytes(bytes[sec + 64..sec + 68].try_into().unwrap());
+    // Mach-O section align is a small log2 exponent (≤ 14 in
+    // practice); clamp to 31 so `1 << align` never overflows a
+    // u64 even on a malformed input.
+    debug_assert!(
+        align_raw <= 31,
+        "section align log2 out of range: {align_raw}"
+    );
+    MemberSectionInfo {
+        section_index,
+        sectname,
+        segname,
+        member_internal_offset: offset,
+        size: size as u32,
+        flags,
+        member_addr: addr,
+        align: align_raw.min(31) as u8,
+    }
 }
 
 #[cfg(test)]

@@ -2,10 +2,10 @@
 //! member's `__text` size/offset + defined externs into parallel
 //! `Vec`s indexed by `member_keys` order.
 
-use crate::archive::parse_member_defined_externs;
 use crate::archives_merge::MergedArchives;
 use crate::layout_types::ArchiveLayoutError;
-use crate::member_text::parse_member_text_section;
+use crate::member_reloc::MemberRelocError;
+use crate::member_text::MemberTextError;
 
 pub struct MemberScanLayouts {
     pub text_sizes: Vec<u32>,
@@ -22,22 +22,27 @@ pub fn scan_member_text_and_symbols(
     let mut text_offsets: Vec<u32> = Vec::with_capacity(n);
     let mut defined_syms: Vec<Vec<(String, u64, u8)>> = Vec::with_capacity(n);
     for &(a_idx, m_idx) in member_keys {
-        let member = &merged.member(a_idx, m_idx);
-        let (text_off, text_size) =
-            parse_member_text_section(member).map_err(|err| ArchiveLayoutError::MemberText {
+        let text_err = |err| ArchiveLayoutError::MemberText {
+            archive_idx: a_idx,
+            member_idx: m_idx,
+            err,
+        };
+        let obj = merged
+            .obj(a_idx, m_idx)
+            .map_err(|e| text_err(text_error(e)))?;
+        let text = obj
+            .text_section()
+            .ok_or_else(|| text_err(MemberTextError::NoTextSection))?;
+        let (text_off, text_size) = (text.member_internal_offset, text.size);
+        text_offsets.push(text_off);
+        text_sizes.push(text_size);
+        let defs = obj
+            .defined_externs()
+            .map_err(|err| ArchiveLayoutError::MemberSymtab {
                 archive_idx: a_idx,
                 member_idx: m_idx,
                 err,
             })?;
-        text_offsets.push(text_off);
-        text_sizes.push(text_size);
-        let defs = parse_member_defined_externs(member).map_err(|err| {
-            ArchiveLayoutError::MemberSymtab {
-                archive_idx: a_idx,
-                member_idx: m_idx,
-                err,
-            }
-        })?;
         // Layout keeps owned names (MemberLayout has no lifetime);
         // only the required members' syms materialize here — small.
         defined_syms.push(
@@ -51,4 +56,17 @@ pub fn scan_member_text_and_symbols(
         text_offsets,
         defined_syms,
     })
+}
+
+/// A load-command walk failure in [`MemberTextError`] terms.
+fn text_error(e: MemberRelocError) -> MemberTextError {
+    match e {
+        MemberRelocError::TruncatedLoadCommand { offset } => {
+            MemberTextError::TruncatedLoadCommand { offset }
+        }
+        MemberRelocError::TruncatedSegmentSections { offset } => {
+            MemberTextError::TruncatedSegmentSections { offset }
+        }
+        _ => MemberTextError::TruncatedHeader,
+    }
 }
