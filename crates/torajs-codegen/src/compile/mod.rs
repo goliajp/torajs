@@ -79,7 +79,7 @@ use crate::reloc::Reloc;
 use crate::shrink_wrap::ShrinkWrap;
 use entry::{emit_param_entry_moves, emit_stack_param_loads};
 use inst::emit_inst_at;
-use terminator::{BranchFixup, BranchKind, emit_terminator};
+use terminator::{BranchFixup, BranchKind, Fixups, emit_terminator};
 
 pub use binop::{emit_binop, emit_ctpop, emit_cttz, emit_neg};
 pub use call::{emit_call, emit_call_indirect};
@@ -172,19 +172,19 @@ pub fn compile_function_with(
     in_module::compile_with_role(func, alloc, facts, Role::default())
 }
 
-/// The function's code and relocations; None when `bit_tests` placed
-/// a bit-test branch out of its reach.
+/// The function's code and relocations; None when a branch landed out
+/// of its reach (a bit test, or a conditional branch `far` left short).
 fn emit_body(
     func: &Function,
     alloc: &Assignment,
     facts: &ModuleFacts,
     frame: &FrameLayout,
     role: Role,
-    bit_tests: bool,
+    (bit_tests, far): (bool, bool),
 ) -> Option<(Vec<u8>, Vec<Reloc>)> {
     let mut bytes: Vec<u8> = Vec::new();
     let mut relocs: Vec<Reloc> = Vec::new();
-    let mut fixups: Vec<BranchFixup> = Vec::new();
+    let mut fixups = Fixups::new(far);
 
     // Track each block's start byte offset so the branch-fixup pass
     // can compute PC-relative displacements after all blocks emit.

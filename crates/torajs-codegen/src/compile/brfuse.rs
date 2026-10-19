@@ -23,7 +23,7 @@ use crate::reg::Reg;
 
 use super::cmp::{emit_int_nzcv, fpred_to_cond, ipred_to_cond};
 use super::operand::{compare_fpr, is_f64_zero, materialize_operand_gpr};
-use super::{BranchFixup, BranchKind, OP_SCRATCH_LHS, write_u32};
+use super::{BranchFixup, BranchKind, Fixups, OP_SCRATCH_LHS, write_u32};
 use crate::enc::{b_cond_imm19, b_imm26, cb_w, cbnz_x, cbz_x};
 use crate::regalloc::Assignment;
 
@@ -233,7 +233,7 @@ pub(crate) fn invert_ipred(pred: IPred) -> IPred {
 /// trailing unconditional B is skipped.
 pub(crate) fn emit_fused_condbr(
     bytes: &mut Vec<u8>,
-    fixups: &mut Vec<BranchFixup>,
+    fixups: &mut Fixups,
     fc: &FusedCmp,
     invert: bool,
     then_blk: BlockId,
@@ -261,16 +261,10 @@ pub(crate) fn emit_fused_condbr(
     };
     if let Some((val, z, on_zero)) = zero_test {
         let rt = materialize_operand_gpr(bytes, &val, OP_SCRATCH_LHS, alloc);
-        let site = bytes.len() as u32;
-        fixups.push(BranchFixup {
-            site_byte_offset: site,
-            target_block: then_blk,
-            kind: BranchKind::Imm19,
-        });
         // branch to then_blk when the cond holds: eq → value == 0 → CBZ
         let x = if on_zero { cbz_x(rt, 0) } else { cbnz_x(rt, 0) };
         let narrow = matches!(z, Operand::ConstI32(_));
-        write_u32(bytes, if narrow { cb_w(x) } else { x });
+        fixups.cond_branch(bytes, if narrow { cb_w(x) } else { x }, then_blk);
     } else {
         let cond = match (int_pred, fc.pred) {
             (Some(p), _) => {
@@ -287,13 +281,7 @@ pub(crate) fn emit_fused_condbr(
             }
             (None, FusedSelPred::Int(_)) => unreachable!("int_pred is Some for Int"),
         };
-        let site = bytes.len() as u32;
-        fixups.push(BranchFixup {
-            site_byte_offset: site,
-            target_block: then_blk,
-            kind: BranchKind::Imm19,
-        });
-        write_u32(bytes, b_cond_imm19(cond, 0));
+        fixups.cond_branch(bytes, b_cond_imm19(cond, 0), then_blk);
     }
     if let Some(else_blk) = else_blk {
         let b_site = bytes.len() as u32;

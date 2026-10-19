@@ -19,7 +19,7 @@ use torajs_core::ssa::{BinOp, Block, BlockId, IPred, InstKind, Operand, ValueId}
 
 use super::brfuse::{FusedCmp, FusedSelPred, invert_ipred};
 use super::operand::materialize_operand_gpr;
-use super::{BranchFixup, BranchKind, OP_SCRATCH_LHS, write_u32};
+use super::{BranchFixup, BranchKind, Fixups, OP_SCRATCH_LHS, write_u32};
 use crate::enc::{b_imm26, logical_imm, tbnz, tbz};
 use crate::regalloc::Assignment;
 
@@ -74,7 +74,7 @@ pub(crate) fn pick(
 /// falling through, or by the trailing B when `trailing`.
 pub(crate) fn emit_condbr(
     bytes: &mut Vec<u8>,
-    fixups: &mut Vec<BranchFixup>,
+    fixups: &mut Fixups,
     fc: &FusedCmp,
     invert: bool,
     (target, other): (BlockId, BlockId),

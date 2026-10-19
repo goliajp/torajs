@@ -59,6 +59,52 @@ pub(super) struct BranchFixup {
     pub(super) kind: BranchKind,
 }
 
+/// One function's branch sites, waiting for their targets. Under
+/// `far`, a conditional branch to a block takes the long form: the
+/// inverted test skips a B, whose 26 bits reach ±128 MiB where a
+/// B.cond / CBZ / CBNZ reaches ±1 MiB.
+pub(super) struct Fixups {
+    list: Vec<BranchFixup>,
+    far: bool,
+}
+
+impl Fixups {
+    pub(super) fn new(far: bool) -> Self {
+        Fixups {
+            list: Vec::new(),
+            far,
+        }
+    }
+
+    pub(super) fn push(&mut self, fixup: BranchFixup) {
+        self.list.push(fixup);
+    }
+
+    /// Emit `word`, a B.cond / CBZ / CBNZ with a zero displacement,
+    /// as a branch to `target`.
+    pub(super) fn cond_branch(&mut self, bytes: &mut Vec<u8>, word: u32, target: BlockId) {
+        let (word, kind) = if self.far {
+            // B.cond flips its condition's low bit, CBZ / CBNZ bit 24;
+            // the inverted test jumps over the B to the next word
+            let inverted = if word & 0xFF00_0010 == 0x5400_0000 {
+                word ^ 1
+            } else {
+                word ^ (1 << 24)
+            };
+            write_u32(bytes, inverted | (2 << 5));
+            (b_imm26(0), BranchKind::Imm26)
+        } else {
+            (word, BranchKind::Imm19)
+        };
+        self.push(BranchFixup {
+            site_byte_offset: bytes.len() as u32,
+            target_block: target,
+            kind,
+        });
+        write_u32(bytes, word);
+    }
+}
+
 pub(super) fn patch_branch(bytes: &mut [u8], fixup: &BranchFixup, displacement: i32) {
     debug_assert!(
         displacement % 4 == 0,
@@ -91,29 +137,32 @@ pub(super) fn patch_branch(bytes: &mut [u8], fixup: &BranchFixup, displacement: 
 
 /// Patch every branch fixup with its real displacement, each landing
 /// where [`Landing::resolve`] says (past empty forwarders and hollow
-/// blocks). False — nothing patched — when a TBZ / TBNZ displacement
-/// does not fit its 14 bits.
+/// blocks). False — nothing patched — when a displacement does not fit
+/// its field.
 pub(super) fn patch_all(
     bytes: &mut [u8],
-    fixups: &[BranchFixup],
+    fixups: &Fixups,
     landing: &Landing,
     block_byte_starts: &HashMap<u32, u32>,
 ) -> bool {
-    let mut patches = Vec::with_capacity(fixups.len());
-    for fixup in fixups {
+    let mut patches = Vec::with_capacity(fixups.list.len());
+    for fixup in &fixups.list {
         let final_target = landing.resolve(fixup.target_block);
         let target_byte_offset = *block_byte_starts
             .get(&final_target.0)
             .unwrap_or_else(|| panic!("Branch target BlockId({}) not in function", final_target.0));
         let displacement = target_byte_offset as i32 - fixup.site_byte_offset as i32;
-        if matches!(fixup.kind, BranchKind::Imm14)
-            && !(-(1 << 13)..(1 << 13)).contains(&(displacement / 4))
-        {
+        let reach = match fixup.kind {
+            BranchKind::Imm26 => 1 << 25,
+            BranchKind::Imm19 => 1 << 18,
+            BranchKind::Imm14 => 1 << 13,
+        };
+        if !(-reach..reach).contains(&(displacement / 4)) {
             return false;
         }
         patches.push(displacement);
     }
-    for (fixup, displacement) in fixups.iter().zip(patches) {
+    for (fixup, displacement) in fixups.list.iter().zip(patches) {
         patch_branch(bytes, fixup, displacement);
     }
     true
@@ -122,7 +171,7 @@ pub(super) fn patch_all(
 #[allow(clippy::too_many_arguments)]
 pub(super) fn emit_terminator(
     bytes: &mut Vec<u8>,
-    fixups: &mut Vec<BranchFixup>,
+    fixups: &mut Fixups,
     term: &Terminator,
     frame: &FrameLayout,
     alloc: &Assignment,
@@ -212,20 +261,12 @@ pub(super) fn emit_terminator(
             };
             // CBNZ cond, then_blk — branch when cond != 0 (i.e. true);
             // flipped to CBZ cond, else_blk when the branch goes there.
-            let cb_site = bytes.len() as u32;
-            fixups.push(BranchFixup {
-                site_byte_offset: cb_site,
-                target_block: br_target,
-                kind: BranchKind::Imm19,
-            });
-            write_u32(
-                bytes,
-                if invert {
-                    cbz_x(cond_reg, 0)
-                } else {
-                    cbnz_x(cond_reg, 0)
-                },
-            );
+            let word = if invert {
+                cbz_x(cond_reg, 0)
+            } else {
+                cbnz_x(cond_reg, 0)
+            };
+            fixups.cond_branch(bytes, word, br_target);
             if trailing {
                 let b_site = bytes.len() as u32;
                 fixups.push(BranchFixup {
@@ -621,5 +662,54 @@ mod tests {
             .collect();
         let (to_else, bs) = branches(&words);
         assert!(to_else > 0 && bs.is_empty(), "{words:08x?}");
+    }
+
+    /// A conditional branch over a block past the ±1 MiB a B.cond /
+    /// CBZ / CBNZ reaches takes the long form, and every branch lands
+    /// inside the function.
+    #[test]
+    fn a_branch_past_one_mib_lands_in_the_function() {
+        let mut f = Function::new("far", Type::I64);
+        let b0 = f.add_block();
+        let b1 = f.add_block();
+        let b2 = f.add_block();
+        let p = f.add_param(Type::I64, "p");
+        let c = f.append_inst(
+            b0,
+            InstKind::ICmp(IPred::Ne, Operand::Value(p), Operand::ConstI64(0)),
+            Type::Bool,
+            None,
+        );
+        f.set_term(
+            b0,
+            Terminator::CondBr {
+                cond: Operand::Value(c),
+                then_blk: b1,
+                else_blk: b2,
+            },
+        );
+        let mut v = p;
+        for _ in 0..300_000 {
+            let add = InstKind::BinOp(BinOp::Add, Operand::Value(v), Operand::ConstI64(1));
+            v = f.append_inst(b1, add, Type::I64, None);
+        }
+        f.set_term(b1, Terminator::Ret(Some(Operand::Value(v))));
+        f.set_term(b2, Terminator::Ret(Some(Operand::ConstI64(0))));
+        let bytes = compile_function(&f).bytes;
+        let words: Vec<u32> = (bytes.as_chunks::<4>().0.iter())
+            .map(|c| u32::from_le_bytes(*c))
+            .collect();
+        assert!(words.len() > 1 << 18);
+        for (i, &w) in words.iter().enumerate() {
+            let disp = if w & 0xFC00_0000 == 0x1400_0000 {
+                ((w << 6) as i32) >> 6
+            } else if w & 0xFF00_0010 == 0x5400_0000 || w & 0x7E00_0000 == 0x3400_0000 {
+                ((w << 8) as i32) >> 13
+            } else {
+                continue;
+            };
+            let target = i as i64 + disp as i64;
+            assert!((0..words.len() as i64).contains(&target), "{i}: {w:08x}");
+        }
     }
 }

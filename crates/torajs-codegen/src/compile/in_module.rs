@@ -90,10 +90,13 @@ pub(super) fn compile_with_role(
             alloc.has_calls,
         )
     };
-    // a TBZ / TBNZ that cannot reach its target: emit again without them
-    let (bytes, relocs) = emit_body(func, &alloc, facts, &frame, role, true)
-        .or_else(|| emit_body(func, &alloc, facts, &frame, role, false))
-        .expect("without bit-test branches every displacement fits");
+    // a TBZ / TBNZ that cannot reach its target: emit again without
+    // them; a conditional branch that cannot (a body past 1 MiB): emit
+    // again with every one in the long form
+    let (bytes, relocs) = emit_body(func, &alloc, facts, &frame, role, (true, false))
+        .or_else(|| emit_body(func, &alloc, facts, &frame, role, (false, false)))
+        .or_else(|| emit_body(func, &alloc, facts, &frame, role, (false, true)))
+        .expect("with long conditional branches every displacement fits");
     CompiledFunction {
         name: func.name.clone(),
         bytes,

@@ -7,7 +7,7 @@ use torajs_core::ssa::{Block, BlockId, Function, InstKind, Operand, Terminator};
 
 use super::ModuleFacts;
 use super::landing::Landing;
-use super::terminator::{BranchFixup, BranchKind};
+use super::terminator::{BranchFixup, BranchKind, Fixups};
 use super::throw_reg::{Role, THROW_REG};
 use super::throw_reg_zero::Zeroing;
 use super::write_u32;
@@ -54,7 +54,7 @@ impl<'a> BlockHooks<'a> {
     pub(super) fn open(
         &mut self,
         bytes: &mut Vec<u8>,
-        fixups: &mut Vec<BranchFixup>,
+        fixups: &mut Fixups,
         block: &Block,
         frame: &FrameLayout,
         start: usize,
@@ -93,7 +93,7 @@ impl SharedThrowRets {
     fn branch(
         &mut self,
         bytes: &mut Vec<u8>,
-        fixups: &mut Vec<BranchFixup>,
+        fixups: &mut Fixups,
         block: &Block,
         framed: bool,
     ) -> bool {
