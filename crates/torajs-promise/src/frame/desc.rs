@@ -38,7 +38,10 @@ pub struct FrameDesc {
     /// as the collector frees only a black cell at rc 0) and returns,
     /// and the collector frees the block later by that size. That is the closure env's ending,
     /// `emit_env_free_or_defer` in torajs-core, with the size word's
-    /// offset made a parameter.
+    /// offset made a parameter. The frame's rc stays 1 for its whole
+    /// life (see the ownership notes in `frame`), so no release of a
+    /// frame leaves it buffered and this branch is not taken today; it
+    /// stays because the drop shares the env's ending.
     pub drop: i64,
     /// Every frame has one, never 0: its `result` is always an edge.
     pub trace: i64,

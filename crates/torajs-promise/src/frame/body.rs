@@ -34,6 +34,18 @@ unsafe extern "C" {
     fn __torajs_throw_take() -> i64;
 }
 
+/// A frame its body runs on: the body holds its only reference and the
+/// cycle collector has not buffered it, so no trace can run on it while
+/// its `state` still names the point it landed from (the module docs
+/// of `frame`, Ownership).
+#[inline(always)]
+pub(super) fn running(f: *mut AsyncFrame) {
+    debug_assert!(unsafe {
+        let h = &(*f).header;
+        h.refcount == 1 && h.flags & torajs_rc::FLAG_BUFFERED == 0
+    });
+}
+
 /// `AsyncFrame::direct` while the frame's drop unwinds its body.
 pub const FRAME_CANCELLED: i64 = 1;
 
@@ -57,6 +69,7 @@ pub const TRACE_STATE_WORD: i64 = 1 << 40;
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_frame_await_direct(frame: *mut c_void) {
     let f = frame as *mut AsyncFrame;
+    running(f);
     unsafe {
         (*f).awaiting = ptr::null_mut();
         __torajs_microtask_enqueue(desc_resume((*f).desc), frame as i64);
@@ -74,6 +87,7 @@ pub unsafe extern "C" fn __torajs_frame_await_direct(frame: *mut c_void) {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_frame_return(frame: *mut c_void, repr: i64, value: i64) {
     let f = frame as *mut AsyncFrame;
+    running(f);
     unsafe {
         let result = (*f).result;
         if repr as u8 == REPR_ANY && !box_is_cell(value) {
@@ -116,6 +130,7 @@ pub unsafe extern "C" fn __torajs_frame_throw(frame: *mut c_void) {
             __torajs_throw_take();
             return;
         }
+        running(f);
         crate::then_box::reject_on_pending_throw((*f).result);
         (*f).state = FRAME_STATE_DONE;
         release(f);

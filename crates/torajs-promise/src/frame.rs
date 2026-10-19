@@ -4,8 +4,9 @@
 //! ```text
 //!   +0   universal heap header (type_tag = TAG_ASYNC_FRAME)
 //!   +8   desc      *const FrameDesc, the function's static row
-//!   +16  state     0 running / not started, k >= 1 parked at the
-//!                  k-th suspension point, FRAME_STATE_DONE after
+//!   +16  state     0 before the first suspension, k >= 1 parked at
+//!                  the k-th suspension point (or running since it
+//!                  landed there), FRAME_STATE_DONE after
 //!   +24  direct    the resumption value of an await on a value that
 //!                  is not a thenable
 //!   +32  result    the async function's promise; the frame holds +1
@@ -29,6 +30,15 @@
 //!   (or the function that made it), then the source's callback list
 //!   while parked, then the microtask queue while queued. Parking and
 //!   queueing hand that reference over; they never take a new one.
+//!   So a frame's rc is 1 for as long as it lives, and its body is
+//!   the only thing that reaches it while it runs: no release of it
+//!   leaves it in the cycle collector's buffer, and no cell has an
+//!   edge to it (a callback list holds it only while it is parked).
+//!   The trace relies on this. While the body runs, `state` still
+//!   names the point it landed from, whose words the body has taken
+//!   back, so a trace of a running frame would report words it no
+//!   longer owns; none ever runs (`body::running` checks it in debug
+//!   builds at every call the body makes on its frame).
 //! - `awaiting` follows the inline reaction's rule (`reaction.rs`):
 //!   while parked it is a back-pointer, tagged with
 //!   [`AWAITING_PARKED`], and the source clears it when it dies; once
@@ -145,6 +155,7 @@ pub unsafe extern "C" fn __torajs_frame_result_alloc(repr: i64) -> *mut c_void {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_frame_await_promise(frame: *mut c_void, src: *mut c_void) {
     let f = frame as *mut AsyncFrame;
+    body::running(f);
     let sp = as_promise(src);
     unsafe {
         // PerformPromiseThen step 12: the source is handled from here on
