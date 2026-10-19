@@ -135,4 +135,12 @@ pub enum Tag {
     /// head/len:8 | cap/queued:8 | queue_next:8 }` (72 B). Substrate
     /// in `torajs-weak::finreg` (RFC 20260917-finalization-registry K1).
     FinalizationRegistry = 31,
+    /// The frame of a suspended async function: `{ header:8 | desc:8
+    /// | state:8 | direct:8 | result:8 | next:8 | awaiting:8 |
+    /// params + slots }`. `desc` names the function's static
+    /// `{ resume, drop, trace }` row; `next` is its link in the
+    /// callback list of the promise it waits on. Layout and protocol
+    /// in torajs-promise `frame`; collector arms in torajs-cycle
+    /// `frame`.
+    AsyncFrame = 32,
 }

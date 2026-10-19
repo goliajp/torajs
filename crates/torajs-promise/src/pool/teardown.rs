@@ -9,7 +9,8 @@ use core::ptr;
 
 use super::{FLAG_STATIC_LITERAL, FLAG_SUBCLASSED, free, promise_release_};
 use crate::layout::{
-    Promise, PromiseCb, RX_CLOSURE, RX_NONE, STATE_PENDING, as_promise, inline_link_derived,
+    CB_FRAME_TAG, CB_INLINE_TAG, Promise, PromiseCb, RX_CLOSURE, RX_NONE, STATE_PENDING,
+    as_promise, frame_cell, inline_cell,
 };
 use crate::reaction::candidate::{cycle_candidate, offer_root};
 use torajs_rc::{FLAG_BUFFERED, rc_dec_cell};
@@ -71,8 +72,10 @@ unsafe fn free_dead(pp: *mut Promise) {
     unsafe { free_owning(pp) };
 }
 
-/// [`free_dead`] for a cell that may own something.
-#[inline(never)]
+/// [`free_dead`] for a cell that may own something. The cell heads
+/// the same loop the derived cells its death frees go through, so the
+/// teardown is laid out once.
+#[inline(always)]
 unsafe fn free_owning(pp: *mut Promise) {
     // Defensive: STATIC_LITERAL Promise (none in practice today; the
     // universal drop dispatch sees the bit and skips, but re-check
@@ -80,7 +83,7 @@ unsafe fn free_owning(pp: *mut Promise) {
     if unsafe { (*pp).header.flags } & FLAG_STATIC_LITERAL != 0 {
         return;
     }
-    unsafe { free_cell(pp, |d| free_chain(d)) };
+    unsafe { free_chain(pp) };
 }
 
 /// A release left `pp` referenced. Only a cell that can close a ring
@@ -95,8 +98,8 @@ unsafe fn released_alive(pp: *mut Promise) {
 /// Free `pp`, which just lost its last reference. A derived cell its
 /// list holds (inline, or through a record's block) that the release
 /// leaves unreferenced goes to `on_dead` instead of being freed here:
-/// [`free_dead`] hands it to [`free_chain`], which collects such cells
-/// on a stack rather than in nested calls.
+/// [`free_chain`] collects such cells on a stack rather than in nested
+/// calls.
 #[inline(always)]
 unsafe fn free_cell(pp: *mut Promise, mut on_dead: impl FnMut(*mut Promise)) {
     unsafe {
@@ -105,26 +108,12 @@ unsafe fn free_cell(pp: *mut Promise, mut on_dead: impl FnMut(*mut Promise)) {
         // opaque block stays with the kernel that minted it) and the
         // block's stake on its derived promise let go here; an inline
         // derived cell has its back-pointer to this dying cell cut
-        // and the list's stake on it let go.
+        // and the list's stake on it let go; a parked async frame the
+        // same, its result left pending for good (`frame.rs`).
         let mut link = (*pp).callbacks;
         while !link.is_null() {
-            let derived = inline_link_derived(link);
-            if derived.is_null() {
-                let next = (*link).next;
-                let ops = (*link).ops;
-                if !ops.is_null() {
-                    let held = ((*ops).release)((*link).arg) as *mut Promise;
-                    if !held.is_null() {
-                        if rc_dec_cell(held as *mut c_void) {
-                            on_dead(held);
-                        } else {
-                            released_alive(held);
-                        }
-                    }
-                }
-                free(link as *mut c_void, core::mem::size_of::<PromiseCb>());
-                link = next;
-            } else {
+            if link as usize & CB_INLINE_TAG != 0 {
+                let derived = inline_cell(link);
                 link = (*derived).rx_next;
                 (*derived).rx_source = ptr::null_mut();
                 if rc_dec_cell(derived as *mut c_void) {
@@ -133,6 +122,26 @@ unsafe fn free_cell(pp: *mut Promise, mut on_dead: impl FnMut(*mut Promise)) {
                     (*derived).rx_next = ptr::null_mut();
                     released_alive(derived);
                 }
+            } else if link as usize & CB_FRAME_TAG != 0 {
+                let frame = frame_cell(link);
+                link = (*frame).next;
+                crate::frame::source_died(frame);
+            } else {
+                let r = link;
+                let next = (*r).next;
+                let ops = (*r).ops;
+                if !ops.is_null() {
+                    let held = ((*ops).release)((*r).arg) as *mut Promise;
+                    if !held.is_null() {
+                        if rc_dec_cell(held as *mut c_void) {
+                            on_dead(held);
+                        } else {
+                            released_alive(held);
+                        }
+                    }
+                }
+                free(r as *mut c_void, core::mem::size_of::<PromiseCb>());
+                link = next;
             }
         }
         (*pp).callbacks = ptr::null_mut();
@@ -175,25 +184,29 @@ unsafe fn free_cell(pp: *mut Promise, mut on_dead: impl FnMut(*mut Promise)) {
     }
 }
 
-/// Free `first` and every derived cell its death leaves unreferenced,
-/// and theirs in turn. They wait on a stack threaded through their
-/// `rx_next` words (unused once a cell is out of its source's list,
-/// and never used by a cell a record's block holds), so a pending
-/// chain of a million links released at its head is a million
-/// iterations here, not a million nested calls.
+/// Free `first`, which just lost its last reference, and every derived
+/// cell its death leaves unreferenced, and theirs in turn. They wait on
+/// a stack threaded through their `rx_next` words (unused once a cell
+/// is out of its source's list, and never used by a cell a record's
+/// block holds; a cell at rc 0 is in no list, as a list entry holds a
+/// reference), so a pending chain of a million links released at its
+/// head is a million iterations here, not a million nested calls.
 #[inline(never)]
 unsafe fn free_chain(first: *mut Promise) {
-    let mut dead = first;
-    unsafe { (*first).rx_next = ptr::null_mut() };
-    while !dead.is_null() {
-        let pp = dead;
+    let mut pp = first;
+    let mut dead: *mut Promise = ptr::null_mut();
+    loop {
         unsafe {
-            dead = (*pp).rx_next as *mut Promise;
-            (*pp).rx_next = ptr::null_mut();
             free_cell(pp, |d| {
                 (*d).rx_next = dead as *mut PromiseCb;
                 dead = d;
             });
+            if dead.is_null() {
+                return;
+            }
+            pp = dead;
+            dead = (*pp).rx_next as *mut Promise;
+            (*pp).rx_next = ptr::null_mut();
         }
     }
 }

@@ -17,8 +17,9 @@ use core::ffi::c_void;
 use core::ptr;
 
 use crate::layout::{
-    MicrotaskFn, Promise, PromiseCb, REPR_ANY, STATE_FULFILLED, STATE_PENDING, STATE_REJECTED,
-    THROW_TAG_ANY_HEAP, THROW_TAG_I64, as_promise, inline_link_derived,
+    CB_FRAME_TAG, CB_INLINE_TAG, MicrotaskFn, Promise, PromiseCb, REPR_ANY, STATE_FULFILLED,
+    STATE_PENDING, STATE_REJECTED, THROW_TAG_ANY_HEAP, THROW_TAG_I64, as_promise, frame_cell,
+    inline_cell, inline_link_derived, link_next,
 };
 
 unsafe extern "C" {
@@ -41,23 +42,13 @@ unsafe extern "C" {
     fn __torajs_rc_inc(p: *mut c_void);
 }
 
-/// The link word that continues the list after `link`.
-#[inline]
-unsafe fn link_next(link: *mut PromiseCb) -> *mut *mut PromiseCb {
-    let derived = inline_link_derived(link);
-    if derived.is_null() {
-        unsafe { &raw mut (*link).next }
-    } else {
-        unsafe { &raw mut (*derived).rx_next }
-    }
-}
-
 /// Walk a Promise's callback list, enqueuing each reaction into the
 /// microtask queue as we go. A heap record is freed (the queue copies
 /// `(fn, arg)` by value); an inline derived cell is enqueued under the
-/// inline dispatcher with itself as the argument. Either kind's job
-/// gets a stake on this cell when its back-pointer is not one already
-/// (`reaction.rs`, "Ownership").
+/// inline dispatcher with itself as the argument, a parked async frame
+/// under its own resume entry. Each kind's job gets a stake on this
+/// cell when its back-pointer is not one already (`reaction.rs`,
+/// "Ownership"; `frame.rs`).
 ///
 /// Attach head-pushes, so the list is in reverse registration order;
 /// §27.2.5.4.1 appends each reaction and §27.2.1.8
@@ -66,6 +57,10 @@ unsafe fn link_next(link: *mut PromiseCb) -> *mut *mut PromiseCb {
 /// one inline reaction, the link of a `then` chain, which has no order.
 pub(crate) unsafe fn drain_callbacks(pp: *mut Promise) {
     let mut link = unsafe { (*pp).callbacks };
+    // most settlements find nobody waiting
+    if link.is_null() {
+        return;
+    }
     let sole = inline_link_derived(link);
     if !sole.is_null() && unsafe { (*sole).rx_next.is_null() } {
         unsafe { (*pp).callbacks = ptr::null_mut() };
@@ -84,19 +79,23 @@ pub(crate) unsafe fn drain_callbacks(pp: *mut Promise) {
     let mut link = prev;
     while !link.is_null() {
         unsafe {
-            let derived = inline_link_derived(link);
-            if derived.is_null() {
-                // a described block's job holds the source from here
-                if !(*link).ops.is_null() {
-                    torajs_rc::rc_inc_cell(pp as *mut c_void);
-                }
-                __torajs_microtask_enqueue((*link).invoke, (*link).arg);
-                let next = (*link).next;
-                free(link as *mut c_void, core::mem::size_of::<PromiseCb>());
-                link = next;
-            } else {
+            if link as usize & CB_INLINE_TAG != 0 {
+                let derived = inline_cell(link);
                 link = (*derived).rx_next;
                 crate::reaction::queue_inline(pp, derived);
+            } else if link as usize & CB_FRAME_TAG != 0 {
+                let frame = frame_cell(link);
+                link = (*frame).next;
+                crate::frame::queue_frame(pp, frame);
+            } else {
+                let r = link;
+                // a described block's job holds the source from here
+                if !(*r).ops.is_null() {
+                    torajs_rc::rc_inc_cell(pp as *mut c_void);
+                }
+                __torajs_microtask_enqueue((*r).invoke, (*r).arg);
+                link = (*r).next;
+                free(r as *mut c_void, core::mem::size_of::<PromiseCb>());
             }
         }
     }

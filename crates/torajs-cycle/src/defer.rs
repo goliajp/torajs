@@ -98,7 +98,10 @@ pub(crate) unsafe fn finalize_all() {
     for i in 0..len as usize {
         let p = unsafe { *buf.add(i) };
         let tag = unsafe { (*(p as *const HeapHeader)).type_tag };
-        if tag == TAG_CLOSURE || crate::layout_bag::corpse_takes_own_destructor(tag) {
+        if tag == TAG_CLOSURE
+            || tag == crate::frame::TAG_ASYNC_FRAME
+            || crate::layout_bag::corpse_takes_own_destructor(tag)
+        {
             // Zero every slot the cycle machinery already accounted:
             // fellow corpses (rc == 0 — drop_fn has no rc gate and
             // would re-drop a block this drain is about to free) and
@@ -169,6 +172,9 @@ pub(crate) unsafe fn finalize_all() {
                 };
                 unsafe { drop_fn(p) };
             }
+        } else if tag == crate::frame::TAG_ASYNC_FRAME {
+            // the frame's drop releases what pass A left and frees it
+            unsafe { crate::frame::frame_corpse_drop(p) };
         } else if tag == TAG_DYNOBJ {
             // Two sized frees since the store split — the independent
             // index+entries block first, then the header cell.

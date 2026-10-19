@@ -45,12 +45,14 @@
 //! ## Callback list
 //!
 //! `callbacks` heads a singly-linked list whose links are TAGGED
-//! words ([`CB_INLINE_TAG`]): low bit set = the link points at a
+//! words: bit 0 set ([`CB_INLINE_TAG`]) = the link points at a
 //! derived promise carrying an inline reaction (its own `rx_next`
-//! continues the list); low bit clear = a heap [`PromiseCb`] record
-//! whose `next` continues it. The two forms interleave freely, so a
+//! continues the list); bit 1 set ([`CB_FRAME_TAG`]) = an async
+//! function frame parked on this promise (its own `next` continues
+//! the list, `frame`); both clear = a heap [`PromiseCb`] record
+//! whose `next` continues it. The forms interleave freely, so a
 //! second `then` on a pending source head-pushes without spilling
-//! the first into a node. Every cell is 8-aligned, so the bit is
+//! the first into a node. Every cell is 8-aligned, so both bits are
 //! free.
 //!
 //! ## Callback chain (PromiseCb)
@@ -89,6 +91,13 @@ pub const PROMISE_SIZE: usize = 64;
 /// Low bit of a callback-list link that marks an inline reaction
 /// (the link, with the bit cleared, is a derived `Promise`).
 pub const CB_INLINE_TAG: usize = 1;
+
+/// Bit 1 of a callback-list link that marks a parked async frame
+/// (the link, with the bit cleared, is a `frame::AsyncFrame`).
+pub const CB_FRAME_TAG: usize = 2;
+
+/// Both tag bits of a callback-list link.
+pub const CB_TAGS: usize = CB_INLINE_TAG | CB_FRAME_TAG;
 
 /// `rx_kind` codes. Bits 0-1 select the handler's interest, bit 2
 /// says `rx_cb` is a closure env (owned, released after the call),
@@ -250,6 +259,47 @@ pub fn inline_link_derived(link: *mut PromiseCb) -> *mut Promise {
     }
 }
 
+/// Tag `frame` as a parked-frame link.
+#[inline]
+pub fn frame_link(frame: *mut crate::frame::AsyncFrame) -> *mut PromiseCb {
+    (frame as usize | CB_FRAME_TAG) as *mut PromiseCb
+}
+
+/// The derived cell an inline link names: `link & CB_TAGS` is
+/// `CB_INLINE_TAG`. The list walks that dispatch on every link test the
+/// tag bits once and take the pointer apart in each arm, so a heap
+/// record's arm costs one test and no arithmetic.
+#[inline(always)]
+pub fn inline_cell(link: *mut PromiseCb) -> *mut Promise {
+    (link as usize - CB_INLINE_TAG) as *mut Promise
+}
+
+/// The parked frame a frame link names: `link & CB_TAGS` is
+/// `CB_FRAME_TAG`.
+#[inline(always)]
+pub fn frame_cell(link: *mut PromiseCb) -> *mut crate::frame::AsyncFrame {
+    (link as usize - CB_FRAME_TAG) as *mut crate::frame::AsyncFrame
+}
+
+/// The offset from a link to the word that continues the list after
+/// it, by the link's tag bits: a record's `next`, an inline derived
+/// cell's `rx_next`, a frame's `next` (the tag already in the link
+/// taken off). One indexed load, so reversing a list costs no branch
+/// on what each link is.
+const LINK_NEXT_OFF: [usize; 4] = [
+    core::mem::offset_of!(PromiseCb, next),
+    core::mem::offset_of!(Promise, rx_next) - CB_INLINE_TAG,
+    core::mem::offset_of!(crate::frame::AsyncFrame, next) - CB_FRAME_TAG,
+    // no link carries both tags
+    0,
+];
+
+/// The link word that continues the list after the non-null `link`.
+#[inline(always)]
+pub fn link_next(link: *mut PromiseCb) -> *mut *mut PromiseCb {
+    (link as usize + LINK_NEXT_OFF[link as usize & CB_TAGS]) as *mut *mut PromiseCb
+}
+
 /// Promise callback record: a dispatcher and the packed state it runs
 /// on. `arg` is opaque unless `ops` describes it.
 #[repr(C)]
@@ -308,6 +358,40 @@ mod tests {
         assert_eq!(inline_link_derived(link), d);
         assert!(inline_link_derived(0x2000 as *mut PromiseCb).is_null());
         assert!(inline_link_derived(core::ptr::null_mut()).is_null());
+    }
+
+    /// Each form's link reaches the word its own struct continues
+    /// the list through.
+    #[test]
+    fn link_next_names_each_forms_own_next_word() {
+        use crate::frame::AsyncFrame;
+        use core::mem::offset_of;
+        let r = 0x2000 as *mut PromiseCb;
+        assert_eq!(link_next(r) as usize, 0x2000 + offset_of!(PromiseCb, next));
+        let d = 0x1000 as *mut Promise;
+        assert_eq!(
+            link_next(inline_link(d)) as usize,
+            0x1000 + offset_of!(Promise, rx_next)
+        );
+        let f = 0x3000 as *mut AsyncFrame;
+        assert_eq!(
+            link_next(frame_link(f)) as usize,
+            0x3000 + offset_of!(AsyncFrame, next)
+        );
+    }
+
+    #[test]
+    fn frame_link_round_trips_and_is_neither_inline_nor_a_record() {
+        let f = 0x3000 as *mut crate::frame::AsyncFrame;
+        let link = frame_link(f);
+        assert_eq!(link as usize, 0x3002);
+        assert_eq!(link as usize & CB_TAGS, CB_FRAME_TAG);
+        assert_eq!(frame_cell(link), f);
+        assert!(inline_link_derived(link).is_null());
+        let d = 0x1000 as *mut Promise;
+        assert_eq!(inline_link(d) as usize & CB_TAGS, CB_INLINE_TAG);
+        assert_eq!(inline_cell(inline_link(d)), d);
+        assert_eq!(0x2000usize & CB_TAGS, 0);
     }
 
     #[test]

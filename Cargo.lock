@@ -1753,6 +1753,7 @@ name = "torajs-promise"
 version = "0.1.0"
 dependencies = [
  "torajs-bench",
+ "torajs-microtask",
  "torajs-mmalloc",
  "torajs-rc",
 ]
@@ -1856,7 +1857,10 @@ name = "torajs-value-drop"
 version = "0.1.0"
 dependencies = [
  "torajs-bench",
+ "torajs-cycle",
+ "torajs-microtask",
  "torajs-mmalloc",
+ "torajs-promise",
  "torajs-rc",
  "torajs-syscall",
 ]

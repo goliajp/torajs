@@ -46,6 +46,7 @@
 //! | `Date`          | `__torajs_date_drop`            | torajs-date       |
 //! | `Symbol`        | `__torajs_symbol_drop`          | torajs-str        |
 //! | `Promise`       | `__torajs_promise_drop`         | torajs-promise    |
+//! | `AsyncFrame`    | frame desc's `drop` (`*(+8)+8`) | synthesized       |
 //! | `Obj`           | `__torajs_obj_drop_rc`          | torajs-cycle      |
 //! | `Closure`       | env's `drop_fn` slot at `+16`   | synthesized       |
 //! | `NumberWrapper` | `__torajs_number_wrapper_drop`  | torajs-wrapper    |
@@ -78,6 +79,10 @@ mod closure;
 mod dropguard;
 
 pub use dropguard::{__torajs_drop_release, ReleaseFn};
+
+/// Byte offset of an async frame's static `{ resume, drop, trace }`
+/// row (torajs-promise `frame::AsyncFrame::desc`).
+const FRAME_DESC_OFF: usize = 8;
 
 // v0.7-A2 step 6b — force-link mmalloc for the `__torajs_libc_free`
 // extern below.
@@ -263,6 +268,19 @@ pub unsafe extern "C" fn __torajs_value_drop_heap(child: *mut c_void) {
         t if t == Tag::Date as u16 => unsafe { __torajs_date_drop(child) },
         t if t == Tag::Symbol as u16 => unsafe { __torajs_symbol_drop(child) },
         t if t == Tag::Promise as u16 => unsafe { __torajs_promise_drop(child) },
+        t if t == Tag::AsyncFrame as u16 => unsafe {
+            // torajs-promise `__torajs_frame_drop`, spelled through the
+            // frame's own `desc.drop` row like the Closure arm below,
+            // so a program that never makes a frame links nothing of it
+            if __torajs_rc_dec(child) != 0 {
+                let desc = (child.cast::<u8>().add(FRAME_DESC_OFF) as *const *const usize).read();
+                let drop_fn: unsafe extern "C" fn(*mut c_void) =
+                    core::mem::transmute(desc.add(1).read());
+                drop_fn(child);
+            } else {
+                __torajs_cycle_buffer(child);
+            }
+        },
         t if t == Tag::Obj as u16 => unsafe {
             // Class instance / anonymous struct — rc-aware layout
             // walk in torajs-cycle (reads the codegen-emitted

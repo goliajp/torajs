@@ -16,8 +16,9 @@
 use core::ffi::c_void;
 
 use crate::arr::{ARR_PROPS_OFF, arr_child_at, arr_len_of, arr_slot_clear};
-use crate::closure_walk::{closure_trace_fn, trace_clear_tramp, trace_visit_tramp};
+use crate::closure_walk::{cell_trace_fn, for_each_traced_child, trace_clear_tramp};
 use crate::dynobj::{dynobj_child_at, dynobj_entries_len, dynobj_value_slot_clear};
+use crate::frame::TAG_ASYNC_FRAME;
 use crate::layout::{
     CLOSURE_PROPS_OFF, HeapHeader, OBJ_PROPS_OFF, TAG_BOOLEAN_WRAPPER, TAG_CLOSURE, TAG_DYNOBJ,
     TAG_NUMBER_WRAPPER, TAG_STRING_WRAPPER, TAG_SYMBOL_WRAPPER, WRAPPER_PROPS_OFF,
@@ -28,7 +29,7 @@ use crate::layout_bag::{TAG_MAP, TAG_SET};
 /// Sentinel child index for a cell's out-of-band expando / props
 /// slot (Arr +24, wrapper +16) — element indices are dense from 0,
 /// so MAX can't collide.
-const PROPS_SLOT_INDEX: u64 = u64::MAX;
+pub(crate) const PROPS_SLOT_INDEX: u64 = u64::MAX;
 
 /// Per-shape walkable-child slot enumeration — the ONLY place that
 /// knows how each cyclic shape stores its children (class Obj =
@@ -79,24 +80,11 @@ pub(crate) unsafe fn for_each_child(p: *mut c_void, mut f: impl FnMut(u64, *mut 
                 f(i, child);
             }
         }
-    } else if unsafe { (*(p as *const HeapHeader)).type_tag } == TAG_CLOSURE {
-        // Closure env (RFC 20260717 knife 3) — capture slots via the
-        // knife-2 trace_fn (0 = no traceable captures), plus the +24
-        // expando props dict every closure shares at a fixed offset.
-        if let Some(trace) = unsafe { closure_trace_fn(p) } {
-            let mut dyn_f: &mut dyn FnMut(u64, *mut c_void) = &mut f;
-            unsafe {
-                trace(
-                    p,
-                    trace_visit_tramp,
-                    &mut dyn_f as *mut &mut dyn FnMut(u64, *mut c_void) as *mut c_void,
-                )
-            };
-        }
-        let props = unsafe { *((p as *const u8).add(CLOSURE_PROPS_OFF) as *const *mut c_void) };
-        if !props.is_null() {
-            f(PROPS_SLOT_INDEX, props);
-        }
+    } else if matches!(
+        unsafe { (*(p as *const HeapHeader)).type_tag },
+        TAG_CLOSURE | TAG_ASYNC_FRAME
+    ) {
+        unsafe { for_each_traced_child(p, &mut f) };
     } else if matches!(
         unsafe { (*(p as *const HeapHeader)).type_tag },
         TAG_NUMBER_WRAPPER | TAG_STRING_WRAPPER | TAG_BOOLEAN_WRAPPER | TAG_SYMBOL_WRAPPER
@@ -243,12 +231,16 @@ pub(crate) unsafe fn clear_child_slot(p: *mut c_void, i: u64) {
         unsafe { *((p as *mut u8).add(off as usize) as *mut *mut c_void) = core::ptr::null_mut() };
     } else if unsafe { (*(p as *const HeapHeader)).type_tag } == TAG_DYNOBJ {
         unsafe { dynobj_value_slot_clear(p, i) };
-    } else if unsafe { (*(p as *const HeapHeader)).type_tag } == TAG_CLOSURE {
+    } else if matches!(
+        unsafe { (*(p as *const HeapHeader)).type_tag },
+        TAG_CLOSURE | TAG_ASYNC_FRAME
+    ) {
+        // a frame never yields the props sentinel
         if i == PROPS_SLOT_INDEX {
             unsafe {
                 *((p as *mut u8).add(CLOSURE_PROPS_OFF) as *mut *mut c_void) = core::ptr::null_mut()
             };
-        } else if let Some(trace) = unsafe { closure_trace_fn(p) } {
+        } else if let Some(trace) = unsafe { cell_trace_fn(p) } {
             // Only the trace body knows which address slot `i` maps
             // to (env slot vs capture-box interior) — replay it with
             // the clear trampoline. O(caps) on the cold collect path.

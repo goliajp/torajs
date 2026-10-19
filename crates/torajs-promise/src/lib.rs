@@ -48,6 +48,7 @@ pub(crate) mod combinator_patched;
 pub(crate) mod combinator_settle;
 pub(crate) mod combinator_sparse;
 pub(crate) mod combinator_then_override;
+pub mod frame;
 pub mod layout;
 pub mod micro;
 pub mod pool;
@@ -93,8 +94,9 @@ pub use unhandled::{
 };
 
 // Cross-tier extern stubs for cargo unit tests — real symbols
-// live in libs (torajs-rc, torajs-throw, libtorajs_microtask) +
-// C runtime files at `tr build` link time. cargo test doesn't link
+// live in libs (torajs-rc, torajs-throw) + C runtime files at
+// `tr build` link time; the microtask queue is the real one (a
+// dev-dependency). cargo test doesn't link
 // any of those, so panicking stubs keep the test binary linking
 // clean. Same pattern as torajs-collections / torajs-weak /
 // torajs-cycle test stubs.
@@ -114,20 +116,41 @@ pub unsafe extern "C" fn __torajs_rc_dec(_p: *mut core::ffi::c_void) -> i32 {
     panic!("torajs-promise test stub: rc_dec should not be called from cargo test");
 }
 
+/// The universal drop for the two shapes this crate owns, which the
+/// frame tests release through it (as `frame.rs` does); any other
+/// shape panics.
+///
 /// # Safety
-/// Never called; any call panics.
+/// `p` is NULL, a promise cell or an async frame; the caller gives up
+/// one reference.
 #[cfg(test)]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_value_drop_heap(_p: *mut core::ffi::c_void) {
-    panic!("torajs-promise test stub: value_drop_heap should not be called from cargo test");
+pub unsafe extern "C" fn __torajs_value_drop_heap(p: *mut core::ffi::c_void) {
+    if p.is_null() {
+        return;
+    }
+    match unsafe { (*(p as *const layout::HeapHeader)).type_tag } {
+        layout::TAG_PROMISE => unsafe { pool::__torajs_promise_drop(p) },
+        frame::TAG_ASYNC_FRAME => unsafe { frame::__torajs_frame_drop(p) },
+        t => panic!("torajs-promise test stub: value_drop_heap of tag {t}"),
+    }
 }
 
+/// Calls of the `__torajs_cycle_buffer` stub: only the frame tests
+/// make any (a frame parked in a list marks its source as able to
+/// close a ring), and they assert how many.
+#[cfg(test)]
+pub(crate) static CYCLE_BUFFER_CALLS: core::sync::atomic::AtomicUsize =
+    core::sync::atomic::AtomicUsize::new(0);
+
+/// Counts the offer; the collector is not linked.
+///
 /// # Safety
-/// Never called; any call panics.
+/// Accepts any pointer.
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_cycle_buffer(_p: *mut core::ffi::c_void) {
-    panic!("torajs-promise test stub: cycle_buffer should not be called from cargo test");
+    CYCLE_BUFFER_CALLS.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
 }
 
 /// # Safety
@@ -136,14 +159,6 @@ pub unsafe extern "C" fn __torajs_cycle_buffer(_p: *mut core::ffi::c_void) {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_cycle_unbuffer(_p: *mut core::ffi::c_void) {
     panic!("torajs-promise test stub: cycle_unbuffer should not be called from cargo test");
-}
-
-/// # Safety
-/// Never called; any call panics.
-#[cfg(test)]
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_microtask_enqueue(_fn_: layout::MicrotaskFn, _arg: i64) {
-    panic!("torajs-promise test stub: microtask_enqueue should not be called from cargo test");
 }
 
 /// # Safety

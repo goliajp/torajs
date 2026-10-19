@@ -26,6 +26,11 @@ torajs-mmalloc = { path = "../torajs-mmalloc" }
 
 [dev-dependencies]
 torajs-bench = { path = "../torajs-bench" }
+# the async frame tests release frames and promises through the real
+# dispatcher, promise kernels, microtask queue and cycle collector
+torajs-cycle = { path = "../torajs-cycle" }
+torajs-microtask = { path = "../torajs-microtask" }
+torajs-promise = { path = "../torajs-promise" }
 
 [[bench]]
 name = "value_drop"

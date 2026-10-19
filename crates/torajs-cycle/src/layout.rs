@@ -425,7 +425,8 @@ pub unsafe fn is_visitable_dynobj(p: *mut c_void) -> bool {
 
 /// True iff any cycle-collector phase can descend into `p`. Today =
 /// declared-class instances + arrays + dynobj dicts + closures +
-/// primitive wrappers + the [`bag_only_props_off`] shapes.
+/// async frames + primitive wrappers + the [`bag_only_props_off`]
+/// shapes.
 ///
 /// The cell-like gate is load-bearing, not defensive: an `any`-typed
 /// class field is a cycle child (`Type::Any` is refcounted, so the
@@ -446,15 +447,27 @@ pub unsafe fn has_walkable_children(p: *mut c_void) -> bool {
     if !nan_box_is_cell_like(p) {
         return false;
     }
-    unsafe {
-        is_class_obj(p)
-            || is_visitable_arr(p)
-            || is_visitable_dynobj(p)
-            || is_visitable_wrapper(p)
-            || is_visitable_closure(p)
-            || crate::layout_bag::is_visitable_bag(p)
-            || crate::proxy::is_visitable_proxy(p)
-            || crate::accessor::is_visitable_accessor(p)
+    // Every predicate below accepts its own tags only, so the two
+    // env-like shapes are answered off one tag read: a function value
+    // released on every call (`p.then(f)` in a loop) reaches here each
+    // time it is not walkable, and walked the whole chain before.
+    match unsafe { (*(p as *const HeapHeader)).type_tag } {
+        TAG_CLOSURE => unsafe { is_visitable_closure(p) },
+        // a frame's trace reports its result, which every frame has
+        crate::frame::TAG_ASYNC_FRAME => {
+            let trace = unsafe { crate::frame::frame_trace_fn(p) };
+            debug_assert!(trace.is_some(), "an async frame's desc has no trace");
+            trace.is_some()
+        }
+        _ => unsafe {
+            is_class_obj(p)
+                || is_visitable_arr(p)
+                || is_visitable_dynobj(p)
+                || is_visitable_wrapper(p)
+                || crate::layout_bag::is_visitable_bag(p)
+                || crate::proxy::is_visitable_proxy(p)
+                || crate::accessor::is_visitable_accessor(p)
+        },
     }
 }
 

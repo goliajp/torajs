@@ -6,10 +6,11 @@
 //! reaction's closure env — can lead anywhere and are taken as they
 //! are. Its callback list leads only into the tree of cells derived
 //! from it, and a ring can run through that tree only if some cell in
-//! it has an edge out: an env, a bag, or a described record's block
-//! (`record`). A cell whose tree has none — every link of a `then`
-//! chain with plain function handlers, a million of them in
-//! `p = p.then(f)` — is never offered as a root.
+//! it has an edge out: an env, a bag, a described record's block
+//! (`record`), or a parked async frame (`frame`). A cell whose tree
+//! has none — every link of a `then` chain with plain function
+//! handlers, a million of them in `p = p.then(f)` — is never offered
+//! as a root.
 //!
 //! [`FLAG_RX_ENV`] says the cell's own reaction calls an env, so the
 //! test is one header load for the common bare cell. It is set with
@@ -26,6 +27,8 @@
 //!
 //! - with the reaction, for an env (`attach_inline`) or a described
 //!   record (`record::attach_record`) — the source is marked;
+//! - when an async frame parks in the list (`frame`): its slots can
+//!   hold anything, so the source is marked the same way;
 //! - for a bag, whenever it is first written: there is no hook at
 //!   the many writers, but a bag is written through a reference to
 //!   the cell, and that reference is released afterwards, while the

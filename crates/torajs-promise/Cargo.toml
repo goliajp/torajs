@@ -30,6 +30,8 @@ torajs-rc = { path = "../torajs-rc" }
 
 [dev-dependencies]
 torajs-bench = { path = "../torajs-bench" }
+# the frame tests run their jobs on the real queue
+torajs-microtask = { path = "../torajs-microtask" }
 
 [[bench]]
 name = "promise"

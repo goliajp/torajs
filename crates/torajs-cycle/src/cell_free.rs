@@ -66,10 +66,11 @@ pub(crate) unsafe fn free_class_cell(p: *mut c_void) {
 /// Free a cell that died while the collector held it as a candidate
 /// root: its drop ran to completion, found FLAG_BUFFERED set and
 /// returned without freeing, leaving the cell black at rc 0 for the
-/// next root walk. Two shapes park this way. A class instance is
+/// next root walk. Three shapes park this way. A class instance is
 /// sized by its row. A closure env has no row; its drop wrote the env
 /// block size over the drop-fn slot on the way out (the fn is never
-/// called again), the one size record a parked env carries.
+/// called again), the one size record a parked env carries. An async
+/// frame's drop does the same over its `desc` word.
 ///
 /// # Safety
 /// `p` is such a parked cell.
@@ -77,6 +78,8 @@ pub(crate) unsafe fn free_parked(p: *mut c_void) {
     if unsafe { (*(p as *const HeapHeader)).type_tag } == TAG_CLOSURE {
         let size = unsafe { *((p as *const u8).add(CLOSURE_DROP_FN_OFF) as *const usize) };
         unsafe { free_sized(p, size) };
+    } else if unsafe { (*(p as *const HeapHeader)).type_tag } == crate::frame::TAG_ASYNC_FRAME {
+        unsafe { free_sized(p, crate::frame::parked_frame_size(p)) };
     } else {
         unsafe { free_class_cell(p) };
     }

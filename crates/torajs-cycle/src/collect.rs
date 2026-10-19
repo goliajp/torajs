@@ -263,7 +263,8 @@ unsafe fn collect_white_close(p: *mut c_void) {
     // after the fact. Closures skip this — their synthesized drop_fn
     // owns the per-slot release semantics (capture-box rc vs owned
     // cell vs Any NaN-box vs Substr view) and runs in the deferred
-    // Free step, with the walkable slots pre-cleared by pass A.
+    // Free step, with the walkable slots pre-cleared by pass A. An
+    // async frame's synthesized drop is the same kind of owner.
     //
     // The bag-only shapes skip it for the same reason, and with the
     // entry table in the walk it now matters: `defer` pass B hands
@@ -274,7 +275,10 @@ unsafe fn collect_white_close(p: *mut c_void) {
     // prevent. Pass A clears exactly the slots this collect already
     // accounted for; whatever is left is the destructor's.
     let tag = unsafe { (*(p as *const HeapHeader)).type_tag };
-    if tag != TAG_CLOSURE && !crate::layout_bag::corpse_takes_own_destructor(tag) {
+    if tag != TAG_CLOSURE
+        && tag != crate::frame::TAG_ASYNC_FRAME
+        && !crate::layout_bag::corpse_takes_own_destructor(tag)
+    {
         unsafe {
             for_each_child(p, |_, child| {
                 if (*(child as *const HeapHeader)).refcount > 0 && !has_walkable_children(child) {

@@ -1,11 +1,15 @@
 //! Closure-env trace plumbing for the collector (RFC 20260717
 //! closure-env-cycle knife 3) — the knife-2 trace ABI plus the two
 //! trampolines `collect.rs`'s Closure arms dispatch through. Split
-//! out of `collect.rs` (file-size hard limit).
+//! out of `collect.rs` (file-size hard limit). An async frame is
+//! walked through the same ABI (`frame`); only where its trace is
+//! kept differs.
 
 use core::ffi::c_void;
 
-use crate::layout::{CLOSURE_TRACE_FN_OFF, nan_box_is_cell_like};
+use crate::children::PROPS_SLOT_INDEX;
+use crate::frame::{TAG_ASYNC_FRAME, frame_trace_fn};
+use crate::layout::{CLOSURE_PROPS_OFF, CLOSURE_TRACE_FN_OFF, HeapHeader, nan_box_is_cell_like};
 
 /// The knife-2 trace ABI — `__env_trace_<fn>` (SSA-synthesized) and
 /// `bound_trace` (method_bind) both have this shape; the visit
@@ -20,16 +24,43 @@ pub(crate) type TraceFn = unsafe extern "C" fn(
     *mut c_void,
 );
 
-/// Read + transmute the env's trace_fn slot; None when 0 (leaf).
+/// Read + transmute a traced cell's trace: a closure env's trace_fn
+/// slot, or an async frame's desc row; None when 0 (leaf).
 ///
 /// # Safety
-/// `p` must be a live `TAG_CLOSURE` cell.
-pub(crate) unsafe fn closure_trace_fn(p: *mut c_void) -> Option<TraceFn> {
+/// `p` must be a live `TAG_CLOSURE` or `TAG_ASYNC_FRAME` cell.
+pub(crate) unsafe fn cell_trace_fn(p: *mut c_void) -> Option<TraceFn> {
+    if unsafe { (*(p as *const HeapHeader)).type_tag } == TAG_ASYNC_FRAME {
+        return unsafe { frame_trace_fn(p) };
+    }
     let raw = unsafe { *((p as *const u8).add(CLOSURE_TRACE_FN_OFF) as *const u64) };
     if raw == 0 {
         None
     } else {
         Some(unsafe { core::mem::transmute::<u64, TraceFn>(raw) })
+    }
+}
+
+/// A traced cell's children: the slots its trace reports (none when
+/// 0), then, for a closure env, the +24 expando props dict every
+/// closure shares at a fixed offset. One body for every walk phase:
+/// the slots reach the callback through the trampoline anyway.
+///
+/// # Safety
+/// `p` must be a live `TAG_CLOSURE` or `TAG_ASYNC_FRAME` cell.
+#[inline(never)]
+pub(crate) unsafe fn for_each_traced_child(p: *mut c_void, f: &mut dyn FnMut(u64, *mut c_void)) {
+    if let Some(trace) = unsafe { cell_trace_fn(p) } {
+        let mut dyn_f: &mut dyn FnMut(u64, *mut c_void) = &mut *f;
+        let ctx = &mut dyn_f as *mut &mut dyn FnMut(u64, *mut c_void) as *mut c_void;
+        unsafe { trace(p, trace_visit_tramp, ctx) };
+    }
+    if unsafe { (*(p as *const HeapHeader)).type_tag } == TAG_ASYNC_FRAME {
+        return;
+    }
+    let props = unsafe { *((p as *const u8).add(CLOSURE_PROPS_OFF) as *const *mut c_void) };
+    if !props.is_null() {
+        f(PROPS_SLOT_INDEX, props);
     }
 }
 

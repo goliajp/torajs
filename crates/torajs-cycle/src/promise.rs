@@ -12,8 +12,9 @@
 //!  10    | has_handler, value_repr, deferred_state, rx_kind,
 //!       | rx_ret_repr, rx_param_repr
 //!  16    | value (i64) — a cell pointer iff value_is_heap
-//!  24    | callbacks (tagged list head: heap PromiseCb records and
-//!       | inline derived promises interleave; low bit marks inline)
+//!  24    | callbacks (tagged list head: heap PromiseCb records,
+//!       | inline derived promises and parked async frames
+//!       | interleave; bit 0 marks inline, bit 1 a frame)
 //!  32    | props (the bag)
 //!  40    | rx_next — this cell's link in its source's list
 //!  48    | rx_source — the promise this cell reacts to
@@ -24,7 +25,8 @@
 //!
 //! - its settled value (`Promise.resolve(o); o.p = p` is a ring);
 //! - each derived cell parked in its callback list — the list entry
-//!   holds one reference on it until the reaction runs;
+//!   holds one reference on it until the reaction runs — and each
+//!   parked async frame, held the same way (`frame`);
 //! - the closure env its own unfired reaction calls (`rx_cb` with
 //!   `RX_CLOSURE`), which can capture anything, the derived promise
 //!   included (`const d = p.then(() => d)`);
@@ -57,6 +59,10 @@ const CALLBACKS_OFF: usize = 24;
 const RX_NEXT_OFF: usize = 40;
 /// `Promise::rx_source`.
 const RX_SOURCE_OFF: usize = 48;
+const _: () = assert!(
+    crate::frame::FRAME_NEXT_OFF == RX_NEXT_OFF
+        && crate::frame::FRAME_AWAITING_OFF == RX_SOURCE_OFF
+);
 /// `Promise::rx_cb`.
 const RX_CB_OFF: usize = 56;
 /// `PromiseCb::arg`.
@@ -72,6 +78,10 @@ const STATE_PENDING: u8 = 0;
 const RX_CLOSURE: u8 = 4;
 /// `CB_INLINE_TAG` — low bit of a list link naming a derived cell.
 const CB_INLINE_TAG: usize = 1;
+/// `CB_FRAME_TAG` — bit 1 of a list link naming a parked frame.
+const CB_FRAME_TAG: usize = 2;
+/// Both link tags.
+const CB_TAGS: usize = CB_INLINE_TAG | CB_FRAME_TAG;
 
 /// The child index the settled value is yielded under.
 pub const PROMISE_VALUE_SLOT: u64 = 0;
@@ -191,8 +201,8 @@ pub(crate) unsafe fn for_each_promise_child(p: *mut c_void, f: &mut dyn FnMut(u6
         if link == 0 {
             return;
         }
-        let cell = (link & !CB_INLINE_TAG) as *mut c_void;
-        if link & CB_INLINE_TAG == 0 {
+        if link & CB_TAGS == 0 {
+            let cell = link as *mut c_void;
             let ops = unsafe { *word(cell, CB_OPS_OFF) } as *const BlockTrace;
             if !ops.is_null() {
                 let mut dyn_f: &mut dyn FnMut(u64, *mut c_void) = &mut *f;
@@ -202,6 +212,9 @@ pub(crate) unsafe fn for_each_promise_child(p: *mut c_void, f: &mut dyn FnMut(u6
             at = unsafe { word(cell, CB_NEXT_OFF) };
             continue;
         }
+        // an inline derived cell or a parked frame: a child itself, its
+        // link word at the same offset in both
+        let cell = (link & !CB_TAGS) as *mut c_void;
         f(at as u64, cell);
         // an unlinked entry's successor now sits in the same word
         if unsafe { *at } as usize == link {
@@ -227,7 +240,9 @@ pub(crate) unsafe fn promise_slot_clear(p: *mut c_void, i: u64) {
         _ if i & BLOCK_SLOT_TAG != 0 => unsafe { *((i & !BLOCK_SLOT_TAG) as *mut u64) = 0 },
         _ => unsafe {
             let at = i as *mut *mut c_void;
-            let cell = ((*at) as usize & !CB_INLINE_TAG) as *mut c_void;
+            // a frame's `next` and `awaiting` are at a derived cell's
+            // `rx_next` and `rx_source`
+            let cell = ((*at) as usize & !CB_TAGS) as *mut c_void;
             *at = *word(cell, RX_NEXT_OFF);
             *word(cell, RX_NEXT_OFF) = core::ptr::null_mut();
             *word(cell, RX_SOURCE_OFF) = core::ptr::null_mut();
