@@ -83,26 +83,18 @@ impl<'a> MemberObj<'a> {
 
     /// The name of row `i` of `st`.
     pub fn sym_name(&self, st: &MemberSymtab, i: u32) -> Result<&'a str, MemberRelocApplyError> {
-        let n_strx = self.raw_sym(st, i).n_strx as usize;
-        let strtab = self.strtab(st);
-        if n_strx >= strtab.len() {
-            return Err(MemberRelocApplyError::BadStrx {
-                sym_index: i,
-                n_strx,
-            });
-        }
-        let len = strtab[n_strx..].iter().position(|&b| b == 0).ok_or(
-            MemberRelocApplyError::UnterminatedSymName {
-                sym_index: i,
-                n_strx,
-            },
-        )?;
-        std::str::from_utf8(&strtab[n_strx..n_strx + len])
-            .map_err(|_| MemberRelocApplyError::NameNotUtf8 { sym_index: i })
+        let p = st.symoff as usize + i as usize * NLIST_64_SIZE as usize;
+        name_at(self.strtab(st), rd32(self.member.data, p), i)
     }
 
     fn strtab(&self, st: &MemberSymtab) -> &'a [u8] {
         &self.member.data[st.stroff as usize..][..st.strsize as usize]
+    }
+
+    /// The nlist rows of `st`.
+    fn rows(&self, st: &MemberSymtab) -> &'a [[u8; 16]] {
+        let len = st.nsyms as usize * NLIST_64_SIZE as usize;
+        self.member.data[st.symoff as usize..][..len].as_chunks().0
     }
 
     /// Every `N_SECT | N_EXT` row as `(name, n_value, n_sect)`, in
@@ -111,21 +103,21 @@ impl<'a> MemberObj<'a> {
         let Some(st) = self.symtab_if_any()? else {
             return Ok(Vec::new());
         };
+        let strtab = self.strtab(&st);
         let mut out = Vec::new();
-        for i in 0..st.nsyms {
+        for (i, row) in self.rows(&st).iter().enumerate() {
             // a cut moves the value of such a row, never its type
-            let s = self.raw_sym(&st, i);
-            if s.n_type & N_TYPE != N_SECT || s.n_type & N_EXT == 0 {
+            if row[4] & N_TYPE != N_SECT || row[4] & N_EXT == 0 {
                 continue;
             }
-            let name = self
-                .sym_name(&st, i)
-                .map_err(|e| symtab_name_error(e, i as usize))?;
+            let name =
+                name_at(strtab, rd32(row, 0), i as u32).map_err(|e| symtab_name_error(e, i))?;
+            let v = u64::from_le_bytes(row[8..16].try_into().unwrap());
             let n_value = match &self.cut {
-                Some(cut) => cut.move_row(s.n_sect, s.n_value).0,
-                None => s.n_value,
+                Some(cut) => cut.move_row(row[5], v).0,
+                None => v,
             };
-            out.push((name, n_value, s.n_sect));
+            out.push((name, n_value, row[5]));
         }
         Ok(out)
     }
@@ -136,17 +128,16 @@ impl<'a> MemberObj<'a> {
         let Some(st) = self.symtab_if_any()? else {
             return Ok(Vec::new());
         };
+        let strtab = self.strtab(&st);
         let mut out = Vec::new();
-        for i in 0..st.nsyms {
+        for (i, row) in self.rows(&st).iter().enumerate() {
             // the type alone: a cut moves no undef row's value
-            let t = self.member.data[st.symoff as usize + i as usize * NLIST_64_SIZE as usize + 4];
-            let neutered = self.cut.as_ref().is_some_and(|c| c.is_neutered(i));
-            if t & N_TYPE != N_UNDF || t & N_EXT == 0 || neutered {
+            let neutered = self.cut.as_ref().is_some_and(|c| c.is_neutered(i as u32));
+            if row[4] & N_TYPE != N_UNDF || row[4] & N_EXT == 0 || neutered {
                 continue;
             }
-            let name = self
-                .sym_name(&st, i)
-                .map_err(|e| symtab_name_error(e, i as usize))?;
+            let name =
+                name_at(strtab, rd32(row, 0), i as u32).map_err(|e| symtab_name_error(e, i))?;
             out.push(name);
         }
         Ok(out)
@@ -168,6 +159,25 @@ impl<'a> MemberObj<'a> {
             },
         }
     }
+}
+
+/// The NUL-terminated UTF-8 name at `n_strx` of `strtab`, for row `i`.
+fn name_at(strtab: &[u8], n_strx: u32, i: u32) -> Result<&str, MemberRelocApplyError> {
+    let n_strx = n_strx as usize;
+    let tail = strtab.get(n_strx..).filter(|t| !t.is_empty());
+    let tail = tail.ok_or(MemberRelocApplyError::BadStrx {
+        sym_index: i,
+        n_strx,
+    })?;
+    let len =
+        tail.iter()
+            .position(|&b| b == 0)
+            .ok_or(MemberRelocApplyError::UnterminatedSymName {
+                sym_index: i,
+                n_strx,
+            })?;
+    std::str::from_utf8(&tail[..len])
+        .map_err(|_| MemberRelocApplyError::NameNotUtf8 { sym_index: i })
 }
 
 /// The `LC_SYMTAB` at `cmd`, checked against the member's size.
