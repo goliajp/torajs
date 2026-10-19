@@ -24,7 +24,7 @@
 //! `vaddr` offsets that already match the displacements baked in
 //! here.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use torajs_codegen::CompiledFunction;
 use torajs_codegen::reloc::{CallTarget, RelocKind};
@@ -77,13 +77,14 @@ pub fn apply_relocs(
     );
 
     let mut out: Vec<ResolvedFunction> = Vec::with_capacity(funcs.len());
+    let targets = Targets::new(funcs, fn_vaddrs, sym_table);
 
     for (i, f) in funcs.iter().enumerate() {
         let mut bytes = f.bytes.clone();
         let fn_vaddr = fn_vaddrs[i];
 
         for r in &f.relocs {
-            let target_vaddr = resolve_target(&r.kind, funcs, fn_vaddrs, sym_table);
+            let target_vaddr = targets.resolve(&r.kind);
             apply_one(&mut bytes, r.byte_offset, fn_vaddr, &r.kind, target_vaddr);
         }
 
@@ -148,55 +149,64 @@ fn apply_one(
     }
 }
 
-fn resolve_target(
-    kind: &RelocKind,
-    funcs: &[CompiledFunction],
-    fn_vaddrs: &[u64],
-    sym_table: &SymTable,
-) -> u64 {
-    match kind {
-        RelocKind::CallSite {
-            target: CallTarget::Func(fid),
-        } => {
-            let idx = fid.0 as usize;
-            assert!(
-                idx < funcs.len(),
-                "CallSite::Func references FuncId({}) but only {} functions in input",
-                fid.0,
-                funcs.len()
-            );
-            fn_vaddrs[idx]
-        }
-        RelocKind::CallSite {
-            target: CallTarget::Extern(name),
-        } => lookup_or_defined(name, funcs, fn_vaddrs, sym_table),
-        RelocKind::Page21 { target_sym }
-        | RelocKind::PageOff12 { target_sym }
-        | RelocKind::AbsPtr64 { target_sym } => {
-            lookup_or_defined(target_sym, funcs, fn_vaddrs, sym_table)
-        }
-    }
+/// Where a reloc's target lands: user fns by `FuncId` or by name,
+/// then the fn address aliases, then the sym table.
+struct Targets<'a> {
+    /// the first fn of each name, the one a front-to-back scan finds
+    by_name: HashMap<&'a str, usize>,
+    fn_vaddrs: &'a [u64],
+    sym_table: &'a SymTable,
 }
 
-fn lookup_or_defined(
-    name: &str,
-    funcs: &[CompiledFunction],
-    fn_vaddrs: &[u64],
-    sym_table: &SymTable,
-) -> u64 {
-    for (i, f) in funcs.iter().enumerate() {
-        if f.name == name {
-            return fn_vaddrs[i];
+impl<'a> Targets<'a> {
+    fn new(funcs: &'a [CompiledFunction], fn_vaddrs: &'a [u64], sym_table: &'a SymTable) -> Self {
+        let mut by_name = HashMap::with_capacity(funcs.len());
+        for (i, f) in funcs.iter().enumerate() {
+            by_name.entry(f.name.as_str()).or_insert(i);
+        }
+        Targets {
+            by_name,
+            fn_vaddrs,
+            sym_table,
         }
     }
-    // a user fn's address alias resolves straight off the vaddr table,
-    // ahead of any same-named entry in `sym_table`
-    if let Some(i) = fn_addr_alias_index(name).filter(|&i| i < fn_vaddrs.len()) {
-        return fn_vaddrs[i];
+
+    fn resolve(&self, kind: &RelocKind) -> u64 {
+        match kind {
+            RelocKind::CallSite {
+                target: CallTarget::Func(fid),
+            } => {
+                let idx = fid.0 as usize;
+                assert!(
+                    idx < self.fn_vaddrs.len(),
+                    "CallSite::Func references FuncId({}) but only {} functions in input",
+                    fid.0,
+                    self.fn_vaddrs.len()
+                );
+                self.fn_vaddrs[idx]
+            }
+            RelocKind::CallSite {
+                target: CallTarget::Extern(name),
+            } => self.lookup(name),
+            RelocKind::Page21 { target_sym }
+            | RelocKind::PageOff12 { target_sym }
+            | RelocKind::AbsPtr64 { target_sym } => self.lookup(target_sym),
+        }
     }
-    *sym_table.get(name).unwrap_or_else(|| {
-        panic!("unresolved symbol {name:?} (not a defined function, not in sym_table)")
-    })
+
+    fn lookup(&self, name: &str) -> u64 {
+        if let Some(&i) = self.by_name.get(name) {
+            return self.fn_vaddrs[i];
+        }
+        // a user fn's address alias resolves straight off the vaddr table,
+        // ahead of any same-named entry in `sym_table`
+        if let Some(i) = fn_addr_alias_index(name).filter(|&i| i < self.fn_vaddrs.len()) {
+            return self.fn_vaddrs[i];
+        }
+        *self.sym_table.get(name).unwrap_or_else(|| {
+            panic!("unresolved symbol {name:?} (not a defined function, not in sym_table)")
+        })
+    }
 }
 
 fn read_u32_le(bytes: &[u8], off: usize) -> u32 {
@@ -490,7 +500,8 @@ mod tests {
         sym.insert("__torajs_fn_1".into(), 0xDEAD);
         sym.insert("__torajs_fn_01".into(), 0x1111);
         sym.insert("__torajs_boxed_2".into(), 0x2222);
-        let at = |name: &str| lookup_or_defined(name, &funcs, &fn_vaddrs, &sym);
+        let targets = Targets::new(&funcs, &fn_vaddrs, &sym);
+        let at = |name: &str| targets.lookup(name);
         assert_eq!(at("__torajs_fn_0"), 0x10_0000);
         assert_eq!(at("__torajs_fn_1"), 0x10_0020);
         assert_eq!(at("__torajs_boxed_1"), 0x10_0020);
