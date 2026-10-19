@@ -146,16 +146,7 @@ pub(crate) fn strip_member(
     reach: &MemberReach<'_>,
     dead_at: DeadRowPlacement,
 ) -> Result<Option<StrippedMember>, String> {
-    let eligible: Vec<(u8, Vec<(u64, u64)>, &[bool])> = reach
-        .sects
-        .iter()
-        .enumerate()
-        .filter(|(_, sa)| strippable(sa))
-        .map(|(i, sa)| {
-            let atoms_rel = sa.atoms.iter().map(|&(s, e)| (s - sa.addr, e - sa.addr));
-            ((i + 1) as u8, atoms_rel.collect(), &sa.live[..])
-        })
-        .collect();
+    let eligible = eligible_sections(reach);
     let cuts: Vec<SectionCut<'_>> = eligible
         .iter()
         .map(|(ord, atoms_rel, live)| SectionCut {
@@ -180,6 +171,23 @@ pub(crate) fn strip_member(
         bytes: out,
         dead_rows,
     }))
+}
+
+/// Every section of `reach` the rewriter may cut, as `(ordinal,
+/// section-relative atoms, liveness)`, in section order.
+pub(crate) fn eligible_sections<'r>(
+    reach: &'r MemberReach<'_>,
+) -> Vec<(u8, Vec<(u64, u64)>, &'r [bool])> {
+    reach
+        .sects
+        .iter()
+        .enumerate()
+        .filter(|(_, sa)| strippable(sa))
+        .map(|(i, sa)| {
+            let atoms_rel = sa.atoms.iter().map(|&(s, e)| (s - sa.addr, e - sa.addr));
+            ((i + 1) as u8, atoms_rel.collect(), &sa.live[..])
+        })
+        .collect()
 }
 
 /// Clear `N_EXT` on undefined nlist rows that no surviving reloc

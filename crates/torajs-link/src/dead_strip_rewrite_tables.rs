@@ -126,6 +126,13 @@ pub(crate) fn move_rows(
     dead.concat()
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Rows [`walk_row`] moved on this thread, for tests that must
+    /// reach it.
+    pub(crate) static WALKED_ROWS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 /// One row's value through every pass in order: the definition
 /// [`RowPlan`] shortcuts.
 fn walk_row(
@@ -136,6 +143,8 @@ fn walk_row(
     dead_at: DeadRowPlacement,
     dead: &mut [Vec<u32>],
 ) -> u64 {
+    #[cfg(test)]
+    WALKED_ROWS.with(|w| w.set(w.get() + 1));
     for (k, pass) in passes.iter().enumerate() {
         v = if n_sect == pass.ord {
             pass.remap(v).unwrap_or_else(|| {
