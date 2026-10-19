@@ -197,14 +197,13 @@ impl<'a> FnToClosureCollector<'a> {
         name: &str,
     ) {
         self.collect_objectlit_field_sites(init, type_ann);
-        // r293 — the for-in head hoist (`let __forin_obj_N =
-        // <src>`, parser-minted): a bare fn-name src wraps so
-        // the keys call sees a boxable closure cell — for-in
-        // over a function enumerates its expando props
-        // (§14.7.5; none on a plain fn), which the any-lane
-        // `anyv_forin_keys` already answers. Raw FnSig had no
-        // arm anywhere on that path (13.2-23-s family).
-        if name.starts_with("__forin_obj_") {
+        // r293 — the for-in head hoist (`let __forin_obj_N = <src>`,
+        // parser-minted): a bare fn-name src wraps so the keys call sees
+        // a boxable closure cell (§14.7.5). A hoisted generator
+        // expression (`let g = __genexpr_N`) binds its fn object in a
+        // body as at top level (`closure_holding_lets` counts it a cell).
+        let genexpr = matches!(self.ast.get_expr(init), Expr::Ident(n) if self.ast.genexpr_names.contains_key(n));
+        if name.starts_with("__forin_obj_") || genexpr {
             self.try_mark(init);
         }
         // RFC 20260729-fn-value-any V4 刀 3 — a `var` slot is
