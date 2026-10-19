@@ -14,7 +14,7 @@ use crate::dead_strip_rewrite_sections::{
     Pass, SectionCut, copy_spans, patch_headers, plan, put32, put64, rd32, shift_off,
 };
 use crate::dead_strip_rewrite_tables::{
-    RowPlan, addend_patches, filter_relocs, move_value, row_plan, unreferenced_undefs,
+    RowPlan, filter_relocs, move_value, row_plan, unreferenced_undefs, walk_relocs,
 };
 
 #[derive(Debug)]
@@ -56,21 +56,18 @@ impl Cut {
                 (hdr.reloff != 0 && hdr.nreloc != 0).then(|| (p.ord, filter_relocs(table, p)))
             })
             .collect();
-        let (neutered, n) = match symtab_pos {
-            Some(sp) if neuter => {
-                let symtab = (rd32(bytes, sp + 8) as usize, rd32(bytes, sp + 12) as usize);
-                unreferenced_undefs(bytes, &sects, &kept, symtab)
-            }
-            _ => (Vec::new(), 0),
+        let symtab = symtab_pos
+            .filter(|_| neuter)
+            .map(|sp| (rd32(bytes, sp + 8) as usize, rd32(bytes, sp + 12) as usize));
+        let nsyms = symtab.map_or(0, |t| t.1);
+        let (patches, referenced) = walk_relocs(bytes, &sects, &passes, &kept, nsyms)?;
+        let (neutered, n) = match symtab {
+            Some(t) => unreferenced_undefs(bytes, t, &referenced),
+            None => (Vec::new(), 0),
         };
         if passes.is_empty() && n == 0 {
             return Ok(None);
         }
-        let patches = if passes.is_empty() {
-            Vec::new()
-        } else {
-            addend_patches(bytes, &sects, &passes, &kept)?
-        };
         let plans = sects.iter().map(|s| row_plan(s, &passes)).collect();
         Ok(Some(Cut {
             passes,

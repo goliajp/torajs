@@ -54,39 +54,42 @@ pub(crate) fn tables_after<'t>(
     }
 }
 
-/// The new values of the 8-byte addends of section-keyed
-/// (`r_extern=0`) UNSIGNED relocs, which are object-file addresses: a
-/// target in a cut section remaps through its runs (a dead one lands on
-/// the section's base), later ones shift down. SUBTRACTOR pairs are
-/// skipped (their stored value is a difference, not an address).
-/// Returns `(ordinal, offset in the section as cut, value)`.
-pub(crate) fn addend_patches(
+/// One walk over every reloc the cut leaves. Returns the new values of
+/// the 8-byte addends of section-keyed (`r_extern=0`) UNSIGNED relocs,
+/// which are object-file addresses (a target in a cut section remaps
+/// through its runs, a dead one landing on the section's base, later
+/// ones shift down; SUBTRACTOR pairs are skipped, their stored value is
+/// a difference), as `(ordinal, offset in the section as cut, value)`;
+/// and which of the first `nsyms` rows some reloc names.
+pub(crate) fn walk_relocs(
     bytes: &[u8],
     sects: &[SectHdr],
     passes: &[Pass],
     kept: &[(u8, Vec<[u8; 8]>)],
-) -> Result<Vec<(u8, u32, u64)>, String> {
-    let mut patches = Vec::new();
+    nsyms: usize,
+) -> Result<(Vec<(u8, u32, u64)>, Vec<bool>), String> {
+    let (mut patches, mut referenced) = (Vec::new(), vec![false; nsyms]);
     for s in sects {
-        if s.reloff == 0 || s.nreloc == 0 || s.offset == 0 {
-            continue;
-        }
-        let entries = tables_after(bytes, s, kept);
+        let patch = !passes.is_empty() && s.reloff != 0 && s.nreloc != 0 && s.offset != 0;
         let own = passes.iter().find(|p| p.ord == s.ord);
-        let mut i = 0;
-        while i < entries.len() {
-            let info = rd32(&entries[i], 4);
-            let r_type = ((info >> 28) & 0xF) as u8;
-            if r_type == ARM64_RELOC_SUBTRACTOR {
-                i += 2; // the stored value is a difference
+        let mut skip = false;
+        for e in tables_after(bytes, s, kept) {
+            let info = rd32(e, 4);
+            let (r_extern, symbolnum) = ((info >> 27) & 0x1, (info & 0x00FF_FFFF) as usize);
+            if r_extern == 1 && symbolnum < nsyms {
+                referenced[symbolnum] = true;
+            }
+            if !patch || std::mem::take(&mut skip) {
                 continue;
             }
-            let r_extern = (info >> 27) & 0x1;
-            let r_length = (info >> 25) & 0x3;
-            let r_pcrel = (info >> 24) & 0x1;
-            let target_sect = (info & 0x00FF_FFFF) as u8;
+            let r_type = ((info >> 28) & 0xF) as u8;
+            if r_type == ARM64_RELOC_SUBTRACTOR {
+                skip = true; // its mate's stored value is a difference
+                continue;
+            }
+            let (r_length, r_pcrel) = ((info >> 25) & 0x3, (info >> 24) & 0x1);
             if r_extern == 0 && r_type == ARM64_RELOC_UNSIGNED && r_length == 3 && r_pcrel == 0 {
-                let site = rd32(&entries[i], 0);
+                let site = rd32(e, 0);
                 let old_site = match own {
                     Some(p) => p
                         .unmap_rel(u64::from(site))
@@ -97,13 +100,12 @@ pub(crate) fn addend_patches(
                 if bytes.len() < src + 8 {
                     return Err(format!("sect {} addend site out of range", s.ord));
                 }
-                let v = moved_address(passes, target_sect, rd64(bytes, src));
+                let v = moved_address(passes, symbolnum as u8, rd64(bytes, src));
                 patches.push((s.ord, site, v));
             }
-            i += 1;
         }
     }
-    Ok(patches)
+    Ok((patches, referenced))
 }
 
 /// An address in section `sect` after every pass (a dead one lands on
@@ -122,29 +124,16 @@ fn moved_address(passes: &[Pass], sect: u8, mut v: u64) -> u64 {
 }
 
 /// One bit per nlist row of `(symoff, nsyms)`: an `N_UNDF | N_EXT`
-/// row no reloc left in any section names. Returns the bits and how
-/// many are set.
+/// row no reloc names (`referenced`, from [`walk_relocs`]). Returns the
+/// bits and how many are set.
 pub(crate) fn unreferenced_undefs(
     bytes: &[u8],
-    sects: &[SectHdr],
-    kept: &[(u8, Vec<[u8; 8]>)],
     (symoff, nsyms): (usize, usize),
+    referenced: &[bool],
 ) -> (Vec<u64>, u32) {
-    let mut referenced = vec![false; nsyms];
-    for s in sects {
-        for e in tables_after(bytes, s, kept) {
-            let info = rd32(e, 4);
-            if (info >> 27) & 1 == 1 {
-                let idx = (info & 0x00FF_FFFF) as usize;
-                if idx < nsyms {
-                    referenced[idx] = true;
-                }
-            }
-        }
-    }
     let mut bits = vec![0u64; nsyms.div_ceil(64)];
     let mut n = 0;
-    for (i, r) in referenced.iter().enumerate() {
+    for (i, r) in referenced.iter().enumerate().take(nsyms) {
         let t = bytes[symoff + i * NLIST_64_SIZE as usize + 4];
         if t & N_TYPE == N_UNDF && t & N_EXT != 0 && !r {
             bits[i / 64] |= 1 << (i % 64);
