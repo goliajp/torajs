@@ -37,7 +37,8 @@ use crate::data_section_layout::DataSectionLayout;
 use crate::layout_types::ArchiveLayout;
 use crate::lc::TEXT_VMADDR_BASE;
 use crate::member_apply::MemberRelocApplyError;
-use crate::member_resolve::resolve_local_nsect;
+use crate::member_reloc::MemberRelocEntry;
+use crate::member_resolve::{MemberSymtab, resolve_local_nsect};
 use crate::member_sections::is_tlv_descriptor;
 use crate::member_symtab::{parse_member_symtab, read_nlist_name};
 use crate::non_text_layout::NonTextSectionLayout;
@@ -123,58 +124,43 @@ fn collect_member_targets(
         if relocs.is_empty() {
             continue;
         }
-        let symtab = match symtab_cache {
-            Some(ref st) => st,
+        let (symtab, by_sym) = match symtab_cache {
+            Some((ref st, ref mut by_sym)) => (st, by_sym),
             None => {
-                symtab_cache = Some(parse_member_symtab(member)?);
-                symtab_cache.as_ref().unwrap()
+                let st = parse_member_symtab(member)?;
+                let by_sym = vec![None; st.nsyms as usize];
+                let (st, by_sym) = symtab_cache.insert((st, by_sym));
+                (&*st, by_sym)
             }
         };
         for r in &relocs {
-            if r.r_type != ARM64_RELOC_UNSIGNED {
-                return Err(MemberRelocApplyError::UnknownRelocType {
-                    r_type: r.r_type,
-                    r_address: r.r_address,
-                });
-            }
-            if r.r_extern == 0 {
-                return Err(MemberRelocApplyError::InvalidSectionIndex {
-                    r_symbolnum: r.r_symbolnum,
-                    nsects: non_text_sections.len() + data_sections.len(),
-                });
-            }
-            if r.r_symbolnum >= symtab.nsyms {
-                return Err(MemberRelocApplyError::SymbolnumOutOfRange {
-                    r_symbolnum: r.r_symbolnum,
-                    nsyms: symtab.nsyms,
-                });
-            }
-            let name = read_nlist_name(member, symtab, r.r_symbolnum)?;
-            let section_final_vaddr = s.final_vaddr;
-            let target_vaddr = if let Some(&v) = sym_table.get(name) {
-                v
-            } else if let Some(v) = resolve_local_nsect(
-                member,
-                symtab,
-                r.r_symbolnum,
-                member_text_vaddr,
-                non_text_sections,
-                data_sections,
-            ) {
-                v
-            } else {
-                return Err(MemberRelocApplyError::UnresolvedSymbol {
-                    name: name.to_string(),
-                });
+            check_reloc(r, symtab, non_text_sections.len() + data_sections.len())?;
+            // a target is a function of the symbol index alone; a
+            // vtable-heavy member names the same symbols many times
+            let target_vaddr = match by_sym[r.r_symbolnum as usize] {
+                Some(v) => v,
+                None => {
+                    let v = resolve_target(
+                        member,
+                        symtab,
+                        r.r_symbolnum,
+                        sym_table,
+                        member_text_vaddr,
+                        (non_text_sections, data_sections),
+                    )?;
+                    by_sym[r.r_symbolnum as usize] = Some(v);
+                    v
+                }
             };
-            let slot_vaddr = section_final_vaddr + u64::from(r.r_address);
+            let slot_vaddr = s.final_vaddr + u64::from(r.r_address);
             debug_assert!(
                 slot_vaddr >= data_seg_vmaddr,
                 "data slot vaddr {slot_vaddr:#x} cannot precede __DATA segment base {data_seg_vmaddr:#x}",
             );
             debug_assert!(
                 target_vaddr >= TEXT_VMADDR_BASE,
-                "data slot {name:?} target vaddr {target_vaddr:#x} cannot precede image base {TEXT_VMADDR_BASE:#x}",
+                "data slot to symbol {} target vaddr {target_vaddr:#x} cannot precede image base {TEXT_VMADDR_BASE:#x}",
+                r.r_symbolnum,
             );
             let slot_off_in_seg = slot_vaddr - data_seg_vmaddr;
             let target_off_in_image = target_vaddr - TEXT_VMADDR_BASE;
@@ -182,6 +168,61 @@ fn collect_member_targets(
         }
     }
     Ok(())
+}
+
+/// A rebase slot must be an UNSIGNED pointer to a named symbol of
+/// the member's own table.
+fn check_reloc(
+    r: &MemberRelocEntry,
+    symtab: &MemberSymtab,
+    nsects: usize,
+) -> Result<(), MemberRelocApplyError> {
+    if r.r_type != ARM64_RELOC_UNSIGNED {
+        return Err(MemberRelocApplyError::UnknownRelocType {
+            r_type: r.r_type,
+            r_address: r.r_address,
+        });
+    }
+    if r.r_extern == 0 {
+        return Err(MemberRelocApplyError::InvalidSectionIndex {
+            r_symbolnum: r.r_symbolnum,
+            nsects,
+        });
+    }
+    if r.r_symbolnum >= symtab.nsyms {
+        return Err(MemberRelocApplyError::SymbolnumOutOfRange {
+            r_symbolnum: r.r_symbolnum,
+            nsyms: symtab.nsyms,
+        });
+    }
+    Ok(())
+}
+
+/// The vaddr symbol `sym` of `member` resolves to: the sym table by
+/// name, else the member-local section the row sits in.
+fn resolve_target(
+    member: &ArMember<'_>,
+    symtab: &MemberSymtab,
+    sym: u32,
+    sym_table: &SymTable,
+    member_text_vaddr: u64,
+    (non_text_sections, data_sections): (&[NonTextSectionLayout], &[DataSectionLayout]),
+) -> Result<u64, MemberRelocApplyError> {
+    let name = read_nlist_name(member, symtab, sym)?;
+    if let Some(&v) = sym_table.get(name) {
+        return Ok(v);
+    }
+    resolve_local_nsect(
+        member,
+        symtab,
+        sym,
+        member_text_vaddr,
+        non_text_sections,
+        data_sections,
+    )
+    .ok_or_else(|| MemberRelocApplyError::UnresolvedSymbol {
+        name: name.to_string(),
+    })
 }
 
 #[cfg(test)]
