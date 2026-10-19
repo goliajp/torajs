@@ -14,7 +14,7 @@ use crate::class_name_table_layout::{
 use crate::data_section_emit::write_data_non_text_file_payloads;
 use crate::data_section_layout::DataSectionLayout;
 use crate::dead_strip_reach_cache::ReachCache;
-use crate::dead_strip_repack::{DeadRows, StrippedMembers, swap_in_stripped};
+use crate::dead_strip_repack::{DeadRows, StrippedMembers, rewritten_config, swap_in_stripped};
 use crate::defined_extern_resolve::insert_member_syms;
 use crate::dyld_emit::{write_la_ptr_section, write_stubs_section};
 use crate::exec::LinkConfig;
@@ -65,16 +65,7 @@ fn dead_strip_prepass<'a>(
     {
         return Ok(None);
     }
-    let stripped = LinkConfig {
-        funcs: out.funcs.unwrap_or_else(|| cfg.funcs.clone()),
-        class_layouts: out
-            .class_layouts
-            .unwrap_or_else(|| cfg.class_layouts.clone()),
-        fn_name_globals: out
-            .fn_name_globals
-            .unwrap_or_else(|| cfg.fn_name_globals.clone()),
-        ..cfg.clone()
-    };
+    let stripped = rewritten_config(cfg, out.funcs, out.class_layouts, out.fn_name_globals);
     Ok(Some((stripped, out.dead_rows, out.members)))
 }
 
