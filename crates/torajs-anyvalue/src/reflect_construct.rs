@@ -231,7 +231,8 @@ pub(crate) unsafe fn construct_with_new_target(
             (target, new_target)
         };
         if resolved_nt != bottom && is_cell(obj) {
-            if let Some(proto) = iter_result_get(resolved_nt, as_void_ptr(resolved_nt), b"prototype")
+            if let Some(proto) =
+                iter_result_get(resolved_nt, as_void_ptr(resolved_nt), b"prototype")
             {
                 // Step 4 — a non-object `prototype` (a string and a symbol
                 // are cells too) falls back to the realm intrinsic the
