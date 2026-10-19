@@ -28,7 +28,7 @@
 
 use crate::ast::{ExprId, Stmt};
 use crate::ssa::{BlockId, InstKind, Operand, Terminator, Type, ValueId};
-use crate::ssa_lower::{ARR_LEN_OFF, LocalInfo, LowerCtx};
+use crate::ssa_lower::{LocalInfo, LowerCtx};
 use crate::ssa_lower_push_loop_detect::detect_push_loop_arrays;
 
 /// Chunk 725 — per-iteration state for a `for (let i ...)` binding
@@ -466,14 +466,8 @@ fn emit_push_loop_reserve(
                 info.ty,
                 None,
             );
-            let initial_len_v = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Load(Type::I64, Operand::Value(cur_arr), ARR_LEN_OFF),
-                Type::I64,
-                None,
-            );
             let target_cap =
-                ctx.emit_reserve_slots(info.ty, initial_len_v, bound_op, per_trip, &mut slow);
+                ctx.emit_reserve_slots(info.ty, cur_arr, bound_op, per_trip, &mut slow);
             let reserved = ctx.f.append_inst(
                 ctx.cur_block,
                 InstKind::Call(

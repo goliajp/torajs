@@ -165,7 +165,7 @@ impl PreReserve {
     }
 }
 
-use crate::ssa::{BinOp as SsaBinOp, BlockId, IPred, InstKind, Operand, Terminator, Type, ValueId};
+use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Terminator, Type, ValueId};
 use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx, PreReserveState};
 use crate::ssa_lower_str_arr_inplace::emit_arr_lock_bits_guard;
 
@@ -195,76 +195,9 @@ pub(crate) fn push_counts(names: &[String]) -> Vec<(String, i64)> {
 /// The longest an array may grow (§10.4.2.4: a length is a u32).
 const ARRAY_LENGTH_MAX: i64 = u32::MAX as i64;
 
-impl LowerCtx<'_> {
-    /// The capacity, in slots, that `bound` trips of `per_trip`
-    /// appends each need on top of `len` elements of the array
-    /// `arr_ty`: an element held in place takes one slot per field.
-    /// One plain append a trip is `len + bound`, the shape nearly
-    /// every fill loop has.
-    ///
-    /// Any other shape multiplies, and a count past what the buffer's
-    /// u32 capacity can hold would leave the loop's unchecked stores
-    /// writing past it. Such trips may take the length past 2^32 - 1
-    /// (or, `k` slots an element, past the `u32::MAX / k` elements an
-    /// in-place array can hold), where an append raises the RangeError
-    /// of §10.4.2.4 and every append before it stays. So the test
-    /// branches to `slow`, minted on the first test a loop needs: the
-    /// caller lowers the whole loop there once more with checked
-    /// pushes, which append up to the one that crosses and raise
-    /// there, or never raise when a trip's pushes sit in branches that
-    /// do not all run. The test counts the elements already there; the
-    /// trips' product is only trusted once the trips alone are known
-    /// not to overflow it.
-    pub(crate) fn emit_reserve_slots(
-        &mut self,
-        arr_ty: Type,
-        len: ValueId,
-        bound: Operand,
-        per_trip: i64,
-        slow: &mut Option<BlockId>,
-    ) -> ValueId {
-        let k = match arr_ty {
-            Type::Arr(a) => {
-                let elem = self.arr_layouts[a.0 as usize];
-                crate::ssa_lower::inline_elem::elem_stride(self.struct_layouts, elem) as i64 / 8
-            }
-            _ => 1,
-        };
-        if k == 1 && per_trip == 1 {
-            return self.f.append_inst(
-                self.cur_block,
-                InstKind::BinOp(SsaBinOp::Add, Operand::Value(len), bound),
-                Type::I64,
-                None,
-            );
-        }
-        let max = ARRAY_LENGTH_MAX / k;
-        let added = self.bin(SsaBinOp::Mul, bound, Operand::ConstI64(per_trip), Type::I64);
-        let total = self.bin(SsaBinOp::Add, Operand::Value(len), added, Type::I64);
-        let many = self.cmp(IPred::Sgt, bound, Operand::ConstI64(max / per_trip));
-        let past = self.cmp(IPred::Sgt, total, Operand::ConstI64(max));
-        let long = self.bin(SsaBinOp::Or, many, past, Type::Bool);
-        let slow_blk = *slow.get_or_insert_with(|| self.f.add_block());
-        let cont_blk = self.f.add_block();
-        self.f.set_term(
-            self.cur_block,
-            Terminator::CondBr {
-                cond: long,
-                then_blk: slow_blk,
-                else_blk: cont_blk,
-            },
-        );
-        self.cur_block = cont_blk;
-        let slots = match k {
-            1 => total,
-            _ => self.bin(SsaBinOp::Mul, total, Operand::ConstI64(k), Type::I64),
-        };
-        match slots {
-            Operand::Value(v) => v,
-            _ => unreachable!("an emitted product is a value"),
-        }
-    }
+mod reserve;
 
+impl LowerCtx<'_> {
     /// `long` raises "Invalid array length" (the length check of
     /// `__torajs_arr_set_length_validate`, handed a length one past the
     /// largest) and leaves by the throw edge.

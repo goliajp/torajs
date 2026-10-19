@@ -31,7 +31,7 @@
 
 use crate::ast::{ExprId, Stmt};
 use crate::ssa::{InstKind, Operand, Terminator, Type};
-use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx};
+use crate::ssa_lower::LowerCtx;
 use crate::ssa_lower_push_loop_detect::detect_push_loop_arrays_while;
 
 /// 12-c-1 — `while` lowering, with an optional pre-reserve fast-push
@@ -105,16 +105,10 @@ pub(crate) fn lower_while_inner(
                 info.ty,
                 None,
             );
-            /* Need cap >= len + bound. Read len, add bound, pass to
-             * arr_reserve. */
-            let initial_len_v = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Load(Type::I64, Operand::Value(cur_arr), ARR_LEN_OFF),
-                Type::I64,
-                None,
-            );
+            /* Need cap >= head + len + bound (`emit_reserve_slots`),
+             * passed to arr_reserve. */
             let target_cap =
-                ctx.emit_reserve_slots(info.ty, initial_len_v, bound_op, per_trip, &mut slow);
+                ctx.emit_reserve_slots(info.ty, cur_arr, bound_op, per_trip, &mut slow);
             let reserved = ctx.f.append_inst(
                 ctx.cur_block,
                 InstKind::Call(
