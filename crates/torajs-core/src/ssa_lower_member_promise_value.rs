@@ -64,7 +64,10 @@ use crate::ssa_lower::LowerCtx;
 use crate::ssa_lower_parse_type::parse_type;
 
 mod detect;
+mod object_await;
+
 pub(crate) use detect::detect_obj_is_builtin_promise;
+use object_await::{lower_object_await, try_p10_4_primitive_identity};
 
 pub(crate) fn try_lower(
     ctx: &mut LowerCtx<'_>,
@@ -101,12 +104,13 @@ pub(crate) fn try_lower(
         if matches!(ctx.operand_ty(&op), Type::Any) {
             return Some(lower_any_await(ctx, op, obj));
         }
-        // a thenable-shaped object awaits as `any` (its checker type)
+        // an object awaits as `any` (its checker type): it settles
+        // through PromiseResolve, which runs a `then` it carries
         if matches!(ctx.expr_types.get(&eid), Some(check_mod::Type::Any)) {
             let borrowed = !ctx.expr_transfers_ownership(obj);
             let boxed = ctx.box_owned_from_expr(obj, op, borrowed);
             ctx.owned_member_reads.insert(eid);
-            return Some(boxed);
+            return Some(lower_object_await(ctx, boxed));
         }
         return Some(op);
     }
@@ -141,20 +145,6 @@ pub(crate) fn lower_any_await(ctx: &mut LowerCtx<'_>, op: Operand, obj: ExprId) 
     ctx.emit_throw_check_owned(None, op, Type::Any);
     ctx.emit_drop_value(op, Type::Any);
     Operand::Value(v)
-}
-
-fn try_p10_4_primitive_identity(ctx: &mut LowerCtx<'_>, obj: ExprId) -> Option<Operand> {
-    if !matches!(
-        ctx.expr_types.get(&obj),
-        Some(check_mod::Type::Number)
-            | Some(check_mod::Type::String)
-            | Some(check_mod::Type::Boolean)
-            | Some(check_mod::Type::Array(_))
-            | Some(check_mod::Type::BigInt)
-    ) {
-        return None;
-    }
-    Some(ctx.lower_expr(obj))
 }
 
 /// `pub(crate)`: also the for-await element unwrap —
