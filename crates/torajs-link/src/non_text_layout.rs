@@ -200,41 +200,6 @@ pub fn compute_non_text_layouts(
     })
 }
 
-/// Emit each non-text section payload at its layout-assigned
-/// `final_file_offset`, padding with zeros to reconcile per-section
-/// `section_64.align` boundaries that `compute_non_text_layouts`
-/// honored. Called from `archive_emit::emit_binary` between the
-/// patched member-text payloads and `__TEXT,__stubs`.
-///
-/// swap-2k chunk 3 — without the per-section `pad_to`, alignment
-/// padding budgeted into `final_file_offset` would not appear in the
-/// emitted byte stream and `__TEXT,__literal16` would land at the
-/// non-padded cumulative offset, mismatching the patcher's
-/// `final_vaddr` reloc target after `patch_pageoff12`'s silent
-/// `(offset >> scale) << scale` round-trip.
-pub(crate) fn write_non_text_payloads(
-    buf: &mut Vec<u8>,
-    layout: &crate::layout_types::ArchiveLayout,
-    non_text_payloads: &[Vec<u8>],
-) {
-    let mut payload_idx: usize = 0;
-    for m in &layout.member_layouts {
-        for s in &m.non_text_sections {
-            let target_len = s.final_file_offset as usize;
-            if buf.len() < target_len {
-                buf.resize(target_len, 0);
-            }
-            buf.extend_from_slice(&non_text_payloads[payload_idx]);
-            payload_idx += 1;
-        }
-    }
-    debug_assert_eq!(
-        payload_idx,
-        non_text_payloads.len(),
-        "non_text_payloads count must match layout.non_text_sections total",
-    );
-}
-
 /// Padding bytes needed to round `addr` up to the next `1 << align`
 /// boundary. `align` is the Mach-O `section_64.align` log2 exponent
 /// (`≤ 31`), so `1u64 << align` never overflows. Returns 0 when

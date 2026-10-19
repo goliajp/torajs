@@ -2,54 +2,85 @@
 //! member's `__text` patched in place against the effective symbol
 //! table, and its other `__TEXT,*` sections sliced out unchanged.
 
-use crate::archive_emit::member_data_layouts;
+use crate::archive_emit::{member_data_layouts, pad_to};
 use crate::archive_link::{ArchiveLayout, ArchiveLayoutError};
 use crate::archives_merge::MergedArchives;
 use crate::member_apply::{MemberRelocApplyError, apply_member_relocs};
 use crate::member_reloc::MemberRelocError;
 use crate::resolve::SymTable;
 
-/// Each member's `__text` bytes, and its non-text `__TEXT` section bytes.
-type MemberPayloads = (Vec<Vec<u8>>, Vec<Vec<u8>>);
+/// What writes the laid-out members' `__TEXT` bytes into the output:
+/// the members, and the effective symbol table their relocs resolve
+/// against.
+pub(crate) struct MemberText<'m, 'a> {
+    pub(crate) merged: &'m MergedArchives<'a>,
+    pub(crate) sym_table: &'m SymTable,
+}
 
-/// The patched `__text` of every laid-out member, in layout order,
-/// and the bytes of its non-text `__TEXT` sections, in
-/// `compute_non_text_layouts` order.
-pub(crate) fn member_text_payloads(
-    layout: &ArchiveLayout,
-    merged: &MergedArchives<'_>,
-    sym_table: &SymTable,
-) -> Result<MemberPayloads, ArchiveLayoutError> {
-    let mut text_payloads: Vec<Vec<u8>> = Vec::with_capacity(layout.member_layouts.len());
-    let mut non_text: Vec<Vec<u8>> = Vec::new();
-    for (mi, m) in layout.member_layouts.iter().enumerate() {
+impl MemberText<'_, '_> {
+    /// Append the `__text` of member `mi` of `layout` to `buf`, patched
+    /// in place against the symbol table.
+    pub(crate) fn write_text(
+        &self,
+        buf: &mut Vec<u8>,
+        layout: &ArchiveLayout,
+        mi: usize,
+    ) -> Result<(), ArchiveLayoutError> {
+        let m = &layout.member_layouts[mi];
         let reloc_err = |err| ArchiveLayoutError::MemberReloc {
             archive_idx: m.key.0,
             member_idx: m.key.1,
             err,
         };
-        let obj = merged
-            .obj(m.key.0, m.key.1)
-            .map_err(|e| reloc_err(MemberRelocApplyError::Decode(e)))?;
+        let obj = self.merged.obj(m.key.0, m.key.1);
+        let obj = obj.map_err(|e| reloc_err(MemberRelocApplyError::Decode(e)))?;
         let text = obj.text_section().ok_or_else(|| {
             reloc_err(MemberRelocApplyError::Decode(
                 MemberRelocError::NoTextSection,
             ))
         })?;
-        let mut bytes = obj.payload(text.section_index);
+        let start = buf.len();
+        obj.payload_into(text.section_index, buf);
         apply_member_relocs(
-            &mut bytes,
+            &mut buf[start..],
             &obj,
             m.vaddr,
-            sym_table,
+            self.sym_table,
             &m.non_text_sections,
             member_data_layouts(layout, mi),
         )
-        .map_err(reloc_err)?;
-        text_payloads.push(bytes);
-        for s in &m.non_text_sections {
-            non_text.push(obj.payload(s.section_index));
-        }
+        .map_err(reloc_err)
     }
-    Ok((text_payloads, non_text))
+
+    /// Emit each non-text section payload at its layout-assigned
+    /// `final_file_offset`, padding with zeros to reconcile per-section
+    /// `section_64.align` boundaries that `compute_non_text_layouts`
+    /// honored. Called from `archive_emit::emit_binary` between the
+    /// patched member-text payloads and `__TEXT,__stubs`.
+    ///
+    /// swap-2k chunk 3 — without the per-section `pad_to`, alignment
+    /// padding budgeted into `final_file_offset` would not appear in the
+    /// emitted byte stream and `__TEXT,__literal16` would land at the
+    /// non-padded cumulative offset, mismatching the patcher's
+    /// `final_vaddr` reloc target after `patch_pageoff12`'s silent
+    /// `(offset >> scale) << scale` round-trip.
+    pub(crate) fn write_non_text(
+        &self,
+        buf: &mut Vec<u8>,
+        layout: &ArchiveLayout,
+    ) -> Result<(), ArchiveLayoutError> {
+        for m in &layout.member_layouts {
+            let obj = self.merged.obj(m.key.0, m.key.1);
+            let obj = obj.map_err(|e| ArchiveLayoutError::MemberReloc {
+                archive_idx: m.key.0,
+                member_idx: m.key.1,
+                err: MemberRelocApplyError::Decode(e),
+            })?;
+            for s in &m.non_text_sections {
+                pad_to(buf, s.final_file_offset as usize);
+                obj.payload_into(s.section_index, buf);
+            }
+        }
+        Ok(())
+    }
 }

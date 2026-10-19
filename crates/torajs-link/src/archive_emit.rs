@@ -4,7 +4,7 @@
 
 use crate::archive_emit_lc_meta::compute_emit_lc_meta;
 use crate::archive_emit_lcs::{write_header_and_load_commands, write_symtab_and_strtab};
-use crate::archive_emit_members::member_text_payloads;
+use crate::archive_emit_members::MemberText;
 use crate::archive_link::{ArchiveLayout, ArchiveLayoutError};
 use crate::archives_merge::{MergedArchives, merge_archive_indexes};
 use crate::chained_fixups_call::recompute_chained_fixups_with_data_rebase;
@@ -217,20 +217,20 @@ fn link(cfg: &LinkConfig, release: Release) -> Result<Vec<u8>, ArchiveLayoutErro
     let resolved = apply_relocs(&cfg.funcs, &layout.fn_vaddrs, &effective_sym_table);
     t.tick("apply_relocs");
 
-    // S7-C5 — patch each member's __text in place against effective sym table.
-    let (member_text_payloads, non_text_payloads) =
-        member_text_payloads(&layout, &merged, &effective_sym_table)?;
-
-    t.tick("member_relocs");
     let data_non_text_payloads =
         collect_member_data_payloads(&layout, &merged, &data_rebase_link_values)?;
     t.tick("member_data_payloads");
 
+    // S7-C5 — each member's __text is patched in place in the output
+    // against the effective sym table.
+    let members = MemberText {
+        merged: &merged,
+        sym_table: &effective_sym_table,
+    };
     let bytes = emit_binary(
         cfg,
         &layout,
-        &member_text_payloads,
-        &non_text_payloads,
+        &members,
         &data_non_text_payloads,
         &resolved,
         &user_vtables_payload,
@@ -238,12 +238,11 @@ fn link(cfg: &LinkConfig, release: Release) -> Result<Vec<u8>, ArchiveLayoutErro
         &fn_name_table_payload,
         &class_name_table_payload,
         &user_regex_baked_payload,
-    );
+    )?;
     t.tick("emit_binary");
     if release == Release::AtExit {
         std::mem::forget((merged, cache, layout, effective_sym_table, resolved));
         std::mem::forget((stripped_cfg, derived_cfg, dead_rows));
-        std::mem::forget((member_text_payloads, non_text_payloads));
         std::mem::forget(data_non_text_payloads);
     }
     Ok(bytes)
@@ -255,8 +254,7 @@ fn link(cfg: &LinkConfig, release: Release) -> Result<Vec<u8>, ArchiveLayoutErro
 fn emit_binary(
     cfg: &LinkConfig,
     layout: &ArchiveLayout,
-    member_text_payloads: &[Vec<u8>],
-    non_text_payloads: &[Vec<u8>],
+    members: &MemberText<'_, '_>,
     data_non_text_payloads: &[Vec<u8>],
     resolved: &[crate::resolve::ResolvedFunction],
     user_vtables_payload: &[u8],
@@ -264,7 +262,7 @@ fn emit_binary(
     fn_name_table_payload: &[u8],
     class_name_table_payload: &[u8],
     user_regex_baked_payload: &[u8],
-) -> Vec<u8> {
+) -> Result<Vec<u8>, ArchiveLayoutError> {
     let meta = compute_emit_lc_meta(layout);
     let mut buf: Vec<u8> = Vec::with_capacity(layout.total_size as usize);
     let sect_addrs = write_header_and_load_commands(&mut buf, layout);
@@ -287,12 +285,12 @@ fn emit_binary(
 
     pad_to(&mut buf, layout.text_file_offset as usize);
 
-    write_text_payload(&mut buf, layout, resolved, member_text_payloads);
+    write_text_payload(&mut buf, layout, resolved, members)?;
 
     // Non-text section payloads + user-strings region + relative
     // vtables splice between member __texts and `__TEXT,__stubs`
     // (SD-4c-prereq-c / +e1 / r506).
-    crate::non_text_layout::write_non_text_payloads(&mut buf, layout, non_text_payloads);
+    members.write_non_text(&mut buf, layout)?;
     buf.extend_from_slice(&layout.user_strings_payload);
     // Hard gate, same rationale as the load-command one above: a
     // drift between the text plan and this splice would shift every
@@ -355,7 +353,7 @@ fn emit_binary(
         "emitted file size must match layout total"
     );
 
-    buf
+    Ok(buf)
 }
 
 /// Per-member `__DATA,*` placement slice (empty when the member has
@@ -742,11 +740,15 @@ mod tests {
         // Drive emit_binary directly — apply_relocs is happy
         // because cfg.sym_table covers `_malloc`.
         let resolved = apply_relocs(&cfg.funcs, &layout.fn_vaddrs, &cfg.sym_table);
+        let merged = merge_archive_indexes(&cfg.image).expect("merge");
+        let members = MemberText {
+            merged: &merged,
+            sym_table: &cfg.sym_table,
+        };
         let bytes = emit_binary(
             &cfg,
             &layout,
-            &[],
-            &[],
+            &members,
             &[],
             &resolved,
             &[],
@@ -754,7 +756,8 @@ mod tests {
             &[],
             &[],
             &[],
-        );
+        )
+        .expect("emit");
 
         assert_eq!(
             bytes.len() as u32,

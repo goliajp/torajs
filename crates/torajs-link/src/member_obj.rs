@@ -175,27 +175,29 @@ impl<'a> MemberObj<'a> {
 
     /// The payload of section `ord`.
     pub fn payload(&self, ord: u8) -> Vec<u8> {
+        let mut out = Vec::new();
+        self.payload_into(ord, &mut out);
+        out
+    }
+
+    /// Append the payload of section `ord` to `buf`.
+    pub fn payload_into(&self, ord: u8, buf: &mut Vec<u8>) {
         let k = usize::from(ord) - 1;
-        let (data, size) = (self.member.data, self.sections[k].size as usize);
-        let Some(cut) = &self.cut else {
-            let off = self.in_offs[k] as usize;
-            return data[off..off + size].to_vec();
-        };
-        let mut out = match cut.pass(ord) {
+        let (data, size, start) = (self.member.data, self.sections[k].size as usize, buf.len());
+        match self.cut.as_ref().and_then(|c| c.pass(ord)) {
             Some(p) => {
-                let mut out = vec![0u8; size];
+                buf.resize(start + size, 0);
                 for r in &p.runs {
                     let (src, len) = (p.in_off + r.old_start as usize, r.len as usize);
-                    out[r.new_start as usize..][..len].copy_from_slice(&data[src..src + len]);
+                    let at = start + r.new_start as usize;
+                    buf[at..at + len].copy_from_slice(&data[src..src + len]);
                 }
-                out
             }
-            None => data[self.in_offs[k] as usize..][..size].to_vec(),
-        };
-        for &(_, site, v) in cut.patches_of(ord) {
-            out[site as usize..][..8].copy_from_slice(&v.to_le_bytes());
+            None => buf.extend_from_slice(&data[self.in_offs[k] as usize..][..size]),
         }
-        out
+        for &(_, site, v) in self.cut.iter().flat_map(|c| c.patches_of(ord)) {
+            buf[start + site as usize..][..8].copy_from_slice(&v.to_le_bytes());
+        }
     }
 }
 

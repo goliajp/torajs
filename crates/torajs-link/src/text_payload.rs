@@ -21,7 +21,8 @@ use torajs_codegen::CompiledFunction;
 use torajs_codegen::reloc::{CallTarget, RelocKind};
 
 use crate::archive_emit::pad_to;
-use crate::archive_link::ArchiveLayout;
+use crate::archive_emit_members::MemberText;
+use crate::archive_link::{ArchiveLayout, ArchiveLayoutError};
 use crate::resolve::ResolvedFunction;
 
 /// One Apple Silicon fetch line.
@@ -82,27 +83,23 @@ pub(crate) fn write_text_payload(
     buf: &mut Vec<u8>,
     layout: &ArchiveLayout,
     resolved: &[ResolvedFunction],
-    member_text_payloads: &[Vec<u8>],
-) {
+    members: &MemberText<'_, '_>,
+) -> Result<(), ArchiveLayoutError> {
     let text_vmaddr = layout.text_vmaddr;
     for (r, &vaddr) in resolved.iter().zip(&layout.fn_vaddrs) {
         pad_to(buf, (vaddr - text_vmaddr) as usize);
         buf.extend_from_slice(&r.bytes);
     }
-    debug_assert_eq!(
-        member_text_payloads.len(),
-        layout.member_layouts.len(),
-        "patched payload count must match member_layouts",
-    );
     for (i, m) in layout.member_layouts.iter().enumerate() {
+        pad_to(buf, m.file_offset as usize);
+        members.write_text(buf, layout, i)?;
         debug_assert_eq!(
-            member_text_payloads[i].len() as u32,
-            m.text_size,
+            buf.len() as u32,
+            m.file_offset + m.text_size,
             "patched member __text size must match layout",
         );
-        pad_to(buf, m.file_offset as usize);
-        buf.extend_from_slice(&member_text_payloads[i]);
     }
+    Ok(())
 }
 
 #[cfg(test)]
