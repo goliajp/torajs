@@ -104,6 +104,8 @@ fn the_frame_layout_is_read_at_the_offsets_torajs_promise_lays_out() {
     assert_eq!(TAG_ASYNC_FRAME, Tag::AsyncFrame as u16);
     assert_eq!(cyc::TAG_ASYNC_FRAME, TAG_ASYNC_FRAME);
     assert_eq!(cyc::FRAME_DESC_OFF, offset_of!(AsyncFrame, desc));
+    assert_eq!(cyc::FRAME_DIRECT_OFF, offset_of!(AsyncFrame, direct));
+    assert_eq!(cyc::FRAME_COLLECTED, torajs_promise::frame::FRAME_COLLECTED);
     assert_eq!(cyc::FRAME_NEXT_OFF, offset_of!(AsyncFrame, next));
     assert_eq!(cyc::FRAME_AWAITING_OFF, offset_of!(AsyncFrame, awaiting));
     assert_eq!(cyc::DESC_DROP_OFF, offset_of!(FrameDesc, drop));

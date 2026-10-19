@@ -17,9 +17,9 @@ use core::ffi::c_void;
 use core::ptr;
 
 use crate::layout::{
-    CB_FRAME_TAG, CB_INLINE_TAG, MicrotaskFn, Promise, PromiseCb, REPR_ANY, STATE_FULFILLED,
-    STATE_PENDING, STATE_REJECTED, THROW_TAG_ANY_HEAP, THROW_TAG_I64, as_promise, frame_cell,
-    inline_cell, inline_link_derived, link_next,
+    CB_FRAME_TAG, CB_INLINE_TAG, MicrotaskFn, Promise, PromiseCb, REPR_ANY, REPR_F64, REPR_I64,
+    STATE_FULFILLED, STATE_PENDING, STATE_REJECTED, THROW_TAG_ANY_HEAP, THROW_TAG_I64, as_promise,
+    frame_cell, inline_cell, inline_link_derived, link_next,
 };
 
 unsafe extern "C" {
@@ -249,16 +249,31 @@ pub unsafe extern "C" fn __torajs_promise_get_value_as(p: *const c_void, want_re
         return v;
     }
     let repr = unsafe { (*(p as *const Promise)).value_repr };
+    if repr == want_repr as u8 {
+        return v;
+    }
     if want_repr == REPR_ANY as i64 {
         // Rc-neutral like the unbox below — the caller's cast takes
         // the stake. A cell that already holds a box answers it back
         // verbatim.
         return unsafe { crate::then_box::box_settled(repr, v) };
     }
-    if repr != REPR_ANY {
-        return v;
+    if repr == REPR_ANY {
+        return unsafe { crate::then_box::unbox_settled(want_repr as u8, v) };
     }
-    unsafe { crate::then_box::unbox_settled(want_repr as u8, v) }
+    other_width(repr, want_repr as u8, v)
+}
+
+/// A number settled at the other width than the reader's (a promise
+/// adopted from one whose resolver had its own) is converted; any
+/// other form is read as it is.
+#[cold]
+fn other_width(repr: u8, want: u8, v: i64) -> i64 {
+    match (repr, want) {
+        (REPR_I64, REPR_F64) => (v as f64).to_bits() as i64,
+        (REPR_F64, REPR_I64) => f64::from_bits(v as u64) as i64,
+        _ => v,
+    }
 }
 
 /// # Safety

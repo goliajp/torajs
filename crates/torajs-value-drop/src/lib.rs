@@ -273,9 +273,10 @@ pub unsafe extern "C" fn __torajs_value_drop_heap(child: *mut c_void) {
             // frame's own `desc.drop` row like the Closure arm below,
             // so a program that never makes a frame links nothing of it
             if __torajs_rc_dec(child) != 0 {
-                let desc = (child.cast::<u8>().add(FRAME_DESC_OFF) as *const *const usize).read();
-                let drop_fn: unsafe extern "C" fn(*mut c_void) =
-                    core::mem::transmute(desc.add(1).read());
+                // rows are relative to the desc (torajs-promise FrameDesc)
+                let desc = (child.cast::<u8>().add(FRAME_DESC_OFF) as *const *const i64).read();
+                let addr = (desc as i64).wrapping_add(desc.add(1).read()) as usize;
+                let drop_fn: unsafe extern "C" fn(*mut c_void) = core::mem::transmute(addr);
                 drop_fn(child);
             } else {
                 __torajs_cycle_buffer(child);

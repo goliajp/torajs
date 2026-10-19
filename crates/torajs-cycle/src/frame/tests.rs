@@ -43,16 +43,19 @@ unsafe extern "C" fn marks_dropped(p: *mut c_void) {
     unsafe { *(p as *mut u64).add(2) = 0xd0d0 };
 }
 
+/// The rows hold each function's address relative to the desc, as a
+/// linked one does.
 #[repr(C)]
-struct Desc([usize; 3]);
+struct Desc([i64; 3]);
 
 fn desc(traced: bool) -> Box<Desc> {
-    let t = if traced {
-        trace as *const () as usize
-    } else {
-        0
-    };
-    Box::new(Desc([0, marks_dropped as *const () as usize, t]))
+    let mut d = Box::new(Desc([0; 3]));
+    let base = &*d as *const Desc as i64;
+    d.0[1] = marks_dropped as *const () as i64 - base;
+    if traced {
+        d.0[2] = trace as *const () as i64 - base;
+    }
+    d
 }
 
 /// A frame cell long enough for two slots.
@@ -186,6 +189,8 @@ fn a_corpse_runs_its_drop_and_a_parked_one_reports_its_size() {
     let p = fp(&mut f);
     unsafe { frame_corpse_drop(p) };
     assert_eq!(f.0[2], 0xd0d0);
+    // the drop is told the collector frees the frame
+    assert_eq!(f.0[3] as i64, crate::frame::FRAME_COLLECTED);
     f.0[1] = 72;
     assert_eq!(unsafe { parked_frame_size(fp(&mut f)) }, 72);
 }

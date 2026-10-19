@@ -126,7 +126,8 @@ pub unsafe extern "C" fn __torajs_rc_dec(_p: *mut core::ffi::c_void) -> i32 {
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_value_drop_heap(p: *mut core::ffi::c_void) {
-    if p.is_null() {
+    // the real dispatcher's NaN-box gate: an immediate is no cell
+    if p.is_null() || (p as usize) >> 48 != 0 || (p as usize) & 2 != 0 {
         return;
     }
     match unsafe { (*(p as *const layout::HeapHeader)).type_tag } {

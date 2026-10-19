@@ -62,11 +62,19 @@ struct TestFrame {
     log: *mut Vec<(i64, i64)>,
 }
 
-static DESC: FrameDesc = FrameDesc {
-    resume: test_resume,
-    drop: test_drop,
-    trace: no_trace,
-};
+/// The test frames' desc, its rows relative to itself like a linked one.
+fn desc() -> *const FrameDesc {
+    static DESC: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *DESC.get_or_init(|| {
+        let row = Box::leak(Box::new(FrameDesc {
+            resume: 0,
+            drop: 0,
+            trace: 0,
+        })) as *mut FrameDesc;
+        unsafe { FrameDesc::fill(row, test_resume, test_drop, no_trace) };
+        row as usize
+    }) as *const FrameDesc
+}
 
 /// The collector is not linked here; nothing walks the frames.
 unsafe extern "C" fn no_trace(_: *mut c_void, _: TraceVisit, _: *mut c_void) {}
@@ -108,7 +116,7 @@ fn frame(id: i64, log: &mut Vec<(i64, i64)>) -> Box<TestFrame> {
                 type_tag: TAG_ASYNC_FRAME,
                 flags: 0,
             },
-            desc: &DESC,
+            desc: desc(),
             next: ptr::null_mut(),
             awaiting: ptr::null_mut(),
             result: unsafe { __torajs_frame_result_alloc(REPR_I64 as i64) },
@@ -382,5 +390,87 @@ fn the_result_is_stamped_with_the_body_return_form() {
             );
             __torajs_promise_drop(p);
         }
+    }
+}
+
+/// The body side: a landing after an await of no thenable, which
+/// returns `(id + state) * 10` boxed as an `any` number the way a
+/// compiled body returning a number does.
+unsafe extern "C" fn direct_resume(arg: i64) {
+    let t = arg as *mut TestFrame;
+    unsafe {
+        assert!(
+            (*t).f.awaiting.is_null(),
+            "an await of no thenable holds nothing"
+        );
+        (*(*t).log).push(((*t).id, (*t).f.state));
+        let boxed = NUMBER_BOX | (((*t).id + (*t).f.state) * 10);
+        body::__torajs_frame_return(t as *mut c_void, REPR_ANY as i64, boxed);
+    }
+}
+
+/// Not a cell to the NaN-box gate: the top 16 bits are set.
+const NUMBER_BOX: i64 = 0x7ffe_0000_0000_0000;
+
+fn direct_desc() -> *const FrameDesc {
+    static DESC: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *DESC.get_or_init(|| {
+        let row = Box::leak(Box::new(FrameDesc {
+            resume: 0,
+            drop: 0,
+            trace: 0,
+        })) as *mut FrameDesc;
+        unsafe { FrameDesc::fill(row, direct_resume, test_drop, no_trace) };
+        row as usize
+    }) as *const FrameDesc
+}
+
+#[test]
+fn a_direct_await_resumes_one_job_later_and_the_return_fulfills_the_result() {
+    let _s = serial();
+    let mut log = Vec::new();
+    let mut t = frame(4, &mut log);
+    t.f.desc = direct_desc();
+    let result = t.f.result;
+    unsafe {
+        rc_inc_cell(result);
+        body::__torajs_frame_await_direct(raw(&mut t));
+        assert!(log.is_empty(), "the resumption is a job");
+        __torajs_microtask_run_until_idle();
+        assert_eq!(log, vec![(4, 1)]);
+        assert!(t.dropped, "the return lets go of the frame");
+        assert_eq!(t.f.state, FRAME_STATE_DONE);
+        let rp = as_promise(result);
+        assert_eq!(
+            ((*rp).state, (*rp).value_repr, (*rp).value),
+            (crate::layout::STATE_FULFILLED, REPR_ANY, NUMBER_BOX | 50)
+        );
+        __torajs_promise_drop(result);
+    }
+}
+
+#[test]
+fn the_trace_reports_the_result_and_only_an_owned_awaiting() {
+    unsafe extern "C" fn count(_i: i64, child: *mut c_void, _slot: *mut c_void, ctx: *mut c_void) {
+        unsafe { (*(ctx as *mut Vec<usize>)).push(child as usize) };
+    }
+    let _s = serial();
+    let mut log = Vec::new();
+    let mut t = frame(1, &mut log);
+    let src = pending_source();
+    let mut seen: Vec<usize> = Vec::new();
+    let ctx = &mut seen as *mut Vec<usize> as *mut c_void;
+    unsafe {
+        t.f.awaiting = (src as usize | AWAITING_PARKED) as *mut c_void;
+        body::__torajs_frame_trace_links(raw(&mut t), count, ctx);
+        assert_eq!(seen, vec![t.f.result as usize], "parked: a back-pointer");
+        seen.clear();
+        t.f.awaiting = src;
+        body::__torajs_frame_trace_links(raw(&mut t), count, ctx);
+        assert_eq!(seen, vec![t.f.result as usize, src as usize]);
+        t.f.awaiting = ptr::null_mut();
+        __torajs_promise_drop(src);
+        __torajs_promise_drop(src);
+        __torajs_frame_release_links(raw(&mut t));
     }
 }

@@ -94,11 +94,19 @@ pub const FRAME_SIZE: usize = FRAME_HEADER_SIZE;
 /// Runs of [`drop_frame`].
 pub static DROPS: AtomicUsize = AtomicUsize::new(0);
 
-pub static DESC: FrameDesc = FrameDesc {
-    resume: no_resume,
-    drop: drop_frame,
-    trace: trace_frame,
-};
+/// The frames' desc, its rows relative to itself like a linked one.
+pub fn desc() -> *const FrameDesc {
+    static DESC: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *DESC.get_or_init(|| {
+        let row = Box::leak(Box::new(FrameDesc {
+            resume: 0,
+            drop: 0,
+            trace: 0,
+        })) as *mut FrameDesc;
+        unsafe { FrameDesc::fill(row, no_resume, drop_frame, trace_frame) };
+        row as usize
+    }) as *const FrameDesc
+}
 
 unsafe extern "C" {
     fn __torajs_malloc(size: usize) -> *mut c_void;
@@ -150,7 +158,7 @@ pub fn new_frame() -> *mut AsyncFrame {
                 type_tag: TAG_ASYNC_FRAME,
                 flags: 0,
             },
-            desc: &DESC,
+            desc: desc(),
             next: ptr::null_mut(),
             awaiting: ptr::null_mut(),
             result: __torajs_frame_result_alloc(REPR_I64 as i64),

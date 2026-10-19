@@ -88,19 +88,27 @@ pub const FRAME_STATE_DONE: i64 = -1;
 pub const AWAITING_PARKED: usize = 1;
 
 /// The frame's trace, in the closure trace ABI: it reports `result`,
-/// `awaiting` when it is owned (bit [`AWAITING_PARKED`] clear), and
-/// the slots the current suspension point keeps live, each with the
-/// address of the word holding it. The cycle collector walks and
-/// clears a frame through it alone.
+/// `awaiting` when it is owned (bit [`AWAITING_PARKED`] clear), the
+/// parameter words the frame holds, and, while the frame is parked,
+/// the words its suspension point keeps (what the body owns there),
+/// each with the address of the word holding it. The cycle collector
+/// walks and clears a frame through it alone.
 pub type FrameTrace = unsafe extern "C" fn(*mut c_void, TraceVisit, *mut c_void);
 
-/// One per async function, in read-only data.
+/// One per async function, in read-only data next to the code. Each
+/// row holds its function's address relative to the desc (the
+/// relative vtable shape: both are link-time constants of one image,
+/// so the slide cancels and the table needs no load-time fixup); read
+/// them through [`desc_resume`] and [`desc_drop`] (torajs-cycle reads
+/// `trace` the same way).
 #[repr(C)]
 pub struct FrameDesc {
     /// Re-enters the body at the point `state` names.
-    pub resume: MicrotaskFn,
+    pub resume: i64,
     /// Releases what the frame owns at its `state` and frees it; runs
     /// once the last reference is gone, with no rc gate of its own.
+    /// A frame left at a suspension point is first unwound through its
+    /// body (`body`: [`__torajs_frame_unwind`]).
     /// It releases `result` and an owned `awaiting` through
     /// [`__torajs_frame_release_links`]. A frame the cycle collector
     /// holds as a candidate root (`FLAG_BUFFERED` in its header) is
@@ -110,9 +118,68 @@ pub struct FrameDesc {
     /// block later by that size. That is the closure env's ending,
     /// `emit_env_free_or_defer` in torajs-core, with the size word's
     /// offset made a parameter.
-    pub drop: unsafe extern "C" fn(*mut c_void),
+    pub drop: i64,
     /// Every frame has one, never 0: its `result` is always an edge.
-    pub trace: FrameTrace,
+    pub trace: i64,
+}
+
+impl FrameDesc {
+    /// Write the three rows of the desc at `row` for the given
+    /// functions, each relative to `row`, as the link lays out a
+    /// compiled one.
+    ///
+    /// # Safety
+    /// `row` is writable and stays put while frames use it.
+    pub unsafe fn fill(
+        row: *mut FrameDesc,
+        resume: MicrotaskFn,
+        drop: unsafe extern "C" fn(*mut c_void),
+        trace: FrameTrace,
+    ) {
+        let base = row as i64;
+        unsafe {
+            (*row).resume = resume as usize as i64 - base;
+            (*row).drop = drop as usize as i64 - base;
+            (*row).trace = trace as usize as i64 - base;
+        }
+    }
+}
+
+#[inline(always)]
+unsafe fn desc_addr(desc: *const FrameDesc, rel: i64) -> usize {
+    (desc as i64).wrapping_add(rel) as usize
+}
+
+/// The resume function `desc` names.
+///
+/// # Safety
+/// `desc` is a frame descriptor.
+#[inline(always)]
+pub unsafe fn desc_resume(desc: *const FrameDesc) -> MicrotaskFn {
+    unsafe { core::mem::transmute::<usize, MicrotaskFn>(desc_addr(desc, (*desc).resume)) }
+}
+
+/// The drop function `desc` names.
+///
+/// # Safety
+/// `desc` is a frame descriptor.
+#[inline(always)]
+pub unsafe fn desc_drop(desc: *const FrameDesc) -> unsafe extern "C" fn(*mut c_void) {
+    unsafe {
+        core::mem::transmute::<usize, unsafe extern "C" fn(*mut c_void)>(desc_addr(
+            desc,
+            (*desc).drop,
+        ))
+    }
+}
+
+/// The trace function `desc` names.
+///
+/// # Safety
+/// `desc` is a frame descriptor.
+#[inline(always)]
+pub unsafe fn desc_trace(desc: *const FrameDesc) -> FrameTrace {
+    unsafe { core::mem::transmute::<usize, FrameTrace>(desc_addr(desc, (*desc).trace)) }
 }
 
 #[repr(C)]
@@ -180,7 +247,7 @@ pub unsafe extern "C" fn __torajs_frame_await_promise(frame: *mut c_void, src: *
         (*sp).has_handler = 1;
         if (*sp).state != STATE_PENDING {
             (*f).awaiting = src;
-            __torajs_microtask_enqueue((*(*f).desc).resume, frame as i64);
+            __torajs_microtask_enqueue(desc_resume((*f).desc), frame as i64);
             return;
         }
         (*f).awaiting = (src as usize | AWAITING_PARKED) as *mut c_void;
@@ -190,18 +257,6 @@ pub unsafe extern "C" fn __torajs_frame_await_promise(frame: *mut c_void, src: *
         // now has an edge out
         crate::reaction::candidate::mark_list_edge(sp);
         __torajs_promise_drop(src);
-    }
-}
-
-/// The body raised: reject the result with the pending throw. Answers
-/// nothing; a call with no throw pending does nothing.
-///
-/// # Safety
-/// `frame` is a live frame.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_frame_reject_pending(frame: *mut c_void) {
-    unsafe {
-        crate::then_box::reject_on_pending_throw((*(frame as *mut AsyncFrame)).result);
     }
 }
 
@@ -219,7 +274,7 @@ pub unsafe extern "C" fn __torajs_frame_drop(frame: *mut c_void) {
 unsafe fn release(frame: *mut AsyncFrame) {
     unsafe {
         if rc_dec_cell(frame as *mut c_void) {
-            ((*(*frame).desc).drop)(frame as *mut c_void);
+            desc_drop((*frame).desc)(frame as *mut c_void);
         } else {
             __torajs_cycle_buffer(frame as *mut c_void);
         }
@@ -258,7 +313,7 @@ pub(crate) unsafe fn queue_frame(source: *mut Promise, frame: *mut AsyncFrame) {
         (*frame).next = ptr::null_mut();
         (*frame).awaiting = source as *mut c_void;
         rc_inc_cell(source as *mut c_void);
-        __torajs_microtask_enqueue((*(*frame).desc).resume, frame as i64);
+        __torajs_microtask_enqueue(desc_resume((*frame).desc), frame as i64);
     }
 }
 
@@ -274,6 +329,9 @@ pub(crate) unsafe fn source_died(frame: *mut AsyncFrame) {
         __torajs_value_drop_heap(frame as *mut c_void);
     }
 }
+
+mod body;
+pub use body::{__torajs_frame_unwind, FRAME_CANCELLED, FRAME_COLLECTED, TRACE_STATE_WORD};
 
 #[cfg(test)]
 mod tests;
