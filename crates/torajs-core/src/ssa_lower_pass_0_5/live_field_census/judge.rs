@@ -10,8 +10,8 @@ use crate::check::Type;
 
 use super::disc::Discs;
 use super::scope::Owner;
-use super::walk::{collect_super_args, derives_from, pointer_shaped};
-use super::{Census, ExprMask, Live, LiveFields, THIS};
+use super::walk::{collect_super_args, pointer_shaped};
+use super::{Census, ExprMask, Live, THIS};
 
 /// A read or a constructor parameter met again on the way, judged by
 /// its other sources.
@@ -29,15 +29,7 @@ impl<'a> Census<'a> {
     /// reaches a field.
     pub(super) fn solve(&self, fields_open: bool) -> Live {
         let construct_args = self.construct_sites();
-        let mut live: HashSet<(&str, &str)> = if fields_open {
-            (self.prefix.iter())
-                .filter(|w| !self.foreign_classes.contains(w.class))
-                .filter(|w| self.field_type_live(w.class, w.field))
-                .map(|w| (w.class, w.field))
-                .collect()
-        } else {
-            HashSet::default()
-        };
+        let mut live = self.candidate_fields(fields_open);
         let mut live_fns: HashSet<&str> = self.fns.keys().copied().collect();
         let judged = self.judged_params();
         let mut entry = self.entry_checked(&judged);
@@ -92,24 +84,26 @@ impl<'a> Census<'a> {
             live_fns = next_fns;
             live_params = next_params;
         };
-        // a derived class reads the field through its own class name
-        let mut fields: LiveFields = (live.iter())
-            .map(|(c, f)| (c.to_string(), f.to_string()))
-            .collect();
-        for (class, field) in &live {
-            for d in self.ast.class_parents.keys() {
-                if derives_from(self.ast, d, class) && !self.foreign_classes.contains(d.as_str()) {
-                    fields.insert((d.clone(), field.to_string()));
-                }
-            }
-        }
         let entry = self.entry_calls(&entry);
         Live {
-            fields,
+            fields: self.with_derived(&live),
             unproven,
             members,
             entry,
         }
+    }
+
+    /// The fields the fixed point starts from: every prefix write of a
+    /// field declared non-nullable and pointer-shaped.
+    fn candidate_fields(&self, fields_open: bool) -> HashSet<(&'a str, &'a str)> {
+        if !fields_open {
+            return HashSet::default();
+        }
+        (self.prefix.iter())
+            .filter(|w| !self.foreign_classes.contains(w.class))
+            .filter(|w| self.field_type_live(w.class, w.field))
+            .map(|w| (w.class, w.field))
+            .collect()
     }
 
     /// `new C(..)` and `super(..)` argument lists, by class: `super(..)`

@@ -83,35 +83,7 @@ impl Scan<'_> {
                     f |= UNDEF;
                 }
             }
-            Expr::Member { obj, name } => {
-                // a field of a pointer-shaped type is seeded with the
-                // undefined cell until something writes it
-                if ty.is_some_and(spells_undef_with_generic_cell) {
-                    f |= UNDEF;
-                }
-                if name == "description" && matches!(self.expr_types.get(obj), Some(Type::Symbol)) {
-                    f |= UNDEF;
-                }
-                if self
-                    .widths
-                    .sentinel_fields()
-                    .contains(torajs_wtf8::Wtf8::new(name))
-                {
-                    f |= UNDEF;
-                }
-                if name == "value"
-                    && let Some(Type::Promise(inner)) = self.expr_types.get(obj)
-                    && (**inner == Type::String || spells_undef_with_generic_cell(inner))
-                {
-                    f |= UNDEF;
-                }
-                if let Expr::Member { obj: inner, name } = self.ast.get_expr(*obj)
-                    && name == "env"
-                    && matches!(self.ast.get_expr(*inner), Expr::Ident(n) if n == "process")
-                {
-                    f |= UNDEF;
-                }
-            }
+            Expr::Member { obj, name } if self.member_can_miss(ty, *obj, name) => f |= UNDEF,
             Expr::OptChain { .. } => {
                 if ty.is_some_and(spells_undef_with_generic_cell) {
                     f |= UNDEF;
@@ -142,6 +114,22 @@ impl Scan<'_> {
             _ => {}
         }
         f
+    }
+
+    /// A member read of `name` off `obj`, of type `ty`, that can answer
+    /// `undefined`.
+    fn member_can_miss(&self, ty: Option<&Type>, obj: ExprId, name: &str) -> bool {
+        // a field of a pointer-shaped type is seeded with the undefined
+        // cell until something writes it
+        ty.is_some_and(spells_undef_with_generic_cell)
+            || (name == "description" && matches!(self.expr_types.get(&obj), Some(Type::Symbol)))
+            || (self.widths.sentinel_fields()).contains(torajs_wtf8::Wtf8::new(name))
+            || (name == "value"
+                && matches!(self.expr_types.get(&obj), Some(Type::Promise(inner))
+                    if **inner == Type::String || spells_undef_with_generic_cell(inner)))
+            || matches!(self.ast.get_expr(obj), Expr::Member { obj: inner, name }
+                if name == "env"
+                    && matches!(self.ast.get_expr(*inner), Expr::Ident(n) if n == "process"))
     }
 
     /// An element read that can answer `undefined`: past the end of an

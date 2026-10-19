@@ -112,9 +112,15 @@ pub(crate) fn compute_may_throw_fns(
     if props_run_code {
         may_throw.extend(nonint_readers);
     }
+    close_over_calls(&mut may_throw, &decl_throw_info);
+    (may_throw, props_run_code)
+}
+
+/// Adds every fn that calls a may-throw fn, until nothing changes.
+fn close_over_calls(may_throw: &mut HashSet<String>, decls: &[(String, bool, Vec<String>)]) {
     loop {
         let mut grew = false;
-        for (name, _direct, called) in &decl_throw_info {
+        for (name, _direct, called) in decls {
             if may_throw.contains(name) {
                 continue;
             }
@@ -130,7 +136,6 @@ pub(crate) fn compute_may_throw_fns(
             break;
         }
     }
-    (may_throw, props_run_code)
 }
 
 /// A non-integral keyed read raises only where some named property on

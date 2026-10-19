@@ -266,23 +266,7 @@ pub(crate) fn is_undefable_heap_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool 
         // does — the mirror of `is_undef_f64_source`'s Index arm, for
         // the element families that have a cell to answer with.
         Expr::Index { obj, .. } | Expr::OptIndex { obj, .. } => heap_elem_array(ctx, *obj),
-        Expr::Call { callee, .. } => {
-            matches!(
-                ctx.ast.get_expr(*callee),
-                // `pop` / `shift` on an empty array answer undefined the
-                // same way a miss does, and `at` is here because it takes
-                // the same out-of-range exit under another spelling. A
-                // pointer-shaped element slot spells it with the generic
-                // immortal cell.
-                Expr::Member { obj, name } if matches!(name.as_str(), "find" | "findLast" | "pop" | "shift" | "at")
-                    && heap_elem_array(ctx, *obj)
-            )
-            // 403-03 — a call whose callee's fn-typed return was
-            // upgraded from an `any` binding (`effective_ret_ty`):
-            // coerce_to_ret answers the sentinel for a non-callable
-            // box, so calling the RESULT must arm the guard.
-            || ret_upgraded_from_any_binding(ctx, *callee)
-        }
+        Expr::Call { callee, .. } => call_answers_cell(ctx, *callee),
         // A field read. The class factory seeds a field of one of these
         // types with that same immortal cell (`default_init_for_type`),
         // and it stays there until something writes the field — so a
@@ -307,6 +291,25 @@ pub(crate) fn is_undefable_heap_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool 
         Expr::As { expr, .. } => is_undefable_heap_source(ctx, *expr),
         _ => false,
     }
+}
+
+/// A call through `callee` may answer the generic immortal cell.
+fn call_answers_cell(ctx: &LowerCtx<'_>, callee: ExprId) -> bool {
+    matches!(
+        ctx.ast.get_expr(callee),
+        // `pop` / `shift` on an empty array answer undefined the
+        // same way a miss does, and `at` is here because it takes
+        // the same out-of-range exit under another spelling. A
+        // pointer-shaped element slot spells it with the generic
+        // immortal cell.
+        Expr::Member { obj, name } if matches!(name.as_str(), "find" | "findLast" | "pop" | "shift" | "at")
+            && heap_elem_array(ctx, *obj)
+    )
+    // 403-03 — a call whose callee's fn-typed return was
+    // upgraded from an `any` binding (`effective_ret_ty`):
+    // coerce_to_ret answers the sentinel for a non-callable
+    // box, so calling the RESULT must arm the guard.
+    || ret_upgraded_from_any_binding(ctx, callee)
 }
 
 /// `true` when this expression's value may be the generic immortal

@@ -206,6 +206,21 @@ pub(crate) fn lower(
     close_body_scope(ctx, step_blk, body_open_at_end);
 
     ctx.cur_block = step_blk;
+    emit_index_step(ctx, i_slot, header);
+
+    ctx.cur_block = after;
+    let i_frame = ctx.scope_stack.pop().expect("for-of i scope");
+    let i_shadows = ctx.shadow_stack.pop().expect("shadow frame");
+    for n in &i_frame {
+        ctx.locals.remove(n);
+    }
+    for (n, prev) in i_shadows {
+        ctx.locals.insert(n, prev);
+    }
+}
+
+/// The loop's step block: `i += 1`, then back to the `header` test.
+fn emit_index_step(ctx: &mut LowerCtx, i_slot: crate::ssa::ValueId, header: crate::ssa::BlockId) {
     let i_cur = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Load(Type::I64, Operand::Value(i_slot), 0),
@@ -223,16 +238,6 @@ pub(crate) fn lower(
         InstKind::Store(Operand::Value(i_next), Operand::Value(i_slot), 0),
     );
     ctx.f.set_term(ctx.cur_block, Terminator::Br(header));
-
-    ctx.cur_block = after;
-    let i_frame = ctx.scope_stack.pop().expect("for-of i scope");
-    let i_shadows = ctx.shadow_stack.pop().expect("shadow frame");
-    for n in &i_frame {
-        ctx.locals.remove(n);
-    }
-    for (n, prev) in i_shadows {
-        ctx.locals.insert(n, prev);
-    }
 }
 
 /// Register `name` in the innermost scope frame, shadow-saving any
