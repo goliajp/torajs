@@ -7,10 +7,9 @@
 //! ordinarily, so a hook answering a cyclic structure lands on the
 //! recursion cap's TypeError like any other cycle.
 //!
-//! Recorded boundaries: the spec's `key` argument is not passed
-//! (callers that read it are rare); struct-lane cells and BigInt
-//! receivers don't consult the hook (the dynobj lane is where
-//! test262's `obj.toJSON = fn` expando shape lands).
+//! The hook receives the property key the value sits under as its
+//! one argument (§25.5.2.2 step 2.b.i), minted only when a hook runs.
+//! BigInt receivers don't consult the hook.
 
 use core::ffi::c_void;
 use core::sync::atomic::{AtomicPtr, Ordering};
@@ -32,9 +31,35 @@ unsafe extern "C" {
     fn __torajs_dynobj_iter_len(obj: *const c_void) -> u64;
     fn __torajs_dynobj_iter_key(obj: *const c_void, i: u64) -> *mut c_void;
     fn __torajs_dynobj_iter_value(obj: *const c_void, i: u64) -> u64;
-    fn __torajs_dynobj_iter_order(obj: *const c_void, out: *mut u64, cap: u64) -> u64;
 
     fn __torajs_str_alloc_ascii(p: *const u8, n: i64) -> *mut u8;
+    fn __torajs_str_alloc(src: *const u8, len: i64) -> *mut u8;
+}
+
+/// The §25.5.2.2 property key a value is serialized under — the
+/// argument its `toJSON` hook is called with.
+#[derive(Clone, Copy)]
+pub(crate) enum HookKey {
+    /// A live Str cell the walk holds (borrowed).
+    Str(*mut c_void),
+    /// An array element's index, `! ToString(𝔽(index))`.
+    Index(i64),
+    /// A name known as raw bytes: a struct layout's field, or the
+    /// root's empty key (§25.5.2 step 11).
+    Named(*const u8, usize),
+}
+
+impl HookKey {
+    /// The key as a Str cell, and whether the caller owns it.
+    unsafe fn cell(self) -> (*mut c_void, bool) {
+        unsafe {
+            match self {
+                HookKey::Str(k) => (k, false),
+                HookKey::Index(i) => (crate::__torajs_f64_to_str(i as f64), true),
+                HookKey::Named(p, n) => (__torajs_str_alloc(p, n as i64).cast(), true),
+            }
+        }
+    }
 }
 
 /// The interned `"toJSON"` key the struct arm reads with. Minted
@@ -91,12 +116,13 @@ unsafe fn struct_tojson_entry(recv: AnyValue) -> Option<AnyValue> {
 }
 
 /// Apply the toJSON hook to `v` if it is a DynObj with a callable
-/// own `toJSON`. `Some(result)` is OWNED (the invoke convention) —
+/// own `toJSON`, calling it with `key`. `Some(result)` is OWNED (the
+/// invoke convention) —
 /// the caller serializes it and releases; `None` means no hook, walk
 /// `v` as-is. A pending throw from the hook body surfaces through
 /// the caller's throw-check with `Some(VALUE_UNDEFINED)`-shaped
 /// result — callers check the throw flag right after.
-pub(crate) unsafe fn apply_tojson(v: AnyValue) -> Option<AnyValue> {
+pub(crate) unsafe fn apply_tojson(v: AnyValue, key: HookKey) -> Option<AnyValue> {
     unsafe {
         if !is_cell(v) {
             return None;
@@ -149,15 +175,16 @@ pub(crate) unsafe fn apply_tojson(v: AnyValue) -> Option<AnyValue> {
         if !is_cell(entry) {
             return None;
         }
+        call_hook(entry, ptr, key)
+    }
+}
+
+/// Call the hook `entry` with the object at `ptr` as `this` and `key`
+/// as its one argument; None when `entry` is not callable.
+unsafe fn call_hook(entry: AnyValue, ptr: *mut c_void, key: HookKey) -> Option<AnyValue> {
+    unsafe {
         let this_box = crate::nanbox_encode::__torajs_anyv_box_from_pair(4, ptr as i64);
-        if let Some(target) = crate::method_call_closure::call_target(as_void_ptr(entry)) {
-            return Some(crate::method_call_closure::dispatch(
-                &target,
-                this_box,
-                core::ptr::null(),
-                0,
-            ));
-        }
+        let target = crate::method_call_closure::call_target(as_void_ptr(entry));
         // §25.5.2.3 step 2 asks IsCallable, and `call_target`
         // answers a narrower question: which closure-shaped lane
         // drives this cell. The other two shapes §7.2.3 names have
@@ -172,46 +199,43 @@ pub(crate) unsafe fn apply_tojson(v: AnyValue) -> Option<AnyValue> {
         // runs the `apply` trap for a proxy), so the fallback is
         // that one. The lane above is untouched, so no hook that
         // works today changes route.
-        if !crate::construct::is_callable(entry) {
+        if target.is_none() && !crate::construct::is_callable(entry) {
             return None;
         }
-        Some(
-            crate::method_call_closure_dispatch::__torajs_any_call_with_this(
+        let (cell, owned) = key.cell();
+        let argv = [crate::nanbox::box_void_ptr(cell)];
+        let r = match target {
+            Some(t) => crate::method_call_closure::dispatch(&t, this_box, argv.as_ptr(), 1),
+            None => crate::method_call_closure_dispatch::__torajs_any_call_with_this(
                 entry,
                 this_box,
-                core::ptr::null(),
-                0,
+                argv.as_ptr(),
+                1,
             ),
-        )
+        };
+        if owned {
+            crate::__torajs_str_drop(cell);
+        }
+        Some(r)
     }
 }
 
 /// The own `toJSON` entry's value, by key-byte comparison over the
-/// live insertion-order walk (`iter_order` filters tombstones — a
-/// raw index scan would resurrect a deleted `toJSON`). No Str cell
-/// to mint, and serialization is already O(entries).
+/// dense entries. A deleted entry reads as a hole (NULL key) and a
+/// symbol key names no string property, so neither can match; the
+/// enumeration order does not matter for a single name. No Str cell to
+/// mint and nothing to allocate.
 unsafe fn find_tojson_entry(obj: *const c_void) -> Option<AnyValue> {
     unsafe {
-        let len = __torajs_dynobj_iter_len(obj);
-        if len == 0 {
-            return None;
-        }
-        let layout = core::alloc::Layout::from_size_align(len as usize * 8, 8).ok()?;
-        let order = std::alloc::alloc_zeroed(layout) as *mut u64;
-        let n = __torajs_dynobj_iter_order(obj, order, len);
-        let mut found = None;
-        for j in 0..n {
-            let i = *order.add(j as usize);
+        for i in 0..__torajs_dynobj_iter_len(obj) {
             let key = __torajs_dynobj_iter_key(obj, i);
-            if key.is_null() {
-                continue;
-            }
-            if key_bytes(key).as_bytes() == b"toJSON" {
-                found = Some(__torajs_dynobj_iter_value(obj, i));
-                break;
+            if !key.is_null()
+                && (key.cast::<u8>().add(4) as *const u16).read() != Tag::Symbol as u16
+                && key_bytes(key).as_bytes() == b"toJSON"
+            {
+                return Some(__torajs_dynobj_iter_value(obj, i));
             }
         }
-        std::alloc::dealloc(order as *mut u8, layout);
-        found
+        None
     }
 }

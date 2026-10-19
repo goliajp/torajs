@@ -1,0 +1,14 @@
+{"p":[1,"p"]}
+"1:string:"
+{"first":"1:string:first","second key":"1:string:second key"}
+["1:string:0",1,"1:string:2"]
+{"outer":[{"inner":"1:string:inner"}]}
+{"a":"1:string:a"}
+{
+ "a": "1:string:a",
+ "b": 2
+}
+{"r":"1:string:r"}
+{"x":1}
+{"y":2}
+{"back":"1:string:back"}

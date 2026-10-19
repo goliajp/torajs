@@ -38,11 +38,11 @@ mod struct_expando;
 
 use replacer::St;
 
-use crate::member_set::STR_LEN_OFF;
 use crate::nanbox::{
     AnyValue, as_bool, as_double, as_int32, as_void_ptr, box_double, box_void_ptr, is_bool,
     is_cell, is_double, is_int32, is_null, is_short_str, is_undefined,
 };
+use crate::{json_stringify_tojson::*, member_set::STR_LEN_OFF};
 
 /// torajs-dynobj `layout::BUCKET_FLAG_ENUMERABLE` mirror — a
 /// non-enumerable own entry is not serialized (§25.5.2 walks
@@ -176,7 +176,7 @@ unsafe fn stringify_state(v: AnyValue, st: &St, depth: u32) -> *mut u8 {
         // §25.5.2.3 step 2 — the top-level value consults the user
         // toJSON hook before walking (rotation 205), and step 3 then
         // offers the result to the replacer.
-        let (v, owned) = match crate::json_stringify_tojson::apply_tojson(v) {
+        let (v, owned) = match apply_tojson(v, HookKey::Named(b"".as_ptr(), 0)) {
             Some(r) => (r, true),
             None => (v, false),
         };
@@ -382,7 +382,7 @@ unsafe fn write_array(sb: *mut c_void, ptr: *mut c_void, depth: u32, st: &St) {
             push_indent(sb, depth + 1, st);
             let mut elem = crate::index_any::__torajs_any_index_get(boxed, i);
             // §25.5.2.3 step 2 — element-level toJSON hook.
-            if let Some(r) = crate::json_stringify_tojson::apply_tojson(elem) {
+            if let Some(r) = apply_tojson(elem, HookKey::Index(i)) {
                 crate::nanbox_ffi::__torajs_anyv_rc_dec(elem);
                 elem = r;
                 if __torajs_throw_check() != 0 {

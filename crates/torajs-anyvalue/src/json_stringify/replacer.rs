@@ -228,7 +228,7 @@ pub(super) unsafe fn write_object_list(sb: *mut c_void, holder: AnyValue, depth:
             // own-name walks apply it. Step 3 is unreachable here:
             // step 4 makes a PropertyList and a ReplacerFunction
             // mutually exclusive.
-            if let Some(r) = crate::json_stringify_tojson::apply_tojson(value) {
+            if let Some(r) = apply_tojson(value, HookKey::Str(key)) {
                 crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
                 value = r;
                 if __torajs_throw_check() != 0 {

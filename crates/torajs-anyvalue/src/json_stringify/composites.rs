@@ -130,7 +130,7 @@ pub(super) unsafe fn write_entry(
             }
         }
         // §25.5.2.3 step 2 — field-level toJSON hook.
-        if let Some(r) = crate::json_stringify_tojson::apply_tojson(value) {
+        if let Some(r) = apply_tojson(value, HookKey::Str(key)) {
             if owned {
                 crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
             }
@@ -308,7 +308,7 @@ unsafe fn write_struct_row(
         // An accessor's [[Get]] result arrives OWNED — the
         // same ledger the hook result rides.
         let mut hook_owned = is_accessor;
-        if let Some(r) = crate::json_stringify_tojson::apply_tojson(value) {
+        if let Some(r) = apply_tojson(value, HookKey::Named(name.ptr, name.len)) {
             if hook_owned {
                 crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
             }
