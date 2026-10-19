@@ -83,6 +83,8 @@ mod dead_strip_reach_resolve;
 mod dead_strip_reach_table;
 mod dead_strip_repack;
 mod dead_strip_rewrite;
+mod dead_strip_rewrite_sections;
+mod dead_strip_rewrite_tables;
 mod dead_strip_who;
 pub(crate) mod defined_extern_resolve;
 pub mod dyld_emit;

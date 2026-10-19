@@ -21,9 +21,8 @@ use crate::archive_link_extra_syms::collect_extra_defined_syms;
 use crate::archives_merge::{MergedArchives, compute_required_members_cached};
 use crate::dead_strip_reach::{MemberReach, SectAtoms, compute_reachability};
 use crate::dead_strip_reach_cache::ReachCache;
-use crate::dead_strip_rewrite::{
-    DeadRowPlacement, StrippedMember, scan_load_commands, strip_member_section,
-};
+use crate::dead_strip_rewrite::{DeadRowPlacement, StrippedMember, scan_load_commands};
+use crate::dead_strip_rewrite_sections::{SectionCut, strip_sections};
 use crate::exec::{LinkConfig, UserClassLayoutEntry, UserFnNameEntry};
 use crate::phase_timer::PhaseTimer;
 
@@ -139,40 +138,39 @@ fn strippable(sa: &SectAtoms) -> bool {
     ) && sa.live.iter().any(|&l| !l)
 }
 
-/// Apply the per-section rewriter once for every eligible section
-/// of one member, threading each pass's output into the next (the
-/// rewriter re-scans load commands, so it always sees the previous
-/// pass's shifted headers). Atom ranges are handed over
-/// section-relative — relative offsets survive earlier passes;
-/// absolute reach addresses do not.
+/// Rewrite one member against every eligible section's live atoms,
+/// handed over section-relative (the rewrite shifts sections; offsets
+/// within a section survive, absolute reach addresses do not).
 pub(crate) fn strip_member(
     bytes: &[u8],
     reach: &MemberReach<'_>,
     dead_at: DeadRowPlacement,
 ) -> Result<Option<StrippedMember>, String> {
-    let mut cur: Option<Vec<u8>> = None;
-    let mut dead_rows: Vec<u32> = Vec::new();
-    for (i, sa) in reach.sects.iter().enumerate() {
-        if !strippable(sa) {
-            continue;
-        }
-        let atoms_rel: Vec<(u64, u64)> = sa
-            .atoms
-            .iter()
-            .map(|&(s, e)| (s - sa.addr, e - sa.addr))
-            .collect();
-        let b = cur.as_deref().unwrap_or(bytes);
-        if let Some(next) = strip_member_section(b, (i + 1) as u8, &atoms_rel, &sa.live, dead_at)? {
-            cur = Some(next.bytes);
-            dead_rows.extend(next.dead_rows);
-        }
-    }
+    let eligible: Vec<(u8, Vec<(u64, u64)>, &[bool])> = reach
+        .sects
+        .iter()
+        .enumerate()
+        .filter(|(_, sa)| strippable(sa))
+        .map(|(i, sa)| {
+            let atoms_rel = sa.atoms.iter().map(|&(s, e)| (s - sa.addr, e - sa.addr));
+            ((i + 1) as u8, atoms_rel.collect(), &sa.live[..])
+        })
+        .collect();
+    let cuts: Vec<SectionCut<'_>> = eligible
+        .iter()
+        .map(|(ord, atoms_rel, live)| SectionCut {
+            ord: *ord,
+            atoms_rel,
+            live,
+        })
+        .collect();
+    let cut = strip_sections(bytes, &cuts, dead_at)?;
     // S2 blade 3 dead-undef cleanup: with the dead reloc sites gone,
     // clear N_EXT on undef nlist rows nothing references any more.
-    let stripped = cur.is_some();
-    let mut out = match cur {
-        Some(v) => v,
-        None => bytes.to_vec(),
+    let stripped = cut.is_some();
+    let (mut out, dead_rows) = match cut {
+        Some(m) => (m.bytes, m.dead_rows),
+        None => (bytes.to_vec(), Vec::new()),
     };
     let neutered = neuter_dead_undefs(&mut out)?;
     if !stripped && neutered == 0 {
