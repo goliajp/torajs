@@ -181,21 +181,25 @@ pub(crate) fn decode_reloc_table(
         });
     }
 
-    let mut out: Vec<MemberRelocEntry> = Vec::with_capacity(nreloc as usize);
-    for i in 0..nreloc as usize {
-        let off = start + i * RELOCATION_INFO_SIZE as usize;
-        let r_address = u32::from_le_bytes(bytes[off..off + 4].try_into().unwrap());
-        let packed = u32::from_le_bytes(bytes[off + 4..off + 8].try_into().unwrap());
-        out.push(MemberRelocEntry {
-            r_address,
-            r_symbolnum: packed & 0x00FF_FFFF,
-            r_pcrel: ((packed >> 24) & 0b1) as u8,
-            r_length: ((packed >> 25) & 0b11) as u8,
-            r_extern: ((packed >> 27) & 0b1) as u8,
-            r_type: ((packed >> 28) & 0b1111) as u8,
-        });
+    Ok(bytes[start..end]
+        .as_chunks::<8>()
+        .0
+        .iter()
+        .map(decode_reloc_entry)
+        .collect())
+}
+
+/// One `relocation_info` entry.
+pub(crate) fn decode_reloc_entry(e: &[u8; 8]) -> MemberRelocEntry {
+    let packed = u32::from_le_bytes(e[4..8].try_into().unwrap());
+    MemberRelocEntry {
+        r_address: u32::from_le_bytes(e[0..4].try_into().unwrap()),
+        r_symbolnum: packed & 0x00FF_FFFF,
+        r_pcrel: ((packed >> 24) & 0b1) as u8,
+        r_length: ((packed >> 25) & 0b11) as u8,
+        r_extern: ((packed >> 27) & 0b1) as u8,
+        r_type: ((packed >> 28) & 0b1111) as u8,
     }
-    Ok(out)
 }
 
 /// 16-byte name-field comparison — returns true iff the slot's

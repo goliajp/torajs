@@ -14,7 +14,7 @@ use crate::class_name_table_layout::{
 use crate::data_section_emit::write_data_non_text_file_payloads;
 use crate::data_section_layout::DataSectionLayout;
 use crate::dead_strip_reach_cache::ReachCache;
-use crate::dead_strip_repack::{DeadRows, StrippedMembers, rewritten_config, swap_in_stripped};
+use crate::dead_strip_repack::{DeadRows, StrippedMembers, install_cuts, rewritten_config};
 use crate::defined_extern_resolve::insert_member_syms;
 use crate::dyld_emit::{write_la_ptr_section, write_stubs_section};
 use crate::exec::LinkConfig;
@@ -97,7 +97,7 @@ fn link(cfg: &LinkConfig, release: Release) -> Result<Vec<u8>, ArchiveLayoutErro
     // rewritten members are swapped into it, and layout and emit share
     // it — each merge re-parses every archive member's symtab.
     let mut t = PhaseTimer::start(1);
-    let mut merged = merge_archive_indexes(&cfg.image).map_err(ArchiveLayoutError::Merge)?;
+    let merged = merge_archive_indexes(&cfg.image).map_err(ArchiveLayoutError::Merge)?;
     t.tick("merge_archive_indexes");
     // one parse per member body for every closure walk of this link
     let mut cache = ReachCache::default();
@@ -107,8 +107,8 @@ fn link(cfg: &LinkConfig, release: Release) -> Result<Vec<u8>, ArchiveLayoutErro
             None => (None, DeadRows::new(), StrippedMembers::new()),
         };
     t.tick("dead_strip_prepass");
-    swap_in_stripped(&mut merged, &stripped_members);
-    t.tick("swap_in_stripped");
+    install_cuts(&merged, stripped_members)?;
+    t.tick("install_cuts");
     let cfg = stripped_cfg.as_ref().unwrap_or(cfg);
 
     // r499 — with the archives stripped, a forced table global whose
@@ -242,7 +242,7 @@ fn link(cfg: &LinkConfig, release: Release) -> Result<Vec<u8>, ArchiveLayoutErro
     t.tick("emit_binary");
     if release == Release::AtExit {
         std::mem::forget((merged, cache, layout, effective_sym_table, resolved));
-        std::mem::forget((stripped_members, stripped_cfg, derived_cfg, dead_rows));
+        std::mem::forget((stripped_cfg, derived_cfg, dead_rows));
         std::mem::forget((member_text_payloads, non_text_payloads));
         std::mem::forget(data_non_text_payloads);
     }

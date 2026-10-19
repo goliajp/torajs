@@ -17,98 +17,38 @@
 //! would never get reached.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::rc::Rc;
 
-use torajs_obj::{LC_SYMTAB, MH_MAGIC_64, N_EXT, N_SECT, N_TYPE};
+use torajs_obj::{N_EXT, N_SECT, N_TYPE};
 
 use crate::archive::MemberSymtabError;
 use crate::archives_merge::MergedArchives;
 use crate::data_section_layout::DataSectionLayout;
 use crate::layout_types::ArchiveLayout;
+use crate::member_obj::{MemberObj, symtab_lc_error, symtab_name_error};
+use crate::member_resolve::MemberSymtab;
 use crate::member_sections::is_tlv_descriptor;
 use crate::resolve::SymTable;
 use crate::tlv_descriptor_layout::{TLV_DESCRIPTOR_SIZE, TlvDescriptorLayout};
 
-/// A member's `LC_SYMTAB` as `(symoff, nsyms, strtab)`
-type MemberSymtab<'a> = (usize, usize, &'a [u8]);
-
-/// Parse one member's Mach-O header + load commands and return its
-/// `LC_SYMTAB` as `(symoff, nsyms, strtab)` with bounds already
-/// validated. `Ok(None)` = member isn't a 64-bit Mach-O or carries
-/// no `LC_SYMTAB` — caller skips it (same as the pre-split
-/// `continue`s).
-fn parse_member_symtab<'a>(
-    bytes: &'a [u8],
+/// Member `key`'s object and symbol table; `None` without a table.
+fn member_symtab<'a>(
+    merged: &MergedArchives<'a>,
     key: &(usize, usize),
-) -> Result<Option<MemberSymtab<'a>>, TlvSymOverrideError> {
-    if bytes.len() < 32 {
-        return Err(TlvSymOverrideError::Symtab {
-            archive_idx: key.0,
-            member_idx: key.1,
-            err: MemberSymtabError::TruncatedHeader,
-        });
-    }
-    let magic = u32::from_le_bytes(bytes[0..4].try_into().unwrap());
-    if magic != MH_MAGIC_64 {
-        return Ok(None);
-    }
-    let ncmds = u32::from_le_bytes(bytes[16..20].try_into().unwrap()) as usize;
-    let mut cursor = 32usize;
-    let mut symtab: Option<(u32, u32, u32, u32)> = None;
-    for _ in 0..ncmds {
-        if bytes.len() < cursor + 8 {
-            return Err(TlvSymOverrideError::Symtab {
-                archive_idx: key.0,
-                member_idx: key.1,
-                err: MemberSymtabError::TruncatedLoadCommand { offset: cursor },
-            });
-        }
-        let cmd = u32::from_le_bytes(bytes[cursor..cursor + 4].try_into().unwrap());
-        let cmdsize =
-            u32::from_le_bytes(bytes[cursor + 4..cursor + 8].try_into().unwrap()) as usize;
-        if cmdsize < 8 || bytes.len() < cursor + cmdsize {
-            return Err(TlvSymOverrideError::Symtab {
-                archive_idx: key.0,
-                member_idx: key.1,
-                err: MemberSymtabError::TruncatedLoadCommand { offset: cursor },
-            });
-        }
-        if cmd == LC_SYMTAB {
-            if cmdsize < 24 {
-                return Err(TlvSymOverrideError::Symtab {
-                    archive_idx: key.0,
-                    member_idx: key.1,
-                    err: MemberSymtabError::TruncatedSymtabCmd { offset: cursor },
-                });
-            }
-            let symoff = u32::from_le_bytes(bytes[cursor + 8..cursor + 12].try_into().unwrap());
-            let nsyms = u32::from_le_bytes(bytes[cursor + 12..cursor + 16].try_into().unwrap());
-            let stroff = u32::from_le_bytes(bytes[cursor + 16..cursor + 20].try_into().unwrap());
-            let strsize = u32::from_le_bytes(bytes[cursor + 20..cursor + 24].try_into().unwrap());
-            symtab = Some((symoff, nsyms, stroff, strsize));
-        }
-        cursor += cmdsize;
-    }
+) -> Result<Option<(Rc<MemberObj<'a>>, MemberSymtab)>, TlvSymOverrideError> {
+    let obj = merged
+        .obj(key.0, key.1)
+        .map_err(|e| symtab_error(key, symtab_lc_error(e)))?;
+    let st = obj.symtab_if_any().map_err(|e| symtab_error(key, e))?;
+    Ok(st.map(|st| (obj, st)))
+}
 
-    let (symoff, nsyms, stroff, strsize) = match symtab {
-        Some(v) => v,
-        None => return Ok(None),
-    };
-    let symoff = symoff as usize;
-    let stroff = stroff as usize;
-    let strsize = strsize as usize;
-    let nsyms = nsyms as usize;
-    if bytes.len() < symoff + nsyms * 16 || bytes.len() < stroff + strsize {
-        return Err(TlvSymOverrideError::Symtab {
-            archive_idx: key.0,
-            member_idx: key.1,
-            err: MemberSymtabError::TruncatedSymtab {
-                symoff,
-                nsyms,
-                file_size: bytes.len(),
-            },
-        });
+fn symtab_error(key: &(usize, usize), err: MemberSymtabError) -> TlvSymOverrideError {
+    TlvSymOverrideError::Symtab {
+        archive_idx: key.0,
+        member_idx: key.1,
+        err,
     }
-    Ok(Some((symoff, nsyms, &bytes[stroff..stroff + strsize])))
 }
 
 /// Map one thread-local sym's `(n_sect, n_value)` to its final-binary
@@ -167,38 +107,6 @@ fn descriptor_vaddr_for_sym(
                 descriptor_count: bucket.len(),
             })?;
     Ok(descriptor.descriptor_vaddr)
-}
-
-/// Read a NUL-terminated UTF-8 sym name out of the member's string
-/// table at `n_strx`.
-fn read_sym_name<'a>(
-    strtab: &'a [u8],
-    n_strx: usize,
-    key: &(usize, usize),
-    sym_index: usize,
-) -> Result<&'a str, TlvSymOverrideError> {
-    if n_strx >= strtab.len() {
-        return Err(TlvSymOverrideError::Symtab {
-            archive_idx: key.0,
-            member_idx: key.1,
-            err: MemberSymtabError::BadStrx { sym_index, n_strx },
-        });
-    }
-    let end_off = strtab[n_strx..]
-        .iter()
-        .position(|&b| b == 0)
-        .map(|p| n_strx + p)
-        .ok_or(TlvSymOverrideError::Symtab {
-            archive_idx: key.0,
-            member_idx: key.1,
-            err: MemberSymtabError::UnterminatedSymName { sym_index, n_strx },
-        })?;
-    let name_bytes = &strtab[n_strx..end_off];
-    std::str::from_utf8(name_bytes).map_err(|_| TlvSymOverrideError::Symtab {
-        archive_idx: key.0,
-        member_idx: key.1,
-        err: MemberSymtabError::NameNotUtf8 { sym_index },
-    })
 }
 
 /// Walk every integrated member's `LC_SYMTAB` for thread-local
@@ -280,35 +188,29 @@ pub fn compute_tlv_sym_overrides(
             continue;
         }
 
-        let member = &merged.member(key.0, key.1);
-        let bytes = member.data;
-        let (symoff, nsyms, strtab) = match parse_member_symtab(bytes, key)? {
-            Some(v) => v,
-            None => continue,
+        let Some((obj, st)) = member_symtab(merged, key)? else {
+            continue;
         };
 
-        for i in 0..nsyms {
-            let off = symoff + i * 16;
-            let n_strx = u32::from_le_bytes(bytes[off..off + 4].try_into().unwrap()) as usize;
-            let n_type = bytes[off + 4];
-            let n_sect = bytes[off + 5];
-            let n_value = u64::from_le_bytes(bytes[off + 8..off + 16].try_into().unwrap());
-
-            if (n_type & N_TYPE) != N_SECT || (n_type & N_EXT) == 0 {
+        for i in 0..st.nsyms {
+            let s = obj.sym(&st, i);
+            if s.n_type & N_TYPE != N_SECT || s.n_type & N_EXT == 0 {
                 continue;
             }
-            if !tlv_sections.contains(&n_sect) {
+            if !tlv_sections.contains(&s.n_sect) {
                 continue;
             }
             let vaddr = descriptor_vaddr_for_sym(
                 key,
-                i,
-                n_sect,
-                n_value,
+                i as usize,
+                s.n_sect,
+                s.n_value,
                 &section_member_addrs,
                 &by_member_section,
             )?;
-            let name = read_sym_name(strtab, n_strx, key, i)?;
+            let name = obj
+                .sym_name(&st, i)
+                .map_err(|e| symtab_error(key, symtab_name_error(e, i as usize)))?;
             overrides.insert(name.to_string(), vaddr);
         }
     }

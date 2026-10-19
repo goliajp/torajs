@@ -60,15 +60,13 @@ pub(crate) fn derive_force_emit<'a>(
         .map_err(ArchiveLayoutError::Link)?;
     let mut undefs: BTreeSet<&str> = BTreeSet::new();
     for &(a, m) in &required.members {
-        let member = &merged.member(a, m);
-        let names =
-            cache
-                .undef_externs(member)
-                .map_err(|err| ArchiveLayoutError::MemberSymtab {
-                    archive_idx: a,
-                    member_idx: m,
-                    err,
-                })?;
+        let names = cache.member_undefs(merged, (a, m)).map_err(|err| {
+            ArchiveLayoutError::MemberSymtab {
+                archive_idx: a,
+                member_idx: m,
+                err,
+            }
+        })?;
         undefs.extend(names.iter());
     }
     let keep = derive_flags(set, &undefs);

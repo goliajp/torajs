@@ -26,7 +26,8 @@ use crate::dead_strip_repack::DeadRows;
 use crate::exec::LinkConfig;
 pub use crate::layout_types::{ArchiveLayout, ArchiveLayoutError, MemberLayout};
 use crate::lc::TEXT_VMADDR_BASE;
-use crate::member_symtab_list::{MemberSymtabList, list_member_symbols};
+use crate::member_obj::symtab_lc_error;
+use crate::member_symtab_list::MemberSymtabList;
 pub use crate::member_text::{MemberTextError, parse_member_text_section};
 
 pub(crate) fn round_up_to(value: u64, align: u64) -> u64 {
@@ -121,14 +122,7 @@ pub(crate) fn compute_archive_layout_with_required<'a>(
         let symtab = if cfg.strip_member_symbols {
             MemberSymtabList::default()
         } else {
-            let dead = dead_rows.get(&key).map_or(&[][..], Vec::as_slice);
-            list_member_symbols(merged.member(key.0, key.1).data, dead).map_err(|err| {
-                ArchiveLayoutError::MemberSymtab {
-                    archive_idx: key.0,
-                    member_idx: key.1,
-                    err,
-                }
-            })?
+            listed_symbols(merged, dead_rows, key)?
         };
         member_layouts.push(MemberLayout {
             key,
@@ -241,6 +235,24 @@ pub(crate) fn compute_archive_layout_with_required<'a>(
         class_name_rebase_target_count: lp.class_name_rebase_target_count,
         baked_regex_rebase_target_count: lp.baked_regex_rebase_target_count,
     })
+}
+
+/// The rows `LC_SYMTAB` lists for member `key`.
+fn listed_symbols(
+    merged: &MergedArchives<'_>,
+    dead_rows: &DeadRows,
+    key: (usize, usize),
+) -> Result<MemberSymtabList, ArchiveLayoutError> {
+    let dead = dead_rows.get(&key).map_or(&[][..], Vec::as_slice);
+    let symtab_err = |err| ArchiveLayoutError::MemberSymtab {
+        archive_idx: key.0,
+        member_idx: key.1,
+        err,
+    };
+    let obj = merged
+        .obj(key.0, key.1)
+        .map_err(|e| symtab_err(symtab_lc_error(e)))?;
+    obj.list_symbols(dead).map_err(symtab_err)
 }
 
 #[cfg(test)]

@@ -213,23 +213,19 @@ pub fn collect_member_data_payloads(
     let mut lv_cursor: usize = 0;
     for (i, per_member) in layout.data_non_text_layouts.iter().enumerate() {
         let m_key = layout.member_layouts[i].key;
-        let member = &merged.member(m_key.0, m_key.1);
+        let decode_err = |err| ArchiveLayoutError::MemberReloc {
+            archive_idx: m_key.0,
+            member_idx: m_key.1,
+            err: MemberRelocApplyError::Decode(err),
+        };
+        let obj = merged.obj(m_key.0, m_key.1).map_err(decode_err)?;
         for s in per_member {
             if !s.has_file_storage {
                 continue;
             }
-            let off = s.member_internal_offset as usize;
-            let end = off + s.size as usize;
-            let mut bytes = member.data[off..end].to_vec();
+            let mut bytes = obj.payload(s.section_index);
             if !is_tlv_descriptor(s.flags) {
-                let relocs =
-                    parse_member_section_relocs(member, s.section_index).map_err(|err| {
-                        ArchiveLayoutError::MemberReloc {
-                            archive_idx: m_key.0,
-                            member_idx: m_key.1,
-                            err: MemberRelocApplyError::Decode(err),
-                        }
-                    })?;
+                let relocs = obj.section_relocs(s.section_index).map_err(decode_err)?;
                 let n = relocs.len();
                 if n > 0 {
                     let lvs = &data_rebase_link_values[lv_cursor..][..n];

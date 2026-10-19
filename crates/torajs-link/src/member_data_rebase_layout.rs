@@ -30,17 +30,16 @@
 
 use torajs_obj::ARM64_RELOC_UNSIGNED;
 
-use crate::archive::ArMember;
 use crate::archives_merge::MergedArchives;
 use crate::chained_fixups_starts::RebaseTarget;
 use crate::data_section_layout::DataSectionLayout;
 use crate::layout_types::ArchiveLayout;
 use crate::lc::TEXT_VMADDR_BASE;
 use crate::member_apply::MemberRelocApplyError;
+use crate::member_obj::MemberObj;
 use crate::member_reloc::MemberRelocEntry;
 use crate::member_resolve::{MemberSymtab, resolve_local_nsect};
 use crate::member_sections::is_tlv_descriptor;
-use crate::member_symtab::{parse_member_symtab, read_nlist_name};
 use crate::non_text_layout::NonTextSectionLayout;
 use crate::resolve::SymTable;
 
@@ -73,9 +72,11 @@ pub(crate) fn compute_member_data_rebase_targets(
     for (mi, sections) in layout.data_non_text_layouts.iter().enumerate() {
         let member_layout = &layout.member_layouts[mi];
         let (archive_idx, member_idx) = member_layout.key;
-        let member = &merged.member(archive_idx, member_idx);
+        let obj = merged
+            .obj(archive_idx, member_idx)
+            .map_err(MemberRelocApplyError::Decode)?;
         collect_member_targets(
-            member,
+            &obj,
             sections,
             &member_layout.non_text_sections,
             sym_table,
@@ -103,7 +104,7 @@ pub(crate) fn compute_member_data_rebase_targets(
 /// `0x10011b920` (= `CORE_ALLOC + 4080`) SIGBUS observed under
 /// `console.log(String(-1))` / `String(1000000)`.
 fn collect_member_targets(
-    member: &ArMember<'_>,
+    obj: &MemberObj<'_>,
     data_sections: &[DataSectionLayout],
     non_text_sections: &[NonTextSectionLayout],
     sym_table: &SymTable,
@@ -113,21 +114,17 @@ fn collect_member_targets(
 ) -> Result<(), MemberRelocApplyError> {
     let mut symtab_cache = None;
     for s in data_sections {
-        if !s.has_file_storage {
+        if !s.has_file_storage || is_tlv_descriptor(s.flags) {
             continue;
         }
-        if is_tlv_descriptor(s.flags) {
-            continue;
-        }
-        let relocs = crate::member_data_apply::parse_member_section_relocs(member, s.section_index)
-            .map_err(MemberRelocApplyError::Decode)?;
+        let relocs = obj.section_relocs(s.section_index)?;
         if relocs.is_empty() {
             continue;
         }
         let (symtab, by_sym) = match symtab_cache {
             Some((ref st, ref mut by_sym)) => (st, by_sym),
             None => {
-                let st = parse_member_symtab(member)?;
+                let st = obj.symtab()?;
                 let by_sym = vec![None; st.nsyms as usize];
                 let (st, by_sym) = symtab_cache.insert((st, by_sym));
                 (&*st, by_sym)
@@ -141,7 +138,7 @@ fn collect_member_targets(
                 Some(v) => v,
                 None => {
                     let v = resolve_target(
-                        member,
+                        obj,
                         symtab,
                         r.r_symbolnum,
                         sym_table,
@@ -201,21 +198,19 @@ fn check_reloc(
 /// The vaddr symbol `sym` of `member` resolves to: the sym table by
 /// name, else the member-local section the row sits in.
 fn resolve_target(
-    member: &ArMember<'_>,
+    obj: &MemberObj<'_>,
     symtab: &MemberSymtab,
     sym: u32,
     sym_table: &SymTable,
     member_text_vaddr: u64,
     (non_text_sections, data_sections): (&[NonTextSectionLayout], &[DataSectionLayout]),
 ) -> Result<u64, MemberRelocApplyError> {
-    let name = read_nlist_name(member, symtab, sym)?;
+    let name = obj.sym_name(symtab, sym)?;
     if let Some(&v) = sym_table.get(name) {
         return Ok(v);
     }
     resolve_local_nsect(
-        member,
-        symtab,
-        sym,
+        obj.sym(symtab, sym),
         member_text_vaddr,
         non_text_sections,
         data_sections,
@@ -297,7 +292,7 @@ mod tests {
         let mut targets = Vec::new();
         let sym_table = SymTable::new();
         collect_member_targets(
-            &members[0],
+            &crate::member_obj::MemberObj::parse(members[0]).unwrap(),
             &[],
             &[],
             &sym_table,
@@ -323,7 +318,7 @@ mod tests {
         let mut targets = Vec::new();
         let sym_table = SymTable::new();
         collect_member_targets(
-            &members[0],
+            &crate::member_obj::MemberObj::parse(members[0]).unwrap(),
             &[zerofill],
             &[],
             &sym_table,
@@ -351,7 +346,7 @@ mod tests {
         let mut targets = Vec::new();
         let sym_table = SymTable::new();
         collect_member_targets(
-            &members[0],
+            &crate::member_obj::MemberObj::parse(members[0]).unwrap(),
             &[tlv],
             &[],
             &sym_table,
@@ -380,7 +375,7 @@ mod tests {
         let mut targets = Vec::new();
         let sym_table = SymTable::new();
         collect_member_targets(
-            &members[0],
+            &crate::member_obj::MemberObj::parse(members[0]).unwrap(),
             &[stub],
             &[],
             &sym_table,

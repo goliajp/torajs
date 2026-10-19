@@ -13,12 +13,11 @@
 
 use torajs_obj::{ARM64_RELOC_ADDEND, ARM64_RELOC_UNSIGNED};
 
-use crate::archive::ArMember;
 use crate::data_section_layout::DataSectionLayout;
 use crate::member_apply_patch::{patch_got_slot_site, patch_reloc_site};
-use crate::member_reloc::{MemberRelocEntry, MemberRelocError, parse_member_text_relocs};
+use crate::member_obj::MemberObj;
+use crate::member_reloc::{MemberRelocEntry, MemberRelocError};
 use crate::member_resolve::{MemberSymtab, resolve_local_nsect};
-use crate::member_symtab::{parse_member_symtab, read_nlist_name};
 use crate::non_text_layout::NonTextSectionLayout;
 use crate::resolve::SymTable;
 
@@ -165,7 +164,7 @@ impl From<MemberRelocError> for MemberRelocApplyError {
 /// `(name → vaddr)` pairs.
 pub fn apply_member_relocs(
     bytes: &mut [u8],
-    member: &ArMember<'_>,
+    obj: &MemberObj<'_>,
     member_vaddr: u64,
     sym_table: &SymTable,
     non_text_sections: &[NonTextSectionLayout],
@@ -173,7 +172,7 @@ pub fn apply_member_relocs(
 ) -> Result<(), MemberRelocApplyError> {
     apply_member_relocs_with_got(
         bytes,
-        member,
+        obj,
         member_vaddr,
         sym_table,
         &SymTable::new(),
@@ -190,18 +189,18 @@ pub fn apply_member_relocs(
 /// leave names it cannot bind at build time for a loader to fill.
 pub fn apply_member_relocs_with_got(
     bytes: &mut [u8],
-    member: &ArMember<'_>,
+    obj: &MemberObj<'_>,
     member_vaddr: u64,
     sym_table: &SymTable,
     got_slots: &SymTable,
     non_text_sections: &[NonTextSectionLayout],
     data_non_text_sections: &[DataSectionLayout],
 ) -> Result<(), MemberRelocApplyError> {
-    let relocs = parse_member_text_relocs(member)?;
+    let relocs = obj.text_relocs()?;
     if relocs.is_empty() {
         return Ok(());
     }
-    let symtab = parse_member_symtab(member)?;
+    let symtab = obj.symtab()?;
 
     let text_size = bytes.len();
 
@@ -232,7 +231,7 @@ pub fn apply_member_relocs_with_got(
         }
 
         let got = GotSite {
-            member,
+            obj,
             symtab: &symtab,
             got_slots,
             member_vaddr,
@@ -251,7 +250,7 @@ pub fn apply_member_relocs_with_got(
                 let v = resolve_reloc_target(
                     r,
                     &mut pending_addend,
-                    member,
+                    obj,
                     &symtab,
                     member_vaddr,
                     sym_table,
@@ -291,7 +290,7 @@ pub fn apply_member_relocs_with_got(
 /// What a site needs to be rewritten against a GOT slot instead of
 /// relaxed.
 struct GotSite<'a, 'm> {
-    member: &'a ArMember<'m>,
+    obj: &'a MemberObj<'m>,
     symtab: &'a MemberSymtab,
     got_slots: &'a SymTable,
     member_vaddr: u64,
@@ -310,7 +309,7 @@ impl GotSite<'_, '_> {
         if self.got_slots.is_empty() || r.r_extern == 0 {
             return Ok(false);
         }
-        let Some((name, slot_vaddr)) = got_slot_for(r, self.member, self.symtab, self.got_slots)?
+        let Some((name, slot_vaddr)) = got_slot_for(r, self.obj, self.symtab, self.got_slots)?
         else {
             return Ok(false);
         };
@@ -339,7 +338,7 @@ fn check_site(
 /// The GOT slot for a named reloc whose target is in `got_slots`.
 fn got_slot_for<'a>(
     r: &MemberRelocEntry,
-    member: &ArMember<'a>,
+    obj: &MemberObj<'a>,
     symtab: &MemberSymtab,
     got_slots: &SymTable,
 ) -> Result<Option<(&'a str, u64)>, MemberRelocApplyError> {
@@ -349,7 +348,7 @@ fn got_slot_for<'a>(
             nsyms: symtab.nsyms,
         });
     }
-    let name = read_nlist_name(member, symtab, r.r_symbolnum)?;
+    let name = obj.sym_name(symtab, r.r_symbolnum)?;
     Ok(got_slots.get(name).map(|&slot| (name, slot)))
 }
 
@@ -366,7 +365,7 @@ fn got_slot_for<'a>(
 fn resolve_reloc_target(
     r: &MemberRelocEntry,
     pending_addend: &mut i64,
-    member: &ArMember<'_>,
+    obj: &MemberObj<'_>,
     symtab: &MemberSymtab,
     member_vaddr: u64,
     sym_table: &SymTable,
@@ -399,13 +398,11 @@ fn resolve_reloc_target(
                 nsyms: symtab.nsyms,
             });
         }
-        let name = read_nlist_name(member, symtab, r.r_symbolnum)?;
+        let name = obj.sym_name(symtab, r.r_symbolnum)?;
         if let Some(&v) = sym_table.get(name) {
             Ok(v)
         } else if let Some(v) = resolve_local_nsect(
-            member,
-            symtab,
-            r.r_symbolnum,
+            obj.sym(symtab, r.r_symbolnum),
             member_vaddr,
             non_text_sections,
             data_non_text_sections,
@@ -495,7 +492,7 @@ mod tests {
         let sym_table = SymTable::new();
         apply_member_relocs(
             &mut bytes,
-            &members[0],
+            &MemberObj::parse(members[0]).unwrap(),
             0x0000_0001_0000_4000,
             &sym_table,
             &[],
@@ -532,8 +529,15 @@ mod tests {
         let mut sym_table = SymTable::new();
         sym_table.insert("_bar".into(), 0x0000_0001_0000_5000u64);
 
-        apply_member_relocs(&mut bytes, &members[0], member_vaddr, &sym_table, &[], &[])
-            .expect("apply_member_relocs");
+        apply_member_relocs(
+            &mut bytes,
+            &MemberObj::parse(members[0]).unwrap(),
+            member_vaddr,
+            &sym_table,
+            &[],
+            &[],
+        )
+        .expect("apply_member_relocs");
 
         // Site = member_vaddr + 0 = 0x100004000; target = 0x100005000.
         // Displacement = +0x1000 = 4096 B → imm26 = 1024 = 0x400.
@@ -698,8 +702,15 @@ mod tests {
         let mut bytes = members[0].data[off..end].to_vec();
 
         let sym_table = SymTable::new();
-        let err = apply_member_relocs(&mut bytes, &members[0], 0x100004000, &sym_table, &[], &[])
-            .expect_err("missing _bar must fail");
+        let err = apply_member_relocs(
+            &mut bytes,
+            &MemberObj::parse(members[0]).unwrap(),
+            0x100004000,
+            &sym_table,
+            &[],
+            &[],
+        )
+        .expect_err("missing _bar must fail");
         match err {
             MemberRelocApplyError::UnresolvedSymbol { name } => assert_eq!(name, "_bar"),
             other => panic!("expected UnresolvedSymbol, got {other:?}"),

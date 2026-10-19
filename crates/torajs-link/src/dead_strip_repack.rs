@@ -2,28 +2,30 @@
 //! 20260824-s2-dead-strip, plan C).
 //!
 //! Runs the full pre-pass over the caller's merged archives: member
-//! closure → atom reachability → per-member `.o` rewrite. The caller
+//! closure → atom reachability → per-member cut. The caller
 //! (`link_to_exec_with_archives`, gated on `TORAJS_LINK_DEADSTRIP`)
-//! swaps the rewritten members into that merged index
-//! ([`swap_in_stripped`]) and runs the unchanged pipeline against
-//! them; no archive is re-serialized or re-parsed.
+//! installs the cuts in that merged index ([`install_cuts`]), and the
+//! rest of the link reads each cut member through its tables; no
+//! member is written out or parsed again.
 
 use std::collections::BTreeMap;
 
 use torajs_obj::{
-    N_EXT, N_TYPE, N_UNDF, NLIST_64_SIZE, RELOCATION_INFO_SIZE, S_4BYTE_LITERALS, S_8BYTE_LITERALS,
-    S_16BYTE_LITERALS, S_CSTRING_LITERALS, S_REGULAR, SECTION_TYPE,
+    S_4BYTE_LITERALS, S_8BYTE_LITERALS, S_16BYTE_LITERALS, S_CSTRING_LITERALS, S_REGULAR,
+    SECTION_TYPE,
 };
 
 use torajs_codegen::CompiledFunction;
 
 use crate::archive_link_extra_syms::collect_extra_defined_syms;
 use crate::archives_merge::{MergedArchives, compute_required_members_cached};
+use crate::dead_strip_cut::Cut;
 use crate::dead_strip_reach::{MemberReach, SectAtoms, compute_reachability};
 use crate::dead_strip_reach_cache::ReachCache;
-use crate::dead_strip_rewrite::{DeadRowPlacement, StrippedMember, scan_load_commands};
-use crate::dead_strip_rewrite_sections::{SectionCut, strip_sections};
+use crate::dead_strip_rewrite::{DeadRowPlacement, StrippedMember};
+use crate::dead_strip_rewrite_sections::SectionCut;
 use crate::exec::{LinkConfig, UserClassLayoutEntry, UserFnNameEntry};
+use crate::layout_types::ArchiveLayoutError;
 use crate::phase_timer::PhaseTimer;
 
 /// nlist rows (ascending indices) whose atom the pre-pass dropped,
@@ -32,8 +34,8 @@ use crate::phase_timer::PhaseTimer;
 /// them, so `LC_SYMTAB` needs this list to leave them out.
 pub type DeadRows = BTreeMap<(usize, usize), Vec<u32>>;
 
-/// Rewritten member bodies by `(archive_idx, member_idx)`.
-pub(crate) type StrippedMembers = BTreeMap<(usize, usize), Vec<u8>>;
+/// Cut members by `(archive_idx, member_idx)`.
+pub(crate) type StrippedMembers = BTreeMap<(usize, usize), Cut>;
 
 /// What the pre-pass rewrote: each side is `None` (or empty) when
 /// that input is unchanged (the caller then links the original).
@@ -83,22 +85,7 @@ pub(crate) fn strip_archives<'a>(
     };
     t.tick("reachability");
 
-    let mut members = StrippedMembers::new();
-    let mut dead_rows = DeadRows::new();
-    for (&key, r) in &reach.members {
-        let m = &merged.member(key.0, key.1);
-        if let Some(StrippedMember {
-            bytes,
-            dead_rows: mut dead,
-        }) = strip_member(m.data, r, DeadRowPlacement::SectionBase)?
-        {
-            if !cfg.strip_member_symbols && !dead.is_empty() {
-                dead.sort_unstable();
-                dead_rows.insert(key, dead);
-            }
-            members.insert(key, bytes);
-        }
-    }
+    let (members, dead_rows) = cut_members(merged, &reach.members, !cfg.strip_member_symbols)?;
     t.tick("strip_members");
     let (funcs, class_layouts, fn_name_globals) = match assumed {
         Some(a) => (Some(a.funcs), a.class_layouts, a.fn_name_globals),
@@ -111,6 +98,33 @@ pub(crate) fn strip_archives<'a>(
         fn_name_globals,
         dead_rows,
     })
+}
+
+/// Cut every member of `reach` against its live atoms, with the rows
+/// each cut drops when `list_dead`.
+fn cut_members(
+    merged: &MergedArchives<'_>,
+    reach: &BTreeMap<(usize, usize), MemberReach<'_>>,
+    list_dead: bool,
+) -> Result<(StrippedMembers, DeadRows), String> {
+    let mut members = StrippedMembers::new();
+    let mut dead_rows = DeadRows::new();
+    for (&key, r) in reach {
+        let data = merged.member(key.0, key.1).data;
+        let cut = with_cuts(r, |cuts| {
+            Cut::plan(data, cuts, DeadRowPlacement::SectionBase, true)
+        })?;
+        if let Some(cut) = cut {
+            if list_dead {
+                let dead = cut.dead_rows(data)?;
+                if !dead.is_empty() {
+                    dead_rows.insert(key, dead);
+                }
+            }
+            members.insert(key, cut);
+        }
+    }
+    Ok((members, dead_rows))
 }
 
 /// `cfg` with the user fns and tables the pre-pass rewrote (`None`:
@@ -166,14 +180,24 @@ pub(crate) fn rewritten_config(
     }
 }
 
-/// Point `merged` at the rewritten member bodies. This is what
-/// re-merging archives repacked with them would give: the rewrite
-/// keeps every nlist row and its type (only `n_value` moves, and only
-/// undef rows lose `N_EXT`), so every defined extern keeps its owner.
-pub(crate) fn swap_in_stripped<'a>(merged: &mut MergedArchives<'a>, stripped: &'a StrippedMembers) {
-    for (&key, bytes) in stripped {
-        merged.swap_member_data(key, bytes);
+/// Have `merged` read each cut member through its cut. The merged
+/// index stays as it is: a cut keeps every nlist row and its type
+/// (only `n_value` moves, and only undef rows lose `N_EXT`), so every
+/// defined extern keeps its owner.
+pub(crate) fn install_cuts(
+    merged: &MergedArchives<'_>,
+    stripped: StrippedMembers,
+) -> Result<(), ArchiveLayoutError> {
+    for (key, cut) in stripped {
+        merged
+            .install_cut(key, cut)
+            .map_err(|e| ArchiveLayoutError::MemberReloc {
+                archive_idx: key.0,
+                member_idx: key.1,
+                err: e.into(),
+            })?;
     }
+    Ok(())
 }
 
 /// Which sections the rewriter may subset (S2 blade 3): regular
@@ -199,6 +223,13 @@ pub(crate) fn strip_member(
     reach: &MemberReach<'_>,
     dead_at: DeadRowPlacement,
 ) -> Result<Option<StrippedMember>, String> {
+    with_cuts(reach, |cuts| Cut::plan(bytes, cuts, dead_at, true))?
+        .map(|c| c.write(bytes))
+        .transpose()
+}
+
+/// `f` of the cuts of every eligible section of `reach`.
+fn with_cuts<R>(reach: &MemberReach<'_>, f: impl FnOnce(&[SectionCut<'_>]) -> R) -> R {
     let eligible = eligible_sections(reach);
     let cuts: Vec<SectionCut<'_>> = eligible
         .iter()
@@ -208,22 +239,7 @@ pub(crate) fn strip_member(
             live,
         })
         .collect();
-    let cut = strip_sections(bytes, &cuts, dead_at)?;
-    // S2 blade 3 dead-undef cleanup: with the dead reloc sites gone,
-    // clear N_EXT on undef nlist rows nothing references any more.
-    let stripped = cut.is_some();
-    let (mut out, dead_rows) = match cut {
-        Some(m) => (m.bytes, m.dead_rows),
-        None => (bytes.to_vec(), Vec::new()),
-    };
-    let neutered = neuter_dead_undefs(&mut out)?;
-    if !stripped && neutered == 0 {
-        return Ok(None);
-    }
-    Ok(Some(StrippedMember {
-        bytes: out,
-        dead_rows,
-    }))
+    f(&cuts)
 }
 
 /// Every section of `reach` the rewriter may cut, as `(ordinal,
@@ -241,46 +257,4 @@ pub(crate) fn eligible_sections<'r>(
             ((i + 1) as u8, atoms_rel.collect(), &sa.live[..])
         })
         .collect()
-}
-
-/// Clear `N_EXT` on undefined nlist rows that no surviving reloc
-/// references. `parse_member_undef_externs` then stops reporting
-/// them, so the downstream member closure over the stripped
-/// archives pulls fewer members and derives fewer dyld binds.
-/// Physical row layout is untouched — extern reloc indices stay
-/// valid. Returns the number of rows neutered.
-fn neuter_dead_undefs(bytes: &mut [u8]) -> Result<u32, String> {
-    let (_, symtab_pos, _, sects) = scan_load_commands(bytes)?;
-    let Some(sp) = symtab_pos else {
-        return Ok(0);
-    };
-    let symoff = u32::from_le_bytes(bytes[sp + 8..sp + 12].try_into().unwrap()) as usize;
-    let nsyms = u32::from_le_bytes(bytes[sp + 12..sp + 16].try_into().unwrap()) as usize;
-    let mut referenced = vec![false; nsyms];
-    let esz = RELOCATION_INFO_SIZE as usize;
-    for s in &sects {
-        if s.reloff == 0 {
-            continue;
-        }
-        for i in 0..s.nreloc as usize {
-            let e = s.reloff as usize + i * esz;
-            let info = u32::from_le_bytes(bytes[e + 4..e + 8].try_into().unwrap());
-            if (info >> 27) & 1 == 1 {
-                let idx = (info & 0x00FF_FFFF) as usize;
-                if idx < nsyms {
-                    referenced[idx] = true;
-                }
-            }
-        }
-    }
-    let mut n = 0;
-    for (i, r) in referenced.iter().enumerate() {
-        let p = symoff + i * NLIST_64_SIZE as usize;
-        let t = bytes[p + 4];
-        if t & N_TYPE == N_UNDF && t & N_EXT != 0 && !r {
-            bytes[p + 4] = t & !N_EXT;
-            n += 1;
-        }
-    }
-    Ok(n)
 }

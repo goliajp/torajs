@@ -8,10 +8,8 @@
 //! string labels, etc.). Pure function — no state, no behaviour
 //! change vs the pre-extract inline version.
 
-use torajs_obj::NLIST_64_SIZE;
-
-use crate::archive::ArMember;
 use crate::data_section_layout::DataSectionLayout;
+use crate::member_obj::Sym;
 use crate::non_text_layout::NonTextSectionLayout;
 
 /// Sub-view of a parsed `LC_SYMTAB`, the four absolute file offsets +
@@ -52,23 +50,17 @@ pub struct MemberSymtab {
 ///    (rustc convention; `compute_non_text_layouts` filters __text
 ///    out so the first lookup misses).
 pub(crate) fn resolve_local_nsect(
-    member: &ArMember<'_>,
-    symtab: &MemberSymtab,
-    r_symbolnum: u32,
+    sym: Sym,
     member_vaddr: u64,
     non_text_sections: &[NonTextSectionLayout],
     data_non_text_sections: &[DataSectionLayout],
 ) -> Option<u64> {
     const N_TYPE_MASK: u8 = 0x0E;
     const N_SECT_TYPE: u8 = 0x0E;
-    let bytes = member.data;
-    let nlist_off = symtab.symoff as usize + r_symbolnum as usize * NLIST_64_SIZE as usize;
-    let n_type = bytes[nlist_off + 4];
-    let n_sect = bytes[nlist_off + 5];
+    let (n_type, n_sect, n_value) = (sym.n_type, sym.n_sect, sym.n_value);
     if (n_type & N_TYPE_MASK) != N_SECT_TYPE || n_sect == 0 {
         return None;
     }
-    let n_value = u64::from_le_bytes(bytes[nlist_off + 8..nlist_off + 16].try_into().unwrap());
     if let Some(layout) = non_text_sections.iter().find(|s| s.section_index == n_sect) {
         // swap-2k: `n_value` is the sym's *object-file* address
         // (`section.addr + intra_offset`); multi-section staticlibs
@@ -93,23 +85,13 @@ pub(crate) fn resolve_local_nsect(
 mod tests {
     use super::*;
 
-    /// Build a one-entry symtab buffer with an `N_SECT` local nlist
-    /// (`n_sect`, `n_value`) at symbol index 0. nlist_64 layout:
-    /// n_strx(4) n_type(1) n_sect(1) n_desc(2) n_value(8).
-    fn member_with_nsect(n_type: u8, n_sect: u8, n_value: u64) -> Vec<u8> {
-        let mut data = vec![0u8; NLIST_64_SIZE as usize];
-        data[4] = n_type;
-        data[5] = n_sect;
-        data[8..16].copy_from_slice(&n_value.to_le_bytes());
-        data
-    }
-
-    fn symtab() -> MemberSymtab {
-        MemberSymtab {
-            symoff: 0,
-            nsyms: 1,
-            stroff: 0,
-            strsize: 0,
+    /// One nlist row with `n_type`, `n_sect`, `n_value`.
+    fn row(n_type: u8, n_sect: u8, n_value: u64) -> Sym {
+        Sym {
+            n_strx: 0,
+            n_type,
+            n_sect,
+            n_value,
         }
     }
 
@@ -137,13 +119,9 @@ mod tests {
     #[test]
     fn data_section_subtracts_member_addr() {
         const N_SECT_TYPE: u8 = 0x0E;
-        let data = member_with_nsect(N_SECT_TYPE, 6, 0x23c8);
-        let member = ArMember {
-            name: "cgu.o",
-            data: &data,
-        };
+        let sym = row(N_SECT_TYPE, 6, 0x23c8);
         let layout = data_layout(6, 0x23c8, 0x1_0031_6264);
-        let v = resolve_local_nsect(&member, &symtab(), 0, 0xDEAD_BEEF, &[], &[layout]);
+        let v = resolve_local_nsect(sym, 0xDEAD_BEEF, &[], &[layout]);
         assert_eq!(v, Some(0x1_0031_6264));
     }
 
@@ -152,13 +130,9 @@ mod tests {
     #[test]
     fn data_section_preserves_intra_offset() {
         const N_SECT_TYPE: u8 = 0x0E;
-        let data = member_with_nsect(N_SECT_TYPE, 4, 0x2408);
-        let member = ArMember {
-            name: "cgu.o",
-            data: &data,
-        };
+        let sym = row(N_SECT_TYPE, 4, 0x2408);
         let layout = data_layout(4, 0x2398, 0x2_0000_0000);
-        let v = resolve_local_nsect(&member, &symtab(), 0, 0xDEAD_BEEF, &[], &[layout]);
+        let v = resolve_local_nsect(sym, 0xDEAD_BEEF, &[], &[layout]);
         assert_eq!(v, Some(0x2_0000_0070));
     }
 
@@ -191,13 +165,9 @@ mod tests {
     #[test]
     fn non_text_section_subtracts_member_addr() {
         const N_SECT_TYPE: u8 = 0x0E;
-        let data = member_with_nsect(N_SECT_TYPE, 3, 0x3814 + 0x42);
-        let member = ArMember {
-            name: "fmt.o",
-            data: &data,
-        };
+        let sym = row(N_SECT_TYPE, 3, 0x3814 + 0x42);
         let layout = non_text_layout(3, 0x3814, 0x1_0009_C000);
-        let v = resolve_local_nsect(&member, &symtab(), 0, 0xDEAD_BEEF, &[layout], &[]);
+        let v = resolve_local_nsect(sym, 0xDEAD_BEEF, &[layout], &[]);
         assert_eq!(v, Some(0x1_0009_C042));
     }
 
@@ -206,13 +176,9 @@ mod tests {
     #[test]
     fn non_text_section_zero_member_addr_is_no_op() {
         const N_SECT_TYPE: u8 = 0x0E;
-        let data = member_with_nsect(N_SECT_TYPE, 2, 0x100);
-        let member = ArMember {
-            name: "single.o",
-            data: &data,
-        };
+        let sym = row(N_SECT_TYPE, 2, 0x100);
         let layout = non_text_layout(2, 0, 0x1_0000_8000);
-        let v = resolve_local_nsect(&member, &symtab(), 0, 0xDEAD_BEEF, &[layout], &[]);
+        let v = resolve_local_nsect(sym, 0xDEAD_BEEF, &[layout], &[]);
         assert_eq!(v, Some(0x1_0000_8100));
     }
 
@@ -220,13 +186,9 @@ mod tests {
     /// the caller falls through to the global sym-table lookup.
     #[test]
     fn non_nsect_returns_none() {
-        let data = member_with_nsect(0x00, 6, 0x23c8); // N_UNDF
-        let member = ArMember {
-            name: "cgu.o",
-            data: &data,
-        };
+        let sym = row(0x00, 6, 0x23c8); // N_UNDF
         let layout = data_layout(6, 0x23c8, 0x1_0031_6264);
-        let v = resolve_local_nsect(&member, &symtab(), 0, 0xDEAD_BEEF, &[], &[layout]);
+        let v = resolve_local_nsect(sym, 0xDEAD_BEEF, &[], &[layout]);
         assert_eq!(v, None);
     }
 }

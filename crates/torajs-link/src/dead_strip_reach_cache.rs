@@ -11,7 +11,7 @@ use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
 use crate::archive::{ArMember, MemberSymtabError};
-use crate::archives_merge::member_undef_extern_names;
+use crate::archives_merge::{MergedArchives, member_undef_extern_names};
 use crate::dead_strip_reach::MemberReach;
 use crate::dead_strip_reach_build::build_member_reach;
 use crate::dead_strip_reach_edges::EdgeIndex;
@@ -44,6 +44,8 @@ impl Hash for BytesKey<'_> {
 pub(crate) struct ReachCache<'a> {
     reach: HashMap<BytesKey<'a>, MemberReach<'a>>,
     undefs: HashMap<BytesKey<'a>, Rc<[&'a str]>>,
+    /// The undef names of the members the dead-strip pass cut.
+    cut_undefs: HashMap<(usize, usize), Rc<[&'a str]>>,
     pub(crate) edges: EdgeIndex<'a>,
 }
 
@@ -72,6 +74,24 @@ impl<'a> ReachCache<'a> {
         // copies sharing the bytes keep their own name
         r.member_name = member.name;
         Ok(r)
+    }
+
+    /// The `N_UNDF | N_EXT` names of member `key` of `merged`, in
+    /// nlist order: through its cut once the dead-strip pass cut it.
+    pub(crate) fn member_undefs(
+        &mut self,
+        merged: &MergedArchives<'a>,
+        key: (usize, usize),
+    ) -> Result<Rc<[&'a str]>, MemberSymtabError> {
+        let Some(obj) = merged.cut_obj(key) else {
+            return self.undef_externs(&merged.member(key.0, key.1));
+        };
+        if let Some(u) = self.cut_undefs.get(&key) {
+            return Ok(u.clone());
+        }
+        let u: Rc<[&'a str]> = obj.undef_externs()?.into();
+        self.cut_undefs.insert(key, u.clone());
+        Ok(u)
     }
 
     /// The member's `N_UNDF | N_EXT` names, in nlist order.

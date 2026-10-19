@@ -12,9 +12,7 @@ use torajs_obj::ARM64_RELOC_UNSIGNED;
 use crate::archive_emit::member_data_layouts;
 use crate::archive_link::ArchiveLayout;
 use crate::archives_merge::MergedArchives;
-use crate::member_data_apply::parse_member_section_relocs;
 use crate::member_resolve::resolve_local_nsect;
-use crate::member_symtab::{parse_member_symtab, read_nlist_name};
 use crate::resolve::SymTable;
 use crate::rtlinked_build::RtLinkedBuildError;
 use crate::rtlinked_build_encode::ImageParts;
@@ -91,24 +89,28 @@ fn descriptor_init(
         .find(|s| s.section_index == d.section_index)
         .ok_or_else(|| unsupported(format!("TLV section missing in {}", member.name)))?;
     let r_address = (d.offset_slot_vaddr - sec.final_vaddr) as u32;
-    let relocs = parse_member_section_relocs(member, sec.section_index)
+    let obj = merged
+        .obj(m.key.0, m.key.1)
+        .map_err(|e| unsupported(format!("{}: {e:?}", member.name)))?;
+    let relocs = obj
+        .section_relocs(sec.section_index)
         .map_err(|e| unsupported(format!("{} TLV relocs: {e:?}", member.name)))?;
     let r = relocs
         .iter()
         .find(|r| r.r_address == r_address && r.r_type == ARM64_RELOC_UNSIGNED && r.r_extern == 1)
         .ok_or_else(|| unsupported(format!("TLV offset without reloc in {}", member.name)))?;
-    let symtab = parse_member_symtab(member)
+    let symtab = obj
+        .symtab()
         .map_err(|e| unsupported(format!("{} symtab: {e:?}", member.name)))?;
-    let name = read_nlist_name(member, &symtab, r.r_symbolnum)
+    let name = obj
+        .sym_name(&symtab, r.r_symbolnum)
         .map_err(|e| unsupported(format!("{} TLV name: {e:?}", member.name)))?;
     let target = sym_table
         .get(name)
         .copied()
         .or_else(|| {
             resolve_local_nsect(
-                member,
-                &symtab,
-                r.r_symbolnum,
+                obj.sym(&symtab, r.r_symbolnum),
                 m.vaddr,
                 &m.non_text_sections,
                 data_sections,

@@ -47,6 +47,7 @@ const LC_DYSYMTAB: u32 = 0xb;
 
 /// One kept run of live `__text` bytes: `[old_start, old_start+len)`
 /// lands at `new_start` in the rewritten section.
+#[derive(Debug)]
 pub(crate) struct Run {
     pub(crate) old_start: u64,
     pub(crate) len: u64,

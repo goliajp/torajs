@@ -12,7 +12,7 @@ use crate::lc::TEXT_VMADDR_BASE;
 use crate::member_apply::{MemberRelocApplyError, apply_member_relocs_with_got};
 use crate::member_data_apply::{collect_member_data_payloads, parse_member_section_relocs};
 use crate::member_data_rebase_layout::compute_member_data_rebase_targets;
-use crate::member_reloc::parse_member_text_relocs;
+use crate::member_obj::MemberObj;
 use crate::resolve::SymTable;
 use crate::rtlinked_build::RtLinkedBuildError;
 use crate::rtlinked_build_encode::ImageParts;
@@ -50,6 +50,19 @@ fn reloc_err(key: (usize, usize), err: MemberRelocApplyError) -> RtLinkedBuildEr
     })
 }
 
+/// A member's code must hold no absolute pointer: the image is mapped
+/// anywhere and nothing rebases it.
+fn no_text_pointers(obj: &MemberObj<'_>, key: (usize, usize)) -> Result<(), RtLinkedBuildError> {
+    let relocs = obj.text_relocs().map_err(|e| reloc_err(key, e.into()))?;
+    match relocs.iter().find(|r| r.r_type == ARM64_RELOC_UNSIGNED) {
+        Some(r) => Err(RtLinkedBuildError::Unsupported(format!(
+            "absolute pointer in {} text at {:#x}",
+            obj.member.name, r.r_address
+        ))),
+        None => Ok(()),
+    }
+}
+
 fn put(buf: &mut [u8], at: u32, bytes: &[u8]) {
     buf[at as usize..at as usize + bytes.len()].copy_from_slice(bytes);
 }
@@ -68,19 +81,15 @@ pub(crate) fn text(
     let mut buf = vec![0u8; off(stubs_end, origin)? as usize];
     let (mut const_lo, mut const_hi) = (u64::MAX, 0u64);
     for (mi, m) in layout.member_layouts.iter().enumerate() {
-        let member = &merged.member(m.key.0, m.key.1);
-        let relocs = parse_member_text_relocs(member).map_err(|e| reloc_err(m.key, e.into()))?;
-        if let Some(r) = relocs.iter().find(|r| r.r_type == ARM64_RELOC_UNSIGNED) {
-            return Err(RtLinkedBuildError::Unsupported(format!(
-                "absolute pointer in {} text at {:#x}",
-                member.name, r.r_address
-            )));
-        }
+        let obj = merged.obj(m.key.0, m.key.1);
+        let obj = obj.map_err(|e| reloc_err(m.key, e.into()))?;
+        let member = &obj.member;
+        no_text_pointers(&obj, m.key)?;
         let start = m.member_text_offset_in_member as usize;
         let mut bytes = member.data[start..start + m.text_size as usize].to_vec();
         apply_member_relocs_with_got(
             &mut bytes,
-            member,
+            &obj,
             m.vaddr,
             sym_table,
             got_slots,

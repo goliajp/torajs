@@ -12,9 +12,10 @@
 //! rewriter keeps them (clamped to the section base) so reloc indices
 //! and resolution hold, but they name no code in the image.
 
-use torajs_obj::{LC_SEGMENT_64, LC_SYMTAB, MH_MAGIC_64, N_EXT, N_SECT, N_TYPE, NLIST_64_SIZE};
+use torajs_obj::{MH_MAGIC_64, N_EXT, N_SECT, N_TYPE};
 
-use crate::archive::MemberSymtabError;
+use crate::archive::{ArMember, MemberSymtabError};
+use crate::member_obj::{MemberObj, symtab_lc_error, symtab_name_error};
 
 /// Debugger (stab) entries carry type bits here; never listed.
 const N_STAB: u8 = 0xe0;
@@ -36,109 +37,69 @@ pub fn list_member_symbols(
     bytes: &[u8],
     dead_rows: &[u32],
 ) -> Result<MemberSymtabList, MemberSymtabError> {
-    let mut list = MemberSymtabList::default();
     if bytes.len() < 32 || u32::from_le_bytes(bytes[0..4].try_into().unwrap()) != MH_MAGIC_64 {
-        return Ok(list);
+        return Ok(MemberSymtabList::default());
     }
-    let ncmds = u32::from_le_bytes(bytes[16..20].try_into().unwrap()) as usize;
-    let rd = |p: usize| u32::from_le_bytes(bytes[p..p + 4].try_into().unwrap()) as usize;
-
-    // 1-based section ordinals of `__TEXT,__text`.
-    let mut text_ords: Vec<u8> = Vec::new();
-    let mut ord: usize = 0;
-    let mut symtab = None;
-    let mut cursor = 32usize;
-    for _ in 0..ncmds {
-        if bytes.len() < cursor + 8 {
-            return Err(MemberSymtabError::TruncatedLoadCommand { offset: cursor });
-        }
-        let (cmd, cmdsize) = (rd(cursor) as u32, rd(cursor + 4));
-        if cmdsize < 8 || bytes.len() < cursor + cmdsize {
-            return Err(MemberSymtabError::TruncatedLoadCommand { offset: cursor });
-        }
-        if cmd == LC_SEGMENT_64 {
-            for i in 0..rd(cursor + 64) {
-                ord += 1;
-                let s = cursor + 72 + i * 80;
-                if &bytes[s..s + 7] == b"__text\0" && &bytes[s + 16..s + 23] == b"__TEXT\0" {
-                    text_ords.push(ord as u8);
-                }
-            }
-        } else if cmd == LC_SYMTAB {
-            symtab = Some((
-                rd(cursor + 8),
-                rd(cursor + 12),
-                rd(cursor + 16),
-                rd(cursor + 20),
-            ));
-        }
-        cursor += cmdsize;
-    }
-    let Some((symoff, nsyms, stroff, strsize)) = symtab else {
-        return Ok(list);
+    let member = ArMember {
+        name: "",
+        data: bytes,
     };
-    let file_size = bytes.len();
-    if file_size < symoff + nsyms * NLIST_64_SIZE as usize {
-        return Err(MemberSymtabError::TruncatedSymtab {
-            symoff,
-            nsyms,
-            file_size,
-        });
-    }
-    if file_size < stroff + strsize {
-        return Err(MemberSymtabError::TruncatedStrtab {
-            stroff,
-            strsize,
-            file_size,
-        });
-    }
-    let strtab = &bytes[stroff..stroff + strsize];
+    MemberObj::parse(member)
+        .map_err(symtab_lc_error)?
+        .list_symbols(dead_rows)
+}
 
-    let mut dead = dead_rows.iter().peekable();
-    for i in 0..nsyms {
-        if dead.next_if(|&&r| r as usize == i).is_some() {
-            continue;
+impl MemberObj<'_> {
+    /// The listed rows of this member, skipping `dead_rows` (ascending
+    /// nlist indices).
+    pub(crate) fn list_symbols(
+        &self,
+        dead_rows: &[u32],
+    ) -> Result<MemberSymtabList, MemberSymtabError> {
+        let mut list = MemberSymtabList::default();
+        let text_ords: Vec<u8> = self
+            .sections()
+            .iter()
+            .filter(|s| &s.sectname[..7] == b"__text\0" && &s.segname[..7] == b"__TEXT\0")
+            .map(|s| s.section_index)
+            .collect();
+        let Some(st) = self.symtab_if_any()? else {
+            return Ok(list);
+        };
+        let mut dead = dead_rows.iter().peekable();
+        for i in 0..st.nsyms {
+            if dead.next_if(|&&r| r == i).is_some() {
+                continue;
+            }
+            let sym = self.sym(&st, i);
+            if sym.n_type & N_STAB != 0 || sym.n_type & N_TYPE != N_SECT {
+                continue;
+            }
+            let external = sym.n_type & N_EXT != 0;
+            if !external && !text_ords.contains(&sym.n_sect) {
+                continue;
+            }
+            let name = self
+                .sym_name(&st, i)
+                .map_err(|e| symtab_name_error(e, i as usize))?;
+            if !external && (name.is_empty() || name.starts_with(['l', 'L'])) {
+                continue;
+            }
+            let row = (name.to_owned(), sym.n_value, sym.n_sect);
+            if external {
+                list.externs.push(row);
+            } else {
+                list.locals.push(row);
+            }
         }
-        let p = symoff + i * NLIST_64_SIZE as usize;
-        let (n_type, n_sect) = (bytes[p + 4], bytes[p + 5]);
-        if n_type & N_STAB != 0 || n_type & N_TYPE != N_SECT {
-            continue;
-        }
-        let external = n_type & N_EXT != 0;
-        if !external && !text_ords.contains(&n_sect) {
-            continue;
-        }
-        let n_strx = rd(p);
-        let tail = strtab.get(n_strx..).ok_or(MemberSymtabError::BadStrx {
-            sym_index: i,
-            n_strx,
-        })?;
-        let len =
-            tail.iter()
-                .position(|&b| b == 0)
-                .ok_or(MemberSymtabError::UnterminatedSymName {
-                    sym_index: i,
-                    n_strx,
-                })?;
-        let name = std::str::from_utf8(&tail[..len])
-            .map_err(|_| MemberSymtabError::NameNotUtf8 { sym_index: i })?;
-        if !external && (name.is_empty() || name.starts_with(['l', 'L'])) {
-            continue;
-        }
-        let n_value = u64::from_le_bytes(bytes[p + 8..p + 16].try_into().unwrap());
-        let row = (name.to_owned(), n_value, n_sect);
-        if external {
-            list.externs.push(row);
-        } else {
-            list.locals.push(row);
-        }
+        Ok(list)
     }
-    Ok(list)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use torajs_obj::{LC_SEGMENT_64, LC_SYMTAB};
 
     /// One `__TEXT,__text` + one `__DATA,__data` section and five
     /// rows: a live extern, a dead extern, a local fn, an `ltmp`

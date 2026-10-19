@@ -5,7 +5,8 @@
 use crate::archive_emit::member_data_layouts;
 use crate::archive_link::{ArchiveLayout, ArchiveLayoutError};
 use crate::archives_merge::MergedArchives;
-use crate::member_apply::apply_member_relocs;
+use crate::member_apply::{MemberRelocApplyError, apply_member_relocs};
+use crate::member_reloc::MemberRelocError;
 use crate::resolve::SymTable;
 
 /// Each member's `__text` bytes, and its non-text `__TEXT` section bytes.
@@ -19,32 +20,36 @@ pub(crate) fn member_text_payloads(
     merged: &MergedArchives<'_>,
     sym_table: &SymTable,
 ) -> Result<MemberPayloads, ArchiveLayoutError> {
-    let mut text: Vec<Vec<u8>> = Vec::with_capacity(layout.member_layouts.len());
+    let mut text_payloads: Vec<Vec<u8>> = Vec::with_capacity(layout.member_layouts.len());
     let mut non_text: Vec<Vec<u8>> = Vec::new();
     for (mi, m) in layout.member_layouts.iter().enumerate() {
-        let member = &merged.member(m.key.0, m.key.1);
-        let off = m.member_text_offset_in_member as usize;
-        let end = off + m.text_size as usize;
-        let mut bytes = member.data[off..end].to_vec();
+        let reloc_err = |err| ArchiveLayoutError::MemberReloc {
+            archive_idx: m.key.0,
+            member_idx: m.key.1,
+            err,
+        };
+        let obj = merged
+            .obj(m.key.0, m.key.1)
+            .map_err(|e| reloc_err(MemberRelocApplyError::Decode(e)))?;
+        let text = obj.text_section().ok_or_else(|| {
+            reloc_err(MemberRelocApplyError::Decode(
+                MemberRelocError::NoTextSection,
+            ))
+        })?;
+        let mut bytes = obj.payload(text.section_index);
         apply_member_relocs(
             &mut bytes,
-            member,
+            &obj,
             m.vaddr,
             sym_table,
             &m.non_text_sections,
             member_data_layouts(layout, mi),
         )
-        .map_err(|err| ArchiveLayoutError::MemberReloc {
-            archive_idx: m.key.0,
-            member_idx: m.key.1,
-            err,
-        })?;
-        text.push(bytes);
+        .map_err(reloc_err)?;
+        text_payloads.push(bytes);
         for s in &m.non_text_sections {
-            let off = s.member_internal_offset as usize;
-            let end = off + s.size as usize;
-            non_text.push(member.data[off..end].to_vec());
+            non_text.push(obj.payload(s.section_index));
         }
     }
-    Ok((text, non_text))
+    Ok((text_payloads, non_text))
 }
