@@ -260,3 +260,11 @@ pub(crate) fn scan_spread(sc: &mut Scan<'_>, expr: ExprId) {
     }
     sc.expr(expr);
 }
+
+impl Scan<'_> {
+    pub(crate) fn record(&mut self, name: &str) {
+        if !self.called.iter().any(|c| c == name) {
+            self.called.push(name.to_string());
+        }
+    }
+}

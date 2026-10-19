@@ -52,13 +52,12 @@ pub(super) mod walk;
 use std::collections::{HashMap, HashSet};
 
 use crate::ast::desugar_async_sm_walk::{visit_expr_children, visit_stmt_exprs};
-use crate::ast::fresh_this::fresh_this_writes;
-use crate::ast::{Ast, Expr, ExprId, Param, Stmt};
+use crate::ast::{Ast, ExprId, Param, Stmt};
 use crate::check::Type;
 use crate::num_width::WidthTable;
 
 use super::arr_head_census::ExprMask;
-use walk::{ctor_class, ctor_fed_seed, factory_class, nested_stmts, user_params};
+use walk::{ctor_class, ctor_fed_seed, ctor_prefix, factory_class, nested_stmts, user_params};
 
 /// `(class, field)` pairs whose reads never see the undefined cell.
 pub(crate) type LiveFields = HashSet<(String, String)>;
@@ -271,32 +270,9 @@ impl<'a> Census<'a> {
                 continue;
             }
             let name = format!("__cm_{}__ctor", ctor.class);
-            let fresh = fresh_this_writes(self.ast, &name, ctor.params, ctor.body);
-            let user = user_params(ctor.params);
-            for s in ctor.body {
-                let Stmt::Expr(e) = s else { continue };
-                let Expr::Assign { target, value } = self.ast.get_expr(*e) else {
-                    continue;
-                };
-                let Expr::Member { obj, name } = self.ast.get_expr(*target) else {
-                    continue;
-                };
-                if !fresh.recv.contains(obj) {
-                    continue;
-                }
-                let param = match self.ast.get_expr(*value) {
-                    Expr::Ident(n) if user.iter().any(|p| p.name == *n) => {
-                        user.iter().position(|p| p.name == *n)
-                    }
-                    _ => None,
-                };
-                out.insert(*e);
-                self.prefix.push(PrefixWrite {
-                    class: ctor.class.clone(),
-                    field: name.clone(),
-                    value: *value,
-                    param,
-                });
+            for (e, w) in ctor_prefix(self.ast, (&name, &ctor.class), ctor.params, ctor.body) {
+                out.insert(e);
+                self.prefix.push(w);
             }
         }
         out

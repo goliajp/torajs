@@ -4,12 +4,53 @@
 use crate::ast::{Ast, Expr, ExprId, Param, Stmt};
 use crate::check::Type;
 
-use super::THIS;
+use super::{PrefixWrite, THIS};
 
 /// `__cm_<C>__ctor` (the one constructor the factory enters; a `$$`
 /// twin is a separate write site the general census sees).
 pub(super) fn ctor_class(name: &str) -> Option<&str> {
     name.strip_prefix("__cm_")?.strip_suffix("__ctor")
+}
+
+/// The leading `this.f = v` writes of constructor `name` of `class`
+/// that reach an instance nothing else sees yet
+/// (`ast::fresh_this`), with their statements.
+pub(super) fn ctor_prefix(
+    ast: &Ast,
+    (name, class): (&str, &str),
+    params: &[Param],
+    body: &[Stmt],
+) -> Vec<(ExprId, PrefixWrite)> {
+    let fresh = crate::ast::fresh_this::fresh_this_writes(ast, name, params, body);
+    let user = user_params(params);
+    let mut out = Vec::new();
+    for s in body {
+        let Stmt::Expr(e) = s else { continue };
+        let Expr::Assign { target, value } = ast.get_expr(*e) else {
+            continue;
+        };
+        let Expr::Member { obj, name } = ast.get_expr(*target) else {
+            continue;
+        };
+        if !fresh.recv.contains(obj) {
+            continue;
+        }
+        let param = match ast.get_expr(*value) {
+            Expr::Ident(n) => user.iter().position(|p| p.name == *n),
+            _ => None,
+        };
+        let (class, field, value) = (class.to_string(), name.clone(), *value);
+        out.push((
+            *e,
+            PrefixWrite {
+                class,
+                field,
+                value,
+                param,
+            },
+        ));
+    }
+    out
 }
 
 /// The parameters a `new C(..)` fills, in order: the receiver and the

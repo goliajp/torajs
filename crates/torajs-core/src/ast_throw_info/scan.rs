@@ -101,12 +101,6 @@ impl<'a> Scan<'a> {
         }
     }
 
-    pub(crate) fn record(&mut self, name: &str) {
-        if !self.called.iter().any(|c| c == name) {
-            self.called.push(name.to_string());
-        }
-    }
-
     /// A block: bindings and narrowings made inside die with it.
     pub(crate) fn stmts(&mut self, stmts: &[Stmt]) {
         self.scoped(|sc| sc.seq(stmts));
