@@ -29,6 +29,7 @@ use std::collections::BTreeMap;
 use torajs_codegen::CompiledFunction;
 use torajs_codegen::reloc::{CallTarget, RelocKind};
 
+use crate::fn_addr_syms::fn_addr_alias_index;
 use crate::patch::{patch_branch26, patch_page21, patch_pageoff12, write_unsigned64};
 
 /// External-symbol resolution map: name → final virtual address.
@@ -187,6 +188,11 @@ fn lookup_or_defined(
         if f.name == name {
             return fn_vaddrs[i];
         }
+    }
+    // a user fn's address alias resolves straight off the vaddr table,
+    // ahead of any same-named entry in `sym_table`
+    if let Some(i) = fn_addr_alias_index(name).filter(|&i| i < fn_vaddrs.len()) {
+        return fn_vaddrs[i];
     }
     *sym_table.get(name).unwrap_or_else(|| {
         panic!("unresolved symbol {name:?} (not a defined function, not in sym_table)")
@@ -468,6 +474,28 @@ mod tests {
             u32::from_le_bytes(out[0].bytes[8..12].try_into().unwrap()),
             0xD65F_03C0
         );
+    }
+
+    /// `__torajs_fn_<i>` / `__torajs_boxed_<i>` resolve to
+    /// `fn_vaddrs[i]` over a same-named table entry; a spelling the
+    /// aliases never use, or an index past the fns, goes to the table.
+    #[test]
+    fn fn_addr_aliases_resolve_off_the_vaddr_table() {
+        let funcs = [
+            compile_function(&build_foo_returns_7()),
+            compile_function(&build_caller_calls_foo(FuncId(0))),
+        ];
+        let fn_vaddrs = [0x10_0000, 0x10_0020];
+        let mut sym = SymTable::new();
+        sym.insert("__torajs_fn_1".into(), 0xDEAD);
+        sym.insert("__torajs_fn_01".into(), 0x1111);
+        sym.insert("__torajs_boxed_2".into(), 0x2222);
+        let at = |name: &str| lookup_or_defined(name, &funcs, &fn_vaddrs, &sym);
+        assert_eq!(at("__torajs_fn_0"), 0x10_0000);
+        assert_eq!(at("__torajs_fn_1"), 0x10_0020);
+        assert_eq!(at("__torajs_boxed_1"), 0x10_0020);
+        assert_eq!(at("__torajs_fn_01"), 0x1111);
+        assert_eq!(at("__torajs_boxed_2"), 0x2222);
     }
 
     #[test]

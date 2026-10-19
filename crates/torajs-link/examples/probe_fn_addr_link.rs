@@ -1,10 +1,9 @@
 //! SD-4c-prereq+e3 — function-pointer (FnAddr) link probe.
 //!
 //! Codegen's `FnAddr(FuncId(n))` emits ADRP+ADD against the parallel
-//! naming scheme `__torajs_fn_<n>`. Without e3's
-//! `register_fn_addr_syms`, that sym is unresolved at link time. e3
-//! injects one alias per user fn (`__torajs_fn_<i>` → `fn_vaddrs[i]`)
-//! so the ADRP+ADD pair lands on the right function entry.
+//! naming scheme `__torajs_fn_<n>`. The reloc resolver maps each
+//! alias back to its user fn (`__torajs_fn_<i>` → `fn_vaddrs[i]`) so
+//! the ADRP+ADD pair lands on the right function entry.
 //!
 //! Layout:
 //!   funcs[0] = _main:    builds a fn-ptr to _helper, indirect-calls it

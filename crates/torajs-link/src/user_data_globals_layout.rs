@@ -92,9 +92,8 @@ pub fn compute_user_data_globals_layout(
 }
 
 /// Register each entry's `sym → vaddr` into the effective sym table.
-/// Caller invokes after `apply_user_string_overrides` /
-/// `register_fn_addr_syms` so per-link overrides land in a consistent
-/// order.
+/// Caller invokes after `apply_user_string_overrides` so per-link
+/// overrides land in a consistent order.
 pub fn apply_user_data_global_overrides(layout: &UserDataGlobalsLayout, sym_table: &mut SymTable) {
     for entry in &layout.entries {
         sym_table.insert(entry.sym.clone(), entry.vaddr);

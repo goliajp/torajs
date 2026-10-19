@@ -18,7 +18,7 @@ use crate::dead_strip_repack::{DeadRows, StrippedMembers, swap_in_stripped};
 use crate::defined_extern_resolve::insert_member_syms;
 use crate::dyld_emit::{write_la_ptr_section, write_stubs_section};
 use crate::exec::LinkConfig;
-use crate::fn_addr_syms::{register_fn_addr_syms, register_user_fn_syms};
+use crate::fn_addr_syms::register_user_fn_syms;
 use crate::fn_name_table_layout::{apply_fn_name_table_overrides, build_fn_name_table_payload};
 use crate::member_data_apply::collect_member_data_payloads;
 use crate::member_data_rebase_layout::compute_member_data_rebase_targets;
@@ -154,7 +154,6 @@ fn link(cfg: &LinkConfig, release: Release) -> Result<Vec<u8>, ArchiveLayoutErro
     apply_tlv_overrides(&layout, &merged, &mut effective_sym_table)?;
     apply_user_string_overrides(&layout.user_strings_layout, &mut effective_sym_table);
     apply_user_data_global_overrides(&layout.user_data_globals_layout, &mut effective_sym_table);
-    register_fn_addr_syms(&cfg.funcs, &layout.fn_vaddrs, &mut effective_sym_table);
     apply_user_vtable_overrides(&layout.user_vtables_layout, &mut effective_sym_table);
     apply_user_class_layouts_overrides(
         &layout.data_const_layout.class_layouts_layout,

@@ -55,9 +55,9 @@ pub struct UserVtableEntry {
 /// `__torajs_fn_print_inline` can binary-search a fn_addr into a
 /// `[Function: <name>]` print.
 ///
-/// `fn_addr_sym` is `__torajs_fn_<fid>` — the same alias
-/// `register_fn_addr_syms` materializes from `fn_vaddrs`. Resolves
-/// to the user fn's body vaddr at link time.
+/// `fn_addr_sym` is `__torajs_fn_<fid>` — the same alias codegen's
+/// `FnAddr` targets. Resolves to the user fn's body vaddr
+/// (`fn_vaddrs[fid]`) at link time.
 ///
 /// `name_ptr_sym` is `__torajs_str_dyn_<sid>` — the RawBytes
 /// flavour `apply_user_string_overrides` registers for an interned

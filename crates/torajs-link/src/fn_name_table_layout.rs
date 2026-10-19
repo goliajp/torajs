@@ -46,7 +46,7 @@ use crate::user_strings_layout::UserStringsLayout;
 #[derive(Debug, Clone)]
 pub struct FnNameTableEntryLayout {
     /// `__torajs_fn_<fid>` alias sym (resolves to the user fn's
-    /// vaddr after `register_fn_addr_syms`).
+    /// vaddr, `fn_vaddrs[fid]`).
     pub fn_addr_sym: String,
     /// `__torajs_str_lit_<sid>` sym — the name's static Str CELL
     /// (header at +0, `len` at +8, payload at +16), registered by
@@ -299,10 +299,10 @@ pub fn fn_name_table_extra_defined_syms(
 /// `entry_base + 8`. Walk order matches `build_fn_name_table_payload`'s
 /// `slot_link_values` consumption order.
 ///
-/// `sym_table` must already resolve both `fn_addr_sym` (via
-/// `register_fn_addr_syms` aliases) and `name_ptr_sym` (via
-/// `apply_user_string_overrides`) to their final vaddrs before
-/// this is called.
+/// `sym_table` must already resolve both `fn_addr_sym` (the aliases
+/// [`fn_name_table_rebase_targets_from_layouts`] writes) and
+/// `name_ptr_sym` (via `apply_user_string_overrides`) to their final
+/// vaddrs before this is called.
 ///
 /// `seg_vmaddr_base` is the segment containing the table slots
 /// (currently `__TEXT,__cstring` → __TEXT vmaddr base); offsets

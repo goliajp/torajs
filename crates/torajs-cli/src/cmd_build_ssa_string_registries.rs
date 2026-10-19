@@ -180,8 +180,8 @@ pub(crate) fn build_class_layout_entries(ssa_module: &Module) -> Vec<UserClassLa
         .collect()
 }
 
-/// vtable slots resolve via `register_fn_addr_syms`'s
-/// `__torajs_fn_<i>` override (codegen's `FnAddr` convention) — see
+/// vtable slots resolve via the `__torajs_fn_<i>` alias (codegen's
+/// `FnAddr` convention, `fn_vaddrs[i]`) — see
 /// `archive_emit::link_to_exec_with_archives` and the
 /// `probe_vtable_link` reference.
 pub(crate) fn build_vtable_globals(ssa_module: &Module) -> Vec<UserVtableEntry> {

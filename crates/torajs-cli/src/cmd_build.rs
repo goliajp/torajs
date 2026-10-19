@@ -302,8 +302,8 @@ pub(crate) fn build_link_config(
         // fn-decl lowering, with the name already interned into
         // `ssa_module.strings[entry.name_sid.0]` and the StringId
         // recorded alongside). Each link-layer entry pairs the fn's
-        // `__torajs_fn_<fid>` alias (registered by
-        // `register_fn_addr_syms`) with its name's
+        // `__torajs_fn_<fid>` alias (resolved to the fn's vaddr at
+        // link time) with its name's
         // `__torajs_str_dyn_<sid>` alias — the RawBytes flavour
         // points at the raw char payload without the 16-byte Str
         // header so the runtime helper can putc each byte directly.
