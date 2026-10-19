@@ -267,6 +267,15 @@ pub unsafe extern "C" fn __torajs_promise_get_value_as(p: *const c_void, want_re
 /// A number settled at the other width than the reader's (a promise
 /// adopted from one whose resolver had its own) is converted; any
 /// other form is read as it is.
+///
+/// Reading an f64 at the i64 width is exact only for an integer, and
+/// the compiler keeps it so: a reader asks for REPR_I64 only at a
+/// promise value point the width analysis proved integral, and every
+/// promise that can reach the point joins its width, including one
+/// handed in from `any` (a `Promise<number>` slot written an `any` has
+/// its value point widened) and one read back from a field (the read
+/// is keyed by the field). A fraction here is a value point the
+/// analysis missed.
 #[cold]
 fn other_width(repr: u8, want: u8, v: i64) -> i64 {
     match (repr, want) {
