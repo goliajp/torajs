@@ -13,13 +13,21 @@
 //! reads of bindings, and nested function declarations. The read itself
 //! has to be the first evaluation of a condition, an initialiser, an
 //! expression statement or a return, reached only through operands
-//! that are plain reads or literals.
+//! that are plain reads or literals. Nothing runs between the call and
+//! the body only when no parameter has an initialiser or a pattern
+//! (§10.2.11 evaluates both before the body).
+//!
+//! A call tests each such argument the census does not prove live
+//! there, whatever its shape, so every argument the callee reads is
+//! tested or live.
 
 use crate::ssa::id_hash::{HashMap, HashSet};
 
 use crate::ast::{Ast, BinOp, Expr, ExprId, Param, Stmt};
 
-use super::Census;
+use super::bindings::holds_nullish_in_band;
+use super::judge::{State, Visiting};
+use super::{Census, Entry};
 
 enum First {
     /// A member or element read of the binding comes first.
@@ -39,24 +47,32 @@ impl<'a> Census<'a> {
         let mut out: HashMap<&str, Vec<usize>> = HashMap::default();
         let judged_fns: HashSet<&str> = judged.iter().map(|(f, _)| *f).collect();
         for (f, (params, body)) in &self.fns {
-            if !judged_fns.contains(f) {
+            // an async body's TypeError rejects the returned promise
+            // (§27.7.5.1), so its caller must not throw it first
+            if !judged_fns.contains(f)
+                || params.iter().any(runs_code)
+                || self.ast.async_fns.contains(*f)
+                || self.ast.async_generator_fns.contains(*f)
+            {
                 continue;
             }
             let Some(i) = first_deref(self.ast, params, body) else {
                 continue;
             };
             let p = &params[i];
-            // the lowering tests the argument of a fixed-argc call only
+            // the lowering tests the argument of a fixed-argc call only,
+            // and only one whose slot spells a nullish value in band
             let sites = self.calls.args.get(f).map_or(&[][..], Vec::as_slice);
-            let fixed = sites.iter().all(|args| {
-                args.len() > i
-                    && (args[..=i].iter())
-                        .all(|a| !matches!(self.ast.get_expr(*a), Expr::Spread { .. }))
-            });
+            let fixed = !sites.is_empty()
+                && sites.iter().all(|args| {
+                    args.len() > i
+                        && (args[..=i].iter())
+                            .all(|a| !matches!(self.ast.get_expr(*a), Expr::Spread { .. }))
+                        && self.ty(args[i]).is_some_and(holds_nullish_in_band)
+                });
             if fixed
                 && judged.contains(&(*f, i))
                 && !p.is_rest
-                && p.default.is_none()
                 && !self.assigned.contains(p.name.as_str())
             {
                 out.entry(*f).or_default().push(i);
@@ -64,28 +80,43 @@ impl<'a> Census<'a> {
         }
         out
     }
+}
 
-    /// The tested parameters of `entry`, by direct call.
-    pub(super) fn entry_calls(
-        &self,
-        entry: &HashMap<&str, Vec<usize>>,
-    ) -> HashMap<ExprId, Vec<usize>> {
+impl State<'_, '_> {
+    /// The arguments each direct call of a function in `entry` tests:
+    /// those at a tested index the census does not prove live there.
+    pub(super) fn entry_calls(&self, entry: &HashMap<&str, Vec<usize>>) -> Entry {
+        let c = self.c;
         let mut out = HashMap::default();
-        if entry.values().all(Vec::is_empty) {
+        if entry.is_empty() {
             return out;
         }
-        for (i, e) in self.ast.exprs.iter().enumerate() {
+        for (i, e) in c.ast.exprs.iter().enumerate() {
             let id = ExprId(i as u32);
-            if let Expr::Call { callee, .. } = e
-                && let Expr::Ident(f) = self.ast.get_expr(*callee)
-                && let Some(at) = entry.get(self.retargets.get(&id).unwrap_or(f).as_str())
-                && !at.is_empty()
+            if let Expr::Call { callee, args } = e
+                && let Expr::Ident(f) = c.ast.get_expr(*callee)
+                && let Some(at) = entry.get(c.retargets.get(&id).unwrap_or(f).as_str())
             {
-                out.insert(id, at.clone());
+                let test: Vec<usize> = (at.iter().copied())
+                    .filter(|i| {
+                        (args.get(*i))
+                            .is_some_and(|a| !self.value_live(*a, &mut Visiting::default()))
+                    })
+                    .collect();
+                if !test.is_empty() {
+                    out.insert(id, test);
+                }
             }
         }
         out
     }
+}
+
+/// A parameter whose binding evaluates code before the body: an
+/// initialiser, or a pattern (bound by `let`s off a synthesized
+/// parameter).
+fn runs_code(p: &Param) -> bool {
+    p.default.is_some() || p.name.starts_with("__param_destr_")
 }
 
 fn first_deref(ast: &Ast, params: &[Param], body: &[Stmt]) -> Option<usize> {

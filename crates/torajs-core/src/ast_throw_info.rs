@@ -107,8 +107,7 @@ impl Scan<'_> {
             Expr::Elision => {}
             Expr::Call { callee, args } => {
                 crate::ast_throw_info_call::scan_call(self, *callee, args);
-                self.direct |= self.args_cast(*callee, args);
-                self.direct |= self.entry_test_raises(eid, args);
+                self.direct |= self.args_cast(*callee, args) || self.entry_test_raises(eid, args);
             }
             Expr::BinOp { op, left, right } => {
                 // Band B — the checker decided this pair can only throw

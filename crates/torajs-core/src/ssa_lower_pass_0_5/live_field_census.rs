@@ -84,10 +84,12 @@ pub(crate) struct Live {
     unproven: ExprMask,
     /// Member reads a discriminant test proved live (`disc`).
     pub(crate) members: ExprMask,
-    /// The parameters each direct call tests before the call
-    /// (`entry`).
-    entry: HashMap<ExprId, Vec<usize>>,
+    /// The arguments each direct call tests before the call (`entry`).
+    entry: Entry,
 }
+
+/// Argument indices, by direct call.
+type Entry = HashMap<ExprId, Vec<usize>>;
 
 const THIS: &str = "__this";
 /// Member / identifier / string names that reach a field or an
@@ -140,6 +142,17 @@ struct PrefixWrite<'a> {
     field: &'a str,
     value: ExprId,
     param: Option<usize>,
+}
+
+/// Each expression's checked type, by arena slot.
+fn type_table<'a>(ast: &Ast, expr_types: &'a StdMap<ExprId, Type>) -> Vec<Option<&'a Type>> {
+    let mut types = vec![None; ast.exprs.len()];
+    for (e, t) in expr_types {
+        if let Some(slot) = types.get_mut(e.0 as usize) {
+            *slot = Some(t);
+        }
+    }
+    types
 }
 
 struct Census<'a> {
@@ -199,15 +212,9 @@ impl<'a> Census<'a> {
         (widths, retargets): (&'a WidthTable, &'a StdMap<ExprId, String>),
         (dead, twins_open): (&ExprMask, bool),
     ) -> Self {
-        let mut types = vec![None; ast.exprs.len()];
-        for (e, t) in expr_types {
-            if let Some(slot) = types.get_mut(e.0 as usize) {
-                *slot = Some(t);
-            }
-        }
         let mut c = Census {
             ast,
-            types,
+            types: type_table(ast, expr_types),
             widths,
             retargets,
             road: false,
@@ -238,28 +245,40 @@ impl<'a> Census<'a> {
             c.collect_stmt(s);
         }
         c.calls = bindings::Calls::collect(ast, dead, (retargets, &c.fns));
-        for ctor in &c.ctors {
-            if c.foreign_classes.contains(ctor.class) {
-                continue;
-            }
-            for s in ctor.body {
-                visit_stmt_exprs(s, &mut |e| add_tree(ast, e, &mut c.ctor_exprs));
-            }
-        }
-        // a field is live only where no twin is open
+        c.mark_ctor_exprs();
+        c.collect_exprs(dead, twins_open);
+        c
+    }
+
+    /// Every live expression but the constructor prefix writes, which
+    /// are recorded apart (only where no twin is open, since a field is
+    /// live only there).
+    fn collect_exprs(&mut self, dead: &ExprMask, twins_open: bool) {
         let mut prefix_writes = HashSet::default();
         if !twins_open {
-            prefix_writes = c.prefix_assigns();
-            c.unread_seeds = c.unread_seeds();
+            prefix_writes = self.prefix_assigns();
+            self.unread_seeds = self.unread_seeds();
         }
-        for (i, e) in ast.exprs.iter().enumerate() {
+        for (i, e) in self.ast.exprs.iter().enumerate() {
             let id = ExprId(i as u32);
             if dead.contains(id) || prefix_writes.contains(&id) {
                 continue;
             }
-            c.collect_expr(id, e);
+            self.collect_expr(id, e);
         }
-        c
+    }
+
+    /// Marks the expressions of the constructor bodies of classes
+    /// only instances reach.
+    fn mark_ctor_exprs(&mut self) {
+        for ctor in &self.ctors {
+            if self.foreign_classes.contains(ctor.class) {
+                continue;
+            }
+            for s in ctor.body {
+                visit_stmt_exprs(s, &mut |e| add_tree(self.ast, e, &mut self.ctor_exprs));
+            }
+        }
     }
 
     fn ty(&self, e: ExprId) -> Option<&'a Type> {

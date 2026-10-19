@@ -1,0 +1,11 @@
+ok -1 -1
+ok -2 -2
+strictU-null TypeError
+caught TypeError
+-4
+ok -1 -1
+ok -2 -2
+-3
+strictN-cell TypeError
+caught TypeError
+5 5 5 5

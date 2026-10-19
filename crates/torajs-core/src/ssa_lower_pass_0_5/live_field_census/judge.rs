@@ -11,7 +11,7 @@ use crate::check::Type;
 use super::disc::Discs;
 use super::scope::Owner;
 use super::walk::{collect_super_args, pointer_shaped};
-use super::{Census, ExprMask, Live, THIS};
+use super::{Census, Entry, ExprMask, Live, THIS};
 
 /// A read or a constructor parameter met again on the way, judged by
 /// its other sources.
@@ -32,7 +32,7 @@ impl<'a> Census<'a> {
         let mut live = self.candidate_fields(fields_open);
         let mut live_fns: HashSet<&str> = self.fns.keys().copied().collect();
         let judged = self.judged_params();
-        let mut entry = self.entry_checked(&judged);
+        let entry = self.entry_checked(&judged);
         let checked: HashSet<(&str, usize)> = (entry.iter())
             .flat_map(|(f, at)| at.iter().map(|i| (*f, *i)))
             .collect();
@@ -40,7 +40,7 @@ impl<'a> Census<'a> {
         // what the rounds read again and again, gathered once
         let (mut discs, methods, rets) = (self.discs(), self.methods(), self.returns());
         self.disc_plans(&mut discs, &construct_args, fields_open);
-        let (unproven, members) = loop {
+        let (unproven, members, entry) = loop {
             let st = State {
                 c: self,
                 live: &live,
@@ -66,25 +66,12 @@ impl<'a> Census<'a> {
                 && next_fns.len() == live_fns.len()
                 && next_params.len() == live_params.len()
             {
-                let open = self.calls.open;
-                let fns = (live_fns.iter()).filter(|f| !open && st.call_live(f));
-                // a parameter every call fills with a live value needs
-                // no test at the call either
-                for (f, at) in entry.iter_mut() {
-                    at.retain(|i| !st.param_live(f, *i));
-                }
-                let members = if open {
-                    ExprMask::default()
-                } else {
-                    st.proven_members()
-                };
-                break (st.unproven(&fns.copied().collect()), members);
+                break st.reads(&entry);
             }
             live = next_live;
             live_fns = next_fns;
             live_params = next_params;
         };
-        let entry = self.entry_calls(&entry);
         Live {
             fields: self.with_derived(&live),
             unproven,
@@ -158,6 +145,21 @@ pub(super) struct State<'a, 'b> {
 }
 
 impl<'b> State<'_, 'b> {
+    /// What the fixed point answers about reads: the unproven reads and
+    /// calls, the member reads a discriminant proved, and the arguments
+    /// each call tests for the callee.
+    fn reads(&self, entry: &HashMap<&str, Vec<usize>>) -> (ExprMask, ExprMask, Entry) {
+        let open = self.c.calls.open;
+        let fns = (self.live_fns.iter()).filter(|f| !open && self.call_live(f));
+        let members = if open {
+            ExprMask::default()
+        } else {
+            self.proven_members()
+        };
+        let unproven = self.unproven(&fns.copied().collect());
+        (unproven, members, self.entry_calls(entry))
+    }
+
     fn field_live(&self, class: &str, field: &str) -> bool {
         if self.c.deleted.contains(field) || self.c.foreign.contains(field) {
             return false;

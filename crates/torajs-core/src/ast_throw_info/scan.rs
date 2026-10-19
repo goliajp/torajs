@@ -34,8 +34,8 @@ pub(crate) struct Scan<'a> {
     pub(crate) fn_values: HashSet<String>,
     /// Bindings that may hold a nullish value, and which forms.
     pub(crate) nullish: HashMap<String, Form>,
-    /// Nullish bindings the path so far proved non-nullish.
-    pub(crate) safe: HashSet<String>,
+    /// The nullish forms the path so far ruled out, by binding.
+    pub(crate) safe: HashMap<String, Form>,
     /// Names some assignment anywhere in the program writes.
     assigned: &'a HashSet<String>,
     /// What the census proved live: a read it did not is guarded.
@@ -88,7 +88,7 @@ impl<'a> Scan<'a> {
             called: Vec::new(),
             fn_values: params.iter().map(|p| p.name.clone()).collect(),
             nullish,
-            safe: HashSet::new(),
+            safe: HashMap::new(),
             assigned,
             live,
             fresh_recv: HashSet::new(),
@@ -157,11 +157,9 @@ impl<'a> Scan<'a> {
             if self.assigned.contains(&name) {
                 continue;
             }
-            // a name outside the registry can still be an unproven
-            // binding (`nullish::form`), which may hold either form
-            if self.nullish.get(&name).copied().unwrap_or(ANY) & !excluded == 0 {
-                self.safe.insert(name);
-            }
+            // only the forms the test names: whatever the registry says,
+            // an unproven read (`nullish::form`) may hold either form
+            *self.safe.entry(name).or_default() |= excluded;
         }
     }
 

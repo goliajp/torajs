@@ -188,8 +188,10 @@ pub(crate) fn emit_slot_guard(ctx: &mut LowerCtx<'_>, eid: ExprId, v: &Operand) 
 }
 
 /// The tests a direct call makes, once every argument is evaluated, on
-/// the parameters the callee reads a member of before anything else
-/// (`live_field_census::entry`).
+/// the arguments the census lists for it: the callee reads a member of
+/// the parameter before anything else and trusts it
+/// (`live_field_census::entry`), so the test does not ask the
+/// argument's shape, only its slot family.
 pub(crate) fn emit_entry_guards(
     ctx: &mut LowerCtx<'_>,
     call: ExprId,
@@ -197,9 +199,21 @@ pub(crate) fn emit_entry_guards(
     argv: &[Operand],
 ) {
     for i in ctx.proofs.entry_params(call).to_vec() {
-        if let (Some(&arg), Some(v)) = (args.get(i), argv.get(i)) {
-            emit_slot_guard(ctx, arg, v);
-        }
+        let (Some(&arg), Some(v)) = (args.get(i), argv.get(i)) else {
+            continue;
+        };
+        let (raiser, sentinels): (FuncId, &[&str]) = match ctx.operand_ty(v) {
+            Type::Str => (
+                ctx.intrinsics.str_null_check,
+                &[STR_UNDEF_CELL_SYM, SUBSTR_UNDEF_CELL_SYM],
+            ),
+            Type::Arr(_) => (ctx.intrinsics.arr_null_check, &[UNDEF_CELL_SYM]),
+            t if t.spells_undef_with_generic_cell() => {
+                (ctx.intrinsics.heap_nullish_check, &[UNDEF_CELL_SYM])
+            }
+            _ => continue,
+        };
+        emit_proven_nullish_guard(ctx, arg, v, raiser, sentinels);
     }
 }
 

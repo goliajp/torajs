@@ -27,8 +27,10 @@ use crate::ast::{Expr, ExprId};
 
 use crate::ssa_lower::LowerCtx;
 pub(crate) use cell_types::spells_undef_with_generic_cell;
+pub(crate) use passed_through::passed_through;
 
 mod cell_types;
+mod passed_through;
 pub(crate) use crate::ssa_lower_nullable_guard_emit::{
     emit_entry_guards, emit_nullable_arr_guard, emit_nullable_str_guard, emit_slot_guard,
     emit_undef_cell_guard, emit_undefable_heap_guard,
@@ -89,6 +91,8 @@ pub(crate) fn is_nullable_str_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
     is_nullable_str_shape(ctx, eid)
         || (matches!(ctx.expr_types.get(&eid), Some(crate::check::Type::String))
             && ctx.proofs.unproven_read(eid))
+        || (passed_through(ctx.ast, eid).into_iter().flatten())
+            .any(|e| is_nullable_str_source(ctx, e))
 }
 
 /// [`is_nullable_str_source`] without the census: the shapes whose
@@ -241,22 +245,20 @@ fn ret_upgraded_from_any_binding(ctx: &LowerCtx<'_>, callee: ExprId) -> bool {
 }
 
 pub(crate) fn is_undefable_heap_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
+    use crate::check::Type;
     if ctx.proofs.member_proven(eid) {
         return false;
     }
-    if callee_falls_through(ctx, eid) {
-        return true;
-    }
-    if awaited_promise_inner(ctx, eid).is_some_and(spells_undef_with_generic_cell) {
-        return true;
-    }
     // a binding or a call result the census did not prove live: a
     // narrowing a call has since undone hands NULL to a slot of a
-    // non-nullable type (§13.3.2.1 throws on the member read)
-    if matches!(
-        ctx.expr_types.get(&eid),
-        Some(crate::check::Type::Nullable(_))
-    ) || ctx.proofs.unproven_read(eid)
+    // non-nullable type (§13.3.2.1 throws on the member read); so does
+    // an operand an operator passes on as its own value
+    if callee_falls_through(ctx, eid)
+        || awaited_promise_inner(ctx, eid).is_some_and(spells_undef_with_generic_cell)
+        || matches!(ctx.expr_types.get(&eid), Some(Type::Nullable(_)))
+        || ctx.proofs.unproven_read(eid)
+        || (passed_through(ctx.ast, eid).into_iter().flatten())
+            .any(|e| is_undefable_heap_source(ctx, e))
     {
         return true;
     }

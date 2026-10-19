@@ -94,7 +94,26 @@ impl<'a> Calls<'a> {
                 c.value_used.insert(n);
             }
         }
+        c.retargeted_values(ast, dead, (retargets, fns));
         c
+    }
+
+    /// A generic function's value is the specialization the checker
+    /// retargeted it to (the lowering takes that one's address).
+    fn retargeted_values<T>(
+        &mut self,
+        ast: &Ast,
+        dead: &ExprMask,
+        (retargets, fns): (&'a StdMap<ExprId, String>, &HashMap<&'a str, T>),
+    ) {
+        for (e, m) in retargets {
+            if matches!(ast.get_expr(*e), Expr::Ident(_))
+                && !dead.contains(*e)
+                && fns.contains_key(m.as_str())
+            {
+                self.value_used.insert(m);
+            }
+        }
     }
 }
 
@@ -117,8 +136,23 @@ impl Live {
 
 /// A slot of this type spells a nullish value in band: a pointer, or a
 /// string's NULL and immortal cells.
-fn holds_nullish_in_band(t: &Type) -> bool {
+pub(super) fn holds_nullish_in_band(t: &Type) -> bool {
     *t == Type::String || spells_undef_with_generic_cell(t)
+}
+
+/// A method called through a receiver of type `t` other than a named
+/// class may answer a value the census did not prove live: a struct's
+/// function field, a type parameter, or a union one of whose classes
+/// `live` does not prove the method of. Any other receiver is a builtin
+/// whose methods answer fresh values.
+fn recv_unproven<'a>(t: &'a Type, live: &mut impl FnMut(&'a str) -> bool) -> bool {
+    match t {
+        Type::Struct(_) | Type::TypeVar(_) => true,
+        Type::ClassRef(c) => !live(c.split('<').next().unwrap_or(c)),
+        Type::Nullable(inner) => recv_unproven(inner, live),
+        Type::Union(ts) => ts.iter().any(|t| recv_unproven(t, live)),
+        _ => false,
+    }
 }
 
 /// A declared function whose parameters are judged by its call sites:
@@ -174,16 +208,19 @@ impl<'a, 'b> super::judge::State<'a, 'b> {
                         factory_class(f).is_none() && !fns.contains(f.as_str())
                     }
                     Expr::Ident(f) => binder(f),
-                    Expr::Member { obj, name } => match c.ty(*obj) {
-                        Some(Type::Struct(_)) => true,
-                        Some(Type::ClassRef(_)) => {
-                            open || !self.method_class(*obj).is_some_and(|class| {
-                                let m = methods.entry((class, name));
-                                *m.or_insert_with(|| self.methods_live(class, name))
-                            })
+                    Expr::Member { obj, name } => {
+                        let mut live = |class| {
+                            let m = methods.entry((class, name.as_str()));
+                            *m.or_insert_with(|| self.methods_live(class, name))
+                        };
+                        match c.ty(*obj) {
+                            Some(Type::ClassRef(_)) => {
+                                open || !self.method_class(*obj).is_some_and(live)
+                            }
+                            Some(t) => open || recv_unproven(t, &mut live),
+                            None => false,
                         }
-                        _ => false,
-                    },
+                    }
                     _ => false,
                 },
                 _ => false,
@@ -205,7 +242,10 @@ impl<'a, 'b> super::judge::State<'a, 'b> {
         if p.is_rest || p.default.is_some() || self.c.assigned.contains(p.name.as_str()) {
             return false;
         }
-        let sites = self.c.calls.args.get(f).map_or(&[][..], Vec::as_slice);
+        // a function no direct call enters is entered out of sight
+        let Some(sites) = self.c.calls.args.get(f) else {
+            return false;
+        };
         let mut visiting = Visiting::default();
         sites.iter().all(|args| {
             args.get(i).is_some_and(|a| {

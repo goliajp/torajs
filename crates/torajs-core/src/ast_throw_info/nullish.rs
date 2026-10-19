@@ -13,7 +13,7 @@
 use super::Scan;
 use crate::ast::{BinOp, Expr, ExprId, UnaryOp};
 use crate::check::Type;
-use crate::ssa_lower_nullable_guard::spells_undef_with_generic_cell;
+use crate::ssa_lower_nullable_guard::{passed_through, spells_undef_with_generic_cell};
 
 /// The names some assignment anywhere writes, and what the census
 /// proved live.
@@ -41,12 +41,13 @@ impl Scan<'_> {
             )
     }
 
-    /// A call whose callee's parameter the caller tests before the
-    /// call (`live_field_census::entry`) raises there when the argument
-    /// may be nullish, as the member read in the callee would.
+    /// A call that tests an argument for the callee before the call
+    /// (`live_field_census::entry`) raises there, as the member read in
+    /// the callee would: the census lists only the arguments it could
+    /// not prove live, and the lowering tests each one whatever its
+    /// shape.
     pub(crate) fn entry_test_raises(&self, call: ExprId, args: &[ExprId]) -> bool {
-        (self.live.entry_params(call).iter())
-            .any(|i| args.get(*i).is_some_and(|a| self.receiver_raises(*a)))
+        (self.live.entry_params(call).iter()).any(|i| *i < args.len())
     }
 
     /// The nullish values `eid` may evaluate to; 0 when it cannot be
@@ -61,18 +62,22 @@ impl Scan<'_> {
         if matches!(ty, Some(Type::Nullable(_))) {
             f |= ANY;
         }
-        // a binding or a call result the census did not prove live
-        if self.live.unproven_read(eid)
-            && !matches!(self.ast.get_expr(eid), Expr::Ident(n) if self.safe.contains(n))
-        {
-            f |= ANY;
+        // a binding or a call result the census did not prove live, but
+        // for the forms a narrowing on the path ruled out
+        let ruled_out = match self.ast.get_expr(eid) {
+            Expr::Ident(n) => self.safe.get(n).copied().unwrap_or(0),
+            _ => 0,
+        };
+        if self.live.unproven_read(eid) {
+            f |= ANY & !ruled_out;
+        }
+        for e in passed_through(self.ast, eid).into_iter().flatten() {
+            f |= self.form(e);
         }
         match self.ast.get_expr(eid) {
             Expr::Ident(n) => {
-                if !self.safe.contains(n)
-                    && let Some(b) = self.nullish.get(n)
-                {
-                    f |= *b;
+                if let Some(b) = self.nullish.get(n) {
+                    f |= *b & !ruled_out;
                 }
                 if n.starts_with(crate::ast::UNDEF_SLOT_MARKER) {
                     f |= UNDEF;
