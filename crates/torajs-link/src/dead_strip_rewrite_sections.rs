@@ -12,6 +12,8 @@ use crate::dead_strip_rewrite::{
 use crate::dead_strip_rewrite_tables::{filter_relocs, move_rows, patch_unsigned_addends};
 use crate::runtime_prestrip::dead_content_in_prestripped;
 
+const RELOC_SIZE: usize = torajs_obj::RELOCATION_INFO_SIZE as usize;
+
 /// One section to cut: its atoms as section-relative `[start, end)`
 /// ranges and which of them are live.
 pub(crate) struct SectionCut<'r> {
@@ -44,6 +46,26 @@ impl Pass {
         let i = self.runs.partition_point(|r| r.old_start <= o);
         let r = self.runs.get(i.checked_sub(1)?)?;
         (o < r.old_start + r.len).then(|| self.addr + r.new_start + (o - r.old_start))
+    }
+
+    /// [`Pass::remap`] of the section-relative offset `o`, also
+    /// section-relative. Tries the run at `hint` first (sites in a row
+    /// mostly fall in one run) and leaves the run found there.
+    pub(crate) fn remap_rel(&self, o: u64, hint: &mut usize) -> Option<u64> {
+        let i = match self.runs.get(*hint) {
+            Some(r)
+                if r.old_start <= o && self.runs.get(*hint + 1).is_none_or(|n| n.old_start > o) =>
+            {
+                *hint
+            }
+            _ => self
+                .runs
+                .partition_point(|r| r.old_start <= o)
+                .checked_sub(1)?,
+        };
+        *hint = i;
+        let r = &self.runs[i];
+        (o < r.old_start + r.len).then(|| r.new_start + (o - r.old_start))
     }
 }
 
@@ -109,13 +131,15 @@ pub(crate) fn strip_sections(
     for pass in &passes {
         let hdr = &sects[usize::from(pass.ord) - 1];
         if hdr.reloff != 0 && hdr.nreloc != 0 {
-            let kept = filter_relocs(&mut out, pass, shift_off(&passes, hdr.reloff), hdr.nreloc);
+            let input = &bytes[hdr.reloff as usize..][..hdr.nreloc as usize * RELOC_SIZE];
+            let tbl = shift_off(&passes, hdr.reloff) as usize;
+            let kept = filter_relocs(&mut out, input, pass, tbl);
             put32(&mut out, hdr.hdr_pos + 60, kept);
         }
     }
     patch_unsigned_addends(&mut out, &sects, &passes)?;
     let dead_rows = match symtab {
-        Some((symoff, nsyms)) => move_rows(&mut out, &passes, symoff, nsyms, dead_at),
+        Some(symtab) => move_rows(&mut out, &sects, &passes, symtab, dead_at),
         None => Vec::new(),
     };
     Ok(Some(StrippedMember {
