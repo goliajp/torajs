@@ -19,15 +19,24 @@
 //!   header    MAGIC(8) version n_archives n_slots n_members n_syms
 //!             archives_off slots_off members_off syms_off
 //!             names_off names_len blob_off blob_len
+//!             tables_off tables_len
 //!   archives  n_archives × { slot_start, slot_count }       (u32 ×2)
 //!   slots     n_slots × member_id                           (u32)
 //!   members   n_members × { name_off, name_len, data_off,
-//!                            data_len }                     (u32 ×4)
+//!                            data_len, table_off,
+//!                            table_len }                    (u32 ×6)
 //!   syms      n_syms × { name_off, name_len, archive_idx,
 //!                        member_idx, n_value(u64) }         (24 B)
 //!   names     member and symbol names, no terminators
 //!   blob      distinct kept member bodies
+//!   tables    one table per distinct member, opaque here
 //! ```
+//!
+//! A member's table is whatever the image's consumer derived from the
+//! member's bytes when the image was built
+//! ([`build_reachable_from_members_with_tables`]), so a link reads it
+//! instead of parsing the bytes again; an empty table means none was
+//! built.
 //!
 //! A slot is one kept `(archive, member)` position, in the original
 //! walk's order, so the linker's member ordering and first-wins
@@ -47,9 +56,9 @@ mod view;
 pub use view::{Image, ImageError, ImageSymbol};
 
 const MAGIC: &[u8; 8] = b"TRIMG\0\0\0";
-const VERSION: u32 = 1;
-const HEADER_LEN: usize = 8 + 4 * 13;
-const MEMBER_LEN: usize = 16;
+const VERSION: u32 = 2;
+const HEADER_LEN: usize = 8 + 4 * 15;
+const MEMBER_LEN: usize = 24;
 const SYM_LEN: usize = 24;
 
 /// Failures of [`build`], blamed on one archive.
@@ -63,9 +72,18 @@ pub enum BuildError {
         archive_idx: usize,
         err: ArchiveParseError,
     },
+    /// The table callback refused a member.
+    Table {
+        archive_idx: usize,
+        member: String,
+        err: String,
+    },
     /// A count or offset does not fit the image's 32-bit fields.
     TooLarge,
 }
+
+/// Builds the table stored beside one member body.
+type TableFn<'f> = dyn FnMut(&ArMember<'_>) -> Result<Vec<u8>, String> + 'f;
 
 fn u32v(n: usize) -> Result<u32, BuildError> {
     u32::try_from(n).map_err(|_| BuildError::TooLarge)
@@ -74,20 +92,24 @@ fn u32v(n: usize) -> Result<u32, BuildError> {
 /// Preprocess `archives` (in link search order) into an image holding
 /// every member.
 pub fn build(archives: &[&[u8]]) -> Result<Vec<u8>, BuildError> {
-    build_members(&parse_all(archives)?, false)
+    build_members(&parse_all(archives)?, false, &mut |_| Ok(Vec::new()))
 }
 
 /// [`build`] keeping only the members some program can pull into its
 /// link; the names won by a dropped member leave the index, so a
 /// lookup of one misses instead of pulling a different member.
 pub fn build_reachable(archives: &[&[u8]]) -> Result<Vec<u8>, BuildError> {
-    build_members(&parse_all(archives)?, true)
+    build_members(&parse_all(archives)?, true, &mut |_| Ok(Vec::new()))
 }
 
 /// [`build_reachable`] over archives already split into members, in
-/// link search order (members a caller rewrote included).
-pub fn build_reachable_from_members(archives: &[Vec<ArMember<'_>>]) -> Result<Vec<u8>, BuildError> {
-    build_members(archives, true)
+/// link search order (members a caller rewrote included), storing
+/// `table(member)` beside each distinct kept member body.
+pub fn build_reachable_from_members_with_tables(
+    archives: &[Vec<ArMember<'_>>],
+    table: &mut TableFn<'_>,
+) -> Result<Vec<u8>, BuildError> {
+    build_members(archives, true, table)
 }
 
 fn parse_all<'a>(archives: &[&'a [u8]]) -> Result<Vec<Vec<ArMember<'a>>>, BuildError> {
@@ -100,10 +122,12 @@ fn parse_all<'a>(archives: &[&'a [u8]]) -> Result<Vec<Vec<ArMember<'a>>>, BuildE
         .collect()
 }
 
-fn build_members(
-    parsed: &[Vec<ArMember<'_>>],
+/// The first-archive-wins index of every defined name, and which
+/// members the image keeps.
+fn winners_and_live<'a>(
+    parsed: &[Vec<ArMember<'a>>],
     reachable_only: bool,
-) -> Result<Vec<u8>, BuildError> {
+) -> Result<(Winners<'a>, Vec<Vec<bool>>), BuildError> {
     let mut winners: Winners<'_> = BTreeMap::new();
     for (archive_idx, members) in parsed.iter().enumerate() {
         let per_archive =
@@ -122,12 +146,21 @@ fn build_members(
     } else {
         parsed.iter().map(|ms| vec![true; ms.len()]).collect()
     };
+    Ok((winners, live))
+}
 
+fn build_members(
+    parsed: &[Vec<ArMember<'_>>],
+    reachable_only: bool,
+    table: &mut TableFn<'_>,
+) -> Result<Vec<u8>, BuildError> {
+    let (winners, live) = winners_and_live(parsed, reachable_only)?;
     let mut names = Names::default();
     let mut blob: Vec<u8> = Vec::new();
+    let mut tables: Vec<u8> = Vec::new();
     let mut member_ids: HashMap<(&str, &[u8]), u32> = HashMap::new();
-    // (name_off, name_len, data_off, data_len)
-    let mut members: Vec<[u32; 4]> = Vec::new();
+    // (name_off, name_len, data_off, data_len, table_off, table_len)
+    let mut members: Vec<[u32; 6]> = Vec::new();
     let mut archive_table: Vec<[u32; 2]> = Vec::new();
     let mut slots: Vec<u32> = Vec::new();
     // original member index -> index among the archive's kept members
@@ -147,7 +180,21 @@ fn build_members(
                     let (name_off, name_len) = names.intern(m.name)?;
                     let data_off = u32v(blob.len())?;
                     blob.extend_from_slice(m.data);
-                    members.push([name_off, name_len, data_off, u32v(m.data.len())?]);
+                    let t = table(m).map_err(|err| BuildError::Table {
+                        archive_idx: a,
+                        member: m.name.to_string(),
+                        err,
+                    })?;
+                    let table_off = u32v(tables.len())?;
+                    tables.extend_from_slice(&t);
+                    members.push([
+                        name_off,
+                        name_len,
+                        data_off,
+                        u32v(m.data.len())?,
+                        table_off,
+                        u32v(t.len())?,
+                    ]);
                     let id = u32v(members.len() - 1)?;
                     member_ids.insert((m.name, m.data), id);
                     id
@@ -159,19 +206,7 @@ fn build_members(
         renumber.push(kept);
     }
 
-    let index: BTreeMap<&str, (u32, u32, u64)> = winners
-        .into_iter()
-        .filter_map(|(name, (a, m, v))| renumber[a as usize][m as usize].map(|k| (name, (a, k, v))))
-        .collect();
-
-    let mut syms: Vec<u8> = Vec::with_capacity(index.len() * SYM_LEN);
-    for (name, (a, m, n_value)) in &index {
-        let (name_off, name_len) = names.intern(name)?;
-        for v in [name_off, name_len, *a, *m] {
-            syms.extend_from_slice(&v.to_le_bytes());
-        }
-        syms.extend_from_slice(&n_value.to_le_bytes());
-    }
+    let (n_syms, syms) = sym_rows(winners, &renumber, &mut names)?;
 
     let archives_off = HEADER_LEN;
     let slots_off = archives_off + archive_table.len() * 8;
@@ -180,7 +215,8 @@ fn build_members(
     let names_off = syms_off + syms.len();
     let names = names.bytes;
     let blob_off = align8(names_off + names.len());
-    let total = blob_off + blob.len();
+    let tables_off = blob_off + blob.len();
+    let total = tables_off + tables.len();
 
     let mut out: Vec<u8> = Vec::with_capacity(total);
     out.extend_from_slice(MAGIC);
@@ -189,7 +225,7 @@ fn build_members(
         parsed.len(),
         slots.len(),
         members.len(),
-        index.len(),
+        n_syms,
         archives_off,
         slots_off,
         members_off,
@@ -198,28 +234,44 @@ fn build_members(
         names.len(),
         blob_off,
         blob.len(),
+        tables_off,
+        tables.len(),
     ] {
         out.extend_from_slice(&u32v(n)?.to_le_bytes());
     }
     debug_assert_eq!(out.len(), HEADER_LEN);
-    for row in &archive_table {
-        for v in row {
-            out.extend_from_slice(&v.to_le_bytes());
-        }
-    }
-    for v in &slots {
+    let rows = archive_table.iter().flatten().chain(&slots);
+    for v in rows.chain(members.iter().flatten()) {
         out.extend_from_slice(&v.to_le_bytes());
-    }
-    for row in &members {
-        for v in row {
-            out.extend_from_slice(&v.to_le_bytes());
-        }
     }
     out.extend_from_slice(&syms);
     out.extend_from_slice(&names);
     out.resize(blob_off, 0);
     out.extend_from_slice(&blob);
+    out.extend_from_slice(&tables);
     Ok(out)
+}
+
+/// The `syms` rows of the names whose winner is kept, sorted by name,
+/// and their count.
+fn sym_rows<'a>(
+    winners: Winners<'a>,
+    renumber: &[Vec<Option<u32>>],
+    names: &mut Names<'a>,
+) -> Result<(usize, Vec<u8>), BuildError> {
+    let index: BTreeMap<&str, (u32, u32, u64)> = winners
+        .into_iter()
+        .filter_map(|(name, (a, m, v))| renumber[a as usize][m as usize].map(|k| (name, (a, k, v))))
+        .collect();
+    let mut syms: Vec<u8> = Vec::with_capacity(index.len() * SYM_LEN);
+    for (name, (a, m, n_value)) in &index {
+        let (name_off, name_len) = names.intern(name)?;
+        for v in [name_off, name_len, *a, *m] {
+            syms.extend_from_slice(&v.to_le_bytes());
+        }
+        syms.extend_from_slice(&n_value.to_le_bytes());
+    }
+    Ok((index.len(), syms))
 }
 
 /// The names blob under construction, each distinct name written once.
@@ -464,6 +516,44 @@ mod tests {
         let mut img = build(&[]).unwrap();
         img[0] = b'X';
         assert_eq!(Image::parse(&img).unwrap_err(), ImageError::BadMagic);
+    }
+
+    #[test]
+    fn a_table_is_built_once_per_body_and_read_back_per_slot() {
+        let shared = object_with_syms(&["_core_x"]);
+        let a = archive_of(&[("a.o", &object_with_syms(&["_a"])), ("std.o", &shared)]);
+        let b = archive_of(&[("std.o", &shared), ("b.o", &object_with(&["_b"], &["_a"]))]);
+        let parsed = [parse_archive(&a).unwrap(), parse_archive(&b).unwrap()];
+        let mut calls: Vec<String> = Vec::new();
+        let img = build_reachable_from_members_with_tables(&parsed, &mut |m| {
+            calls.push(m.name.to_string());
+            Ok(format!("{}:{}", m.name, m.data.len()).into_bytes())
+        })
+        .unwrap();
+        // the copy of std.o in b wins no name and is left out
+        assert_eq!(calls, ["a.o", "std.o", "b.o"]);
+        let v = Image::parse(&img).unwrap();
+        for a in 0..v.archive_count() {
+            for (i, m) in v.members(a).enumerate() {
+                let want = format!("{}:{}", m.name, m.data.len());
+                assert_eq!(v.member_table(a, i), want.as_bytes());
+            }
+        }
+        let plain = build(&[&a, &b]).unwrap();
+        let v = Image::parse(&plain).unwrap();
+        assert!(v.member_table(1, 0).is_empty());
+
+        let err = build_reachable_from_members_with_tables(&parsed, &mut |m| {
+            if m.name == "b.o" {
+                Err("no".into())
+            } else {
+                Ok(Vec::new())
+            }
+        })
+        .unwrap_err();
+        assert!(
+            matches!(err, BuildError::Table { archive_idx: 1, ref member, .. } if member == "b.o")
+        );
     }
 
     #[test]

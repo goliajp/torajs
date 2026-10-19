@@ -35,6 +35,7 @@ pub struct Image<'a> {
     syms_off: usize,
     names: &'a [u8],
     blob: &'a [u8],
+    tables: &'a [u8],
 }
 
 impl<'a> Image<'a> {
@@ -55,6 +56,7 @@ impl<'a> Image<'a> {
         let (n_archives, n_slots, n_members, n_syms) = (f(1), f(2), f(3), f(4));
         let (archives_off, slots_off, members_off, syms_off) = (f(5), f(6), f(7), f(8));
         let (names_off, names_len, blob_off, blob_len) = (f(9), f(10), f(11), f(12));
+        let (tables_off, tables_len) = (f(13), f(14));
         let ends = [
             archives_off + n_archives * 8,
             slots_off + n_slots * 4,
@@ -62,6 +64,7 @@ impl<'a> Image<'a> {
             syms_off + n_syms * SYM_LEN,
             names_off + names_len,
             blob_off + blob_len,
+            tables_off + tables_len,
         ];
         if ends.iter().any(|&e| e > bytes.len()) {
             return Err(ImageError::Truncated);
@@ -76,6 +79,7 @@ impl<'a> Image<'a> {
             syms_off,
             names: &bytes[names_off..names_off + names_len],
             blob: &bytes[blob_off..blob_off + blob_len],
+            tables: &bytes[tables_off..tables_off + tables_len],
         })
     }
 
@@ -99,18 +103,42 @@ impl<'a> Image<'a> {
         let row = self.archives_off + archive_idx * 8;
         let start = self.u32_at(row);
         let count = self.u32_at(row + 4);
+        (start..start + count).map(move |slot| self.slot_member(slot))
+    }
+
+    /// Member `member_idx` of archive `archive_idx`.
+    pub fn member(&self, archive_idx: usize, member_idx: usize) -> ArMember<'a> {
+        let start = self.u32_at(self.archives_off + archive_idx * 8);
+        self.slot_member(start + member_idx)
+    }
+
+    /// The table stored beside member `member_idx` of archive
+    /// `archive_idx`; empty when the image was built without one.
+    pub fn member_table(&self, archive_idx: usize, member_idx: usize) -> &'a [u8] {
+        let m = self.slot_row(archive_idx, member_idx);
+        let off = self.u32_at(m + 16);
+        let tables: &'a [u8] = self.tables;
+        &tables[off..off + self.u32_at(m + 20)]
+    }
+
+    /// The `members` row of a slot.
+    fn slot_row(&self, archive_idx: usize, member_idx: usize) -> usize {
+        let start = self.u32_at(self.archives_off + archive_idx * 8);
+        let id = self.u32_at(self.slots_off + (start + member_idx) * 4);
+        self.members_off + id * MEMBER_LEN
+    }
+
+    fn slot_member(&self, slot: usize) -> ArMember<'a> {
+        let id = self.u32_at(self.slots_off + slot * 4);
+        let m = self.members_off + id * MEMBER_LEN;
+        let name = self.name_at(self.u32_at(m), self.u32_at(m + 4));
+        let data_off = self.u32_at(m + 8);
+        let data_len = self.u32_at(m + 12);
         let blob: &'a [u8] = self.blob;
-        (start..start + count).map(move |slot| {
-            let id = self.u32_at(self.slots_off + slot * 4);
-            let m = self.members_off + id * MEMBER_LEN;
-            let name = self.name_at(self.u32_at(m), self.u32_at(m + 4));
-            let data_off = self.u32_at(m + 8);
-            let data_len = self.u32_at(m + 12);
-            ArMember {
-                name,
-                data: &blob[data_off..data_off + data_len],
-            }
-        })
+        ArMember {
+            name,
+            data: &blob[data_off..data_off + data_len],
+        }
     }
 
     /// The merged first-archive-wins index, sorted by name.

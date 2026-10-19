@@ -30,8 +30,8 @@ use std::rc::Rc;
 
 use torajs_codegen::CompiledFunction;
 use torajs_obj::{
-    N_NO_DEAD_STRIP, N_SECT, N_TYPE, S_ATTR_LIVE_SUPPORT, S_ATTR_NO_DEAD_STRIP,
-    S_MOD_INIT_FUNC_POINTERS, S_TERM_FUNC_POINTERS, S_THREAD_LOCAL_VARIABLES, SECTION_TYPE,
+    N_SECT, N_TYPE, S_ATTR_LIVE_SUPPORT, S_ATTR_NO_DEAD_STRIP, S_MOD_INIT_FUNC_POINTERS,
+    S_TERM_FUNC_POINTERS, S_THREAD_LOCAL_VARIABLES, SECTION_TYPE,
 };
 
 use crate::archive_link_extra_syms::{ExtraDefined, UserDefined};
@@ -39,6 +39,7 @@ use crate::archives_merge::{MergedArchives, RequiredMembers, reloc_target_name};
 pub(crate) use crate::dead_strip_reach_build::trim16;
 use crate::dead_strip_reach_cache::ReachCache;
 use crate::dead_strip_reach_edges::{Edge, EdgeIndex, Seen, UndefMemo};
+use crate::dead_strip_reach_table::image_table;
 use crate::phase_timer::PhaseTimer;
 
 /// One parsed nlist row — just the fields reachability needs.
@@ -46,7 +47,6 @@ pub(crate) struct NlEntry<'a> {
     pub(crate) name: &'a str,
     pub(crate) n_type: u8,
     pub(crate) n_sect: u8,
-    pub(crate) n_desc: u16,
     pub(crate) n_value: u64,
 }
 
@@ -83,11 +83,12 @@ pub(crate) struct MemberReach<'a> {
     /// Indexed by 1-based section ordinal − 1.
     pub(crate) sects: Vec<SectAtoms>,
     pub(crate) nlist: Rc<[NlEntry<'a>]>,
-    /// Defined (N_SECT) symbols by name → (n_sect, n_value).
-    pub(crate) defined: Rc<BTreeMap<&'a str, (u8, u64)>>,
+    /// Defined (N_SECT) symbols by name → (n_sect, n_value), sorted.
+    pub(crate) defined: Rc<[(&'a str, u8, u64)]>,
     /// Sorted names `defined` holds only the last row of (more than
     /// one `N_SECT` row carries them).
     pub(crate) dup_defined: Rc<[&'a str]>,
+    pub(crate) no_dead_strip: Rc<[u32]>,
 }
 
 /// Worklist node.
@@ -156,8 +157,8 @@ pub(crate) fn compute_reachability<'a>(
     let mut t = PhaseTimer::start(4);
     let mut reach: BTreeMap<(usize, usize), MemberReach<'a>> = BTreeMap::new();
     for &(a, m) in &required.members {
-        let member = &merged.member(a, m);
-        reach.insert((a, m), cache.member_reach(member)?);
+        let (member, table) = (&merged.member(a, m), image_table(merged, (a, m)));
+        reach.insert((a, m), cache.member_reach(member, table)?);
     }
     t.tick("reach_build_members");
 
@@ -225,14 +226,12 @@ pub(crate) fn compute_reachability<'a>(
                 worklist.push(node);
             }
         }
-        for e in r.nlist.iter() {
-            if e.n_type & N_TYPE == N_SECT && e.n_desc & N_NO_DEAD_STRIP != 0 {
-                let node = node_for_addr(key, r, e.n_sect, e.n_value);
-                if record_preds {
-                    preds.entry(node).or_insert(Pred::FlagRoot);
-                }
-                worklist.push(node);
+        for e in r.no_dead_strip_rows() {
+            let node = node_for_addr(key, r, e.n_sect, e.n_value);
+            if record_preds {
+                preds.entry(node).or_insert(Pred::FlagRoot);
             }
+            worklist.push(node);
         }
     }
 

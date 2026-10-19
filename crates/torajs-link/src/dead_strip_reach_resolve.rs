@@ -23,7 +23,7 @@ pub(crate) fn node_for_global_name(
     let sym = merged.symbol(name)?;
     let key = (sym.archive_idx, sym.member_idx);
     let r = reach.get(&key)?;
-    let &(n_sect, n_value) = r.defined.get(name)?;
+    let (n_sect, n_value) = r.defined(name)?;
     Some(node_for_addr(key, r, n_sect, n_value))
 }
 

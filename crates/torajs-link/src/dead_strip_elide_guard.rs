@@ -60,14 +60,14 @@ pub(crate) fn guard_live(reach: &ReachResult<'_>, guard: &Guard) -> bool {
 /// Push every `(n_sect, n_value)` a defined row named `name` sits at.
 fn name_positions(m: &MemberReach<'_>, name: &str, out: &mut Vec<(u8, u64)>) {
     use torajs_obj::{N_SECT, N_TYPE};
-    if m.dup_defined.binary_search(&name).is_ok() {
+    if m.is_dup_defined(name) {
         out.extend(
             m.nlist
                 .iter()
                 .filter(|n| n.n_type & N_TYPE == N_SECT && n.name == name)
                 .map(|n| (n.n_sect, n.n_value)),
         );
-    } else if let Some(&p) = m.defined.get(name) {
+    } else if let Some(p) = m.defined(name) {
         out.push(p);
     }
 }
@@ -127,47 +127,17 @@ mod tests {
     /// reached.
     #[test]
     fn aliased_anchor_answers_to_every_name() {
-        use crate::dead_strip_reach::{MemberReach, NlEntry, SectAtoms};
-        use torajs_obj::N_SECT;
+        use crate::dead_strip_reach_table::test_support::text_reach;
         let names = [
             "___torajs_closure_props_attach",
             "___torajs_obj_props_attach",
             "ltmp3",
         ];
-        let nlist: Vec<NlEntry<'_>> = names
-            .iter()
-            .copied()
-            .map(|n| NlEntry {
-                name: n,
-                n_type: N_SECT,
-                n_sect: 1,
-                n_desc: 0,
-                n_value: 0x4800,
-            })
-            .collect();
-        let m = MemberReach {
-            member_name: "rc.o",
-            sects: vec![SectAtoms {
-                addr: 0x4000,
-                size: 0x1000,
-                file_off: 0,
-                no_file_storage: false,
-                flags: 0,
-                sectname: *b"__text\0\0\0\0\0\0\0\0\0\0",
-                is_text: true,
-                atoms: vec![(0x4000, 0x4800), (0x4800, 0x5000)].into(),
-                live: vec![false, true],
-                all_live: false,
-            }],
-            defined: std::rc::Rc::new(
-                nlist
-                    .iter()
-                    .map(|n| (n.name, (n.n_sect, n.n_value)))
-                    .collect(),
-            ),
-            nlist: nlist.into(),
-            dup_defined: Vec::new().into(),
-        };
+        let rows: Vec<(&str, u64)> = names.iter().map(|&n| (n, 0x4800)).collect();
+        let mut m = text_reach(0x4000, 0x1000, &rows);
+        m.member_name = "rc.o";
+        assert_eq!(m.sects[0].atoms.len(), 2);
+        m.sects[0].live = vec![false, true];
         let closure = vec!["___torajs_closure_props_attach".to_string()];
         let obj = vec!["___torajs_obj_props_attach".to_string()];
         let all: Vec<String> = names.iter().map(|s| s.to_string()).collect();
@@ -200,33 +170,11 @@ mod tests {
     /// table kept.
     #[test]
     fn repeated_name_answers_at_every_row() {
-        use crate::dead_strip_reach::{MemberReach, NlEntry, SectAtoms};
-        use torajs_obj::N_SECT;
-        let row = |n_value| NlEntry {
-            name: "w",
-            n_type: N_SECT,
-            n_sect: 1,
-            n_desc: 0,
-            n_value,
-        };
-        let m = MemberReach {
-            member_name: "x.o",
-            sects: vec![SectAtoms {
-                addr: 0,
-                size: 16,
-                file_off: 0,
-                no_file_storage: false,
-                flags: 0,
-                sectname: *b"__text\0\0\0\0\0\0\0\0\0\0",
-                is_text: true,
-                atoms: vec![(0, 8), (8, 16)].into(),
-                live: vec![true, false],
-                all_live: false,
-            }],
-            nlist: vec![row(0), row(8)].into(),
-            defined: std::rc::Rc::new([("w", (1, 8))].into_iter().collect()),
-            dup_defined: vec!["w"].into(),
-        };
+        use crate::dead_strip_reach_table::test_support::text_reach;
+        let mut m = text_reach(0, 16, &[("w", 0), ("w", 8)]);
+        m.member_name = "x.o";
+        assert_eq!(m.sects[0].atoms.len(), 2);
+        m.sects[0].live = vec![true, false];
         let reach = ReachResult {
             members: [((0, 0), m)].into_iter().collect(),
             unresolved: Default::default(),

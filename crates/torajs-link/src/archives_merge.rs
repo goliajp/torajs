@@ -41,7 +41,7 @@ pub struct MergedSymbol {
 /// image's sorted symbol rows, so nothing is built per symbol.
 #[derive(Debug)]
 pub struct MergedArchives<'a> {
-    image: Image<'a>,
+    pub(crate) image: Image<'a>,
     /// Members of each archive in archive order. The dead-strip
     /// pre-pass swaps rewritten bodies in
     /// ([`crate::dead_strip_repack::swap_in_stripped`]).
@@ -531,21 +531,31 @@ mod tests {
     }
 
     /// A swapped-in body replaces only its own member and leaves the
-    /// owners in the lookup as they were.
+    /// owners in the lookup as they were; the image's table of the
+    /// old body no longer answers for it.
     #[test]
     fn swapped_body_replaces_only_its_member() {
+        use crate::dead_strip_reach_table::image_table;
         let foo = make_ret_const_fn("_foo", 1);
         let shared_a = make_ret_const_fn("_shared", 2);
         let archive_a = wrap_two_fns_in_archive("a.o", &foo, &shared_a);
         let bar = make_ret_const_fn("_bar", 3);
         let shared_b = make_ret_const_fn("_shared", 4);
         let archive_b = wrap_two_fns_in_archive("b.o", &bar, &shared_b);
+        let parsed: Vec<Vec<_>> = [&archive_a, &archive_b]
+            .iter()
+            .map(|a| torajs_rtimage::archive::parse_archive(a).unwrap())
+            .collect();
         let image =
-            torajs_rtimage::image::build(&[archive_a.as_slice(), archive_b.as_slice()]).unwrap();
+            torajs_rtimage::image::build_reachable_from_members_with_tables(&parsed, &mut |m| {
+                Ok(m.name.as_bytes().to_vec())
+            })
+            .unwrap();
         let body = vec![0xAB; 8];
         let mut merged = merge_archive_indexes(&image).unwrap();
         let a_body = merged.member(0, 0).data;
         let before: Vec<_> = merged.symbols().collect();
+        assert_eq!(image_table(&merged, (1, 0)), b"b.o");
 
         merged.swap_member_data((1, 0), &body);
 
@@ -554,6 +564,8 @@ mod tests {
         assert_eq!(merged.member(0, 0).data.as_ptr(), a_body.as_ptr());
         assert_eq!(merged.symbols().collect::<Vec<_>>(), before);
         assert_eq!(merged.symbol("_missing"), None);
+        assert!(image_table(&merged, (1, 0)).is_empty());
+        assert_eq!(image_table(&merged, (0, 0)), b"a.o");
     }
 
     // ---- S7-C2 tests: compute_required_members worklist closure ----

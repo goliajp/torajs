@@ -15,6 +15,7 @@ use crate::archives_merge::member_undef_extern_names;
 use crate::dead_strip_reach::MemberReach;
 use crate::dead_strip_reach_build::build_member_reach;
 use crate::dead_strip_reach_edges::EdgeIndex;
+use crate::dead_strip_reach_table::reach_from_table;
 
 /// Member bytes compared by address and length. The runtime image
 /// hands every copy of a deduplicated member the same slice, and a
@@ -47,16 +48,23 @@ pub(crate) struct ReachCache<'a> {
 }
 
 impl<'a> ReachCache<'a> {
-    /// The member's reachability tables with every atom dead.
+    /// The member's reachability tables with every atom dead, read
+    /// from `table` (the runtime image's table of these bytes), or
+    /// built from the bytes when `table` is empty.
     pub(crate) fn member_reach(
         &mut self,
         member: &ArMember<'a>,
+        table: &'a [u8],
     ) -> Result<MemberReach<'a>, String> {
         let key = BytesKey(member.data);
         let mut r = match self.reach.get(&key) {
             Some(r) => r.clone(),
             None => {
-                let r = build_member_reach(member)?;
+                let r = if table.is_empty() {
+                    build_member_reach(member)?
+                } else {
+                    reach_from_table(member, table)
+                };
                 self.reach.insert(key, r.clone());
                 r
             }

@@ -169,34 +169,21 @@ impl Seen {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
-    use std::rc::Rc;
 
     use super::Seen;
-    use crate::dead_strip_reach::{MemberReach, Node, SectAtoms};
+    use crate::dead_strip_reach::{MemberReach, Node};
+    use crate::dead_strip_reach_table::test_support::sections_reach;
 
     fn member(atoms_per_sect: &[usize]) -> MemberReach<'static> {
-        let sects = atoms_per_sect
+        let starts: Vec<Vec<u64>> = atoms_per_sect
             .iter()
-            .map(|&n| SectAtoms {
-                addr: 0,
-                size: n as u64 * 8,
-                file_off: 0,
-                no_file_storage: false,
-                flags: 0,
-                sectname: [0; 16],
-                is_text: true,
-                atoms: (0..n as u64).map(|i| (i * 8, i * 8 + 8)).collect(),
-                live: vec![false; n],
-                all_live: false,
-            })
+            .map(|&n| (0..n as u64).map(|i| i * 8).collect())
             .collect();
-        MemberReach {
-            member_name: "m.o",
-            sects,
-            nlist: Rc::from(Vec::new()),
-            defined: Rc::new(BTreeMap::new()),
-            dup_defined: Rc::from(Vec::new()),
-        }
+        let sects: Vec<(u64, u64, &[u64])> = starts
+            .iter()
+            .map(|s| (0, s.len() as u64 * 8, s.as_slice()))
+            .collect();
+        sections_reach(&sects)
     }
 
     #[test]
