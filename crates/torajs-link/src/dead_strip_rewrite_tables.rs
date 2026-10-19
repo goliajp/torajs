@@ -54,6 +54,9 @@ pub(crate) fn tables_after<'t>(
     }
 }
 
+/// An addend to rewrite: `(ordinal, offset in the section as cut, value)`.
+pub(crate) type Patch = (u8, u32, u64);
+
 /// One walk over every reloc the cut leaves. Returns the new values of
 /// the 8-byte addends of section-keyed (`r_extern=0`) UNSIGNED relocs,
 /// which are object-file addresses (a target in a cut section remaps
@@ -67,7 +70,7 @@ pub(crate) fn walk_relocs(
     passes: &[Pass],
     kept: &[(u8, Vec<[u8; 8]>)],
     nsyms: usize,
-) -> Result<(Vec<(u8, u32, u64)>, Vec<bool>), String> {
+) -> Result<(Vec<Patch>, Vec<bool>), String> {
     let (mut patches, mut referenced) = (Vec::new(), vec![false; nsyms]);
     for s in sects {
         let patch = !passes.is_empty() && s.reloff != 0 && s.nreloc != 0 && s.offset != 0;

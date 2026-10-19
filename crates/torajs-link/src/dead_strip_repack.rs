@@ -242,11 +242,12 @@ fn with_cuts<R>(reach: &MemberReach<'_>, f: impl FnOnce(&[SectionCut<'_>]) -> R)
     f(&cuts)
 }
 
-/// Every section of `reach` the rewriter may cut, as `(ordinal,
-/// section-relative atoms, liveness)`, in section order.
-pub(crate) fn eligible_sections<'r>(
-    reach: &'r MemberReach<'_>,
-) -> Vec<(u8, Vec<(u64, u64)>, &'r [bool])> {
+/// A section the rewriter may cut: `(ordinal, section-relative atoms,
+/// liveness)`.
+pub(crate) type Eligible<'r> = (u8, Vec<(u64, u64)>, &'r [bool]);
+
+/// Every section of `reach` the rewriter may cut, in section order.
+pub(crate) fn eligible_sections<'r>(reach: &'r MemberReach<'_>) -> Vec<Eligible<'r>> {
     reach
         .sects
         .iter()
