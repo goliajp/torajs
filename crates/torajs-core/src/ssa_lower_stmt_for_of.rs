@@ -70,6 +70,8 @@ pub(crate) fn lower(
     }
     let src_ptr_op = ctx.lower_expr(src_ref_eid);
     let src_ty = ctx.operand_ty(&src_ptr_op);
+    // §14.7.5.6 GetIterator throws on a nullish source
+    crate::ssa_lower_nullable_guard::emit_slot_guard(ctx, src_ref_eid, &src_ptr_op);
     if lower_non_array_source(
         ctx,
         src_ref_eid,

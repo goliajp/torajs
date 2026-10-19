@@ -1,0 +1,9 @@
+after async call
+spread sync TypeError
+3
+global-name sync TypeError
+5
+made
+gen sync TypeError
+3
+async rejected TypeError

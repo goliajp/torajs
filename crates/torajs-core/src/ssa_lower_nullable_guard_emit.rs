@@ -176,6 +176,33 @@ pub(crate) fn emit_undef_cell_guard(ctx: &mut LowerCtx<'_>, eid: ExprId, v: &Ope
     }
 }
 
+/// The guard a read off `v` (lowered from `eid`) takes, by the value's
+/// slot family.
+pub(crate) fn emit_slot_guard(ctx: &mut LowerCtx<'_>, eid: ExprId, v: &Operand) {
+    match ctx.operand_ty(v) {
+        Type::Str => emit_nullable_str_guard(ctx, eid, v),
+        Type::Arr(_) => emit_nullable_arr_guard(ctx, eid, v),
+        t if t.spells_undef_with_generic_cell() => emit_undefable_heap_guard(ctx, eid, v),
+        _ => {}
+    }
+}
+
+/// The tests a direct call makes, once every argument is evaluated, on
+/// the parameters the callee reads a member of before anything else
+/// (`live_field_census::entry`).
+pub(crate) fn emit_entry_guards(
+    ctx: &mut LowerCtx<'_>,
+    call: ExprId,
+    args: &[ExprId],
+    argv: &[Operand],
+) {
+    for i in ctx.proofs.entry_params(call).to_vec() {
+        if let (Some(&arg), Some(v)) = (args.get(i), argv.get(i)) {
+            emit_slot_guard(ctx, arg, v);
+        }
+    }
+}
+
 /// Emit the Str null guard when `obj` is a nullable-str source or
 /// an undefable-substr source (string index read — its slot may
 /// hold the Substr-shaped sentinel); no-op otherwise. `str_val`

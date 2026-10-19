@@ -2,6 +2,8 @@
 //! deletions, constructions and casts that open or close a road to a
 //! field.
 
+use std::borrow::Cow;
+
 use crate::ast::{Expr, ExprId};
 use crate::check::Type;
 
@@ -30,22 +32,18 @@ impl<'a> Census<'a> {
                 // a write through a receiver that is not a class
                 // instance by type (`any`, a struct) may store anything
                 Expr::Member { obj, name } => {
-                    if matches!(self.expr_types.get(obj), Some(Type::ClassRef(_))) {
-                        self.member_writes
-                            .entry(name.clone())
-                            .or_default()
-                            .push(*value);
+                    if matches!(self.ty(*obj), Some(Type::ClassRef(_))) {
+                        self.member_writes.entry(name).or_default().push(*value);
                     } else {
-                        self.foreign.insert(name.clone());
+                        self.foreign.insert(name);
                     }
                 }
                 Expr::Ident(n) => {
-                    self.assigned.insert(n.clone());
+                    self.assigned.insert(n);
+                    self.assign_values.entry(n).or_default().push(*value);
                 }
                 Expr::Index { obj, index } => {
-                    if !key_is_numeric(self.expr_types.get(index))
-                        && !never_an_instance(self.expr_types.get(obj))
-                    {
+                    if !key_is_numeric(self.ty(*index)) && !never_an_instance(self.ty(*obj)) {
                         self.road = true;
                     }
                 }
@@ -53,7 +51,7 @@ impl<'a> Census<'a> {
             },
             Expr::Delete { expr } => match self.ast.get_expr(*expr) {
                 Expr::Member { name, .. } => {
-                    self.deleted.insert(name.clone());
+                    self.deleted.insert(name);
                 }
                 _ => self.road = true,
             },
@@ -61,10 +59,7 @@ impl<'a> Census<'a> {
                 class_name, args, ..
             } => {
                 let class = class_name.split('<').next().unwrap_or(class_name);
-                self.construct_args
-                    .entry(class.to_string())
-                    .or_default()
-                    .push(args.clone());
+                self.construct_args.entry(class).or_default().push(args);
             }
             Expr::NewDynamic { .. } => self.road = true,
             Expr::ObjectLit { fields } => {
@@ -80,21 +75,27 @@ impl<'a> Census<'a> {
                         Expr::Spread { .. } => self.road = true,
                         // a scalar never fills a pointer-shaped field
                         _ if matches!(
-                            self.expr_types.get(v),
+                            self.ty(*v),
                             Some(Type::Number | Type::Boolean | Type::String)
                         ) => {}
-                        _ => self
-                            .member_writes
-                            .entry(k.lossy().into_owned())
-                            .or_default()
-                            .push(*v),
+                        _ => match k.lossy() {
+                            Cow::Borrowed(k) => self.member_writes.entry(k).or_default().push(*v),
+                            // a name no identifier spells
+                            Cow::Owned(_) => self.road = true,
+                        },
                     }
                 }
             }
             Expr::As { expr, .. } => {
-                if let Some(Type::ClassRef(c)) = self.expr_types.get(&id) {
+                if let Some(Type::ClassRef(c)) = self.ty(id) {
                     let c = c.split('<').next().unwrap_or(c);
-                    let instance = match self.expr_types.get(expr) {
+                    // `x!` and `x as C` over `C | null` pass a null along,
+                    // never an object of another shape
+                    let from = match self.ty(*expr) {
+                        Some(Type::Nullable(t)) => Some(&**t),
+                        t => t,
+                    };
+                    let instance = match from {
                         Some(Type::Any) => true,
                         Some(Type::ClassRef(d)) => {
                             let d = d.split('<').next().unwrap_or(d);
@@ -103,7 +104,7 @@ impl<'a> Census<'a> {
                         _ => false,
                     };
                     if !instance {
-                        self.foreign_classes.insert(c.to_string());
+                        self.foreign_classes.insert(c);
                     }
                 }
             }
@@ -112,15 +113,12 @@ impl<'a> Census<'a> {
                 if let Expr::Ident(n) = self.ast.get_expr(*callee)
                     && let Some(class) = factory_class(n)
                 {
-                    self.construct_args
-                        .entry(class.to_string())
-                        .or_default()
-                        .push(args.clone());
+                    self.construct_args.entry(class).or_default().push(args);
                 }
             }
             Expr::ArrowFn { params, body, .. } => {
                 for p in params {
-                    self.bound.insert(p.name.clone());
+                    self.bound.insert(&p.name);
                 }
                 for st in body {
                     self.collect_stmt(st);

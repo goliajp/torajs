@@ -58,7 +58,7 @@
 //! check off the callers of a fn that cannot reach the raise.
 
 use crate::ast::{Ast, Expr, ExprId, Param, Stmt};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 mod keyed;
 mod nullish;
@@ -67,6 +67,7 @@ mod scan;
 mod shapes;
 
 pub(crate) use crate::ast_throw_info_fixpoint::compute_may_throw_fns;
+pub(crate) use nullish::ProgramNames;
 pub(crate) use obj_cast::{class_field_ann, class_of, elem_ann, returns_any_into_obj, written_ann};
 pub(crate) use scan::Scan;
 pub(crate) use shapes::ident_read_raises;
@@ -79,7 +80,7 @@ pub(crate) fn fn_throw_info(
     body: &[Stmt],
     expr_types: &HashMap<ExprId, crate::check::Type>,
     widths: &crate::num_width::WidthTable,
-    assigned: &HashSet<String>,
+    assigned: ProgramNames<'_>,
 ) -> crate::ast_throw_info_fixpoint::FnThrow {
     let mut sc = Scan::new(ast, name, params, expr_types, widths, assigned);
     sc.fresh_recv = crate::ast::fresh_this::fresh_this_writes(ast, name, params, body).recv;
@@ -107,6 +108,7 @@ impl Scan<'_> {
             Expr::Call { callee, args } => {
                 crate::ast_throw_info_call::scan_call(self, *callee, args);
                 self.direct |= self.args_cast(*callee, args);
+                self.direct |= self.entry_test_raises(eid, args);
             }
             Expr::BinOp { op, left, right } => {
                 // Band B — the checker decided this pair can only throw

@@ -4,7 +4,9 @@
 use crate::ast::{Ast, Expr, ExprId, Param, Stmt};
 use crate::check::Type;
 
-use super::{PrefixWrite, THIS};
+use crate::ssa::id_hash::HashMap;
+
+use super::{Census, PrefixWrite, THIS};
 
 /// `__cm_<C>__ctor` (the one constructor the factory enters; a `$$`
 /// twin is a separate write site the general census sees).
@@ -15,12 +17,12 @@ pub(super) fn ctor_class(name: &str) -> Option<&str> {
 /// The leading `this.f = v` writes of constructor `name` of `class`
 /// that reach an instance nothing else sees yet
 /// (`ast::fresh_this`), with their statements.
-pub(super) fn ctor_prefix(
-    ast: &Ast,
-    (name, class): (&str, &str),
+pub(super) fn ctor_prefix<'a>(
+    ast: &'a Ast,
+    (name, class): (&str, &'a str),
     params: &[Param],
     body: &[Stmt],
-) -> Vec<(ExprId, PrefixWrite)> {
+) -> Vec<(ExprId, PrefixWrite<'a>)> {
     let fresh = crate::ast::fresh_this::fresh_this_writes(ast, name, params, body);
     let user = user_params(params);
     let mut out = Vec::new();
@@ -39,7 +41,7 @@ pub(super) fn ctor_prefix(
             Expr::Ident(n) => user.iter().position(|p| p.name == *n),
             _ => None,
         };
-        let (class, field, value) = (class.to_string(), name.clone(), *value);
+        let (field, value) = (name.as_str(), *value);
         out.push((
             *e,
             PrefixWrite {
@@ -128,7 +130,7 @@ pub(super) fn ctor_fed_seed(ast: &Ast, class: &str, body: &[Stmt]) -> Option<Exp
     .then_some(*init)
 }
 
-pub(super) fn collect_super_args(ast: &Ast, e: ExprId, f: &mut impl FnMut(&[ExprId])) {
+pub(super) fn collect_super_args<'a>(ast: &'a Ast, e: ExprId, f: &mut impl FnMut(&'a [ExprId])) {
     if let Expr::Super { args } = ast.get_expr(e) {
         f(args);
     }
@@ -202,5 +204,22 @@ pub(in crate::ssa_lower_pass_0_5) fn nested_stmts<'a>(s: &'a Stmt, f: &mut impl 
         }
         Stmt::Block(v) | Stmt::Multi(v) => v.iter().for_each(&mut *f),
         _ => {}
+    }
+}
+
+impl<'a> Census<'a> {
+    /// Each declared function's returned values, or none when one of
+    /// its returns has no value.
+    pub(super) fn returns(&self) -> HashMap<&'a str, Option<Vec<ExprId>>> {
+        let mut out = HashMap::default();
+        for (f, (_, body)) in &self.fns {
+            let mut v = Some(Vec::new());
+            own_returns(body, &mut |r| match (r, v.as_mut()) {
+                (Some(e), Some(v)) => v.push(e),
+                _ => v = None,
+            });
+            out.insert(*f, v);
+        }
+        out
     }
 }

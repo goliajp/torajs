@@ -23,7 +23,7 @@ pub(crate) mod live_field_census;
 pub(crate) mod value_class_census;
 
 use crate::ast::{Ast, ExprId, Stmt};
-use crate::num_width::WidthTable;
+use crate::check_monomorph::MonoOutput;
 use crate::ssa::{self, BakedRegexEntry, Module, Type};
 use crate::ssa_lower_parse_type::{parse_struct_field_type, parse_type};
 
@@ -41,22 +41,22 @@ pub(crate) struct Pass05 {
 }
 
 pub(crate) fn run(
-    ast: &Ast,
     expr_types: &HashMap<ExprId, crate::check::Type>,
     module: &mut Module,
-    num_f64_slots: &WidthTable,
+    mono: &MonoOutput,
     held_as_cells: &HashSet<String>,
 ) -> Pass05 {
+    let (ast, num_f64_slots) = (&mono.mono_ast, &mono.widths);
+    let widths = (num_f64_slots, &mono.call_retargets);
     let mut aliases: HashMap<String, Type> = HashMap::new();
     let mut arr_layouts = crate::ssa::ArrLayouts::default();
     let baked_regex_buf: Vec<BakedRegexEntry> = Vec::new();
     let mut fn_sigs: Vec<(Vec<Type>, Type)> = Vec::new();
-    let (may_throw, nonint_reads_run_code) =
-        crate::ast_throw_info::compute_may_throw_fns(ast, expr_types, num_f64_slots);
     let dead_twins = arr_head_census::unreachable_twin_exprs(ast, expr_types);
+    let live = live_field_census::program_live(ast, expr_types, widths, &dead_twins);
+    let (may_throw, nonint_reads_run_code) =
+        crate::ast_throw_info::compute_may_throw_fns(ast, expr_types, num_f64_slots, &live);
     let arr_head_pinned = arr_head_census::program_pins_arr_head(ast, expr_types, &dead_twins);
-    let live_fields =
-        live_field_census::program_live_fields(ast, expr_types, num_f64_slots, &dead_twins);
     let mut value_class_names =
         value_class_census::program_value_classes(ast, expr_types, &dead_twins, arr_head_pinned);
     value_class_names.retain(|(n, _)| !held_as_cells.contains(n));
@@ -224,7 +224,7 @@ pub(crate) fn run(
         may_throw,
         facts: std::rc::Rc::new(crate::ssa_lower::proofs::ProgramFacts {
             arr_head_pinned,
-            live_fields,
+            live,
             nonint_reads_run_code,
             value_classes: value_inits.keys().copied().collect(),
             value_inits,
@@ -240,14 +240,8 @@ pub(crate) fn run(
 
 /// The classes the value-class census admits, by name, sorted.
 pub fn value_class_names(artifacts: &crate::check::CheckArtifacts) -> Vec<String> {
-    let (ast, widths) = (&artifacts.5.mono_ast, &artifacts.5.widths);
-    let p = run(
-        ast,
-        &artifacts.1,
-        &mut Module::default(),
-        widths,
-        &HashSet::new(),
-    );
+    let held = HashSet::new();
+    let p = run(&artifacts.1, &mut Module::default(), &artifacts.5, &held);
     let mut out: Vec<String> = (p.aliases.iter())
         .filter(|(_, t)| matches!(t, Type::Obj(s) if p.facts.value_classes.contains(s)))
         .map(|(n, _)| n.clone())

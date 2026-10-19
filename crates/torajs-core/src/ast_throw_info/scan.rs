@@ -38,6 +38,8 @@ pub(crate) struct Scan<'a> {
     pub(crate) safe: HashSet<String>,
     /// Names some assignment anywhere in the program writes.
     assigned: &'a HashSet<String>,
+    /// What the census proved live: a read it did not is guarded.
+    pub(crate) live: &'a crate::ssa_lower_pass_0_5::live_field_census::Live,
     /// Receivers of a constructor's leading field writes, which no
     /// integrity level can refuse yet (`ast::fresh_this`).
     pub(crate) fresh_recv: HashSet<ExprId>,
@@ -61,7 +63,7 @@ impl<'a> Scan<'a> {
         params: &[Param],
         expr_types: &'a HashMap<ExprId, crate::check::Type>,
         widths: &'a WidthTable,
-        assigned: &'a HashSet<String>,
+        (assigned, live): super::ProgramNames<'a>,
     ) -> Self {
         // the replace lane's view twin takes a capture group's view,
         // and a group that did not participate is the undefined
@@ -88,6 +90,7 @@ impl<'a> Scan<'a> {
             nullish,
             safe: HashSet::new(),
             assigned,
+            live,
             fresh_recv: HashSet::new(),
             obj_slots: (params.iter())
                 .filter(|p| {
@@ -154,9 +157,9 @@ impl<'a> Scan<'a> {
             if self.assigned.contains(&name) {
                 continue;
             }
-            if let Some(&f) = self.nullish.get(&name)
-                && f & !excluded == 0
-            {
+            // a name outside the registry can still be an unproven
+            // binding (`nullish::form`), which may hold either form
+            if self.nullish.get(&name).copied().unwrap_or(ANY) & !excluded == 0 {
                 self.safe.insert(name);
             }
         }

@@ -124,7 +124,7 @@ fn lower_once(
     // class_name_to_tag, plus the may_throw set — is built by [`ssa_lower_pass_0_5::run`] and
     // handed back through the `Pass05` holder. struct_layouts is `mem::take`'d off `module`
     // inside the sibling; everything else is fresh.
-    let pass05 = ssa_lower_pass_0_5::run(ast, expr_types, &mut module, num_f64_slots, held);
+    let pass05 = ssa_lower_pass_0_5::run(expr_types, &mut module, mono, held);
     let aliases = pass05.aliases;
     let mut arr_layouts = pass05.arr_layouts;
     let mut baked_regex_buf = pass05.baked_regex_buf;

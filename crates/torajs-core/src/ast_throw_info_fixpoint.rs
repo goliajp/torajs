@@ -27,10 +27,12 @@ pub(crate) fn compute_may_throw_fns(
     ast: &Ast,
     expr_types: &HashMap<ExprId, crate::check::Type>,
     widths: &crate::num_width::WidthTable,
+    live: &crate::ssa_lower_pass_0_5::live_field_census::Live,
 ) -> (HashSet<String>, bool) {
     let mut may_throw: HashSet<String> = HashSet::new();
     let mut decl_throw_info: Vec<(String, bool, Vec<String>)> = Vec::new();
     let assigned = assigned_names(ast);
+    let assigned = (&assigned, live);
     // Rotation 550 (550-01) — a call through a let-bound arrow
     // (`const boom = () => { throw … }; boom()`) records the BINDING
     // name, but the body lives in the lifted `__closure_N` FnDecl;
@@ -44,7 +46,7 @@ pub(crate) fn compute_may_throw_fns(
     let aliases = crate::ast_closure_param_tag_collect::closure_let_aliases(ast);
     let fn_lets = fn_typed_lets(ast, expr_types, &aliases);
     let mut nonint_readers: Vec<String> = Vec::new();
-    let mut props_run_code = props_run_code_outside_fns(ast, expr_types, widths, &assigned);
+    let mut props_run_code = props_run_code_outside_fns(ast, expr_types, widths, assigned);
     for stmt in &ast.stmts {
         if let Stmt::FnDecl {
             name,
@@ -55,7 +57,7 @@ pub(crate) fn compute_may_throw_fns(
             ..
         } = stmt
         {
-            let info = fn_throw_info(ast, name, params, body, expr_types, widths, &assigned);
+            let info = fn_throw_info(ast, name, params, body, expr_types, widths, assigned);
             let (mut direct, mut called) = (info.direct, info.called);
             props_run_code |= info.code_write;
             if info.nonint_read {
@@ -141,7 +143,7 @@ fn props_run_code_outside_fns(
     ast: &Ast,
     expr_types: &HashMap<ExprId, crate::check::Type>,
     widths: &crate::num_width::WidthTable,
-    assigned: &HashSet<String>,
+    assigned: crate::ast_throw_info::ProgramNames<'_>,
 ) -> bool {
     if ast.array_prop_reads_may_raise {
         return true;

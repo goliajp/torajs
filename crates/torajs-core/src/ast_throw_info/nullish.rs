@@ -15,6 +15,13 @@ use crate::ast::{BinOp, Expr, ExprId, UnaryOp};
 use crate::check::Type;
 use crate::ssa_lower_nullable_guard::spells_undef_with_generic_cell;
 
+/// The names some assignment anywhere writes, and what the census
+/// proved live.
+pub(crate) type ProgramNames<'a> = (
+    &'a std::collections::HashSet<String>,
+    &'a crate::ssa_lower_pass_0_5::live_field_census::Live,
+);
+
 /// The nullish values a slot may hold, as a bit set: which of them a
 /// narrowing has to rule out before a read off the slot is safe.
 pub(crate) type Form = u8;
@@ -34,12 +41,30 @@ impl Scan<'_> {
             )
     }
 
+    /// A call whose callee's parameter the caller tests before the
+    /// call (`live_field_census::entry`) raises there when the argument
+    /// may be nullish, as the member read in the callee would.
+    pub(crate) fn entry_test_raises(&self, call: ExprId, args: &[ExprId]) -> bool {
+        (self.live.entry_params(call).iter())
+            .any(|i| args.get(*i).is_some_and(|a| self.receiver_raises(*a)))
+    }
+
     /// The nullish values `eid` may evaluate to; 0 when it cannot be
     /// nullish as far as the lowering's guards are concerned.
     pub(crate) fn form(&self, eid: ExprId) -> Form {
+        // a member read a discriminant test proved live
+        if self.live.members.contains(eid) {
+            return 0;
+        }
         let ty = self.expr_types.get(&eid);
         let mut f = 0;
         if matches!(ty, Some(Type::Nullable(_))) {
+            f |= ANY;
+        }
+        // a binding or a call result the census did not prove live
+        if self.live.unproven_read(eid)
+            && !matches!(self.ast.get_expr(eid), Expr::Ident(n) if self.safe.contains(n))
+        {
             f |= ANY;
         }
         match self.ast.get_expr(eid) {

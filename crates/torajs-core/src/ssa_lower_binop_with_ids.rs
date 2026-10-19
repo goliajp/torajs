@@ -85,9 +85,9 @@ impl<'a> LowerCtx<'a> {
         let saved_left_ns = self.binop.left_nullable_str;
         let saved_right_ns = self.binop.right_nullable_str;
         self.binop.left_nullable_str = left_id
-            .is_some_and(|eid| crate::ssa_lower_nullable_guard::is_nullable_str_source(self, eid));
+            .is_some_and(|eid| crate::ssa_lower_nullable_guard::is_nullable_str_shape(self, eid));
         self.binop.right_nullable_str = right_id
-            .is_some_and(|eid| crate::ssa_lower_nullable_guard::is_nullable_str_source(self, eid));
+            .is_some_and(|eid| crate::ssa_lower_nullable_guard::is_nullable_str_shape(self, eid));
         let saved_left = self.binop.left_undef_id.take();
         let saved_right = self.binop.right_undef_id.take();
         let saved_left_null = self.binop.left_null_id.take();

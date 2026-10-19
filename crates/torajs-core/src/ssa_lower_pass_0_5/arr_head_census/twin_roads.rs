@@ -51,7 +51,7 @@ fn rebinds(n: &str) -> bool {
 pub(crate) struct ExprMask(Vec<bool>);
 
 impl ExprMask {
-    fn new(ast: &Ast) -> Self {
+    pub(crate) fn new(ast: &Ast) -> Self {
         ExprMask(vec![false; ast.exprs.len()])
     }
 
@@ -60,7 +60,7 @@ impl ExprMask {
     }
 
     /// Add `e`; false when it was there already.
-    fn insert(&mut self, e: ExprId) -> bool {
+    pub(crate) fn insert(&mut self, e: ExprId) -> bool {
         !std::mem::replace(&mut self.0[e.0 as usize], true)
     }
 

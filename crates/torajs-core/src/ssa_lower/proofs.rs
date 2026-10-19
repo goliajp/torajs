@@ -33,9 +33,9 @@ pub(crate) struct ProgramFacts {
     /// No array in the program ever has a non-zero deque head
     /// (`ssa_lower_pass_0_5::arr_head_census`).
     pub(crate) arr_head_pinned: bool,
-    /// `(class, field)` pairs whose reads never see the undefined cell
-    /// (`ssa_lower_pass_0_5::live_field_census`).
-    pub(crate) live_fields: crate::ssa_lower_pass_0_5::live_field_census::LiveFields,
+    /// The fields, bindings and functions whose reads never see a
+    /// nullish value (`ssa_lower_pass_0_5::live_field_census`).
+    pub(crate) live: crate::ssa_lower_pass_0_5::live_field_census::Live,
     /// A typed array's read at a non-integral key can run user code
     /// (`compute_may_throw_fns`): a getter or a `valueOf` reachable
     /// through the property the key names.
@@ -139,8 +139,25 @@ impl Proofs {
         };
         let c = c.split('<').next().unwrap_or(c);
         self.facts
-            .live_fields
+            .live
+            .fields
             .contains(&(c.to_string(), name.to_string()))
+    }
+
+    /// See [`crate::ssa_lower_pass_0_5::live_field_census::Live::entry_params`].
+    pub(crate) fn entry_params(&self, call: ExprId) -> &[usize] {
+        self.facts.live.entry_params(call)
+    }
+
+    /// See [`crate::ssa_lower_pass_0_5::live_field_census::Live::unproven_read`].
+    pub(crate) fn unproven_read(&self, eid: ExprId) -> bool {
+        self.facts.live.unproven_read(eid)
+    }
+
+    /// A member read a discriminant test proved live
+    /// (`live_field_census::disc`).
+    pub(crate) fn member_proven(&self, eid: ExprId) -> bool {
+        self.facts.live.members.contains(eid)
     }
 
     pub(crate) fn let_is_nonnull(&self, name: &str) -> bool {

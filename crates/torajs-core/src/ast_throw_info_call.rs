@@ -255,7 +255,8 @@ pub(crate) fn scan_spread(sc: &mut Scan<'_>, expr: ExprId) {
                 | Type::MapIter(..)
                 | Type::ArrIter
         )
-    ) {
+    ) || sc.receiver_raises(expr)
+    {
         sc.direct = true;
     }
     sc.expr(expr);

@@ -30,8 +30,8 @@ pub(crate) use cell_types::spells_undef_with_generic_cell;
 
 mod cell_types;
 pub(crate) use crate::ssa_lower_nullable_guard_emit::{
-    emit_nullable_arr_guard, emit_nullable_str_guard, emit_undef_cell_guard,
-    emit_undefable_heap_guard,
+    emit_entry_guards, emit_nullable_arr_guard, emit_nullable_str_guard, emit_slot_guard,
+    emit_undef_cell_guard, emit_undefable_heap_guard,
 };
 
 /// True when `obj`'s value may legally be null per the checker's
@@ -83,8 +83,18 @@ pub(crate) fn awaited_promise_inner<'c>(
 /// capture slot per the 591 NULL-means-undefined convention):
 /// an element load off a nullable-arr source (`m[1]`), or a
 /// binding recorded in `ctx.nullable_str_lets` (let-init of that
-/// shape, alias-propagated).
+/// shape, alias-propagated). Also a string read the census did not
+/// prove live, as for the heap sources below.
 pub(crate) fn is_nullable_str_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
+    is_nullable_str_shape(ctx, eid)
+        || (matches!(ctx.expr_types.get(&eid), Some(crate::check::Type::String))
+            && ctx.proofs.unproven_read(eid))
+}
+
+/// [`is_nullable_str_source`] without the census: the shapes whose
+/// nullish value the static type does not carry. A `+` asks this one,
+/// since its concatenation spells NULL as `null` itself.
+pub(crate) fn is_nullable_str_shape(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
     // A read the CHECKER already typed `Nullable(String)` is one by
     // definition, whatever its syntax — the probes below each infer
     // the same fact from one shape (a let's init, a param's
@@ -231,16 +241,23 @@ fn ret_upgraded_from_any_binding(ctx: &LowerCtx<'_>, callee: ExprId) -> bool {
 }
 
 pub(crate) fn is_undefable_heap_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
+    if ctx.proofs.member_proven(eid) {
+        return false;
+    }
     if callee_falls_through(ctx, eid) {
         return true;
     }
     if awaited_promise_inner(ctx, eid).is_some_and(spells_undef_with_generic_cell) {
         return true;
     }
+    // a binding or a call result the census did not prove live: a
+    // narrowing a call has since undone hands NULL to a slot of a
+    // non-nullable type (§13.3.2.1 throws on the member read)
     if matches!(
         ctx.expr_types.get(&eid),
         Some(crate::check::Type::Nullable(_))
-    ) {
+    ) || ctx.proofs.unproven_read(eid)
+    {
         return true;
     }
     match ctx.ast.get_expr(eid) {
