@@ -9,12 +9,13 @@ use crate::member_apply::{MemberRelocApplyError, apply_member_relocs};
 use crate::member_reloc::MemberRelocError;
 use crate::resolve::SymTable;
 
-/// What writes the laid-out members' `__TEXT` bytes into the output:
-/// the members, and the effective symbol table their relocs resolve
-/// against.
+/// What writes the laid-out members' bytes into the output: the
+/// members, the effective symbol table their `__text` relocs resolve
+/// against, and the chained-fixup link values of their `__DATA` slots.
 pub(crate) struct MemberText<'m, 'a> {
     pub(crate) merged: &'m MergedArchives<'a>,
     pub(crate) sym_table: &'m SymTable,
+    pub(crate) data_link_values: &'m [u64],
 }
 
 impl MemberText<'_, '_> {

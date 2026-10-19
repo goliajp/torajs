@@ -39,6 +39,7 @@ use torajs_obj::{
 use crate::archive::ArMember;
 use crate::archive_link::ArchiveLayoutError;
 use crate::archives_merge::MergedArchives;
+use crate::data_section_layout::DataSectionLayout;
 use crate::layout_types::ArchiveLayout;
 use crate::member_apply::MemberRelocApplyError;
 use crate::member_reloc::{MemberRelocEntry, MemberRelocError, decode_reloc_table};
@@ -193,53 +194,57 @@ pub fn apply_member_data_const_relocs(
     Ok(())
 }
 
+/// Where [`patch_member_data`] puts each section's bytes.
+pub(crate) trait DataSink {
+    /// The bytes of file-storage section `s`, as long as the section.
+    fn section(&mut self, s: &DataSectionLayout) -> &mut [u8];
+}
+
+/// One `Vec` per section, in walk order.
+struct Collect(Vec<Vec<u8>>);
+
+impl DataSink for Collect {
+    fn section(&mut self, s: &DataSectionLayout) -> &mut [u8] {
+        self.0.push(vec![0; s.size as usize]);
+        self.0.last_mut().unwrap()
+    }
+}
+
 /// swap-2k chunk 2b-4 emit-pass helper. Walks every integrated
 /// member's `__DATA,*` file-storage section in
-/// `data_non_text_layouts` order, copies each section's bytes out
-/// of the member, runs the patcher for non-TLV sections (TLV
+/// `data_non_text_layouts` order, writes each section's bytes where
+/// `sink` says, and runs the patcher for non-TLV sections (TLV
 /// descriptor slots flow through the per-thunk-slot chained-fixups
-/// bind path, not the REBASE chain), and returns the per-section
-/// payload Vec in the order
-/// [`crate::archive_emit::emit_binary`] consumes. The link-value
-/// cursor walks
+/// bind path, not the REBASE chain). The link-value cursor walks
 /// `data_rebase_link_values` in lockstep with the collector
 /// [`crate::member_data_rebase_layout::compute_member_data_rebase_targets`].
-pub fn collect_member_data_payloads(
+pub(crate) fn patch_member_data(
     layout: &ArchiveLayout,
     merged: &MergedArchives<'_>,
     data_rebase_link_values: &[u64],
-) -> Result<Vec<Vec<u8>>, ArchiveLayoutError> {
-    let mut payloads: Vec<Vec<u8>> = Vec::new();
+    sink: &mut impl DataSink,
+) -> Result<(), ArchiveLayoutError> {
     let mut lv_cursor: usize = 0;
     for (i, per_member) in layout.data_non_text_layouts.iter().enumerate() {
         let m_key = layout.member_layouts[i].key;
-        let decode_err = |err| ArchiveLayoutError::MemberReloc {
+        let reloc_err = |err| ArchiveLayoutError::MemberReloc {
             archive_idx: m_key.0,
             member_idx: m_key.1,
-            err: MemberRelocApplyError::Decode(err),
+            err,
         };
-        let obj = merged.obj(m_key.0, m_key.1).map_err(decode_err)?;
-        for s in per_member {
-            if !s.has_file_storage {
+        let obj = merged.obj(m_key.0, m_key.1);
+        let obj = obj.map_err(|e| reloc_err(MemberRelocApplyError::Decode(e)))?;
+        for s in per_member.iter().filter(|s| s.has_file_storage) {
+            let bytes = sink.section(s);
+            obj.payload_to(s.section_index, bytes);
+            if is_tlv_descriptor(s.flags) {
                 continue;
             }
-            let mut bytes = obj.payload(s.section_index);
-            if !is_tlv_descriptor(s.flags) {
-                let relocs = obj.section_relocs(s.section_index).map_err(decode_err)?;
-                let n = relocs.len();
-                if n > 0 {
-                    let lvs = &data_rebase_link_values[lv_cursor..][..n];
-                    apply_member_data_const_relocs(&mut bytes, &relocs, lvs).map_err(|err| {
-                        ArchiveLayoutError::MemberReloc {
-                            archive_idx: m_key.0,
-                            member_idx: m_key.1,
-                            err,
-                        }
-                    })?;
-                    lv_cursor += n;
-                }
-            }
-            payloads.push(bytes);
+            let relocs = obj.section_relocs(s.section_index);
+            let relocs = relocs.map_err(|e| reloc_err(MemberRelocApplyError::Decode(e)))?;
+            let lvs = &data_rebase_link_values[lv_cursor..][..relocs.len()];
+            apply_member_data_const_relocs(bytes, &relocs, lvs).map_err(reloc_err)?;
+            lv_cursor += relocs.len();
         }
     }
     debug_assert_eq!(
@@ -247,7 +252,19 @@ pub fn collect_member_data_payloads(
         data_rebase_link_values.len(),
         "patcher cursor must consume every link value the collector emitted",
     );
-    Ok(payloads)
+    Ok(())
+}
+
+/// [`patch_member_data`] into one `Vec` per file-storage section, in
+/// the order [`crate::data_section_emit::DataAt`] would place them.
+pub fn collect_member_data_payloads(
+    layout: &ArchiveLayout,
+    merged: &MergedArchives<'_>,
+    data_rebase_link_values: &[u64],
+) -> Result<Vec<Vec<u8>>, ArchiveLayoutError> {
+    let mut sink = Collect(Vec::new());
+    patch_member_data(layout, merged, data_rebase_link_values, &mut sink)?;
+    Ok(sink.0)
 }
 
 #[cfg(test)]

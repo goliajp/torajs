@@ -180,6 +180,33 @@ impl<'a> MemberObj<'a> {
         out
     }
 
+    /// Write the payload of section `ord` over `out`, which is exactly
+    /// as long.
+    pub fn payload_to(&self, ord: u8, out: &mut [u8]) {
+        let k = usize::from(ord) - 1;
+        let data = self.member.data;
+        match self.cut.as_ref().and_then(|c| c.pass(ord)) {
+            Some(p) => {
+                let mut end = 0;
+                for r in &p.runs {
+                    let (src, len, at) = (
+                        p.in_off + r.old_start as usize,
+                        r.len as usize,
+                        r.new_start as usize,
+                    );
+                    out[end..at].fill(0);
+                    out[at..at + len].copy_from_slice(&data[src..src + len]);
+                    end = at + len;
+                }
+                out[end..].fill(0);
+            }
+            None => out.copy_from_slice(&data[self.in_offs[k] as usize..][..out.len()]),
+        }
+        for &(_, site, v) in self.cut.iter().flat_map(|c| c.patches_of(ord)) {
+            out[site as usize..][..8].copy_from_slice(&v.to_le_bytes());
+        }
+    }
+
     /// Append the payload of section `ord` to `buf`.
     pub fn payload_into(&self, ord: u8, buf: &mut Vec<u8>) {
         let k = usize::from(ord) - 1;

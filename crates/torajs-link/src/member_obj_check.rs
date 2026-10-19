@@ -46,10 +46,11 @@ pub(crate) fn check_cut_reads_as_written(
             "{name} {ord}"
         );
         if !is_no_file_storage(s.flags) {
-            assert!(
-                read.payload(ord) == want.payload(ord),
-                "{name} {ord}: payload"
-            );
+            let payload = want.payload(ord);
+            assert!(read.payload(ord) == payload, "{name} {ord}: payload");
+            let mut over = vec![0xAA; payload.len()];
+            read.payload_to(ord, &mut over);
+            assert!(over == payload, "{name} {ord}: payload written over");
         }
     }
     check_rows(name, &read, &want);

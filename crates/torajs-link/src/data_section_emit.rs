@@ -25,6 +25,8 @@
 use torajs_obj::Section64;
 
 use crate::archive_link::ArchiveLayout;
+use crate::data_section_layout::DataSectionLayout;
+use crate::member_data_apply::DataSink;
 
 /// Build one `Section64` entry per member `__DATA,*` section, in
 /// the order [`crate::data_section_layout::compute_data_section_layouts`]
@@ -67,57 +69,30 @@ pub(crate) fn build_data_non_text_section_64_entries(layout: &ArchiveLayout) -> 
         .collect()
 }
 
-/// Write the file-storage payload bytes for every member's
-/// `__DATA,*` regular section, in the same order
-/// `build_data_non_text_section_64_entries` placed the file-
-/// storage entries. Skips zerofill-family sections — the loader
-/// supplies their bytes at startup.
-///
-/// `member_payloads` lines up 1:1 with the file-storage entries
-/// (caller — `archive_emit::link_to_exec_with_archives` — collects
-/// them by walking `layout.data_non_text_layouts` and slicing
-/// `member.data[member_internal_offset..member_internal_offset +
-/// size]` for each `has_file_storage == true` entry).
+/// Each member `__DATA,*` file-storage section's bytes in the output
+/// at its placed `final_file_offset`, zero-padded up to it.
 ///
 /// Pre-condition: `buf.len() == layout.la_ptr_file_offset +
 /// layout.la_ptr_section_size` (= the first file-storage section's
 /// region base). The la_ptr writer (`write_stubs_and_la_ptr`) leaves
-/// the cursor there; this writer continues from that position,
-/// zero-padding up to each section's `final_file_offset` before its
-/// payload so the on-disk offset matches the alignment-rounded layout
-/// (swap-2i — without the pad, an aligned `final_vaddr` would point
-/// past the section's actual file bytes).
-pub(crate) fn write_data_non_text_file_payloads(
-    buf: &mut Vec<u8>,
-    layout: &ArchiveLayout,
-    member_payloads: &[Vec<u8>],
-) {
-    let mut pi = 0;
-    for per_member in &layout.data_non_text_layouts {
-        for s in per_member {
-            if !s.has_file_storage {
-                continue;
-            }
-            // pad to the alignment-rounded file offset; pads are tiny
-            // (< 1 << align) so a push loop is cheap.
-            // r503 — write at the placed offset: the per-member walk
-            // is no longer monotone in file offset (same-named
-            // sections group across members), so pad-and-append
-            // would land a payload past its slot.
-            let start = s.final_file_offset as usize;
-            let end = start + member_payloads[pi].len();
-            if buf.len() < end {
-                buf.resize(end, 0);
-            }
-            buf[start..end].copy_from_slice(&member_payloads[pi]);
-            pi += 1;
+/// the cursor there; the sections continue from that position,
+/// zero-padded up to each `final_file_offset` so the on-disk offset
+/// matches the alignment-rounded layout (swap-2i — without the pad, an
+/// aligned `final_vaddr` would point past the section's actual file
+/// bytes). r503 — the per-member walk is not monotone in file offset
+/// (same-named sections group across members), so each section is
+/// written at its placed offset, not appended.
+pub(crate) struct DataAt<'b>(pub(crate) &'b mut Vec<u8>);
+
+impl DataSink for DataAt<'_> {
+    fn section(&mut self, s: &DataSectionLayout) -> &mut [u8] {
+        let start = s.final_file_offset as usize;
+        let end = start + s.size as usize;
+        if self.0.len() < end {
+            self.0.resize(end, 0);
         }
+        &mut self.0[start..end]
     }
-    debug_assert_eq!(
-        pi,
-        member_payloads.len(),
-        "payload count must match file-storage section count",
-    );
 }
 
 fn trimmed_string(slot: &[u8; 16]) -> String {
@@ -312,8 +287,11 @@ mod tests {
             file_storage_layout(b"__bar", 4, 40, 3),
         ]];
         let mut buf: Vec<u8> = vec![0xAA; 16]; // simulate la_ptr already written
-        let payloads = vec![vec![0x11; 8], vec![0x22; 4], vec![0x33; 4]];
-        write_data_non_text_file_payloads(&mut buf, &layout, &payloads);
+        let payloads = [[0x11; 8].as_slice(), &[0x22; 4], &[0x33; 4]];
+        let mut at = DataAt(&mut buf);
+        for (s, p) in layout.data_non_text_layouts[0].iter().zip(payloads) {
+            at.section(s).copy_from_slice(p);
+        }
         assert_eq!(buf.len(), 44);
         assert_eq!(&buf[16..24], &[0x11; 8], "section A payload");
         assert_eq!(&buf[24..32], &[0u8; 8], "pad before 16-aligned B");

@@ -11,7 +11,7 @@ use crate::chained_fixups_call::recompute_chained_fixups_with_data_rebase;
 use crate::class_name_table_layout::{
     apply_class_name_table_overrides, build_class_name_table_payload,
 };
-use crate::data_section_emit::write_data_non_text_file_payloads;
+use crate::data_section_emit::DataAt;
 use crate::data_section_layout::DataSectionLayout;
 use crate::dead_strip_reach_cache::ReachCache;
 use crate::dead_strip_repack::{DeadRows, StrippedMembers, install_cuts, rewritten_config};
@@ -20,7 +20,7 @@ use crate::dyld_emit::{write_la_ptr_section, write_stubs_section};
 use crate::exec::LinkConfig;
 use crate::fn_addr_syms::register_user_fn_syms;
 use crate::fn_name_table_layout::{apply_fn_name_table_overrides, build_fn_name_table_payload};
-use crate::member_data_apply::collect_member_data_payloads;
+use crate::member_data_apply::patch_member_data;
 use crate::member_data_rebase_layout::compute_member_data_rebase_targets;
 use crate::phase_timer::PhaseTimer;
 use crate::resolve::apply_relocs;
@@ -217,21 +217,17 @@ fn link(cfg: &LinkConfig, release: Release) -> Result<Vec<u8>, ArchiveLayoutErro
     let resolved = apply_relocs(&cfg.funcs, &layout.fn_vaddrs, &effective_sym_table);
     t.tick("apply_relocs");
 
-    let data_non_text_payloads =
-        collect_member_data_payloads(&layout, &merged, &data_rebase_link_values)?;
-    t.tick("member_data_payloads");
-
     // S7-C5 — each member's __text is patched in place in the output
     // against the effective sym table.
     let members = MemberText {
         merged: &merged,
         sym_table: &effective_sym_table,
+        data_link_values: &data_rebase_link_values,
     };
     let bytes = emit_binary(
         cfg,
         &layout,
         &members,
-        &data_non_text_payloads,
         &resolved,
         &user_vtables_payload,
         &user_class_layouts_payload,
@@ -243,7 +239,6 @@ fn link(cfg: &LinkConfig, release: Release) -> Result<Vec<u8>, ArchiveLayoutErro
     if release == Release::AtExit {
         std::mem::forget((merged, cache, layout, effective_sym_table, resolved));
         std::mem::forget((stripped_cfg, derived_cfg, dead_rows));
-        std::mem::forget(data_non_text_payloads);
     }
     Ok(bytes)
 }
@@ -255,7 +250,6 @@ fn emit_binary(
     cfg: &LinkConfig,
     layout: &ArchiveLayout,
     members: &MemberText<'_, '_>,
-    data_non_text_payloads: &[Vec<u8>],
     resolved: &[crate::resolve::ResolvedFunction],
     user_vtables_payload: &[u8],
     user_class_layouts_payload: &[u8],
@@ -319,7 +313,8 @@ fn emit_binary(
     );
     if meta.has_dyld {
         write_la_ptr_section(&mut buf, layout);
-        write_data_non_text_file_payloads(&mut buf, layout, data_non_text_payloads);
+        let (merged, values) = (members.merged, members.data_link_values);
+        patch_member_data(layout, merged, values, &mut DataAt(&mut buf))?;
         crate::tlv_thunk_emit::patch_tlv_thunk_slots(&mut buf, layout);
     }
 
@@ -744,20 +739,10 @@ mod tests {
         let members = MemberText {
             merged: &merged,
             sym_table: &cfg.sym_table,
+            data_link_values: &[],
         };
-        let bytes = emit_binary(
-            &cfg,
-            &layout,
-            &members,
-            &[],
-            &resolved,
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-        )
-        .expect("emit");
+        let bytes =
+            emit_binary(&cfg, &layout, &members, &resolved, &[], &[], &[], &[], &[]).expect("emit");
 
         assert_eq!(
             bytes.len() as u32,
