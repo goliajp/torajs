@@ -76,11 +76,6 @@ impl crate::ssa_lower::LowerCtx<'_> {
                 .into_iter()
                 .map(|k| SlotKey::Elem(Box::new(k)))
                 .collect(),
-            // a field the program also stores into (`o.p = h`)
-            Expr::Member { obj: base, name } => (self.promise_obj_keys(*base).into_iter())
-                .map(|k| SlotKey::Field(Box::new(k), name.as_str().into()))
-                .chain([SlotKey::Anon(obj.0)])
-                .collect(),
             _ => vec![SlotKey::Anon(obj.0)],
         }
     }
