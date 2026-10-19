@@ -285,8 +285,13 @@ pub(crate) fn rewrite_operands(kind: &mut InstKind, replace: &HashMap<ValueId, O
         | InstKind::Neg(a)
         | InstKind::Ctpop(a)
         | InstKind::Cttz(a)
-        | InstKind::Copy(_, a)
-        | InstKind::Suspend(_, _, a) => r(a),
+        | InstKind::Copy(_, a) => r(a),
+        InstKind::Suspend(_, _, a, held) => {
+            r(a);
+            for h in held.iter_mut() {
+                r(h);
+            }
+        }
         InstKind::Alloca(_)
         | InstKind::AllocaBytes(_)
         | InstKind::StringRef(_)

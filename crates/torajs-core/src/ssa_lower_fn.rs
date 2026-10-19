@@ -33,7 +33,11 @@
 //! 6. Walk body statements; emit drops + implicit ret on fall-
 //!    through.
 
+pub(crate) mod async_setup;
+pub(crate) mod async_wrapper;
 mod fresh_this;
+pub(crate) mod suspend;
+pub(crate) mod suspend_ret;
 mod undef_params;
 
 use crate::ast::{GenericStructDecls, PropKey};
@@ -41,7 +45,7 @@ use std::collections::HashMap;
 
 use crate::ast::{self, Ast, ExprId, Stmt};
 use crate::ssa::{self, BakedRegexEntry, FuncId, Operand, Terminator, Type, ValueId};
-use crate::ssa_lower::{CallRetargets, Intrinsics, LowerCtx, effective_ret_ty};
+use crate::ssa_lower::{CallRetargets, Intrinsics, LowerCtx};
 use crate::ssa_lower_parse_type::parse_type;
 
 #[allow(clippy::too_many_arguments)]
@@ -81,27 +85,22 @@ pub(crate) fn lower_fn(
     boxed_entries: &HashMap<FuncId, (FuncId, ssa::SigId)>,
     scans: &crate::ssa_lower_ctx_state::ModuleScans,
 ) -> (ssa::Function, Vec<ssa::StringLiteral>) {
-    let ret_ty = promote_and_widen(
-        effective_ret_ty(
-            parse_type(
-                return_type,
-                aliases,
-                arr_layouts,
-                fn_sigs,
-                generic_struct_decls,
-                struct_layouts,
-                inst_memo,
-            ),
-            ast,
-            params,
-            body,
-        ),
-        return_type,
-        &crate::num_width::SlotKey::Ret(name.to_string()),
-        num_f64_slots,
+    let (suspend_body, ret_ann) =
+        suspend_ret::ret_ann(ast, expr_types, fn_table, name, return_type, body);
+    let ret_ty = suspend_ret::ret_slot_ty(
+        name,
+        ret_ann.as_deref(),
+        suspend_body,
+        params,
+        body,
+        ast,
+        aliases,
         arr_layouts,
-        struct_layouts,
         fn_sigs,
+        generic_struct_decls,
+        struct_layouts,
+        inst_memo,
+        num_f64_slots,
     );
     let mut f = ssa::Function::new(name, ret_ty);
 
@@ -184,12 +183,13 @@ pub(crate) fn lower_fn(
         bigint_op_may_throw: false,
         globals,
         is_main_fn: false,
+        suspend_body,
         drop_inline_stack: std::collections::HashSet::new(),
         deque_arrs: std::collections::HashSet::new(),
         escape_obj_lets: std::collections::HashSet::new(),
         nullable_arr_lets: std::collections::HashSet::new(),
         exec_records: HashMap::new(),
-        ret_ann: return_type.map(str::to_string),
+        ret_ann,
         let_anns: HashMap::new(),
         nullable_str_lets: std::collections::HashSet::new(),
         undefable_f64_lets: std::collections::HashSet::new(),

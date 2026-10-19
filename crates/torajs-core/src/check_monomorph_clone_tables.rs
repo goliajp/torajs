@@ -86,6 +86,7 @@ pub(crate) fn carry(owned_ast: &mut Ast, id_map: &[(ExprId, ExprId)]) {
         })
         .collect();
     owned_ast.synth_promise_static_calls.extend(synth);
+    carry_awaits(owned_ast, id_map);
     // `arity_hole_args` — the default pad's hole fillers (rotation
     // 515). A cloned body reproduces the padded call verbatim, and a
     // clone whose hole lost the mark types it `Undefined` again,
@@ -110,6 +111,26 @@ pub(crate) fn carry(owned_ast: &mut Ast, id_map: &[(ExprId, ExprId)]) {
         .collect();
     owned_ast.field_default_objlits.extend(owners);
     carry_optchain(owned_ast, id_map);
+}
+
+/// An `await` read and the frame-settled return of a suspending body:
+/// a clone that lost the first reads the awaited operand's `value`
+/// field, one that lost the second returns the settle call's promise.
+pub(crate) fn carry_awaits(owned_ast: &mut Ast, id_map: &[(ExprId, ExprId)]) {
+    let marks: Vec<(ExprId, bool)> = (id_map.iter())
+        .filter_map(|&(old, new)| {
+            let read = owned_ast.await_value_reads.contains(&old);
+            let ret = owned_ast.async_ssa.return_calls.contains(&old);
+            (read || ret).then_some((new, read))
+        })
+        .collect();
+    for (new, read) in marks {
+        if read {
+            owned_ast.await_value_reads.insert(new);
+        } else {
+            owned_ast.async_ssa.return_calls.insert(new);
+        }
+    }
 }
 
 /// `optchain_calls` / `paren_optchain_calls` — the guard of an optional

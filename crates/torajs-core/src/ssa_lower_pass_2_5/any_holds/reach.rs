@@ -74,5 +74,6 @@ pub(super) fn table_held_fns(module: &Module) -> HashSet<FuncId> {
             .flat_map(|m| std::iter::once(m.adapter_fid).chain(m.twin_adapter_fid))
     });
     let named = module.fn_name_globals.iter().map(|e| e.fn_id);
-    vtables.chain(adapters).chain(named).collect()
+    let frames = (module.suspend_fns.iter()).flat_map(|s| [s.resume, s.drop, s.trace]);
+    vtables.chain(adapters).chain(named).chain(frames).collect()
 }

@@ -21,7 +21,7 @@ mod module_class_layouts;
 mod module_extras;
 mod module_methods;
 mod op_impls;
-mod suspend;
+pub mod suspend;
 mod type_def;
 pub mod vec;
 mod visit;
@@ -60,7 +60,7 @@ pub use module_methods::{
     BakedRegexEntry, DataGlobal, FnNameEntry, Module, StringLiteral, VtableGlobal,
 };
 pub use op_impls::{BinOp, FPred, IPred, Operand};
-pub use suspend::{SuspendKind, SuspendLane};
+pub use suspend::{SuspendFn, SuspendKind, SuspendLane, SuspendRuntime};
 pub use type_def::Type;
 pub use vec::{VecInst, VecOp, VecShape};
 pub use visit::{lowers_to_call, rewrite_value_operands, visit_value_operands};
@@ -380,11 +380,13 @@ pub enum InstKind {
     /// emits no machine code; passes must neither drop it nor count it
     /// as work. The inliner discards it with the `Ret` it marks.
     ThrowSignal,
-    /// `%v = suspend <kind> <lane>, %src` — the function parks here
-    /// and returns to its caller; it is re-entered here, and `%v` is
-    /// the value the suspension produced (see `suspend`). The split
-    /// pass removes every one before codegen.
-    Suspend(SuspendKind, SuspendLane, Operand),
+    /// `%v = suspend <kind> <lane>, %src [held…]` — the function parks
+    /// here and returns to its caller; it is re-entered here, and `%v`
+    /// is the value the suspension produced (see `suspend`). `held`
+    /// are the values the body owns at this point, which the frame's
+    /// trace reports while it waits. The split pass removes every one
+    /// before codegen.
+    Suspend(SuspendKind, SuspendLane, Operand, Vec<Operand>),
 }
 
 #[derive(Debug, Clone, PartialEq)]

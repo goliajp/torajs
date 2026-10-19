@@ -155,8 +155,9 @@ fn maybe_rewrite_async_method_body(
         return None;
     }
     let declared_ty = method.return_type.clone().unwrap_or_else(|| "any".into());
+    let ssa = ast.async_ssa.fns.contains(&mangled);
     let (new_body, promise_ty) =
-        super::desugar_async::build_async_body(ast, method.body.clone(), &declared_ty);
+        super::desugar_async::build_async_body(ast, method.body.clone(), &declared_ty, ssa);
     Some((new_body, Some(promise_ty)))
 }
 

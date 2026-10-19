@@ -132,6 +132,7 @@ pub(crate) fn synthesize_main(
             bigint_op_may_throw: false,
             globals,
             is_main_fn: true,
+            suspend_body: false,
             drop_inline_stack: std::collections::HashSet::new(),
             deque_arrs: std::collections::HashSet::new(),
             escape_obj_lets: std::collections::HashSet::new(),

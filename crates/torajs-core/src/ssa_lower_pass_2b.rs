@@ -92,6 +92,7 @@ fn synth_dead_orphan_stub(
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn run(
+    suspend: &crate::ssa_lower_fn::async_setup::SuspendSetup,
     closure_decls: Vec<(usize, FuncId)>,
     ast: &Ast,
     module: &mut Module,
@@ -192,7 +193,7 @@ pub(crate) fn run(
                 boxed_entries,
                 scans,
             );
-            module.funcs[fid.0 as usize] = f;
+            crate::ssa_lower_fn::async_setup::install(module, fid, f, suspend, intrinsics);
             for s in new_strings {
                 module.strings.push(s);
             }

@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use crate::ast::{Ast, BinOp, Expr, ExprId, PropKey, Stmt};
 use crate::lexer::Span;
 
+pub(crate) mod awaited;
 mod branch_end;
 mod capture_narrow;
 mod construct;

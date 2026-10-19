@@ -172,7 +172,8 @@ impl<'a> LowerCtx<'a> {
                 crate::ssa_lower_stmt_if::lower(self, *cond, then_branch, else_branch.as_deref());
             }
             Stmt::Return(maybe) => {
-                crate::ssa_lower_stmt_return::lower(self, *maybe);
+                let maybe = crate::ssa_lower_fn::suspend_ret::returned_expr(self, *maybe);
+                crate::ssa_lower_stmt_return::lower(self, maybe);
             }
             Stmt::Expr(eid) => {
                 // Multi-arg `console.log` per-arg inspect dispatch —

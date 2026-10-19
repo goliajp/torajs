@@ -305,6 +305,11 @@ fn emit_widened_spec(
             new_params[j].type_ann = Some(target.ann().to_string());
         }
     }
+    // a clone of a body that suspends over a frame suspends too: it
+    // carries the same awaits and has no exception wrap of its own
+    if owned_ast.async_ssa.fns.contains(fn_name) {
+        owned_ast.async_ssa.fns.insert(mono_name.to_string());
+    }
     if lifted {
         // The clone is a lifted body in every name-keyed table the
         // original is in, and the lowerer reads the original's env

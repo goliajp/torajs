@@ -54,6 +54,7 @@ use crate::ast::Ast;
 use crate::check_monomorph::MonoOutput;
 use crate::ssa::{self, FuncId, Module, Type};
 use crate::ssa_lower_closure_order::CaptureFacts;
+use crate::ssa_lower_fn::async_setup;
 use crate::ssa_lower_pass_0_5;
 use crate::ssa_lower_pass_2_5::cell_size;
 
@@ -237,7 +238,9 @@ fn lower_once(
 
     let class_drop_fids: HashMap<u32, FuncId> =
         class_drops.iter().map(|d| (d.sid.0, d.fid)).collect();
+    let suspend = async_setup::preregister(ast, &mut module, &mut fn_table, &mut fn_sigs);
     body_passes::run(
+        &suspend,
         decl_indices,
         closure_decls,
         &env_drop_fids,

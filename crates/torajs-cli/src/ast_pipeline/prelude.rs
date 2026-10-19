@@ -153,6 +153,9 @@ pub(crate) fn run_ast_prelude(ast: &mut ast::Ast) -> Result<(), ()> {
     // captures them) — `desugar_async_nested_fns`.
     ast::desugar_async_nested_fns(ast);
     ast::inject_async_generator_driver(ast);
+    // the async functions whose awaits suspend over an SSA frame; the
+    // state machine leaves them alone
+    ast::mark_async_ssa_fns(ast);
     ast::desugar_async_state_machine(ast);
     ast::hoist_gen_fn_exprs(ast);
     ast::desugar_generators(ast);

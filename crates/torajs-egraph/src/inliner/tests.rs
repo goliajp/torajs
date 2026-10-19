@@ -210,6 +210,7 @@ fn suspending_callee_is_not_inlined() {
             SuspendKind::Await,
             SuspendLane::Direct,
             Operand::ConstI64(0),
+            Vec::new(),
         ),
     ));
     parks.blocks[0]

@@ -354,6 +354,9 @@ pub(crate) struct LowerCtx<'a> {
     /// declaration entirely (in named fns — they only ever read/write
     /// the slot via the ident-read / Assign-Ident fallbacks).
     pub(crate) is_main_fn: bool,
+    /// True while lowering the body of an async function that
+    /// suspends over a frame (`ssa_lower_fn::suspend`).
+    pub(crate) suspend_body: bool,
     /// V3-05 — sids currently being inlined by `emit_drop_value`.
     /// Self-referential class layouts (`class Node { next: Node | null }`)
     /// would otherwise inline-recurse forever at codegen. When the

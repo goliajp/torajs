@@ -78,7 +78,10 @@ pub(super) fn rewrite_async_methods(ast: &mut Ast) -> bool {
                     _ => unreachable!(),
                 };
                 let mangled = format!("{prefix}{cname}__{}", mangle_key(&m.name));
-                if !ast.async_fns.contains(&mangled) || !movable(ast, &m) {
+                if !ast.async_fns.contains(&mangled)
+                    || ast.async_ssa.fns.contains(&mangled)
+                    || !movable(ast, &m)
+                {
                     continue;
                 }
                 let Some((forwarder, generator)) =

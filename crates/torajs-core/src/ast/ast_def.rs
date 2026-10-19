@@ -1301,6 +1301,7 @@ pub struct Ast {
     /// stays, this set only tells `desugar_async`'s value lane to leave
     /// the wrapper's `return __async_drive(...)` alone.
     pub async_sm_value_exprs: std::collections::HashSet<ExprId>,
+    pub async_ssa: super::desugar_async_ssa_gate::AsyncSsa,
     /// The promise expressions the async rewrite put under a
     /// `YieldInto` (`let v = await e` → `let v = yield e`): the
     /// generator yields `e` to the driver, which awaits it and sends

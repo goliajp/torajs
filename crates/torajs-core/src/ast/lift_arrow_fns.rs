@@ -153,6 +153,9 @@ pub fn lift_arrow_fns(ast: &mut Ast) {
         if ast.implicit_rest_arrows.contains(&eid) {
             ast.implicit_rest_fns.insert(name.clone());
         }
+        if ast.async_ssa.value_exprs.contains(&eid) {
+            ast.async_ssa.fns.insert(name.clone());
+        }
         if ast.async_fn_value_exprs.contains(&eid) {
             ast.fn_async_value_fns.insert(name.clone());
         } else if ast.fn_expr_exprs.contains(&eid) {

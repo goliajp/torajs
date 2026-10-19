@@ -15,6 +15,7 @@ use crate::ssa_lower::Intrinsics;
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn run(
+    suspend: &crate::ssa_lower_fn::async_setup::SuspendSetup,
     decl_indices: Vec<(usize, FuncId)>,
     closure_decls: Vec<(usize, FuncId)>,
     env_drop_fids: &[(String, FuncId, ssa::SigId)],
@@ -51,10 +52,8 @@ pub(crate) fn run(
     boxed_entries: &HashMap<FuncId, (FuncId, ssa::SigId)>,
 ) {
     let scans = crate::ssa_lower_ctx_state::ModuleScans::of(ast, expr_types);
-    // Pass 2: lower user FnDecl bodies. Each call returns the lowered
-    // function plus any string literals interned during its body; we
-    // append those into module.strings before the next call so the
-    // StringId counter stays in lockstep with module.strings.len().
+    // Pass 2: user FnDecl bodies; each body's interned strings go to
+    // module.strings at once, so StringIds stay in step with its length.
     for (stmt_idx, fid) in decl_indices {
         if let Stmt::FnDecl {
             name,
@@ -102,7 +101,7 @@ pub(crate) fn run(
                 boxed_entries,
                 &scans,
             );
-            module.funcs[fid.0 as usize] = f;
+            crate::ssa_lower_fn::async_setup::install(module, fid, f, suspend, intrinsics);
             for s in new_strings {
                 module.strings.push(s);
             }
@@ -147,6 +146,7 @@ pub(crate) fn run(
     // Pass 2B (T-15.g.5): lower lifted-closure bodies. Delegated to
     // [`crate::ssa_lower_pass_2b::run`].
     crate::ssa_lower_pass_2b::run(
+        suspend,
         closure_decls,
         ast,
         module,

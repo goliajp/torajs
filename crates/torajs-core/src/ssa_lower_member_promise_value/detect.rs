@@ -6,7 +6,7 @@ use crate::check::{self as check_mod};
 use crate::ssa::Type;
 use crate::ssa_lower::LowerCtx;
 
-pub(super) fn detect_obj_is_builtin_promise(ctx: &LowerCtx<'_>, obj: ExprId) -> bool {
+pub(crate) fn detect_obj_is_builtin_promise(ctx: &LowerCtx<'_>, obj: ExprId) -> bool {
     match ctx.ast.get_expr(obj) {
         Expr::Ident(n) => ctx
             .locals

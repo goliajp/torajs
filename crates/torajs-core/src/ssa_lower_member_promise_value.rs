@@ -64,7 +64,7 @@ use crate::ssa_lower::LowerCtx;
 use crate::ssa_lower_parse_type::parse_type;
 
 mod detect;
-use detect::detect_obj_is_builtin_promise;
+pub(crate) use detect::detect_obj_is_builtin_promise;
 
 pub(crate) fn try_lower(
     ctx: &mut LowerCtx<'_>,
@@ -75,9 +75,14 @@ pub(crate) fn try_lower(
     if name != "value" {
         return None;
     }
+    if ctx.suspend_body && ctx.ast.await_value_reads.contains(&eid) {
+        return Some(crate::ssa_lower_fn::suspend::lower_await(ctx, eid, obj));
+    }
     let obj_is_builtin_promise = detect_obj_is_builtin_promise(ctx, obj);
     if obj_is_builtin_promise {
-        return Some(lower_promise_get_value(ctx, obj));
+        // a promise of a thenable reads in the `any` lane its await is typed
+        let any_lane = matches!(ctx.expr_types.get(&eid), Some(check_mod::Type::Any));
+        return Some(lower_promise_value_read(ctx, obj, any_lane));
     }
     // rotation 233 — a parser-minted `await e` read
     // (`Ast::await_value_reads`) on a NON-promise operand is identity
@@ -95,6 +100,13 @@ pub(crate) fn try_lower(
         // unwraps per its repr stamp, everything else identity).
         if matches!(ctx.operand_ty(&op), Type::Any) {
             return Some(lower_any_await(ctx, op, obj));
+        }
+        // a thenable-shaped object awaits as `any` (its checker type)
+        if matches!(ctx.expr_types.get(&eid), Some(check_mod::Type::Any)) {
+            let borrowed = !ctx.expr_transfers_ownership(obj);
+            let boxed = ctx.box_owned_from_expr(obj, op, borrowed);
+            ctx.owned_member_reads.insert(eid);
+            return Some(boxed);
         }
         return Some(op);
     }
@@ -150,6 +162,10 @@ fn try_p10_4_primitive_identity(ctx: &mut LowerCtx<'_>, obj: ExprId) -> Option<O
 /// when the checker typed the element `Promise(_)` (hole Z removed
 /// the `.value` Member wrap that used to route it here).
 pub(crate) fn lower_promise_get_value(ctx: &mut LowerCtx<'_>, obj: ExprId) -> Operand {
+    lower_promise_value_read(ctx, obj, false)
+}
+
+fn lower_promise_value_read(ctx: &mut LowerCtx<'_>, obj: ExprId, any_lane: bool) -> Operand {
     let obj_op = ctx.lower_expr(obj);
     // the drain below runs jobs that may rebind the binding a borrowed
     // operand was read from and release the cell: the await takes its
@@ -165,8 +181,12 @@ pub(crate) fn lower_promise_get_value(ctx: &mut LowerCtx<'_>, obj: ExprId) -> Op
         cur_block,
         InstKind::Call(ctx.intrinsics.microtask_drain, vec![]),
     );
-    let inner_ssa_ty = recover_inner_ssa_ty(ctx, obj);
-    let inner_ssa_ty = ctx.widen_promise_inner_ty(inner_ssa_ty, obj);
+    let inner_ssa_ty = if any_lane {
+        Some(Type::Any)
+    } else {
+        let inner = recover_inner_ssa_ty(ctx, obj);
+        ctx.widen_promise_inner_ty(inner, obj)
+    };
     let cur_block = ctx.cur_block;
     // RFC 20260727 blade 3 — tell the read which lane it is feeding.
     // `cast_promise_value` below casts by the STATIC inner type; when
@@ -203,7 +223,7 @@ pub(crate) fn lower_promise_get_value(ctx: &mut LowerCtx<'_>, obj: ExprId) -> Op
 /// cast rc_incs what it gets as a NaN box, and a cell reached through
 /// `Promise.resolve(<any>)`'s same-object pass-through carries the
 /// SOURCE promise's repr, which is routinely a plain i64.
-fn awaited_lane_repr(inner_ssa_ty: Option<&Type>) -> i64 {
+pub(crate) fn awaited_lane_repr(inner_ssa_ty: Option<&Type>) -> i64 {
     let Some(ty) = inner_ssa_ty else {
         return 0;
     };
@@ -234,7 +254,7 @@ pub(crate) fn recover_inner_ssa_ty(ctx: &mut LowerCtx<'_>, obj: ExprId) -> Optio
     ))
 }
 
-fn cast_promise_value(
+pub(crate) fn cast_promise_value(
     ctx: &mut LowerCtx<'_>,
     raw_v: crate::ssa::ValueId,
     inner_ssa_ty: Option<Type>,

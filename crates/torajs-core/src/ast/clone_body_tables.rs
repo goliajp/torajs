@@ -53,10 +53,10 @@ pub(crate) fn migrate(cloner: &mut BodyCloner<'_>) {
         };
     }
     macro_rules! copy_set {
-        ($table:ident) => {
+        ($($table:ident).+) => {
             for (old, new) in &pairs {
-                if cloner.ast.$table.contains(old) {
-                    cloner.ast.$table.insert(*new);
+                if cloner.ast.$($table).+.contains(old) {
+                    cloner.ast.$($table).+.insert(*new);
                 }
             }
         };
@@ -100,6 +100,8 @@ pub(crate) fn migrate(cloner: &mut BodyCloner<'_>) {
     copy_set!(fnexpr_bind_local_inits);
     copy_set!(async_fn_value_exprs);
     copy_set!(async_sm_value_exprs);
+    copy_set!(async_ssa.value_exprs);
+    copy_set!(async_ssa.return_calls);
     copy_set!(await_yield_values);
     // The value names another expr of the same body: a cloned origin
     // gets the clone's id, one outside the clone keeps its own.

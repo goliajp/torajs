@@ -264,6 +264,7 @@ fn capture_frame_outside_owner(ast: &mut Ast, owner: ExprId, local: &str, frame_
         &mut ast.fnexpr_recv_faces,
         &mut ast.async_fn_value_exprs,
         &mut ast.async_sm_value_exprs,
+        &mut ast.async_ssa.value_exprs,
     ] {
         if set.remove(&owner) {
             set.insert(moved);

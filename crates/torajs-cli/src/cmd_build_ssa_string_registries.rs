@@ -184,19 +184,25 @@ pub(crate) fn build_class_layout_entries(ssa_module: &Module) -> Vec<UserClassLa
 /// `FnAddr` convention, `fn_vaddrs[i]`) — see
 /// `archive_emit::link_to_exec_with_archives` and the
 /// `probe_vtable_link` reference.
+///
+/// An async frame's descriptor is laid out the same way: three
+/// relative rows (resume, drop, trace), which is the form the frame
+/// runtime reads (`torajs-promise` `frame::FrameDesc`).
 pub(crate) fn build_vtable_globals(ssa_module: &Module) -> Vec<UserVtableEntry> {
-    ssa_module
-        .vtable_globals
-        .iter()
-        .map(|vt| UserVtableEntry {
-            sym: format!("__vtable_{}", vt.class_name),
-            slot_syms: vt
-                .fn_ids
-                .iter()
-                .map(|opt| opt.map(|fid: FuncId| format!("__torajs_fn_{}", fid.0)))
-                .collect(),
-        })
-        .collect()
+    let fn_sym = |fid: FuncId| format!("__torajs_fn_{}", fid.0);
+    let vtables = ssa_module.vtable_globals.iter().map(|vt| UserVtableEntry {
+        sym: format!("__vtable_{}", vt.class_name),
+        slot_syms: vt.fn_ids.iter().map(|opt| opt.map(fn_sym)).collect(),
+    });
+    let frames = ssa_module.suspend_fns.iter().map(|s| UserVtableEntry {
+        sym: s.desc_sym.clone(),
+        slot_syms: vec![
+            Some(fn_sym(s.resume)),
+            Some(fn_sym(s.drop)),
+            Some(fn_sym(s.trace)),
+        ],
+    });
+    vtables.chain(frames).collect()
 }
 
 /// SSA `Type` → `(slot size in bytes, log2 alignment)` for

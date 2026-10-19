@@ -197,6 +197,18 @@ impl Function {
         }
     }
 
+    /// `(a, b, …)`
+    fn write_operand_list(&self, w: &mut String, ops: &[Operand]) -> std::fmt::Result {
+        write!(w, "(")?;
+        for (i, o) in ops.iter().enumerate() {
+            if i > 0 {
+                write!(w, ", ")?;
+            }
+            self.write_operand(w, o)?;
+        }
+        write!(w, ")")
+    }
+
     fn write_inst(&self, w: &mut String, inst: &Inst, m: &Module) -> std::fmt::Result {
         write!(w, "    ")?;
         if let Some(r) = inst.result {
@@ -311,7 +323,7 @@ impl Function {
             InstKind::ThrowSignal => {
                 write!(w, "throw_signal")?;
             }
-            InstKind::Suspend(kind, lane, src) => {
+            InstKind::Suspend(kind, lane, src, held) => {
                 match lane {
                     SuspendLane::Direct => write!(w, "suspend {} direct ", kind.name())?,
                     SuspendLane::Promise(t) => {
@@ -319,18 +331,15 @@ impl Function {
                     }
                 }
                 self.write_operand(w, src)?;
+                if !held.is_empty() {
+                    write!(w, " held")?;
+                    self.write_operand_list(w, held)?;
+                }
             }
             InstKind::CallIndirect(sig, ptr, args) => {
                 write!(w, "call_indirect <sig{}> ", sig.0)?;
                 self.write_operand(w, ptr)?;
-                write!(w, "(")?;
-                for (i, a) in args.iter().enumerate() {
-                    if i > 0 {
-                        write!(w, ", ")?;
-                    }
-                    self.write_operand(w, a)?;
-                }
-                write!(w, ")")?;
+                self.write_operand_list(w, args)?;
             }
             InstKind::Copy(ty, op) => {
                 write!(w, "copy {} ", ty.as_str())?;

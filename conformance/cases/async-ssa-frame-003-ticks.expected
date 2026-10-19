@@ -1,0 +1,5 @@
+plain plain-start,sync,t1,plain-after,t2,settled,t3,t4
+native sync,t1,native-after,t2,settled,t3,t4
+thenable sync,t1,t2,thenable-after,t3,settled,t4
+retPromise sync,t1,t2,t3,t4,settled
+retAwait sync,t1,t2,t3,settled,t4

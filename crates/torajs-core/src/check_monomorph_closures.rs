@@ -112,6 +112,7 @@ pub(crate) fn clone_spec_closures(
             })
             .collect();
         owned_ast.ary_destr_groups.extend(cloned_groups);
+        crate::check_monomorph_clone_tables::carry_awaits(owned_ast, &id_map);
 
         collect_lifted_refs(owned_ast, &id_map, &mut queue, &mut rewrite_sites, &rename);
         crate::check_monomorph_ctor_face::carry_sites(owned_ast, &id_map);
@@ -268,6 +269,9 @@ pub(crate) fn mirror_name_keyed_tables(ast: &mut Ast, orig: &str, clone: &str) {
     }
     if ast.async_fns.contains(orig) {
         ast.async_fns.insert(clone.to_string());
+    }
+    if ast.async_ssa.fns.contains(orig) {
+        ast.async_ssa.fns.insert(clone.to_string());
     }
     if ast.async_generator_fns.contains(orig) {
         ast.async_generator_fns.insert(clone.to_string());

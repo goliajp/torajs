@@ -60,7 +60,8 @@ pub(super) fn rewrite_async_fn_values(ast: &mut Ast) -> bool {
         else {
             continue;
         };
-        if params.iter().any(|p| p.name.starts_with("__"))
+        if ast.async_ssa.value_exprs.contains(&eid)
+            || params.iter().any(|p| p.name.starts_with("__"))
             || blocks_move(ast, &params, &body)
             || declares_fn_or_class(ast, &body)
         {

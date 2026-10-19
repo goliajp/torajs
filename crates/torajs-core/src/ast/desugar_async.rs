@@ -98,7 +98,8 @@ fn rewrite_async_decls(ast: &mut Ast, s: &mut Stmt) {
     // `check/promise_static.rs`; `.then` / `.catch` accept
     // `Promise<Any>` at `check.rs:5008` / `:5054`.
     let declared_ty = return_type.unwrap_or_else(|| "any".into());
-    let (wrapped_body, promise_ty) = build_async_body(ast, body, &declared_ty);
+    let ssa = ast.async_ssa.fns.contains(&name);
+    let (wrapped_body, promise_ty) = build_async_body(ast, body, &declared_ty, ssa);
     *s = Stmt::FnDecl {
         name,
         type_params,
@@ -145,7 +146,8 @@ fn rewrite_async_fn_value_exprs(ast: &mut Ast) {
             panic!("async_fn_value_exprs marker on a non-ArrowFn ExprId {eid:?} (parser contract)");
         };
         let declared_ty = return_type.unwrap_or_else(|| "any".into());
-        let (wrapped_body, promise_ty) = build_async_body(ast, body, &declared_ty);
+        let ssa = ast.async_ssa.value_exprs.contains(&eid);
+        let (wrapped_body, promise_ty) = build_async_body(ast, body, &declared_ty, ssa);
         ast.exprs[i] = Expr::ArrowFn {
             params,
             return_type: Some(promise_ty),
@@ -178,11 +180,18 @@ fn rewrite_async_fn_value_exprs(ast: &mut Ast) {
 /// the P10.7 default-`any`, so an async METHOD without a return
 /// annotation kept panicking long after the top-level requirement was
 /// lifted.
+///
+/// `ssa` — a body the SSA lowering suspends over a frame
+/// (`desugar_async_ssa_gate`): the frame turns a throw into the
+/// rejection, so there is no try wrap, and the lowering returns each
+/// `Promise.resolve(e)` built here as `e` (`async_ssa.return_calls`).
 pub(super) fn build_async_body(
     ast: &mut Ast,
     body: Vec<Stmt>,
     declared_ty: &str,
+    ssa: bool,
 ) -> (Vec<Stmt>, String) {
+    let first_new_expr = ast.exprs.len();
     let inner_ty = if let Some(rest) = declared_ty.strip_prefix("Promise<")
         && let Some(inner) = rest.strip_suffix('>')
     {
@@ -207,6 +216,14 @@ pub(super) fn build_async_body(
         let tail_id = ast.add_expr(fallthrough_undefined_for(&inner_ty));
         let call = build_async_resolve(ast, tail_id, &inner_ty);
         new_body.push(Stmt::Return(Some(call)));
+    }
+    if ssa {
+        let made = (first_new_expr..ast.exprs.len()).map(|i| ExprId(i as u32));
+        let calls: Vec<ExprId> = made
+            .filter(|e| ast.synth_promise_static_calls.contains(e))
+            .collect();
+        ast.async_ssa.return_calls.extend(calls);
+        return (new_body, promise_ty);
     }
 
     let err_ident_for_arg = ast.add_expr(Expr::Ident("__async_err".into()));

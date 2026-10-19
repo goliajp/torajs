@@ -228,12 +228,15 @@ pub(crate) fn has_signal(block: &Block) -> bool {
 }
 
 /// The functions a table names, so that the runtime or a pointer call
-/// may reach them: vtable rows, method-table adapters, class drop fns.
+/// may reach them: vtable rows, method-table adapters, class drop fns,
+/// async frame descriptor rows.
 fn table_rows(module: &Module) -> impl Iterator<Item = FuncId> + '_ {
     let rows = (module.vtable_globals.iter()).flat_map(|v| v.fn_ids.iter().flatten().copied());
     let methods = (module.class_layouts.iter())
         .flat_map(|c| c.methods.iter())
         .flat_map(|m| std::iter::once(m.adapter_fid).chain(m.twin_adapter_fid));
+    let frames = (module.suspend_fns.iter()).flat_map(|s| [s.resume, s.drop, s.trace]);
     rows.chain(methods)
         .chain(module.class_drop_fns.iter().copied())
+        .chain(frames)
 }

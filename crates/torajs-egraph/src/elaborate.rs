@@ -408,7 +408,12 @@ fn canonicalize_operands(kind: &InstKind, egraph: &mut Egraph) -> InstKind {
         InstKind::IntToPtr(v) => InstKind::IntToPtr(map_operand(v, egraph)),
         InstKind::PtrToInt(v) => InstKind::PtrToInt(map_operand(v, egraph)),
         InstKind::TruncI64ToBool(v) => InstKind::TruncI64ToBool(map_operand(v, egraph)),
-        InstKind::Suspend(k, lane, v) => InstKind::Suspend(*k, *lane, map_operand(v, egraph)),
+        InstKind::Suspend(k, lane, v, held) => InstKind::Suspend(
+            *k,
+            *lane,
+            map_operand(v, egraph),
+            held.iter().map(|h| map_operand(h, egraph)).collect(),
+        ),
         // No SSA Value payload — just clone.
         InstKind::Alloca(_)
         | InstKind::AllocaBytes(_)

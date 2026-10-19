@@ -102,6 +102,12 @@ pub struct Module {
     /// program; ineligible regex literals + `new RegExp(...)`
     /// dynamic constructs continue routing through `regex_compile`.
     pub baked_regex_entries: Vec<BakedRegexEntry>,
+    /// The functions lowered over an async frame (`suspend`); each
+    /// names a descriptor the link lays out like a vtable.
+    pub suspend_fns: Vec<super::SuspendFn>,
+    /// The runtime calls their frame code makes; `None` when
+    /// `suspend_fns` is empty.
+    pub suspend_runtime: Option<super::SuspendRuntime>,
 }
 
 #[derive(Debug, Clone)]

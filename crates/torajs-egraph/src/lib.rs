@@ -88,6 +88,7 @@ pub mod srem_parity;
 pub mod str_append;
 pub mod str_len_fold;
 mod strip_assumes;
+pub mod suspend_split;
 mod tail_dup;
 pub mod throw_check_fold;
 pub mod unroll_jam;
@@ -154,6 +155,7 @@ pub fn transform_module(mut module: Module) -> Module {
     // use to this one
     torajs_core::ssa::dominator::forget_kept_analyses();
     if std::env::var("TORAJS_EGRAPH_OFF").as_deref() == Ok("1") {
+        suspend_split::split_module(&mut module);
         anynum::expand::expand_number_nodes(&mut module);
         return module;
     }
@@ -161,6 +163,10 @@ pub fn transform_module(mut module: Module) -> Module {
     pipeline_head::inline_and_forward(&mut module);
     pass_timer::timed("EGRAPH", || egraph_functions(&mut module));
     dump_after("EGRAPH", &module);
+    // async bodies split at their suspension points: after the e-graph
+    // (the smallest frame), before φ promotion (one def per value).
+    // Part of the lowering, so no off switch.
+    pass_timer::timed("SUSPEND_SPLIT", || suspend_split::split_module(&mut module));
     // Full mem2reg φ promotion — loop-carried / join-slot cells the
     // earlier passes left behind. AFTER the egraph pass (GVN /
     // elaborate never see the multi-def Copy it emits), before

@@ -116,7 +116,12 @@ pub fn desugar_async_state_machine(ast: &mut Ast) {
                 name,
                 is_generator: false,
                 ..
-            } if ast.async_fns.contains(name) && !ast.async_generator_fns.contains(name) => Some(i),
+            } if ast.async_fns.contains(name)
+                && !ast.async_generator_fns.contains(name)
+                && !ast.async_ssa.fns.contains(name) =>
+            {
+                Some(i)
+            }
             _ => None,
         })
         .collect();
