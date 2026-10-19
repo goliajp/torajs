@@ -1,0 +1,18 @@
+param 2 6.5
+ctor 2 6.5
+ctor prop 2 6.5
+default 5 6.5
+elem 2
+elem any 6.5
+destructure 2 6.5 6.5
+map i 2
+map f 6.5
+optional chain 2 6.5
+capture 2 6.5
+getter 2 6.5
+getter local 6.5
+getter literal 2 6.5
+method 2 6.5
+then any 3 6.5
+then chain 3.5
+any array 2 6.5

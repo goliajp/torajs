@@ -243,8 +243,13 @@ pub(crate) unsafe fn unbox_settled(param_repr: u8, av: i64) -> i64 {
 }
 
 /// The value a handler's first parameter receives: boxed when it
-/// declared `any`, unboxed when the cell holds one but the handler
-/// declared a typed lane, and untouched when the two already agree.
+/// declared `any`, otherwise read into the lane it declared the way
+/// every other reader of a settled cell is
+/// ([`crate::settled_form::into_form`]). A typed pair that disagrees
+/// reaches it too: `Promise.resolve(p)` where `p` is an `any` holding
+/// a promise answers the INNER cell (§27.2.4.7 step 2), whose stamp
+/// says i64, while the call site's erased `Promise<any>` let a
+/// `(x: number)` handler declare f64.
 pub(crate) unsafe fn settle_param(
     src_repr: u8,
     param_any: bool,
@@ -254,31 +259,8 @@ pub(crate) unsafe fn settle_param(
     unsafe {
         if param_any {
             box_settled(src_repr, value)
-        } else if src_repr == REPR_ANY && param_repr != REPR_UNSTAMPED {
-            unbox_settled(param_repr, value)
-        } else if src_repr != param_repr
-            && src_repr != REPR_UNSTAMPED
-            && param_repr != REPR_UNSTAMPED
-        {
-            // Both sides are typed and they DISAGREE. Handing the
-            // value over raw is what the arm below does, and it is
-            // wrong here for the same reason it is wrong to hand a
-            // box pointer to a typed lane: `Promise.resolve(p)` where
-            // `p` is an `any` holding a promise answers the INNER
-            // cell (§27.2.4.7 step 2), whose stamp says i64 — while
-            // the call site's erased `Promise<any>` let a
-            // `(x: number)` handler declare f64. The integer 7
-            // arrived as 3.5e-323.
-            //
-            // The cell's stamp is the truth, so the conversion goes
-            // through it: box by what is STORED, unbox by what is
-            // DECLARED. Composing the two directions that are already
-            // correct beats writing a third repr×repr table — two
-            // tables saying one thing is how they come to disagree.
-            // Both halves are rc-neutral, so the round trip is too.
-            unbox_settled(param_repr, box_settled(src_repr, value))
         } else {
-            value
+            crate::settled_form::into_form(src_repr, param_repr, value)
         }
     }
 }

@@ -13,7 +13,9 @@ use core::ffi::c_void;
 
 use crate::combinator::repr_arr_kind_chain;
 use crate::combinator_all_fanin::{AllBlock, MODE_ALLSETTLED, MODE_ANY};
-use crate::layout::{Promise, REPR_ANY, REPR_HEAP, REPR_UNSTAMPED, STATE_FULFILLED, as_promise};
+use crate::layout::{
+    Promise, REPR_ANY, REPR_F64, REPR_HEAP, REPR_I64, REPR_UNSTAMPED, STATE_FULFILLED, as_promise,
+};
 use crate::state::{__torajs_promise_reject, __torajs_promise_resolve};
 
 unsafe extern "C" {
@@ -30,6 +32,36 @@ pub(crate) unsafe fn store_slot(arr: *mut c_void, i: u64, v: i64) {
         let head = *(bytes.add(crate::layout::ARR_HEAD_OFF) as *const u32) as u64;
         let data = *(bytes.add(crate::layout::ARR_DATA_PTR_OFF) as *const *mut u8);
         *(data.add(((head + i) * 8) as usize) as *mut i64) = v;
+    }
+}
+
+/// What `all`'s element `ep` puts in its slot: its value in the form
+/// the slots hold. With no form named by the call site, that form is
+/// the join of the elements settled so far, and an i64 array meeting
+/// a fraction widens.
+unsafe fn elem_value(b: *mut AllBlock, ep: *mut Promise) -> i64 {
+    unsafe {
+        if (*b).target_repr == REPR_UNSTAMPED {
+            let held = (*b).elem_repr;
+            (*b).elem_repr = crate::settled_form::join_form(held, (*ep).value_repr);
+            if held == REPR_I64 && (*b).elem_repr == REPR_F64 {
+                widen_slots((*b).result_arr);
+            }
+        }
+        crate::settled_form::into_form((*ep).value_repr, (*b).elem_repr, (*ep).value)
+    }
+}
+
+/// The slots of a result array stored as i64 before an element settled
+/// with a fraction, rewritten as f64. A slot still owed holds 0, which
+/// is 0.0 at either width.
+#[cold]
+unsafe fn widen_slots(arr: *mut c_void) {
+    unsafe {
+        for i in 0..crate::combinator::arr_len(arr) {
+            let v = crate::combinator::arr_slot_ptr(arr, i) as i64;
+            store_slot(arr, i, (v as f64).to_bits() as i64);
+        }
     }
 }
 
@@ -51,7 +83,7 @@ pub(crate) unsafe fn store_element(b: *mut AllBlock, index: u64, ep: *mut Promis
         if (*b).mode == MODE_ALLSETTLED {
             let (v, owned) = crate::combinator_allsettled::record_slot(
                 (*ep).value_repr,
-                (*b).record_value_repr,
+                (*b).target_repr,
                 (*ep).value,
             );
             // a tag-less block holds REPR_ANY, so `v` is a box and the
@@ -86,10 +118,7 @@ pub(crate) unsafe fn store_element(b: *mut AllBlock, index: u64, ep: *mut Promis
             store_slot((*b).result_arr, index, boxed as i64);
             return;
         }
-        if (*b).elem_repr == REPR_UNSTAMPED {
-            (*b).elem_repr = (*ep).value_repr;
-        }
-        let v = crate::settled_form::into_form((*ep).value_repr, (*b).elem_repr, (*ep).value);
+        let v = elem_value(b, ep);
         // Same payment the sync kernel makes: a heap-chained result
         // array drops every slot it holds, while the element promise
         // keeps its own stake.

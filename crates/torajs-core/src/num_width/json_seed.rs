@@ -14,11 +14,22 @@
 use super::{Analysis, SlotKey};
 use crate::ast::PropKey;
 use crate::ast::{Expr, ExprId, Stmt};
+use crate::check::Type;
 use std::collections::HashSet;
 
 /// `number`-domain spelling: `number` or absent (inference).
 pub(super) fn number_domain(ann: Option<&str>) -> bool {
     matches!(ann, None | Some("number"))
+}
+
+/// Does a value of type `t` hold an `any` somewhere an array or a
+/// promise hands it on?
+fn holds_any(t: &Type) -> bool {
+    match t {
+        Type::Any => true,
+        Type::Array(e) | Type::Promise(e) => holds_any(e),
+        _ => false,
+    }
 }
 
 impl<'a> Analysis<'a> {
@@ -57,7 +68,9 @@ impl<'a> Analysis<'a> {
         let Some(ann) = ann else { return };
         let ann = crate::check_type_ann::strip_nullable(ann).trim();
         // a promise handed in from `any` settles with what its own
-        // resolver gave it, at whatever width that was
+        // resolver gave it, at whatever width that was; JSON text never
+        // holds a promise, so a `JSON.parse` target that names one only
+        // widens a value point no parsed value reaches
         if let Some(inner) = (ann.strip_prefix("Promise<")).and_then(|r| r.strip_suffix('>')) {
             let vk = SlotKey::Field(Box::new(key.clone()), "value".into());
             self.mark_containerish(key);
@@ -126,9 +139,12 @@ impl Analysis<'_> {
     /// `lit` written into the slot `key` of the object type `ann`: a
     /// member handed an `any` value is cast into the type the field
     /// declares (`ssa_lower_object_lit::declared`), at any depth of
-    /// nested literals. Any other value seeds nothing.
+    /// nested literals. Any other value goes to [`Self::any_promise_seed`].
     pub(super) fn any_member_seed(&mut self, lit: ExprId, key: &SlotKey, ann: &str) {
         let Expr::ObjectLit { fields } = self.ast.get_expr(lit) else {
+            if let Some(ty) = self.expr_types.get(&lit) {
+                self.any_promise_seed(lit, key, ann, ty);
+            }
             return;
         };
         let declared = self.object_fields(crate::check_type_ann::strip_nullable(ann).trim());
@@ -142,6 +158,27 @@ impl Analysis<'_> {
             } else {
                 self.any_member_seed(v, &fk, fann);
             }
+        }
+    }
+
+    /// A value of type `ty` written into the slot `key` of type `ann`
+    /// whose `any` part sits inside a promise (`Promise<any>`, a
+    /// `.then` result whose handler returns `any`, `any[]` given to a
+    /// `Promise<number>[]` slot): that promise settles with whatever
+    /// the `any` held, so the slot's faces under it are seeded the way
+    /// a whole `any` value seeds them ([`Self::any_object_seed`]).
+    fn any_promise_seed(&mut self, site: ExprId, key: &SlotKey, ann: &str, ty: &Type) {
+        let ann = crate::check_type_ann::strip_nullable(ann).trim();
+        match ty {
+            Type::Array(t) if let Some(elem) = ann.strip_suffix("[]") => {
+                self.mark_containerish(key);
+                self.any_promise_seed(site, &SlotKey::Elem(Box::new(key.clone())), elem, t);
+            }
+            Type::Any if ann.starts_with("Promise<") => self.any_object_seed(site, key, ann),
+            Type::Promise(t) if ann.starts_with("Promise<") && holds_any(t) => {
+                self.any_object_seed(site, key, ann);
+            }
+            _ => {}
         }
     }
 

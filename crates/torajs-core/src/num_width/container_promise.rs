@@ -8,7 +8,7 @@
 //! largest block that says so.
 
 use super::{Analysis, Scope, SlotKey};
-use crate::ast::{Ast, Expr, ExprId};
+use crate::ast::{Ast, Expr, ExprId, PropKey};
 use std::collections::HashMap;
 
 /// `await p` parses to `p.value`, so this answers the inner type of
@@ -104,24 +104,30 @@ impl Analysis<'_> {
             && let Some(ak) = self.container_key_of(*a0, scope)
         {
             let src_elem_pv = SlotKey::Field(Box::new(SlotKey::Elem(Box::new(ak))), "value".into());
-            if name == "allSettled" {
-                self.mark_containerish(&pv);
-                let rec = SlotKey::Elem(Box::new(pv.clone()));
-                self.mark_containerish(&rec);
-                self.uf
-                    .union(&SlotKey::Field(Box::new(rec), "value".into()), &src_elem_pv);
-            } else if name == "all" {
-                // The result's value is a fresh array the runtime
-                // fills from each source promise's raw value slot —
-                // container evidence on the point itself, so the
-                // `let r = await Promise.all(...)` guarded copy edge
-                // activates.
-                self.mark_containerish(&pv);
-                self.uf
-                    .union(&SlotKey::Elem(Box::new(pv.clone())), &src_elem_pv);
-            } else {
-                self.uf.union(&pv, &src_elem_pv);
-            }
+            self.combinator_wiring(name, &pv, &src_elem_pv);
+        }
+    }
+
+    /// A combinator call's result value point `pv` against the source
+    /// elements' value point.
+    fn combinator_wiring(&mut self, name: &str, pv: &SlotKey, src_elem_pv: &SlotKey) {
+        if name == "allSettled" {
+            self.mark_containerish(pv);
+            let rec = SlotKey::Elem(Box::new(pv.clone()));
+            self.mark_containerish(&rec);
+            self.uf
+                .union(&SlotKey::Field(Box::new(rec), "value".into()), src_elem_pv);
+        } else if name == "all" {
+            // The result's value is a fresh array the runtime fills
+            // from each source promise's raw value slot — container
+            // evidence on the point itself, so the
+            // `let r = await Promise.all(...)` guarded copy edge
+            // activates.
+            self.mark_containerish(pv);
+            self.uf
+                .union(&SlotKey::Elem(Box::new(pv.clone())), src_elem_pv);
+        } else {
+            self.uf.union(pv, src_elem_pv);
         }
     }
 
@@ -161,6 +167,7 @@ impl Analysis<'_> {
                     if p_num && let Some(p0) = self.callback_params(&cb).first() {
                         self.uf
                             .union(&src_pv, &SlotKey::Param(cb.clone(), p0.clone()));
+                        self.any_number_reader(eid, *a, &src_pv);
                     }
                     if r_num {
                         self.uf.union(&res_pv, &SlotKey::Ret(cb));
@@ -181,6 +188,73 @@ impl Analysis<'_> {
                 }
             }
         }
+    }
+
+    /// A handler `cb` declaring a `number` parameter on a promise of
+    /// `any` (the receiver of the chain call `eid` is a `.then` whose
+    /// handler returned `any`, or a `Promise<any>`) takes whatever the
+    /// `any` held, so the source value point `src_pv` widens.
+    fn any_number_reader(&mut self, eid: ExprId, cb: ExprId, src_pv: &SlotKey) {
+        use crate::check::Type;
+        let Expr::Call { callee, .. } = self.ast.get_expr(eid) else {
+            return;
+        };
+        let Expr::Member { obj, .. } = self.ast.get_expr(*callee) else {
+            return;
+        };
+        let any_src =
+            matches!(self.expr_types.get(obj), Some(Type::Promise(t)) if **t == Type::Any);
+        let num_param = matches!(self.expr_types.get(&cb),
+            Some(Type::Function(ps, _)) if ps.first() == Some(&Type::Number));
+        if any_src && num_param {
+            self.add_container_constraint(src_pv.clone(), super::magnitude::f64_flow());
+        }
+    }
+
+    /// The class getters among the function `fname` of the declared
+    /// return type `r`, when that is a promise: see
+    /// [`Self::promise_getter_union`].
+    pub(super) fn promise_getter_unions(&mut self, fname: &str, r: &str) {
+        if !r.starts_with("Promise<") {
+            return;
+        }
+        let ast = self.ast;
+        for ((class, prop), _) in ast.accessor_getters.iter().filter(|(_, f)| *f == fname) {
+            let ret = SlotKey::Ret(fname.to_string());
+            self.promise_getter_union(&SlotKey::Class(class.clone()), prop.clone(), ret);
+        }
+    }
+
+    /// The field `fname` of the object literal `lit`, stored at `fk`
+    /// with the value `fe`, when it is a getter (`__getter_<prop>`)
+    /// returning a promise: see [`Self::promise_getter_union`].
+    pub(super) fn objlit_promise_getter(
+        &mut self,
+        lit: &SlotKey,
+        fname: &PropKey,
+        fk: &SlotKey,
+        fe: ExprId,
+    ) {
+        use crate::check::Type;
+        if let Some(prop) = fname.lossy().strip_prefix("__getter_")
+            && let Some(Type::Function(_, r)) = self.expr_types.get(&fe)
+            && matches!(**r, Type::Promise(_))
+        {
+            let ret = SlotKey::Field(Box::new(fk.clone()), "__ret".into());
+            self.promise_getter_union(lit, prop.into(), ret);
+        }
+    }
+
+    /// A getter answers the reads of its property, so a promise it
+    /// returns settles the value point those reads await: `ret` (the
+    /// getter's result) joins the property `prop` of `holder` (its
+    /// class, or the object literal that holds it).
+    pub(super) fn promise_getter_union(&mut self, holder: &SlotKey, prop: PropKey, ret: SlotKey) {
+        let fk = SlotKey::Field(Box::new(holder.clone()), prop);
+        self.mark_containerish(holder);
+        self.mark_containerish(&fk);
+        self.mark_containerish(&ret);
+        self.uf.union(&fk, &ret);
     }
 
     /// Width edges `a → b` and `b → a`, neither marked growth: a value

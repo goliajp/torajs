@@ -91,8 +91,8 @@ pub(crate) struct AllBlock {
     /// because the losing jobs still have to run and release.
     pub(crate) jobs: u64,
     /// The form the slots hold. Comes from the call site when it could
-    /// name one; otherwise from the first element to settle, which the
-    /// typed tier guarantees describes all of them.
+    /// name one; otherwise the forms of the elements settled so far,
+    /// joined (`settled_form::join_form`).
     pub(crate) elem_repr: u8,
     /// The outer has been settled — later jobs only release.
     pub(crate) done: u8,
@@ -101,11 +101,13 @@ pub(crate) struct AllBlock {
     /// allSettled only — the pair of class tags its records carry (see
     /// `combinator_allsettled::alloc_settled_struct`).
     pub(crate) record_tags: u64,
-    /// allSettled only — the form each record's value slot must hold,
-    /// so an element settled through the any lane is unboxed into it
-    /// rather than parked as box bits. `elem_repr` above describes the
-    /// RESULT array's slots, which for allSettled are always records.
-    pub(crate) record_value_repr: u8,
+    /// The form the call site named for each element's value (0 when it
+    /// could not): `all`'s result slots, or the value slot of each
+    /// allSettled record, so an element settled through the any lane is
+    /// unboxed into it rather than parked as box bits. `elem_repr`
+    /// above describes the RESULT array's slots, which for allSettled
+    /// are always records.
+    pub(crate) target_repr: u8,
     /// The input carried NaN-box slots, so its elements are reached
     /// through the any-slot walk rather than as raw promise pointers.
     /// This is about READING the input; what the result holds is
@@ -244,8 +246,8 @@ pub(crate) unsafe fn fan_in(
         // the loop still attaching to the rest.
         (*b).jobs = 1;
         // allSettled's slots always hold record cells, so their chain
-        // is fixed; `all`'s comes from the call site (or the first
-        // element to settle, when the site could not name one).
+        // is fixed; `all`'s comes from the call site (or the elements
+        // as they settle, when the site could not name one).
         (*b).elem_repr = if mode == MODE_ALLSETTLED {
             REPR_HEAP
         } else {
@@ -254,11 +256,7 @@ pub(crate) unsafe fn fan_in(
         (*b).done = 0;
         (*b).mode = mode;
         (*b).record_tags = record_tags;
-        (*b).record_value_repr = if mode == MODE_ALLSETTLED {
-            target_repr
-        } else {
-            REPR_UNSTAMPED
-        };
+        (*b).target_repr = target_repr;
         (*b).input_any = u8::from(input_any);
         (*b).result_any = u8::from(result_any);
         __torajs_rc_inc(result);

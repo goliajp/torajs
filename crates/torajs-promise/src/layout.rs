@@ -166,10 +166,10 @@ pub const ARR_HEAD_OFF: usize = 20;
 pub const ALLSETTLED_OBJ_TAG: u16 = 1;
 pub const ALLSETTLED_OBJ_HEADER_SIZE: usize = 32;
 
-/// Throw-tag constants used by `get_value`'s rejection path.
-/// Match runtime_str.c's torajs_throw_native conventions:
-/// 2 = I64, 4 = ANY_HEAP. Mirror of the C source's literal values.
+/// The throw slot's (AnyValue) tags a rejected `await` raises with.
+pub const THROW_TAG_BOOL: i64 = 1;
 pub const THROW_TAG_I64: i64 = 2;
+pub const THROW_TAG_F64: i64 = 3;
 pub const THROW_TAG_ANY_HEAP: i64 = 4;
 
 /// Universal heap header — 8 bytes, ABI-shared with `torajs_rc::HeapHeader`

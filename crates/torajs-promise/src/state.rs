@@ -17,9 +17,10 @@ use core::ffi::c_void;
 use core::ptr;
 
 use crate::layout::{
-    CB_FRAME_TAG, CB_INLINE_TAG, MicrotaskFn, Promise, PromiseCb, REPR_ANY, STATE_FULFILLED,
-    STATE_PENDING, STATE_REJECTED, THROW_TAG_ANY_HEAP, THROW_TAG_I64, as_promise, frame_cell,
-    inline_cell, inline_link_derived, link_next,
+    CB_FRAME_TAG, CB_INLINE_TAG, MicrotaskFn, Promise, PromiseCb, REPR_ANY, REPR_BOOL, REPR_F64,
+    STATE_FULFILLED, STATE_PENDING, STATE_REJECTED, THROW_TAG_ANY_HEAP, THROW_TAG_BOOL,
+    THROW_TAG_F64, THROW_TAG_I64, as_promise, frame_cell, inline_cell, inline_link_derived,
+    link_next,
 };
 
 unsafe extern "C" {
@@ -168,32 +169,39 @@ pub unsafe extern "C" fn __torajs_promise_get_value(p: *const c_void) -> i64 {
     unsafe { (*pp).has_handler = 1 };
     let state = unsafe { (*pp).state };
     if state == STATE_REJECTED {
-        let tag = if unsafe { (*pp).value_is_heap } != 0 {
-            THROW_TAG_ANY_HEAP
-        } else {
-            THROW_TAG_I64
-        };
-        // Rotation 326 — the throw slot's contract is OWNED (a
-        // thrown `new Error` transfers its mint; the catch binding
-        // releases it), but this cell keeps holding the reason and
-        // releases it again at its own drop: handing the slot a
-        // borrow charged one reference twice (`await p` on a
-        // rejected promise underflowed the Error instance — the
-        // string-reason shape only survived because static cells
-        // no-op rc). Take the +1 here so both releases are funded;
-        // re-awaiting the same rejected promise re-pays per throw.
-        unsafe {
-            if (*pp).value_is_heap != 0 && (*pp).value != 0 {
-                __torajs_rc_inc((*pp).value as *mut c_void);
-            }
-            __torajs_throw_set(tag, (*pp).value);
-        }
+        unsafe { raise_reason(pp) };
         return 0;
     }
     if state != STATE_FULFILLED {
         return 0;
     }
     unsafe { (*pp).value }
+}
+
+/// Raise a rejected cell's reason, in the form the cell holds it.
+///
+/// Rotation 326 — the throw slot's contract is OWNED (a thrown `new
+/// Error` transfers its mint; the catch binding releases it), but this
+/// cell keeps holding the reason and releases it again at its own
+/// drop: handing the slot a borrow charged one reference twice (`await
+/// p` on a rejected promise underflowed the Error instance — the
+/// string-reason shape only survived because static cells no-op rc).
+/// Take the +1 here so both releases are funded; re-awaiting the same
+/// rejected promise re-pays per throw.
+#[cold]
+unsafe fn raise_reason(pp: *mut Promise) {
+    unsafe {
+        let tag = match ((*pp).value_is_heap, (*pp).value_repr) {
+            (0, REPR_F64) => THROW_TAG_F64,
+            (0, REPR_BOOL) => THROW_TAG_BOOL,
+            (0, _) => THROW_TAG_I64,
+            _ => THROW_TAG_ANY_HEAP,
+        };
+        if (*pp).value_is_heap != 0 && (*pp).value != 0 {
+            __torajs_rc_inc((*pp).value as *mut c_void);
+        }
+        __torajs_throw_set(tag, (*pp).value);
+    }
 }
 
 /// `await p` where the awaiting site knows which typed lane it will

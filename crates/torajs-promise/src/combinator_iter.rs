@@ -38,7 +38,7 @@ use crate::combinator_all_fanin::{
     wrap_plain,
 };
 use crate::combinator_dyn::{IterStepFn, reject_with_pending_throw};
-use crate::layout::{REPR_ANY, REPR_HEAP, REPR_UNSTAMPED, as_promise};
+use crate::layout::{REPR_ANY, REPR_HEAP, as_promise};
 
 unsafe extern "C" {
     #[link_name = "__torajs_libc_malloc"]
@@ -289,11 +289,8 @@ unsafe fn activate(mode: u8, items: &mut Vec<u64>, next_index: &mut u64) -> *mut
         (*b).done = 0;
         (*b).mode = mode;
         (*b).record_tags = 0;
-        (*b).record_value_repr = if mode == MODE_ALLSETTLED {
-            REPR_ANY
-        } else {
-            REPR_UNSTAMPED
-        };
+        // every element is an any-lane value, boxed into its slot
+        (*b).target_repr = REPR_ANY;
         (*b).input_any = 1;
         (*b).result_any = u8::from(mode == MODE_ALL);
         __torajs_rc_inc(result);

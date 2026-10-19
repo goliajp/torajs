@@ -2,43 +2,95 @@
 //!
 //! A promise cell's stamp (`value_repr`) is the only runtime record of
 //! the form its slot holds, and a reader's form is fixed at compile
-//! time: an `await`, a `.then` handler's parameter, a slot of
-//! `Promise.all`'s result array, the `value` of an `allSettled` record.
-//! Every one of them converts through here, so a cell that settled in
-//! another form than the reader's reads the same everywhere.
+//! time: an `await`, a `.then` / `.catch` handler's parameter, a slot
+//! of `Promise.all`'s result array, the `value` of an `allSettled`
+//! record. Every one of them converts through here, so a cell that
+//! settled in another form than the reader's reads the same everywhere.
+//!
+//! A combinator's result element is one reader only the call site can
+//! name — the checker types `Promise.all`'s result `Promise<T[]>`,
+//! while SSA's `Type::Promise` is inner-erased — so the site hands that
+//! form down as `target_repr`, 0 when it could not name one. Without it
+//! an executor-minted cell (`new Promise((res) => res(v))`), which
+//! settles through the any lane and stamps `REPR_ANY`, left box bits in
+//! a typed result slot, and `a[0] + a[1]` read them as f64 and
+//! answered NaN.
 
-use crate::layout::{REPR_F64, REPR_I64};
+use crate::layout::{REPR_ANY, REPR_F64, REPR_I64, REPR_UNSTAMPED};
 
-/// The form a slot of form `target` holds a value settled as `src` in:
-/// the target when the value converts into it, `src` when it is taken
-/// as it is (no target named, or a form that does not convert).
+/// Does a value settled as `src` convert into a reader of form
+/// `target`? Not when the two agree, nor when either side names no
+/// form, nor for an `any` reader (boxing is the caller's, since it
+/// pays for the box).
+#[inline]
+fn converts(src: u8, target: u8) -> bool {
+    src != target && src != REPR_UNSTAMPED && target != REPR_UNSTAMPED && target != REPR_ANY
+}
+
+/// The form a slot of form `target` holds a value settled as `src` in.
 #[inline]
 pub(crate) fn read_form(src: u8, target: u8) -> u8 {
-    match (src, target) {
-        (REPR_I64, REPR_F64) | (REPR_F64, REPR_I64) => target,
-        _ => crate::combinator::unbox_target(src, target).unwrap_or(src),
+    if converts(src, target) { target } else { src }
+}
+
+/// The form a result array holds when the call site named none and
+/// its elements settled as `held` so far and now `src`: the first
+/// element's, except that integers and fractions meet at f64, since an
+/// i64 slot cannot hold a fraction.
+#[inline]
+pub(crate) fn join_form(held: u8, src: u8) -> u8 {
+    match (held, src) {
+        (REPR_UNSTAMPED, _) => src,
+        (REPR_I64, REPR_F64) => REPR_F64,
+        _ => held,
     }
 }
 
+/// [`join_form`] over the settled elements of the promise array `arr`
+/// (`len` slots), from the first one's form `first`.
+///
+/// # Safety
+/// `arr` is a live array whose slots are NULL or live Promise cells.
+#[cold]
+pub(crate) unsafe fn joined_form(arr: *mut core::ffi::c_void, len: u64, first: u8) -> u8 {
+    let mut form = first;
+    for i in 0..len {
+        let pp = unsafe { crate::combinator::arr_slot_ptr(arr, i) };
+        if !pp.is_null() {
+            form = join_form(form, unsafe { (*pp).value_repr });
+        }
+    }
+    form
+}
+
 /// `v`, settled as `src`, in the form `target`: a box from the any
-/// lane is unboxed into the target lane and a number settled at the
-/// other width converts. Rc-neutral; a target of `REPR_UNSTAMPED` or
-/// `REPR_ANY` takes the slot as it is (boxing is the caller's, since
-/// it pays for the box).
+/// lane is unboxed into the target lane, a number settled at the other
+/// width converts, and any other typed pair goes through a box (by
+/// what is stored, unboxed by what is read). Rc-neutral.
 ///
 /// # Safety
 /// `v` is a live value of form `src`.
-#[inline]
+#[inline(always)]
 pub(crate) unsafe fn into_form(src: u8, target: u8, v: i64) -> i64 {
     if src == target {
+        v
+    } else {
+        unsafe { convert(src, target, v) }
+    }
+}
+
+#[cold]
+#[inline(never)]
+unsafe fn convert(src: u8, target: u8, v: i64) -> i64 {
+    if !converts(src, target) {
         return v;
     }
-    if matches!((src, target), (REPR_I64, REPR_F64) | (REPR_F64, REPR_I64)) {
-        return other_width(src, v);
-    }
-    match crate::combinator::unbox_target(src, target) {
-        Some(lane) => unsafe { crate::then_box::unbox_settled(lane, v) },
-        None => v,
+    unsafe {
+        match (src, target) {
+            (REPR_I64, REPR_F64) | (REPR_F64, REPR_I64) => other_width(src, v),
+            (REPR_ANY, _) => crate::then_box::unbox_settled(target, v),
+            _ => crate::then_box::unbox_settled(target, crate::then_box::box_settled(src, v)),
+        }
     }
 }
 
@@ -51,7 +103,6 @@ pub(crate) unsafe fn into_form(src: u8, target: u8, v: i64) -> i64 {
 /// point joins its width (a `Promise<number>` slot written from `any`,
 /// a field read back, an `allSettled` record's `value`). A fraction
 /// here is a value point the analysis missed.
-#[cold]
 fn other_width(src: u8, v: i64) -> i64 {
     if src == REPR_I64 {
         (v as f64).to_bits() as i64

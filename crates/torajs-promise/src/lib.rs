@@ -23,10 +23,9 @@
 //!   Each variant mints the derived cell and parks the reaction in
 //!   it ([`reaction`], one allocation per `then`). Any-param boxing
 //!   support in [`then_box`]; the `.finally` pair in [`then_finally`].
-//! - [`combinator`] — .all/.allSettled/.race/.any sync combinators.
-//!   MVP fast path: all-already-settled inputs build result Array;
-//!   pending input → reject with placeholder reason (real fan-in
-//!   post-T-15.g.6).
+//! - [`combinator`] — .all/.allSettled/.race/.any; a pending input
+//!   waits in a fan-in, and every reader of a settled value takes it
+//!   into its own form through `settled_form`.
 //! - [`micro`] — queueMicrotask globals (closure + named-fn
 //!   variants). Both pack cb through the queue's i64 arg slot.
 

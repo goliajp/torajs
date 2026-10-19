@@ -170,14 +170,14 @@ impl<'a> Analysis<'a> {
                 self.mark_containerish(&anon);
                 for (fname, fe) in fields.clone() {
                     let fk = SlotKey::Field(Box::new(anon.clone()), fname.clone());
-                    let w = self.flow(fe, scope);
-                    self.add_container_constraint(fk.clone(), w);
+                    self.add_container_constraint(fk.clone(), self.flow(fe, scope));
                     // F5 — a function value stored in a struct-literal
                     // field wires the field's `__ret` / `__p{i}`
                     // projections onto the function's Ret / Param keys,
                     // so the struct-field-fn dispatch face answers
                     // width queries from the resident's own class.
                     self.fn_value_flow(&fk, fe, scope);
+                    self.objlit_promise_getter(&anon, &fname, &fk, fe);
                     if let Some(ik) = self.container_key_of(fe, scope) {
                         // F2-fix — same candidate-side gate as the
                         // ArrayLit elems above.

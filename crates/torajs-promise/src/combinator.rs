@@ -101,33 +101,6 @@ pub(crate) fn repr_arr_kind_chain(repr: u8) -> Option<u64> {
     }
 }
 
-/// `Some(lane)` when this element settled through the `any` world and
-/// has to be unboxed into `lane` before it can sit in the result array;
-/// `None` when its slot is already in the form the array holds.
-///
-/// An executor-minted cell (`new Promise((res) => res(v))`) settles
-/// through the any lane, so its slot honestly holds a NaN box and its
-/// stamp honestly says `REPR_ANY`. That form has no raw-slot array
-/// shape: `repr_arr_kind_chain` answers `None` for it, the result gets
-/// stamped UNSTAMPED, and the any-param handler refuses it — correctly,
-/// because the array really was undescribed. The typed side was worse
-/// and quieter: the slots held box bits, so a static `a[0] + a[1]` read
-/// them as f64 and answered NaN.
-///
-/// Only the CALL SITE knows what the array's elements are supposed to
-/// be — `Promise.all`'s result type is `Promise<T[]>` in the checker,
-/// while SSA's `Type::Promise` is inner-erased — so it hands the target
-/// form down, the way `settle_param` and `__torajs_promise_get_value_as`
-/// already take the lane they are feeding. A `target_repr` of 0 means
-/// the site could not name one, which keeps the old behaviour exactly.
-#[inline]
-pub(crate) fn unbox_target(src_repr: u8, target_repr: u8) -> Option<u8> {
-    if src_repr != REPR_ANY || target_repr == REPR_UNSTAMPED || target_repr == REPR_ANY {
-        return None;
-    }
-    Some(target_repr)
-}
-
 /// # Safety
 /// `promises_arr` is NULL or a live array whose elements are live Promise cells or values of the declared element lane.
 #[unsafe(no_mangle)]
@@ -188,8 +161,8 @@ pub unsafe extern "C" fn __torajs_promise_all_sync(
     // element form is read here as well, so the build loop below
     // already knows whether the result array will co-own its slots
     // before it starts filling them. The typed tier guarantees a
-    // homogeneous `Array<Promise<T>>` input, so the first element's
-    // form describes all of them.
+    // homogeneous `Array<Promise<T>>` input, so with no form named by
+    // the site the elements' forms join (`joined_form`).
     let mut elem_repr = REPR_UNSTAMPED;
     for i in 0..len {
         let pp = unsafe { arr_slot_ptr(promises_arr, i) };
@@ -201,9 +174,11 @@ pub unsafe extern "C" fn __torajs_promise_all_sync(
             return unsafe { defer_settle(STATE_REJECTED, (*pp).value, 0, (*pp).value_repr) };
         }
         if elem_repr == REPR_UNSTAMPED {
-            let src = unsafe { (*pp).value_repr };
-            elem_repr = crate::settled_form::read_form(src, target_repr);
+            elem_repr = crate::settled_form::read_form(unsafe { (*pp).value_repr }, target_repr);
         }
+    }
+    if target_repr == REPR_UNSTAMPED {
+        elem_repr = unsafe { crate::settled_form::joined_form(promises_arr, len, elem_repr) };
     }
     // All fulfilled. The call site typed the result element `any`, so
     // the elements share no raw form and the result has to carry
