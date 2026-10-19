@@ -104,8 +104,14 @@ pub fn push(p: *mut u8, cap: u64) -> bool {
 pub const SPILLED_SLOTS: usize = 8;
 
 /// Buffers above this many slots are released, not kept: the stack
-/// holds at most `SPILLED_SLOTS * SPILLED_CAP_MAX * 8` bytes.
-pub const SPILLED_CAP_MAX: u64 = 256;
+/// holds at most `SPILLED_SLOTS * SPILLED_CAP_MAX * 8` bytes (64 KB).
+/// A loop that reserves room for its appends up front (one slot per
+/// character of a line, and more) lands above a few hundred slots; a
+/// lower bound frees such a buffer at every release and the next
+/// reserve on the recycled cell reallocates and copies it again. The
+/// bound is also the most slack an empty array taken from the stack
+/// carries, 8 KB.
+pub const SPILLED_CAP_MAX: u64 = 1024;
 
 static SPILLED: [AtomicPtr<u8>; SPILLED_SLOTS] =
     [const { AtomicPtr::new(ptr::null_mut()) }; SPILLED_SLOTS];
