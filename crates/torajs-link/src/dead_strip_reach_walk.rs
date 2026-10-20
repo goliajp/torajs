@@ -300,8 +300,8 @@ impl<'w, 'a> Walker<'w, 'a> {
         let member = self.merged.member(key.0, key.1);
         let imports = &self.walk.imports[i];
         let list = edges.out_edges(self.walk.slots[i], &member, r, imports, sect_ord, atom)?;
-        for &edge in list.iter() {
-            let next = match edge {
+        for k in list {
+            let next = match edges.edge(k) {
                 Edge::Local { sect, atom } => Some(local_node(key, sect, atom)),
                 Edge::Sym(row) => self.ask_row(row, sym_loc),
                 Edge::Name(id) => self.ask_name(id, edges.name(id), sym_loc),

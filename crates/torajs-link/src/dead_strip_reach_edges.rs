@@ -11,7 +11,7 @@
 //! closure's own question, asked once per symbol per closure.
 
 use std::collections::HashMap;
-use std::rc::Rc;
+use std::ops::Range;
 
 use crate::archive::ArMember;
 use crate::dead_strip_reach::{MemberReach, Node};
@@ -32,9 +32,15 @@ pub(crate) enum Edge {
     Name(u32),
 }
 
+/// Where a decoded edge list sits in the arena: `(start, len)`.
+type Span = (u32, u32);
+
+/// The span of a list not decoded yet.
+const UNDECODED: Span = (0, u32::MAX);
+
 /// One section's decoded out-edges: per atom (empty until the
 /// section's first atom is expanded), and the whole section's.
-type SectEdges = (Vec<Option<Rc<[Edge]>>>, Option<Rc<[Edge]>>);
+type SectEdges = (Vec<Span>, Span);
 
 #[derive(Default)]
 pub(crate) struct EdgeIndex<'a> {
@@ -43,6 +49,8 @@ pub(crate) struct EdgeIndex<'a> {
     slots: HashMap<BytesKey<'a>, u32>,
     /// Per member slot, per section.
     members: Vec<Vec<SectEdges>>,
+    /// Every decoded list, one after another.
+    arena: Vec<Edge>,
     ids: HashMap<&'a str, u32>,
     names: Vec<&'a str>,
 }
@@ -53,14 +61,16 @@ impl<'a> EdgeIndex<'a> {
         let next = self.members.len() as u32;
         let slot = *self.slots.entry(BytesKey(member.data)).or_insert(next);
         if slot == next {
-            self.members.push(vec![(Vec::new(), None); r.sects.len()]);
+            self.members
+                .push(vec![(Vec::new(), UNDECODED); r.sects.len()]);
         }
         slot
     }
 
     /// The out-edges of `atom` of section `sect` (`None` = every reloc
-    /// of the section) of the member in `slot`, in reloc-table order.
-    /// `imports` are the member's imports, in nlist order.
+    /// of the section) of the member in `slot`, in reloc-table order,
+    /// as positions [`Self::edge`] reads. `imports` are the member's
+    /// imports, in nlist order.
     pub(crate) fn out_edges(
         &mut self,
         slot: u32,
@@ -69,15 +79,16 @@ impl<'a> EdgeIndex<'a> {
         imports: &[Import<'a>],
         sect: u8,
         atom: Option<u32>,
-    ) -> Result<Rc<[Edge]>, String> {
+    ) -> Result<Range<usize>, String> {
         let sa = r.sects.get(sect as usize - 1).ok_or("bad sect")?;
         let (atoms, whole) = &self.members[slot as usize][sect as usize - 1];
-        let cached = match atom {
-            Some(a) => atoms.get(a as usize).and_then(Option::as_ref),
-            None => whole.as_ref(),
+        let span = match atom {
+            Some(a) => atoms.get(a as usize).copied().unwrap_or(UNDECODED),
+            None => *whole,
         };
-        if let Some(list) = cached {
-            return Ok(list.clone());
+        if span != UNDECODED {
+            let start = span.0 as usize;
+            return Ok(start..start + span.1 as usize);
         }
         // r_address is section-relative; atom ranges are object-file
         // addresses.
@@ -88,10 +99,12 @@ impl<'a> EdgeIndex<'a> {
             }
             None => (0, sa.size),
         };
-        let mut list = Vec::new();
+        let start = self.arena.len();
         for e in self.relocs.in_range(member, sect, lo, hi)? {
             match decode_reloc(sect, e, member, r) {
-                Some(RelocTarget::Local { sect, atom }) => list.push(Edge::Local { sect, atom }),
+                Some(RelocTarget::Local { sect, atom }) => {
+                    self.arena.push(Edge::Local { sect, atom })
+                }
                 Some(RelocTarget::Undef(row, name)) => {
                     let sym = imports
                         .binary_search_by_key(&row, |i| i.row)
@@ -100,7 +113,7 @@ impl<'a> EdgeIndex<'a> {
                             ImportRef::Sym(s) => Some(s),
                             ImportRef::Foreign(_) => None,
                         });
-                    list.push(match sym {
+                    self.arena.push(match sym {
                         Some(s) => Edge::Sym(s),
                         None => {
                             let next = self.names.len() as u32;
@@ -115,21 +128,31 @@ impl<'a> EdgeIndex<'a> {
                 None => {}
             }
         }
-        let list: Rc<[Edge]> = list.into();
+        let end = self.arena.len();
+        let span = (span_u32(start)?, span_u32(end - start)?);
         let (atoms, whole) = &mut self.members[slot as usize][sect as usize - 1];
         match atom {
             Some(a) => {
-                atoms.resize(sa.atoms.len(), None);
-                atoms[a as usize] = Some(list.clone());
+                atoms.resize(sa.atoms.len(), UNDECODED);
+                atoms[a as usize] = span;
             }
-            None => *whole = Some(list.clone()),
+            None => *whole = span,
         }
-        Ok(list)
+        Ok(start..end)
+    }
+
+    /// The edge at position `k` of a list [`Self::out_edges`] gave.
+    pub(crate) fn edge(&self, k: usize) -> Edge {
+        self.arena[k]
     }
 
     pub(crate) fn name(&self, id: u32) -> &'a str {
         self.names[id as usize]
     }
+}
+
+fn span_u32(v: usize) -> Result<u32, String> {
+    u32::try_from(v).map_err(|_| "reach edge arena overflow".to_string())
 }
 
 /// One closure's answer per undefined-name id, filled on first ask.
