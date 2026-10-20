@@ -86,6 +86,10 @@ pub(crate) struct PreReserve {
     /// `LowerCtx::prime_body_binding_sets`, which already computes
     /// exactly this set for the capture-box decision.
     reassigned: std::collections::HashSet<String>,
+    /// The block that raises the RangeError of an append past the
+    /// longest array, shared by the guarded appends of one string walk
+    /// (`crate::ssa_lower_while_push_fast::walk`).
+    pub(crate) walk_raise: Option<BlockId>,
 }
 
 impl PreReserve {
@@ -95,6 +99,7 @@ impl PreReserve {
             fresh: std::collections::HashSet::new(),
             shadowed: params.iter().map(|p| p.name.clone()).collect(),
             reassigned: std::collections::HashSet::new(),
+            walk_raise: None,
         }
     }
 
@@ -165,7 +170,10 @@ impl PreReserve {
     }
 }
 
-use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Type, ValueId};
+mod guard;
+pub(crate) use guard::Guard;
+
+use crate::ssa::{BinOp as SsaBinOp, BlockId, IPred, InstKind, Operand, Type, ValueId};
 use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx, PreReserveState};
 use crate::ssa_lower_str_arr_inplace::emit_arr_lock_bits_guard;
 
@@ -258,9 +266,10 @@ impl LowerCtx<'_> {
         );
         PreReserveState {
             arr_ptr: reserved,
-            slot0,
+            slot0: Some(slot0),
             len_slot,
             defer_len,
+            guard: None,
         }
     }
 
@@ -277,6 +286,7 @@ impl LowerCtx<'_> {
                 if matches!(self.arr_layouts[a.0 as usize], Type::Inline(_))),
             "ssa-lower: a word stored into an inline array"
         );
+        let slot0 = st.slot0.expect("an unguarded fill loop holds slot[0]");
         let len_now = self.emit_prereserved_len(st);
         let len_x8 = self.f.append_inst(
             self.cur_block,
@@ -286,7 +296,7 @@ impl LowerCtx<'_> {
         );
         self.f.append_void(
             self.cur_block,
-            InstKind::StoreDyn(val, Operand::Value(st.slot0), Operand::Value(len_x8)),
+            InstKind::StoreDyn(val, Operand::Value(slot0), Operand::Value(len_x8)),
         );
         self.emit_prereserved_bump(st, len_now)
     }

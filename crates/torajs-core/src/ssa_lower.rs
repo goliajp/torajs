@@ -264,8 +264,9 @@ pub(crate) struct PreReserveState {
     /// `arr_reserve`, plus `head * 8` — and the StoreDyn base of every
     /// fast-path slot write. Loop-invariant: the reserve guarantees no
     /// grow (which would swap the buffer), and the pattern detector
-    /// excludes any body that could shift/unshift the array.
-    pub(crate) slot0: ValueId,
+    /// excludes any body that could shift/unshift the array. None on a
+    /// guarded loop, whose appends read it off the header.
+    pub(crate) slot0: Option<ValueId>,
     /// Local alloca'd i64 holding the running length. Initialized
     /// to the array's len at loop entry; bumped per push; written
     /// back to the array's len field at loop exit. mem2reg promotes
@@ -290,4 +291,8 @@ pub(crate) struct PreReserveState {
     /// of a push-dominated loop (measured: 10M `xs.push(i)` appends,
     /// +55%), which is why it is not simply always on.
     pub(crate) defer_len: bool,
+    /// Set by a lane that reserves nothing (the string walk): each
+    /// append then tests for room and grows on a cold edge, and reads
+    /// slot[0] off the header (`ssa_lower_arr_prereserve::guard`).
+    pub(crate) guard: Option<crate::ssa_lower_arr_prereserve::Guard>,
 }

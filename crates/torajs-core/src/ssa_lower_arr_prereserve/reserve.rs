@@ -92,29 +92,38 @@ impl LowerCtx<'_> {
 
     /// `long` raises "Invalid array length" (the length check of
     /// `__torajs_arr_set_length_validate`, handed a length one past the
-    /// largest) and leaves by the throw edge.
-    pub(crate) fn emit_too_long_guard(&mut self, long: Operand) {
-        let raise_blk = self.f.add_block();
+    /// largest) and leaves by the throw edge. The raising block is made
+    /// once into `raise` and shared by every guard handed the same one:
+    /// it never returns, so a guard only has to branch to it.
+    pub(crate) fn emit_too_long_guard(&mut self, long: Operand, raise: &mut Option<BlockId>) {
+        let at = self.cur_block;
+        let (raise_blk, fresh) = match *raise {
+            Some(b) => (b, false),
+            None => (self.f.add_block(), true),
+        };
         let cont_blk = self.f.add_block();
         self.f.set_term(
-            self.cur_block,
+            at,
             Terminator::CondBr {
                 cond: long,
                 then_blk: raise_blk,
                 else_blk: cont_blk,
             },
         );
-        self.cur_block = raise_blk;
-        let check = InstKind::Call(
-            self.intrinsics.arr_set_length_validate,
-            vec![
-                Operand::ConstI64(2),
-                Operand::ConstI64(ARRAY_LENGTH_MAX + 1),
-            ],
-        );
-        self.f.append_void(raise_blk, check);
-        // the validate always raises
-        self.emit_throw_now();
+        if fresh {
+            self.cur_block = raise_blk;
+            let check = InstKind::Call(
+                self.intrinsics.arr_set_length_validate,
+                vec![
+                    Operand::ConstI64(2),
+                    Operand::ConstI64(ARRAY_LENGTH_MAX + 1),
+                ],
+            );
+            self.f.append_void(raise_blk, check);
+            // the validate always raises
+            self.emit_throw_now();
+            *raise = Some(raise_blk);
+        }
         self.cur_block = cont_blk;
     }
 }

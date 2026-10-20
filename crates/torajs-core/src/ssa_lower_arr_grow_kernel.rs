@@ -10,7 +10,7 @@ use crate::ssa_lower::{ARR_CAP_HEAD_OFF, ARR_DATA_PTR_OFF, ARR_LEN_OFF, LowerCtx
 /// The out-of-line push an opened push falls back to: the same kernel
 /// under a name codegen leaves a call (it opens `__torajs_arr_push`
 /// itself, which would put a second fast path on the cold arm).
-const PUSH_COLD: &str = "__torajs_arr_push_cold";
+pub(crate) const PUSH_COLD: &str = "__torajs_arr_push_cold";
 
 /// The typed grow-kernel call (`arr_push` / `arr_unshift`) with its
 /// throw check and the value's stake settled on both edges.

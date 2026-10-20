@@ -26,7 +26,7 @@
 //! the inline array as they take a scalar one.
 
 use crate::ast::{Expr, ExprId};
-use crate::ssa::{BinOp, IPred, InstKind, Operand, StructId, Terminator, Type, ValueId};
+use crate::ssa::{BinOp, BlockId, IPred, InstKind, Operand, StructId, Terminator, Type, ValueId};
 use crate::ssa_lower::{ARR_CAP_HEAD_OFF, ARR_LEN_OFF, LowerCtx, PreReserveState};
 use crate::ssa_lower_checked_cast::{Admits, CastScope, CastSlot};
 use crate::ssa_lower_pass_0_5::value_class_census::FieldInit;
@@ -71,13 +71,7 @@ pub(crate) fn push(ctx: &mut LowerCtx<'_>, arr: Operand, arg: ExprId, sid: Struc
             .append_inst(cb, InstKind::Load(Type::I64, arr, off), Type::I64, None);
         Operand::Value(v)
     };
-    let packed = load(ctx, ARR_CAP_HEAD_OFF);
-    let cap = ctx.bin(
-        BinOp::And,
-        packed,
-        Operand::ConstI64(0xffff_ffff),
-        Type::I64,
-    );
+    let cap = load_cap(ctx, arr);
     let len = load(ctx, ARR_LEN_OFF);
     let len_next = ctx.bin(BinOp::Add, len, Operand::ConstI64(1), Type::I64);
     let cb = ctx.cur_block;
@@ -95,11 +89,50 @@ pub(crate) fn push(ctx: &mut LowerCtx<'_>, arr: Operand, arg: ExprId, sid: Struc
         },
     );
     ctx.cur_block = grow_blk;
+    emit_grow_to_fit(ctx, arr, need, cap, k, &mut None);
+    let cb = ctx.cur_block;
+    ctx.f.set_term(cb, Terminator::Br(fast_blk));
+    ctx.cur_block = fast_blk;
+    let addr = elem_addr(ctx, arr, len, sid, true);
+    store_fields(ctx, addr, &fields);
+    let cb = ctx.cur_block;
+    ctx.f
+        .append_void(cb, InstKind::Store(len_next, arr, ARR_LEN_OFF));
+    len_next
+}
+
+/// The capacity of `arr`'s buffer, in slots.
+fn load_cap(ctx: &mut LowerCtx<'_>, arr: Operand) -> Operand {
+    let cb = ctx.cur_block;
+    let packed = InstKind::Load(Type::I64, arr, ARR_CAP_HEAD_OFF);
+    let packed = Operand::Value(ctx.f.append_inst(cb, packed, Type::I64, None));
+    // the low half of the packed word; the deque head is the high half
+    ctx.bin(
+        BinOp::And,
+        packed,
+        Operand::ConstI64(0xffff_ffff),
+        Type::I64,
+    )
+}
+
+/// Grow `arr`, whose buffer holds `cap` slots of `k`-slot elements, to
+/// at least `need` slots: twice what it holds, since the runtime grows
+/// by exactly what it is asked, and never past the u32 slot count a
+/// capacity can hold; a `need` past that raises the RangeError of
+/// §10.4.2.4, from the block in `raise` (`emit_too_long_guard`).
+pub(crate) fn emit_grow_to_fit(
+    ctx: &mut LowerCtx<'_>,
+    arr: Operand,
+    need: Operand,
+    cap: Operand,
+    k: u64,
+    raise: &mut Option<BlockId>,
+) {
     // the capacity is a u32 count of slots, so an array of `k`-slot
     // elements holds at most `u32::MAX / k` of them
     let max = (u32::MAX as u64 / k * k) as i64;
     let over = ctx.cmp(IPred::Sgt, need, Operand::ConstI64(max));
-    ctx.emit_too_long_guard(over);
+    ctx.emit_too_long_guard(over, raise);
     let doubled = ctx.bin(BinOp::Add, need, cap, Type::I64);
     // min(doubled, max) by arithmetic: the lowering may not form a
     // select, which only the passes after the egraph introduce
@@ -111,14 +144,6 @@ pub(crate) fn push(ctx: &mut LowerCtx<'_>, arr: Operand, arg: ExprId, sid: Struc
     let arr_ty = ctx.operand_ty(&arr);
     let reserve = InstKind::Call(ctx.intrinsics.arr_reserve, vec![arr, target]);
     ctx.f.append_inst(cb, reserve, arr_ty, None);
-    ctx.f.set_term(cb, Terminator::Br(fast_blk));
-    ctx.cur_block = fast_blk;
-    let addr = elem_addr(ctx, arr, len, sid, true);
-    store_fields(ctx, addr, &fields);
-    let cb = ctx.cur_block;
-    ctx.f
-        .append_void(cb, InstKind::Store(len_next, arr, ARR_LEN_OFF));
-    len_next
 }
 
 /// The header bits that refuse an append (§10.1.8.1) or the length
@@ -156,7 +181,9 @@ fn assert_unlocked(ctx: &mut LowerCtx<'_>, arr: Operand) {
 }
 
 /// The append of a pre-reserved fill loop: the slot at the running
-/// length is known to fit. Answers the new length.
+/// length is known to fit, or, on a guarded loop, is made to fit on a
+/// cold edge first (`ssa_lower_arr_prereserve::guard`). Answers the
+/// new length.
 pub(crate) fn push_prereserved(
     ctx: &mut LowerCtx<'_>,
     st: PreReserveState,
@@ -164,14 +191,63 @@ pub(crate) fn push_prereserved(
     sid: StructId,
 ) -> ValueId {
     let fields = field_values(ctx, arg, sid);
-    let len_now = ctx.emit_prereserved_len(st);
     let stride = elem_stride(ctx.struct_layouts, Type::Inline(sid));
+    let (len_now, slot0) = match (st.guard, st.slot0) {
+        (None, Some(slot0)) => (ctx.emit_prereserved_len(st), Operand::Value(slot0)),
+        (Some(g), _) => {
+            let (len, fast_blk) = ctx.emit_room_test(st, g);
+            make_room(ctx, st, len, stride / 8, fast_blk);
+            ctx.cur_block = fast_blk;
+            (len, ctx.emit_slot0(st.arr_ptr, g))
+        }
+        (None, None) => unreachable!("an unguarded fill loop holds slot[0]"),
+    };
     let cb = ctx.cur_block;
     let off = emit_scaled_index(ctx.f, cb, Operand::Value(len_now), stride);
-    let slot0 = Operand::Value(st.slot0);
     let addr = emit_elem_addr(ctx.f, cb, slot0, Operand::Value(off), sid);
     store_fields(ctx, addr, &fields);
     ctx.emit_prereserved_bump(st, len_now)
+}
+
+/// The cold edge of a guarded append of a `k`-slot element at `len`:
+/// grow the buffer when the slot is not there, then go on to
+/// `fast_blk`. The budget may be behind a grow made earlier in the
+/// loop, so the buffer's own capacity decides.
+fn make_room(ctx: &mut LowerCtx<'_>, st: PreReserveState, len: ValueId, k: u64, fast_blk: BlockId) {
+    let arr = Operand::Value(st.arr_ptr);
+    if cfg!(debug_assertions) || crate::ssa_lower_pass_2_5::value_class_check::strict() {
+        assert_unlocked(ctx, arr);
+    }
+    // no head: the census keeps a class whose arrays' head may move
+    // from being held in place
+    let cap = load_cap(ctx, arr);
+    let next = ctx.bin(
+        BinOp::Add,
+        Operand::Value(len),
+        Operand::ConstI64(1),
+        Type::I64,
+    );
+    let cb = ctx.cur_block;
+    let need = Operand::Value(emit_scaled_index(ctx.f, cb, next, k));
+    let full = ctx.cmp(IPred::Ult, cap, need);
+    let grow_blk = ctx.f.add_block();
+    let cb = ctx.cur_block;
+    ctx.f.set_term(
+        cb,
+        Terminator::CondBr {
+            cond: full,
+            then_blk: grow_blk,
+            else_blk: fast_blk,
+        },
+    );
+    ctx.cur_block = grow_blk;
+    // the grow may raise
+    ctx.emit_settle_len(st, len);
+    let mut raise = ctx.prereserve.walk_raise.take();
+    emit_grow_to_fit(ctx, arr, need, cap, k, &mut raise);
+    ctx.prereserve.walk_raise = raise;
+    let cb = ctx.cur_block;
+    ctx.f.set_term(cb, Terminator::Br(fast_blk));
 }
 
 fn store_fields(ctx: &mut LowerCtx<'_>, addr: ValueId, fields: &[Operand]) {

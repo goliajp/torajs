@@ -34,6 +34,8 @@ use crate::ssa::{InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::LowerCtx;
 use crate::ssa_lower_push_loop_detect::detect_push_loop_arrays_while;
 
+pub(crate) mod walk;
+
 /// 12-c-1 — `while` lowering, with an optional pre-reserve fast-push
 /// install. When `counter_name_opt` is `Some(counter)`, the caller has
 /// proven that `counter` is statically 0 at while entry (immediately-
@@ -62,6 +64,14 @@ pub(crate) fn lower_while_inner(
      * counter name (= prev stmt was `let counter = 0`). The detector
      * either returns matched (bound_eid, names) or None; on None we
      * fall through to the plain while-lower below. */
+    // a loop that is not a bare fill may still size its appends by a
+    // string it walks
+    if let Some(counter) = counter_name_opt
+        && detect_push_loop_arrays_while(ctx.ast, counter, cond, body).is_none()
+        && walk::try_lower(ctx, counter, cond, body)
+    {
+        return;
+    }
     let mut reserve_emitted: Vec<String> = Vec::new();
     let mut slow = None;
     if let Some(counter_name) = counter_name_opt

@@ -149,7 +149,10 @@ fn try_lower_ident_local(
             return Some(Operand::Value(n));
         }
         let (val, val_owned_from_substr) = coerce_push_value(ctx, args[0], elem_ty);
-        let len_next = ctx.emit_prereserved_push(state, val);
+        let len_next = match state.guard {
+            None => ctx.emit_prereserved_push(state, val),
+            Some(g) => ctx.emit_guarded_push(state, g, val, args[0]),
+        };
         crate::ssa_lower_arr_grow_kernel::take_pushed_stake(
             ctx,
             args[0],
