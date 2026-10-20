@@ -41,6 +41,37 @@ pub(super) fn lower_object_await(ctx: &mut LowerCtx<'_>, boxed: Operand) -> Oper
     Operand::Value(v)
 }
 
+/// `await e` outside a frame typed as `e`'s own type: a primitive, or
+/// an object by a closed `then` proof (`check::awaited`). A primitive
+/// answers itself; an object settles through PromiseResolve like the
+/// `any` lane above (a promise cell under a type that lies is adopted)
+/// and its value is taken back as the object type. A function pointer
+/// is no cell and no promise: the jobs run, and it answers itself.
+pub(super) fn lower_typed_await(
+    ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
+    obj: ExprId,
+    op: Operand,
+) -> Operand {
+    let ty = ctx.operand_ty(&op);
+    let lane = match ty {
+        Type::FnSig(_) => {
+            let cb = ctx.cur_block;
+            ctx.f
+                .append_void(cb, InstKind::Call(ctx.intrinsics.microtask_drain, vec![]));
+            return op;
+        }
+        Type::Inline(sid) => Type::Obj(sid),
+        t if crate::ssa_lower_fn::suspend::is_object_cell(t) => t,
+        _ => return op,
+    };
+    let borrowed = !ctx.expr_transfers_ownership(obj);
+    let boxed = ctx.box_owned_from_expr(obj, op, borrowed);
+    ctx.owned_member_reads.insert(eid);
+    let v = lower_object_await(ctx, boxed);
+    crate::ssa_lower_fn::suspend::cell_of(ctx, v, lane)
+}
+
 pub(super) fn try_p10_4_primitive_identity(ctx: &mut LowerCtx<'_>, obj: ExprId) -> Option<Operand> {
     if !matches!(
         ctx.expr_types.get(&obj),

@@ -92,6 +92,7 @@ impl Checker {
         let seed = std::mem::take(&mut self.proto_shadow);
         self.proto_shadow = crate::builtin_proto_shadow::collect_shadowed_builtin_methods(ast);
         self.proto_shadow.carry_exec_written(&seed);
+        self.proto_shadow.carry_then_seed(&seed);
         self.declared_privates = crate::check_private_name::declared_private_names(ast);
         crate::iface_witness::install(ast);
         // RFC 20260804-mutable-let-widen — cross-family reassigned

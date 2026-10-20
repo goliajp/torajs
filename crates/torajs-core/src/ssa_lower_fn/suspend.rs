@@ -11,6 +11,13 @@
 //!   cell, and its value is read in the inner lane like the draining
 //!   read does (`ssa_lower_member_promise_value`), a rejection raising
 //!   through the read;
+//! - an object the await is typed as (`check::awaited`: its type has
+//!   no `then` and the program is proven to give no object one): a
+//!   promise cell under a type that lies (an inferred slot that took
+//!   an `any`) is awaited as the cell and read in the object's lane,
+//!   any other value
+//!   is kept across a direct suspension one job long, the cell's tag
+//!   telling the two apart (`object`);
 //! - `any`, or any other object (a function included): PromiseResolve
 //!   through the any-lane kernel (a native cell answers itself, an
 //!   object whose `then` is callable gets its job, anything else a
@@ -31,6 +38,10 @@ use crate::ssa::{InstKind, Operand, SuspendKind, SuspendLane, Type};
 use crate::ssa_lower::LowerCtx;
 use crate::ssa_lower_member_promise_value as pv;
 use crate::ssa_lower_temp_scratch::ThrowTemp;
+
+mod object;
+
+pub(crate) use object::{cell_of, is_object_cell};
 
 /// The suspension releases the cell it awaited, so an operand that does
 /// not hand over a reference of its own (a promise a binding, a field
@@ -61,6 +72,7 @@ pub(crate) fn lower_await(ctx: &mut LowerCtx<'_>, eid: ExprId, obj: ExprId) -> O
             await_any(ctx, op)
         }
         ty if is_primitive(ty) => await_direct(ctx, eid, obj, op, ty),
+        ty if !awaits_any(ctx, eid) => object::await_object(ctx, eid, obj, op, ty),
         // an object: its `then` is looked up when it settles
         _ => {
             let borrowed = !hands_over(ctx, obj);
@@ -120,16 +132,18 @@ fn awaits_any(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
 /// PromiseResolve of the owned `any` box `op` through the any-lane
 /// kernel, then the cell's await in the `any` lane.
 fn await_any(ctx: &mut LowerCtx<'_>, op: Operand) -> Operand {
+    await_any_in(ctx, op, Type::Any)
+}
+
+/// PromiseResolve of the owned `any` box `op`, then the cell's await
+/// read in the `lane` its await is typed as.
+fn await_any_in(ctx: &mut LowerCtx<'_>, op: Operand, lane: Type) -> Operand {
     let cb = ctx.cur_block;
-    let cell = ctx.f.append_inst(
-        cb,
-        InstKind::Call(ctx.intrinsics.promise_resolve_any, vec![op]),
-        Type::Promise,
-        None,
-    );
+    let call = InstKind::Call(ctx.intrinsics.promise_resolve_any, vec![op]);
+    let cell = ctx.f.append_inst(cb, call, Type::Promise, None);
     // the thenable's `then` read may raise
     ctx.emit_throw_check(None);
-    await_cell(ctx, Operand::Value(cell), Some(Type::Any))
+    await_cell(ctx, Operand::Value(cell), Some(lane))
 }
 
 /// Await the owned cell `src`, then read its settled value in the
@@ -181,10 +195,16 @@ fn await_direct(
     op: Operand,
     ty: Type,
 ) -> Operand {
-    let owned = !ty.is_copy();
-    if owned && !hands_over(ctx, obj) {
+    if !ty.is_copy() && !hands_over(ctx, obj) {
         ctx.emit_owned_result_inc(op, ty);
     }
+    suspend_direct(ctx, eid, op, ty)
+}
+
+/// The direct suspension over the operand `op`, owned when its type
+/// holds a reference; the await answers it.
+fn suspend_direct(ctx: &mut LowerCtx<'_>, eid: ExprId, op: Operand, ty: Type) -> Operand {
+    let owned = !ty.is_copy();
     let held = held(ctx, owned.then_some((op, ty)));
     let cb = ctx.cur_block;
     let kind = InstKind::Suspend(SuspendKind::Await, SuspendLane::Direct, op, held);

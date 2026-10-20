@@ -67,7 +67,7 @@ mod detect;
 mod object_await;
 
 pub(crate) use detect::detect_obj_is_builtin_promise;
-use object_await::{lower_object_await, try_p10_4_primitive_identity};
+use object_await::{lower_object_await, lower_typed_await, try_p10_4_primitive_identity};
 
 pub(crate) fn try_lower(
     ctx: &mut LowerCtx<'_>,
@@ -112,7 +112,7 @@ pub(crate) fn try_lower(
             ctx.owned_member_reads.insert(eid);
             return Some(lower_object_await(ctx, boxed));
         }
-        return Some(op);
+        return Some(lower_typed_await(ctx, eid, obj, op));
     }
     try_p10_4_primitive_identity(ctx, obj)
 }

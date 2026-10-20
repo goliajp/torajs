@@ -4,13 +4,19 @@
 //! thenable (it adopts one instead), unless that type declares a
 //! `then`, whose settlement no type tells. A primitive answers
 //! itself (§27.2.1.3.2 step 8: a resolution that is not an Object
-//! fulfills). Any other object answers `any`: whether it is a
-//! thenable is decided by a `then` it may carry at run time (an
-//! expando property, a subclass method), and what that `then`
-//! settles with has no type.
+//! fulfills). An object whose type and class hierarchy have no `then`
+//! answers itself when the program is proven to give no object a
+//! `then` its type does not show (`ShadowSet::then_closed`): it is
+//! then a thenable only as a promise cell under a type that lies (an
+//! `as` cast of an `any`), which the lowering tells by the cell's tag.
+//! Any other object answers `any`: whether it is a thenable is decided
+//! by a `then` it may carry at run time (an expando property, a
+//! subclass method), and what that `then` settles with has no type.
+
+use std::collections::HashMap;
 
 use super::{Checker, Type};
-use crate::ast::Ast;
+use crate::ast::{Ast, Expr, ExprId};
 
 impl Checker {
     pub(super) fn awaited(&self, ast: &Ast, operand: Type) -> Type {
@@ -19,9 +25,48 @@ impl Checker {
             Type::Promise(inner) if may_be_thenable(&inner, ast, &has_fn) => Type::Any,
             Type::Promise(inner) => *inner,
             t if settles_as_itself(&t) => t,
+            t if settles_as_object(&t)
+                && !may_be_thenable(&t, ast, &has_fn)
+                && self.proto_shadow.then_closed(ast) =>
+            {
+                t
+            }
             _ => Type::Any,
         }
     }
+}
+
+/// The object types an await may answer as themselves: each lowers to
+/// a value whose header tells a promise cell apart, or to a function.
+pub(crate) fn settles_as_object(ty: &Type) -> bool {
+    matches!(
+        ty,
+        Type::Struct(_)
+            | Type::ClassRef(_)
+            | Type::Array(_)
+            | Type::Map(..)
+            | Type::Set
+            | Type::WeakMap
+            | Type::WeakSet
+            | Type::WeakRef
+            | Type::MapIter(_)
+            | Type::ArrIter
+            | Type::RegExp
+            | Type::Date
+            | Type::Function(..)
+    )
+}
+
+/// Did a run that answered `types` type some await of an object as
+/// itself (`Checker::awaited`, by a closed `then` proof)?
+pub(crate) fn typed_object_await(ast: &Ast, types: &HashMap<ExprId, Type>) -> bool {
+    ast.await_value_reads.iter().any(|eid| {
+        let Expr::Member { obj, .. } = ast.get_expr(*eid) else {
+            return false;
+        };
+        types.get(obj).is_some_and(settles_as_object)
+            && types.get(eid).is_some_and(settles_as_object)
+    })
 }
 
 /// The types no object value comes in.

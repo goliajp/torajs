@@ -65,10 +65,12 @@ use crate::ssa::id_hash::HashSet;
 mod exec_writes;
 mod hooks;
 mod scan;
+mod then_closed;
 mod typed_exec;
 
 pub(crate) use hooks::arr_to_string_shadowed;
 pub(crate) use scan::collect_shadowed_builtin_methods;
+pub(crate) use then_closed::then_opening;
 
 /// Constructors whose `.prototype` carries methods the typed tier
 /// lowers directly. An identifier outside this list is a user class or
@@ -140,6 +142,8 @@ pub(crate) struct ShadowSet {
     /// counts too: it can give a RegExp a prototype other than
     /// %RegExp.prototype%.
     exec_written: bool,
+    /// The `then` closure proof's run-to-run state (`then_closed`).
+    then: then_closed::ThenClosure,
 }
 
 impl ShadowSet {

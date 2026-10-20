@@ -90,11 +90,15 @@ fn fixpoint_with(
         // stands the typed String regex calls down, which only the
         // run's types can tell from an array store
         let exec = c.proto_shadow.needs_typed_exec_run(ast, &c.expr_types);
+        // an await of an object typed by a `then` closure proof that a
+        // computed key of this run's types does not clear
+        let then = c.proto_shadow.needs_typed_then_run(ast, &c.expr_types);
         let kept = &c.narrows.capture_wanted;
         if found.is_subset(&c.cross_type_widened)
             && !retypes
             && !c.face_slot_reads.stale
             && !exec
+            && !then
             && kept.is_empty()
         {
             // no read answers otherwise under the grown set: a run
@@ -114,6 +118,9 @@ fn fixpoint_with(
         let mut shadow = std::mem::take(&mut c.proto_shadow);
         if exec {
             shadow.seed_exec_written();
+        }
+        if then {
+            shadow.seed_then_open();
         }
         c = Checker::new();
         c.proto_shadow = shadow;
