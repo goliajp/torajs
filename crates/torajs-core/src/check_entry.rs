@@ -135,31 +135,7 @@ fn check_round(
         }
         Vec::new()
     };
-    // A `with` fall-through read is not a diagnostic: see
-    // `Ast::with_fallthrough_idents`. The entry stays in
-    // `undeclared_reads` so lowering still emits the ReferenceError
-    // path for the case where the object does not carry the name.
-    let mut undeclared: Vec<&String> = c
-        .undeclared_reads
-        .iter()
-        .filter(|(eid, _)| !ast.with_fallthrough_idents.contains(eid))
-        .map(|(_, n)| n)
-        .collect();
-    undeclared.sort();
-    undeclared.dedup();
-    let mut warnings: Vec<String> = undeclared
-        .into_iter()
-        .map(|n| format!("unknown identifier `{n}`"))
-        .collect();
-    warnings.extend(
-        c.errors
-            .iter()
-            .filter(|d| d.severity == Severity::Warning)
-            .map(|d| d.message.clone()),
-    );
-    // 闸开时把降级掉的诊断带出来,否则一次 admit 过的编译与一次本来就
-    // 干净的编译在调用方看来一模一样 —— 探针要分得清这两者。
-    warnings.extend(admitted.into_iter().map(|m| format!("[s0-admit] {m}")));
+    let warnings = round_warnings(&c, ast, admitted);
     let before_mono = c.errors.len();
     let mut mono = crate::check_monomorph::monomorphize_and_check(&mut c, ast);
     // the census over the mono program sees the specializations' writes,
@@ -211,6 +187,37 @@ fn check_round(
         warnings,
         census,
     ))
+}
+
+/// The warnings of a round: one per undeclared name read, the checker's
+/// warning diagnostics, and the errors the S0 gate `admitted`.
+fn round_warnings(c: &crate::check::Checker, ast: &Ast, admitted: Vec<String>) -> Vec<String> {
+    // A `with` fall-through read is not a diagnostic: see
+    // `Ast::with_fallthrough_idents`. The entry stays in
+    // `undeclared_reads` so lowering still emits the ReferenceError
+    // path for the case where the object does not carry the name.
+    let mut undeclared: Vec<&String> = c
+        .undeclared_reads
+        .iter()
+        .filter(|(eid, _)| !ast.with_fallthrough_idents.contains(eid))
+        .map(|(_, n)| n)
+        .collect();
+    undeclared.sort();
+    undeclared.dedup();
+    let mut warnings: Vec<String> = undeclared
+        .into_iter()
+        .map(|n| format!("unknown identifier `{n}`"))
+        .collect();
+    warnings.extend(
+        c.errors
+            .iter()
+            .filter(|d| d.severity == Severity::Warning)
+            .map(|d| d.message.clone()),
+    );
+    // 闸开时把降级掉的诊断带出来,否则一次 admit 过的编译与一次本来就
+    // 干净的编译在调用方看来一模一样 —— 探针要分得清这两者。
+    warnings.extend(admitted.into_iter().map(|m| format!("[s0-admit] {m}")));
+    warnings
 }
 
 /// v0.3 #5 LSP — string-typed errors-only collector kept for back-

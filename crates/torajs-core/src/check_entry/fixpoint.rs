@@ -7,6 +7,7 @@ use std::collections::HashSet;
 use super::shadowed_reads::ShadowedReads;
 use crate::ast::named_prop_census::shadow_names::ShadowedNames;
 use crate::ast::{Ast, ExprId};
+use crate::builtin_proto_shadow::ShadowSet;
 use crate::check::{Checker, Severity};
 
 /// The full pipeline to its fixpoint ([`fixpoint_with`]).
@@ -76,10 +77,12 @@ fn fixpoint_with(
     hidden: &HashSet<ExprId>,
     shadowed: &ShadowedNames,
 ) -> Checker {
-    let mut c = Checker::new();
-    c.widen_ret_declared = widen_ret_declared;
-    c.hidden_any_args = hidden.clone();
-    c.shadowed_reads = ShadowedReads::seeded(shadowed.clone());
+    let mut c = fresh(
+        widen_ret_declared,
+        hidden,
+        shadowed.clone(),
+        ShadowSet::default(),
+    );
     c.run_full_pipeline(ast);
     let program = Default::default();
     loop {
@@ -122,16 +125,29 @@ fn fixpoint_with(
         if then {
             shadow.seed_then_open();
         }
-        c = Checker::new();
-        c.proto_shadow = shadow;
-        c.widen_ret_declared = widen_ret_declared;
-        c.hidden_any_args = hidden.clone();
+        c = fresh(widen_ret_declared, hidden, reads, shadow);
         c.cross_type_widened = seed;
-        c.shadowed_reads = ShadowedReads::seeded(reads);
         c.face_slots = face_slots;
         c.face_mismatch_lets = lets;
         c.face_mismatch_params = params;
         c.narrows.capture_kept = kept;
         c.run_full_pipeline(ast);
     }
+}
+
+/// A checker for one run of [`fixpoint_with`]: the members `reads`
+/// names read as written values of another kind, and the prototype
+/// shadow state `shadow` carried from the run before.
+fn fresh(
+    widen_ret_declared: bool,
+    hidden: &HashSet<ExprId>,
+    reads: ShadowedNames,
+    shadow: ShadowSet,
+) -> Checker {
+    let mut c = Checker::new();
+    c.proto_shadow = shadow;
+    c.widen_ret_declared = widen_ret_declared;
+    c.hidden_any_args = hidden.clone();
+    c.shadowed_reads = ShadowedReads::seeded(reads);
+    c
 }
