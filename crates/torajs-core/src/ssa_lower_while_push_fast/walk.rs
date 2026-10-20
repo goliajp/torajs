@@ -27,11 +27,14 @@
 //! inside an inner loop), the walk reserves that first, enough for
 //! every append of a loop that steps its counter by one. A cell that
 //! the array pool hands back keeps its buffer, so a walk that runs
-//! again on an array of the same size reserves nothing. The reserve is
-//! eager: up to `8 * k` bytes a character for a word-sized element, 16
-//! for a two-field instance held in place; a count past what a u32
-//! capacity holds reserves nothing. The cold edge raises the RangeError
-//! of §10.4.2.4 at the append that would take the length past that.
+//! again on an array of the same size reserves nothing. The forecast is
+//! an upper bound (`8 * k` bytes a character for a word-sized element,
+//! 16 for a two-field instance held in place) that a sparse walk, one
+//! that appends at a few characters of a long text, never fills, so it
+//! stops at `RESERVE_MAX` elements; a walk that outgrows that grows on
+//! the cold edges, by doubling. A count past what a u32 capacity holds
+//! reserves nothing. The cold edge raises the RangeError of §10.4.2.4
+//! at the append that would take the length past that.
 //!
 //! The appends hold the array's length word back until the loop ends,
 //! and keep the running length in a register. Both hold only while
@@ -99,8 +102,15 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx<'_>, counter: &str, cond: ExprId, bod
     true
 }
 
+/// The most elements a walk reserves in front of the loop: 32 MiB of
+/// word-sized elements.
+const RESERVE_MAX: i64 = 1 << 22;
+
 /// Reserve room for `per_trip` more `k`-slot elements a character of
-/// the string in the local `src`, when the buffer of `cell` holds less.
+/// the string in the local `src`, when the buffer of `cell` holds less,
+/// and for no more than `RESERVE_MAX` of them. The test against the
+/// buffer takes the whole forecast, so a buffer that holds it costs no
+/// more than the test; the cap is applied on the edge that reserves.
 /// The string is read raw, with no nullish test of its own: a nullish
 /// one raises in the loop's own test, which comes after, and the
 /// `undefined` cells are strings whose length word reads 9.
@@ -134,7 +144,7 @@ fn reserve_forecast(
         .append_inst(read_blk, InstKind::Load(Type::I32, s, 8), Type::I32, None);
     let len = InstKind::ZExtI32ToI64(Operand::Value(len));
     let len = Operand::Value(ctx.f.append_inst(read_blk, len, Type::I64, None));
-    let target = reserve_target(ctx, cell, len, per_trip, k, headless);
+    let target = reserve_target(ctx, cell, len, per_trip, k, headless, Past::All);
     let cb = ctx.cur_block;
     let packed = InstKind::Load(Type::I64, Operand::Value(cell), ARR_CAP_HEAD_OFF);
     let packed = Operand::Value(ctx.f.append_inst(cb, packed, Type::I64, None));
@@ -154,21 +164,40 @@ fn reserve_forecast(
             else_blk: join_blk,
         },
     );
+    ctx.cur_block = grow_blk;
+    // min(len, RESERVE_MAX / per_trip) by arithmetic: the lowering may
+    // not form a select
+    let most = Operand::ConstI64(RESERVE_MAX / per_trip);
+    let room = ctx.bin(BinOp::Sub, most, len, Type::I64);
+    let sign = ctx.bin(BinOp::AShr, room, Operand::ConstI64(63), Type::I64);
+    let over = ctx.bin(BinOp::And, room, sign, Type::I64);
+    let len = ctx.bin(BinOp::Add, len, over, Type::I64);
+    let target = reserve_target(ctx, cell, len, per_trip, k, headless, Past::None);
     let ty = ctx.f.value_type(cell);
     let reserve = InstKind::Call(
         ctx.intrinsics.arr_reserve,
         vec![Operand::Value(cell), target],
     );
-    ctx.f.append_inst(grow_blk, reserve, ty, None);
-    ctx.f.set_term(grow_blk, Terminator::Br(join_blk));
+    let cb = ctx.cur_block;
+    ctx.f.append_inst(cb, reserve, ty, None);
+    ctx.f.set_term(cb, Terminator::Br(join_blk));
     ctx.cur_block = join_blk;
+}
+
+/// What [`reserve_target`] answers for a count past what a u32
+/// capacity holds.
+enum Past {
+    /// all ones, which every capacity is below
+    All,
+    /// 0, which reserves nothing
+    None,
 }
 
 /// The slots, counted from the buffer's start, that `bound` trips of
 /// `per_trip` appends of `k`-slot elements need on top of the elements
 /// already there and the deque head in front of them, unless the head
-/// is known to be 0; 0 (reserve nothing) when that is past what a u32
-/// capacity holds.
+/// is known to be 0; `past` says what it is when that is past what a
+/// u32 capacity holds.
 fn reserve_target(
     ctx: &mut LowerCtx<'_>,
     arr: ValueId,
@@ -176,6 +205,7 @@ fn reserve_target(
     per_trip: i64,
     k: u64,
     headless: bool,
+    past: Past,
 ) -> Operand {
     let a = Operand::Value(arr);
     let cb = ctx.cur_block;
@@ -198,13 +228,18 @@ fn reserve_target(
             ctx.bin(BinOp::Add, slots, head, Type::I64)
         }
     };
-    // all ones when the count fits, else 0, by arithmetic: the
+    // all ones when the count is past, else 0, by arithmetic: the
     // lowering may not form a select
     let max = Operand::ConstI64(i64::from(u32::MAX));
     let room = ctx.bin(BinOp::Sub, max, slots, Type::I64);
-    let past = ctx.bin(BinOp::AShr, room, Operand::ConstI64(63), Type::I64);
-    let fits = ctx.bin(BinOp::Xor, past, Operand::ConstI64(-1), Type::I64);
-    ctx.bin(BinOp::And, slots, fits, Type::I64)
+    let over = ctx.bin(BinOp::AShr, room, Operand::ConstI64(63), Type::I64);
+    match past {
+        Past::All => ctx.bin(BinOp::Or, slots, over, Type::I64),
+        Past::None => {
+            let fits = ctx.bin(BinOp::Xor, over, Operand::ConstI64(-1), Type::I64);
+            ctx.bin(BinOp::And, slots, fits, Type::I64)
+        }
+    }
 }
 
 /// What a body that qualifies is made of.
