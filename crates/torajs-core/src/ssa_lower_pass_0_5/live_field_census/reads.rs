@@ -7,7 +7,7 @@ use crate::ssa::id_hash::{HashMap, HashSet};
 
 use super::judge::{State, Visit, Visiting};
 use super::scope::{Binder, Owner};
-use super::walk::factory_class;
+use super::walk::{Few, factory_class};
 use super::{Entry, ExprMask, THIS};
 
 impl<'a, 'b> State<'a, 'b> {
@@ -41,8 +41,7 @@ impl<'a, 'b> State<'a, 'b> {
             });
         prefix_ok
             && self.c.member_writes.get(field).is_none_or(|ws| {
-                ws.iter()
-                    .all(|v| self.value_live(*v, &mut self.scratch.borrow_mut()))
+                (ws.as_slice().iter()).all(|v| self.value_live(*v, &mut self.scratch.borrow_mut()))
             })
     }
 
@@ -122,7 +121,7 @@ impl<'a, 'b> State<'a, 'b> {
             return false;
         }
         // a function no direct call enters is entered out of sight
-        let Some(sites) = self.c.calls.args.get(f) else {
+        let Some(sites) = self.c.calls.args.get(f).map(Few::as_slice) else {
             return false;
         };
         let visiting = &mut self.scratch.borrow_mut();
@@ -149,7 +148,7 @@ impl<'a, 'b> State<'a, 'b> {
             return false;
         }
         let (params, lets) = (&reach.params, &reach.lets);
-        let writes = c.assign_values.get(n).map_or(&[][..], Vec::as_slice);
+        let writes = c.assign_values.get(n).map_or(&[][..], Few::as_slice);
         if params.is_empty() && lets.is_empty() {
             // a function declaration's name is its function object
             return (c.fns.contains_key(n) || reach.split) && !c.assigned.contains(n);

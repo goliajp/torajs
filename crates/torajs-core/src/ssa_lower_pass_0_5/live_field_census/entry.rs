@@ -27,6 +27,7 @@ use crate::ast::{Ast, BinOp, Expr, ExprId, Param, Stmt};
 
 use super::Census;
 use super::bindings::holds_nullish_in_band;
+use super::walk::Few;
 
 enum First {
     /// A member or element read of the binding comes first.
@@ -61,7 +62,7 @@ impl<'a> Census<'a> {
             let p = &params[i];
             // the lowering tests the argument of a fixed-argc call only,
             // and only one whose slot spells a nullish value in band
-            let sites = self.calls.args.get(f).map_or(&[][..], Vec::as_slice);
+            let sites = self.calls.args.get(f).map_or(&[][..], Few::as_slice);
             let fixed = !sites.is_empty()
                 && sites.iter().all(|args| {
                     args.len() > i

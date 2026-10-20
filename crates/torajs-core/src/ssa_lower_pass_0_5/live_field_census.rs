@@ -74,6 +74,7 @@ use crate::num_width::WidthTable;
 use crate::ssa::id_hash::{HashMap, HashSet};
 
 use super::arr_head_census::ExprMask;
+use walk::Few;
 
 /// `(class, field)` pairs whose reads never see the undefined cell.
 pub(crate) type LiveFields = HashSet<(String, String)>;
@@ -141,7 +142,7 @@ struct Census<'a> {
     ctors: Vec<Ctor<'a>>,
     fns: HashMap<&'a str, (&'a [Param], &'a [Stmt])>,
     /// Every `let` / `const` initialiser, by name.
-    let_inits: HashMap<&'a str, Vec<ExprId>>,
+    let_inits: HashMap<&'a str, Few<ExprId>>,
     /// Names bound other than by `let` / `const` or a judged parameter
     /// (other params, loop variables, catch params): a read of one
     /// cannot be judged.
@@ -149,10 +150,10 @@ struct Census<'a> {
     /// The constructor parameters a name is bound by, as `(class,
     /// user parameter index)`: a read of one is judged by the class's
     /// construction sites.
-    ctor_params: HashMap<&'a str, Vec<(&'a str, usize)>>,
+    ctor_params: HashMap<&'a str, Few<(&'a str, usize)>>,
     /// The same for parameters of declared functions judged by their
     /// call sites (`bindings::judged_fn`), as `(function, index)`.
-    fn_params: HashMap<&'a str, Vec<(&'a str, usize)>>,
+    fn_params: HashMap<&'a str, Few<(&'a str, usize)>>,
     calls: bindings::Calls<'a>,
     scopes: scope::Scopes<'a>,
     /// Every read of a binding and every call whose value slot spells a
@@ -166,9 +167,9 @@ struct Census<'a> {
     /// function.
     assigned: HashSet<&'a str>,
     /// The values `n = v` stores, by name.
-    assign_values: HashMap<&'a str, Vec<ExprId>>,
+    assign_values: HashMap<&'a str, Few<ExprId>>,
     /// Every `x.f = v` outside the constructor prefixes, by field.
-    member_writes: HashMap<&'a str, Vec<ExprId>>,
+    member_writes: HashMap<&'a str, Few<ExprId>>,
     /// Field names some `delete x.f` names.
     deleted: HashSet<&'a str>,
     /// Field names written through a receiver not typed as a class.
@@ -179,8 +180,9 @@ struct Census<'a> {
     /// instance under construction.
     ctor_exprs: ExprMask,
     prefix: Vec<PrefixWrite<'a>>,
-    /// `new C(..)` and `super(..)` argument lists, by class.
-    construct_args: HashMap<&'a str, Vec<&'a [ExprId]>>,
+    /// `new C(..)` and `super(..)` argument lists, by class: `super(..)`
+    /// inside a derived constructor constructs the parent.
+    construct_args: HashMap<&'a str, Few<&'a [ExprId]>>,
     /// Factory seed literals and the fields of each that the
     /// constructor prefix overwrites unread.
     unread_seeds: HashMap<ExprId, HashSet<&'a str>>,

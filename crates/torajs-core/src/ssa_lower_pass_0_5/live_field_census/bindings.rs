@@ -27,13 +27,13 @@ use crate::ssa_lower_nullable_guard::spells_undef_with_generic_cell;
 use crate::ssa_lower_pass_0_5::arr_head_census::ExprMask;
 
 use super::Live;
-use super::walk::NameFilter;
+use super::walk::{Few, NameFilter};
 
 /// Direct call sites and value uses of declared functions.
 #[derive(Default)]
 pub(super) struct Calls<'a> {
     /// `f(..)` argument lists, by callee name.
-    pub(super) args: HashMap<&'a str, Vec<&'a [ExprId]>>,
+    pub(super) args: HashMap<&'a str, Few<&'a [ExprId]>>,
     /// Names some expression uses other than as a direct callee.
     pub(super) value_used: HashSet<&'a str>,
     /// A name of the program can be rebound by something the census

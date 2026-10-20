@@ -83,7 +83,10 @@ impl<'a> Census<'a> {
             };
             // one binder of the name in the whole program, never written
             let n = n.as_str();
-            let alone = self.let_inits.get(n).is_some_and(|v| v.len() == 1)
+            let alone = self
+                .let_inits
+                .get(n)
+                .is_some_and(|v| v.as_slice().len() == 1)
                 && !self.assigned.contains(n)
                 && !self.bound.contains(n)
                 && !self.ctor_params.contains_key(n)

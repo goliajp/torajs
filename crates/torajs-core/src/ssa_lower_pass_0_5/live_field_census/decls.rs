@@ -91,6 +91,7 @@ impl<'a> Census<'a> {
         c.scopes = scope::Scopes::collect(ast, (c.fns.len() + c.ctors.len(), params, binders));
         c.mark_ctor_exprs();
         c.collect_exprs(dead, twins_open);
+        c.add_super_sites();
         c
     }
 

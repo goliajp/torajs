@@ -7,7 +7,7 @@ use crate::ssa_lower_pass_0_5::arr_head_census::ExprMask;
 
 use super::super::judge::{State, Visiting};
 use super::super::scope::Binder;
-use super::super::walk::{ctor_prefix, derives_from};
+use super::super::walk::{Few, ctor_prefix, derives_from};
 use super::super::{Census, PrefixWrite, THIS};
 use super::{Disc, Discs, Key, Twins, key};
 
@@ -51,7 +51,7 @@ impl<'a> Census<'a> {
     pub(in super::super) fn disc_plans(
         &self,
         discs: &mut Discs<'a>,
-        construct_args: &HashMap<&'a str, Vec<&'a [ExprId]>>,
+        construct_args: &HashMap<&'a str, Few<&'a [ExprId]>>,
         fields_open: bool,
     ) {
         // a plan asks only the read's class, field and ruled-out facts
@@ -78,7 +78,7 @@ impl<'a> Census<'a> {
         &self,
         discs: &Discs<'a>,
         d: &Disc<'a>,
-        construct_args: &HashMap<&'a str, Vec<&'a [ExprId]>>,
+        construct_args: &HashMap<&'a str, Few<&'a [ExprId]>>,
         fields_open: bool,
     ) -> Option<Vec<ExprId>> {
         let class = d.class;
@@ -116,7 +116,7 @@ impl<'a> Census<'a> {
             (plain && !spread).then(|| args.get(i).copied())?
         };
         let mut out = Vec::new();
-        for args in construct_args.get(class).map_or(&[][..], Vec::as_slice) {
+        for args in construct_args.get(class).map_or(&[][..], Few::as_slice) {
             let is_out = ruled.iter().any(|(w, k)| {
                 let a = arg(w, args);
                 a.and_then(|a| key(self.ast.get_expr(a), &discs.consts))
@@ -139,7 +139,7 @@ impl<'a> Census<'a> {
         let Some(p) = ctor.user.get(i).map(|p| p.name.as_str()) else {
             return true;
         };
-        let vs = self.assign_values.get(p).map_or(&[][..], Vec::as_slice);
+        let vs = self.assign_values.get(p).map_or(&[][..], Few::as_slice);
         vs.iter().any(|v| {
             self.scopes.reach(self.scopes.owner(*v), p).is_none_or(|r| {
                 (r.params.iter()).any(|b| matches!(b, Binder::Ctor(k, j) if *k == class && *j == i))
@@ -162,7 +162,7 @@ impl<'a> Census<'a> {
         let tw: Vec<&PrefixWrite> = t.writes.iter().filter(|x| x.field == field).collect();
         let twins_agree =
             tw.len() == t.ctors && tw.iter().all(|x| x.param.is_some() && x.param == w.param);
-        let writes = self.member_writes.get(field).map_or(&[][..], Vec::as_slice);
+        let writes = self.member_writes.get(field).map_or(&[][..], Few::as_slice);
         let only_twins =
             (writes.iter()).all(|v| t.seeds.contains(v) || tw.iter().any(|x| x.value == *v));
         (twins_agree && only_twins).then_some(w)

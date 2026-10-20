@@ -9,7 +9,7 @@ use crate::ast::{ExprId, Stmt};
 
 use super::disc::Discs;
 use super::scope::Owner;
-use super::walk::{collect_super_args, derives_from, own_returns, pointer_shaped};
+use super::walk::{Few, collect_super_args, derives_from, own_returns, pointer_shaped};
 use super::{Census, Live, LiveFields};
 
 /// A read or a constructor parameter met again on the way, judged by
@@ -27,7 +27,7 @@ impl<'a> Census<'a> {
     /// parameters; `fields_open` says no road the census cannot see
     /// reaches a field.
     pub(super) fn solve(&self, fields_open: bool) -> Live {
-        let construct_args = self.construct_sites();
+        let construct_args = &self.construct_args;
         let mut live = self.candidate_fields(fields_open);
         let mut live_fns: HashSet<&str> = self.fns.keys().copied().collect();
         let judged = self.judged_params();
@@ -41,7 +41,7 @@ impl<'a> Census<'a> {
         let mut discs = Discs::default();
         if fields_open && self.disc_test && !self.ctors.is_empty() {
             discs = self.discs();
-            self.disc_plans(&mut discs, &construct_args, fields_open);
+            self.disc_plans(&mut discs, construct_args, fields_open);
         }
         let (methods, rets) = (self.methods(), self.returns());
         let (unproven, members, entry) = loop {
@@ -51,7 +51,7 @@ impl<'a> Census<'a> {
                 live: &live,
                 live_fns: &live_fns,
                 live_params: &live_params,
-                construct_args: &construct_args,
+                construct_args,
                 discs: &discs,
                 methods: &methods,
                 rets: &rets,
@@ -98,23 +98,22 @@ impl<'a> Census<'a> {
             .collect()
     }
 
-    /// `new C(..)` and `super(..)` argument lists, by class: `super(..)`
-    /// inside a derived constructor constructs the parent.
-    fn construct_sites(&self) -> HashMap<&'a str, Vec<&'a [ExprId]>> {
-        let mut out = self.construct_args.clone();
+    /// The `super(..)` argument lists, which construct the parent, join
+    /// the `new C(..)` ones.
+    pub(super) fn add_super_sites(&mut self) {
+        let (ast, sites) = (self.ast, &mut self.construct_args);
         for ctor in &self.ctors {
-            let Some(Some(parent)) = self.ast.class_parents.get(ctor.class) else {
+            let Some(Some(parent)) = ast.class_parents.get(ctor.class) else {
                 continue;
             };
             for s in ctor.body {
                 visit_stmt_exprs(s, &mut |e| {
-                    collect_super_args(self.ast, e, &mut |args| {
-                        out.entry(parent.as_str()).or_default().push(args);
+                    collect_super_args(ast, e, &mut |args| {
+                        sites.entry(parent.as_str()).or_default().push(args);
                     });
                 });
             }
         }
-        out
     }
 
     /// The field is declared on the class with a non-nullable
@@ -140,7 +139,7 @@ impl<'a> Census<'a> {
         if self.calls.open {
             return HashSet::default();
         }
-        (self.fn_params.values().flatten())
+        (self.fn_params.values().flat_map(Few::as_slice))
             .filter(|(f, _)| !self.calls.value_used.contains(f) && !self.assigned.contains(f))
             .copied()
             .collect()
@@ -187,7 +186,7 @@ pub(super) struct State<'a, 'b> {
     pub(super) live: &'b HashSet<(&'a str, &'a str)>,
     pub(super) live_fns: &'b HashSet<&'a str>,
     pub(super) live_params: &'b HashSet<(&'a str, usize)>,
-    pub(super) construct_args: &'b HashMap<&'a str, Vec<&'a [ExprId]>>,
+    pub(super) construct_args: &'b HashMap<&'a str, Few<&'a [ExprId]>>,
     pub(super) discs: &'b Discs<'a>,
     pub(super) methods: &'b super::fresh::Methods<'b>,
     pub(super) rets: &'b HashMap<&'a str, Option<Vec<ExprId>>>,

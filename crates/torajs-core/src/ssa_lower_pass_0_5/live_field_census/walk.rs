@@ -28,6 +28,40 @@ impl NameFilter {
     }
 }
 
+/// A list that holds one element without an allocation: most names have
+/// one binder, one write or one call site.
+pub(super) enum Few<T> {
+    One(T),
+    Many(Vec<T>),
+}
+
+impl<T> Default for Few<T> {
+    fn default() -> Self {
+        Few::Many(Vec::new())
+    }
+}
+
+impl<T> Few<T> {
+    pub(super) fn push(&mut self, t: T) {
+        match self {
+            Few::Many(v) if v.is_empty() => *self = Few::One(t),
+            Few::Many(v) => v.push(t),
+            Few::One(_) => {
+                if let Few::One(a) = std::mem::take(self) {
+                    *self = Few::Many(vec![a, t]);
+                }
+            }
+        }
+    }
+
+    pub(super) fn as_slice(&self) -> &[T] {
+        match self {
+            Few::One(t) => std::slice::from_ref(t),
+            Few::Many(v) => v,
+        }
+    }
+}
+
 fn name_bucket(n: &str) -> usize {
     let b = n.as_bytes();
     let first = b.first().map_or(0, |c| usize::from(*c));

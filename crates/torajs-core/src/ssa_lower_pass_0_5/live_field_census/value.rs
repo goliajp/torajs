@@ -6,7 +6,7 @@ use crate::check::Type;
 
 use super::THIS;
 use super::judge::{State, Visit, Visiting};
-use super::walk::{derives_from, pointer_shaped};
+use super::walk::{Few, derives_from, pointer_shaped};
 
 impl<'a, 'b> State<'a, 'b> {
     pub(super) fn value_live(&self, e: ExprId, visiting: &mut Visiting<'b>) -> bool {
@@ -78,7 +78,7 @@ impl<'a, 'b> State<'a, 'b> {
         if p.is_rest || p.default.is_some() || self.c.assigned.contains(p.name.as_str()) {
             return false;
         }
-        let Some(sites) = self.construct_args.get(class) else {
+        let Some(sites) = self.construct_args.get(class).map(Few::as_slice) else {
             return false;
         };
         // a site inside the constructor passing its own parameter on
