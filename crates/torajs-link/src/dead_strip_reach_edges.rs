@@ -10,8 +10,9 @@
 //! fn, a dyld import or a required member answers either is the
 //! closure's own question, asked once per symbol per closure.
 
-use std::collections::HashMap;
 use std::ops::Range;
+
+use torajs_codegen::id_hash::HashMap;
 
 use crate::archive::ArMember;
 use crate::dead_strip_reach::{MemberReach, Node};

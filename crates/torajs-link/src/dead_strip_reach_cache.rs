@@ -8,10 +8,10 @@
 //! imports are read off its table, each named by its row in the image's
 //! symbol index.
 
-use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
+use torajs_codegen::id_hash::HashMap;
 use torajs_rtimage::archive_undef::member_undef_extern_rows;
 
 use crate::archive::{ArMember, MemberSymtabError};

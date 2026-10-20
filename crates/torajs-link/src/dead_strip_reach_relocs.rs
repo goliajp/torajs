@@ -1,8 +1,9 @@
 //! Each expanded (member, section)'s reloc table, decoded once per
 //! link.
 
-use std::collections::HashMap;
 use std::collections::hash_map::Entry;
+
+use torajs_codegen::id_hash::HashMap;
 
 use crate::archive::ArMember;
 use crate::dead_strip_reach_cache::BytesKey;
