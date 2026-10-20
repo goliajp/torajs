@@ -41,19 +41,18 @@
 
 use std::collections::HashMap;
 
-use crate::ast::{Ast, Expr, ExprId};
-use crate::check::{Lit, Type};
+use crate::ast::{Ast, ExprId};
+use crate::check::Type;
 
+mod exprs;
 mod forms;
+mod keys;
 mod run;
 mod stmts;
 
 #[cfg(test)]
 mod tests;
 
-use forms::{
-    builtin_global, danger_key, danger_member, danger_string, helper_defines_nothing, ident_opens,
-};
 pub(crate) use run::ThenClosure;
 
 /// Why the proof answered "open": the first form it could not clear.
@@ -90,159 +89,9 @@ pub(crate) fn then_opening(ast: &Ast, types: Option<&HashMap<ExprId, Type>>) -> 
     let vetted = forms::vetted_roots(ast);
     for (i, e) in ast.exprs.iter().enumerate() {
         let eid = ExprId(i as u32);
-        if let Some(o) = expr_opening(ast, eid, e, &vetted, types) {
+        if let Some(o) = exprs::expr_opening(ast, eid, e, &vetted, types) {
             return Some(o);
         }
     }
     ast.stmts.iter().find_map(stmts::stmt_opening)
-}
-
-/// One expression, every variant named: a new one must be judged here.
-fn expr_opening(
-    ast: &Ast,
-    eid: ExprId,
-    e: &Expr,
-    vetted: &crate::ssa::id_hash::HashSet<ExprId>,
-    types: Option<&HashMap<ExprId, Type>>,
-) -> Option<Opening> {
-    match e {
-        Expr::Ident(n) => {
-            // `new C(…)` reaches here as the class lowering's factory
-            let ctor = n.strip_prefix("__new_").is_some_and(ident_opens);
-            if ctor || ident_opens(n) || (forms::gated_root(n) && !vetted.contains(&eid)) {
-                return open("global", n.clone());
-            }
-            if let Some(h) = n.strip_prefix("__torajs_")
-                && !helper_defines_nothing(h)
-            {
-                return open("helper", n.clone());
-            }
-            None
-        }
-        Expr::String(s) => match s.as_wtf8().as_str() {
-            Some(k) if danger_string(k) => open("string", k),
-            _ => None,
-        },
-        Expr::Member { obj, name } | Expr::OptChain { obj, name } => {
-            if danger_member(name) {
-                return open("member", name.clone());
-            }
-            match ast.get_expr(*obj) {
-                Expr::Ident(n) if name == "prototype" && builtin_global(n) => {
-                    open("builtin prototype", n.clone())
-                }
-                _ => None,
-            }
-        }
-        Expr::Index { index, .. } | Expr::OptIndex { index, .. } => key_opening(ast, *index, types),
-        Expr::Call { callee, args } | Expr::OptCall { callee, args } => {
-            call_opening(ast, *callee, args)
-        }
-        Expr::Assign { target, .. } | Expr::PostIncr { target, .. } => {
-            match ast.get_expr(*target) {
-                Expr::Member { name, .. } | Expr::OptChain { name, .. }
-                    if matches!(name.as_str(), "then" | "prototype") =>
-                {
-                    open("write", name.clone())
-                }
-                _ => None,
-            }
-        }
-        Expr::ObjectLit { fields } => fields.iter().find_map(|(k, _)| {
-            let k = k.lossy();
-            let bare = (k.strip_prefix("__getter_"))
-                .or_else(|| k.strip_prefix("__setter_"))
-                .unwrap_or(&k);
-            (bare == "then" || bare == "__proto__" || k.starts_with("__computed_")).then(|| {
-                Opening {
-                    why: "literal member",
-                    at: k.to_string(),
-                }
-            })
-        }),
-        Expr::New { class_name, .. } if ident_opens(class_name) => open("new", class_name.clone()),
-        // a promise or a value of another layout may travel under the
-        // object type an `as` of an `any` names
-        Expr::As { expr, ty_ann } => match types {
-            Some(t)
-                if t.get(expr) == Some(&Type::Any)
-                    && t.get(&eid)
-                        .is_some_and(crate::check::awaited::settles_as_object) =>
-            {
-                open("cast from any", ty_ann.clone())
-            }
-            _ => None,
-        },
-        Expr::New { .. }
-        | Expr::NewDynamic { .. }
-        | Expr::Number(_)
-        | Expr::BigInt { .. }
-        | Expr::Bool(_)
-        | Expr::Uninit
-        | Expr::Regex { .. }
-        | Expr::Null
-        | Expr::BinOp { .. }
-        | Expr::Unary { .. }
-        | Expr::Array(_)
-        | Expr::ArrowFn { .. }
-        | Expr::Closure { .. }
-        | Expr::This
-        | Expr::NewTarget
-        | Expr::Super { .. }
-        | Expr::Ternary { .. }
-        | Expr::Sequence { .. }
-        | Expr::Elision
-        | Expr::TypeOf { .. }
-        | Expr::Delete { .. }
-        | Expr::InstanceOf { .. }
-        | Expr::Spread { .. }
-        | Expr::Nullish { .. } => None,
-    }
-}
-
-/// A computed member key: a literal, or a key the checker typed as one
-/// that cannot name a dangerous property.
-fn key_opening(ast: &Ast, index: ExprId, types: Option<&HashMap<ExprId, Type>>) -> Option<Opening> {
-    match ast.get_expr(index) {
-        Expr::Number(_) | Expr::Bool(_) | Expr::BigInt { .. } => None,
-        Expr::String(s) => match s.as_wtf8().as_str() {
-            Some(k) if !danger_key(k) => None,
-            _ => open("computed key", s.to_string_lossy_owned()),
-        },
-        _ => {
-            let types = types?;
-            match types.get(&index) {
-                Some(t) if key_type_known(t) => None,
-                _ => open("computed key", ""),
-            }
-        }
-    }
-}
-
-/// A key of type `t` is a number, a boolean, a symbol, or a string
-/// literal that names no dangerous property.
-fn key_type_known(t: &Type) -> bool {
-    match t {
-        Type::Number | Type::BigInt | Type::Symbol | Type::Boolean => true,
-        Type::Literal(Lit::Str(s)) => s.as_wtf8().as_str().is_some_and(|k| !danger_key(k)),
-        Type::Literal(Lit::Num(_) | Lit::Bool(_)) => true,
-        Type::Union(members) => members.iter().all(key_type_known),
-        _ => false,
-    }
-}
-
-/// A call whose callee the walk must read with its arguments: the
-/// `super` property kernels take their key as the second argument.
-fn call_opening(ast: &Ast, callee: ExprId, args: &[ExprId]) -> Option<Opening> {
-    match ast.get_expr(callee) {
-        Expr::Ident(n) if n.starts_with("__torajs_super_prop_") => {
-            match args.get(1).map(|&k| ast.get_expr(k)) {
-                Some(Expr::String(s)) if s.as_wtf8().as_str().is_some_and(|k| !danger_key(k)) => {
-                    None
-                }
-                _ => open("super key", n.clone()),
-            }
-        }
-        _ => None,
-    }
 }
