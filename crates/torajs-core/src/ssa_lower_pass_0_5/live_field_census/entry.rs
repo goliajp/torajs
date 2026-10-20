@@ -25,9 +25,8 @@ use crate::ssa::id_hash::{HashMap, HashSet};
 
 use crate::ast::{Ast, BinOp, Expr, ExprId, Param, Stmt};
 
+use super::Census;
 use super::bindings::holds_nullish_in_band;
-use super::judge::{State, Visiting};
-use super::{Census, Entry};
 
 enum First {
     /// A member or element read of the binding comes first.
@@ -76,36 +75,6 @@ impl<'a> Census<'a> {
                 && !self.assigned.contains(p.name.as_str())
             {
                 out.entry(*f).or_default().push(i);
-            }
-        }
-        out
-    }
-}
-
-impl State<'_, '_> {
-    /// The arguments each direct call of a function in `entry` tests:
-    /// those at a tested index the census does not prove live there.
-    pub(super) fn entry_calls(&self, entry: &HashMap<&str, Vec<usize>>) -> Entry {
-        let c = self.c;
-        let mut out = HashMap::default();
-        if entry.is_empty() {
-            return out;
-        }
-        for (i, e) in c.ast.exprs.iter().enumerate() {
-            let id = ExprId(i as u32);
-            if let Expr::Call { callee, args } = e
-                && let Expr::Ident(f) = c.ast.get_expr(*callee)
-                && let Some(at) = entry.get(c.retargets.get(&id).unwrap_or(f).as_str())
-            {
-                let test: Vec<usize> = (at.iter().copied())
-                    .filter(|i| {
-                        (args.get(*i))
-                            .is_some_and(|a| !self.value_live(*a, &mut Visiting::default()))
-                    })
-                    .collect();
-                if !test.is_empty() {
-                    out.insert(id, test);
-                }
             }
         }
         out

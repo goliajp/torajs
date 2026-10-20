@@ -5,13 +5,12 @@
 use crate::ssa::id_hash::{HashMap, HashSet};
 
 use crate::ast::desugar_async_sm_walk::visit_stmt_exprs;
-use crate::ast::{Expr, ExprId, Stmt};
-use crate::check::Type;
+use crate::ast::{ExprId, Stmt};
 
 use super::disc::Discs;
 use super::scope::Owner;
-use super::walk::{collect_super_args, pointer_shaped};
-use super::{Census, Entry, ExprMask, Live, THIS};
+use super::walk::{collect_super_args, derives_from, own_returns, pointer_shaped};
+use super::{Census, Live, LiveFields};
 
 /// A read or a constructor parameter met again on the way, judged by
 /// its other sources.
@@ -129,156 +128,60 @@ impl<'a> Census<'a> {
             w.class == class && w.field == field && self.ty(w.value).is_some_and(pointer_shaped)
         })
     }
+
+    /// The `(function, index)` parameters judged by call sites.
+    pub(super) fn judged_params(&self) -> HashSet<(&'a str, usize)> {
+        if self.calls.open {
+            return HashSet::default();
+        }
+        (self.fn_params.values().flatten())
+            .filter(|(f, _)| !self.calls.value_used.contains(f) && !self.assigned.contains(f))
+            .copied()
+            .collect()
+    }
+
+    /// Each declared function's returned values, or none when one of
+    /// its returns has no value.
+    pub(super) fn returns(&self) -> HashMap<&'a str, Option<Vec<ExprId>>> {
+        let mut out = HashMap::default();
+        for (f, (_, body)) in &self.fns {
+            let mut v = Some(Vec::new());
+            own_returns(body, &mut |r| match (r, v.as_mut()) {
+                (Some(e), Some(v)) => v.push(e),
+                _ => v = None,
+            });
+            out.insert(*f, v);
+        }
+        out
+    }
+
+    /// The live fields, with each also under the name of every class
+    /// deriving from its own: a derived class reads the field through
+    /// its own class name.
+    pub(super) fn with_derived(&self, live: &HashSet<(&str, &str)>) -> LiveFields {
+        let mut fields: LiveFields = (live.iter())
+            .map(|(c, f)| (c.to_string(), f.to_string()))
+            .collect();
+        for (class, field) in live {
+            for d in self.ast.class_parents.keys() {
+                if derives_from(self.ast, d, class) && !self.foreign_classes.contains(d.as_str()) {
+                    fields.insert((d.clone(), field.to_string()));
+                }
+            }
+        }
+        fields
+    }
 }
 
 pub(super) struct State<'a, 'b> {
     pub(super) c: &'b Census<'a>,
-    live: &'b HashSet<(&'a str, &'a str)>,
+    pub(super) live: &'b HashSet<(&'a str, &'a str)>,
     pub(super) live_fns: &'b HashSet<&'a str>,
     pub(super) live_params: &'b HashSet<(&'a str, usize)>,
     pub(super) construct_args: &'b HashMap<&'a str, Vec<&'a [ExprId]>>,
     pub(super) discs: &'b Discs<'a>,
     pub(super) methods: &'b super::fresh::Methods<'b>,
-    rets: &'b HashMap<&'a str, Option<Vec<ExprId>>>,
+    pub(super) rets: &'b HashMap<&'a str, Option<Vec<ExprId>>>,
     /// No road the census cannot see reaches a field or a method.
     pub(super) fields_open: bool,
-}
-
-impl<'b> State<'_, 'b> {
-    /// What the fixed point answers about reads: the unproven reads and
-    /// calls, the member reads a discriminant proved, and the arguments
-    /// each call tests for the callee.
-    fn reads(&self, entry: &HashMap<&str, Vec<usize>>) -> (ExprMask, ExprMask, Entry) {
-        let open = self.c.calls.open;
-        let fns = (self.live_fns.iter()).filter(|f| !open && self.call_live(f));
-        let members = if open {
-            ExprMask::default()
-        } else {
-            self.proven_members()
-        };
-        let unproven = self.unproven(&fns.copied().collect());
-        (unproven, members, self.entry_calls(entry))
-    }
-
-    fn field_live(&self, class: &str, field: &str) -> bool {
-        if self.c.deleted.contains(field) || self.c.foreign.contains(field) {
-            return false;
-        }
-        let prefix_ok = self
-            .c
-            .prefix
-            .iter()
-            .filter(|w| w.class == class && w.field == field)
-            .all(|w| match w.param {
-                Some(i) => self.ctor_param_live(class, i, &mut Visiting::default()),
-                None => self.value_live(w.value, &mut Visiting::default()),
-            });
-        prefix_ok
-            && self.c.member_writes.get(field).is_none_or(|ws| {
-                ws.iter()
-                    .all(|v| self.value_live(*v, &mut Visiting::default()))
-            })
-    }
-
-    /// Every construction of `class` fills user parameter `i` with a
-    /// live value, and the constructor never reassigns it.
-    pub(super) fn ctor_param_live(
-        &self,
-        class: &str,
-        i: usize,
-        visiting: &mut Visiting<'b>,
-    ) -> bool {
-        let Some(at) = self.c.ctors.iter().position(|c| c.class == class) else {
-            return false;
-        };
-        let ctor = &self.c.ctors[at];
-        let user = &ctor.user;
-        let Some(p) = user.get(i) else { return false };
-        if p.is_rest || p.default.is_some() || self.c.assigned.contains(p.name.as_str()) {
-            return false;
-        }
-        let Some(sites) = self.construct_args.get(class) else {
-            return false;
-        };
-        // a site inside the constructor passing its own parameter on
-        // resolves to the other sites
-        if !visiting.insert(Visit::Ctor(at, i)) {
-            return true;
-        }
-        let ok = sites.iter().all(|args| {
-            args.get(i).is_some_and(|a| {
-                !matches!(self.c.ast.get_expr(*a), Expr::Spread { .. })
-                    && args
-                        .iter()
-                        .take(i)
-                        .all(|b| !matches!(self.c.ast.get_expr(*b), Expr::Spread { .. }))
-                    && self.value_live(*a, visiting)
-            })
-        });
-        visiting.remove(&Visit::Ctor(at, i));
-        ok
-    }
-
-    fn fn_live(&self, name: &str) -> bool {
-        let Some(Some(rets)) = self.rets.get(name) else {
-            return false;
-        };
-        if self.c.widths.returns_undef_on_fallthrough(name) || self.c.assigned.contains(name) {
-            return false;
-        }
-        let mut visiting = Visiting::default();
-        rets.iter().all(|e| self.value_live(*e, &mut visiting))
-    }
-
-    pub(super) fn value_live(&self, e: ExprId, visiting: &mut Visiting<'b>) -> bool {
-        let ast = self.c.ast;
-        let ty = self.c.ty(e);
-        if ty == Some(&Type::String) || (ty.is_none() && self.c.concat(e)) {
-            return self.string_live(e, visiting);
-        }
-        // a nullable field read a discriminant test proved live
-        if matches!(ty, Some(Type::Nullable(_))) && self.disc_live(e, visiting) {
-            return true;
-        }
-        if ty.is_some_and(|t| !pointer_shaped(t)) {
-            return false;
-        }
-        match ast.get_expr(e) {
-            Expr::New { .. }
-            | Expr::BigInt { .. }
-            | Expr::Array(_)
-            | Expr::ObjectLit { .. }
-            | Expr::ArrowFn { .. }
-            | Expr::Closure { .. }
-            | Expr::Regex { .. } => true,
-            // a method's receiver is whatever its caller passed
-            Expr::This => self.c.ctor_exprs.contains(e),
-            Expr::Ident(n) if n == THIS => self.c.ctor_exprs.contains(e),
-            // every binder of the name must be live: a `let` by its
-            // initialiser, a constructor parameter by the class's
-            // construction sites, anything else by nothing
-            Expr::Ident(n) => self.read_live(self.c.scopes.owner(e), n, visiting),
-            Expr::As { expr, .. } => self.value_live(*expr, visiting),
-            Expr::Ternary {
-                then_branch,
-                else_branch,
-                ..
-            } => self.value_live(*then_branch, visiting) && self.value_live(*else_branch, visiting),
-            Expr::Call { callee, .. } => match ast.get_expr(*callee) {
-                Expr::Ident(f) => self.call_live(self.c.retargets.get(&e).unwrap_or(f)),
-                Expr::Member { obj, name } => {
-                    self.c.fresh_builtin(*callee) || self.method_live(*obj, name)
-                }
-                _ => false,
-            },
-            Expr::Member { obj, name } => match self.c.ty(*obj) {
-                Some(Type::ClassRef(c)) => {
-                    let c = c.split('<').next().unwrap_or(c);
-                    self.live.contains(&(c, name.as_str())) || self.disc_live(e, visiting)
-                }
-                _ => false,
-            },
-            _ => false,
-        }
-    }
 }

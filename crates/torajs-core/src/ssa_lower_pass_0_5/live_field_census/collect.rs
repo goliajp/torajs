@@ -6,9 +6,10 @@ use std::borrow::Cow;
 
 use crate::ast::{Expr, ExprId};
 use crate::check::Type;
+use crate::ssa::id_hash::HashSet;
 
 use super::walk::{derives_from, factory_class, key_is_numeric, never_an_instance};
-use super::{Census, ROADS};
+use super::{Census, ExprMask, ROADS};
 
 impl<'a> Census<'a> {
     pub(super) fn collect_expr(&mut self, id: ExprId, e: &'a Expr) {
@@ -125,6 +126,24 @@ impl<'a> Census<'a> {
                 }
             }
             _ => {}
+        }
+    }
+
+    /// Every live expression but the constructor prefix writes, which
+    /// are recorded apart (only where no twin is open, since a field is
+    /// live only there).
+    pub(super) fn collect_exprs(&mut self, dead: &ExprMask, twins_open: bool) {
+        let mut prefix_writes = HashSet::default();
+        if !twins_open {
+            prefix_writes = self.prefix_assigns();
+            self.unread_seeds = self.unread_seeds();
+        }
+        for (i, e) in self.ast.exprs.iter().enumerate() {
+            let id = ExprId(i as u32);
+            if dead.contains(id) || prefix_writes.contains(&id) {
+                continue;
+            }
+            self.collect_expr(id, e);
         }
     }
 }

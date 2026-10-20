@@ -4,9 +4,7 @@
 use crate::ast::{Ast, Expr, ExprId, Param, Stmt};
 use crate::check::Type;
 
-use crate::ssa::id_hash::{HashMap, HashSet};
-
-use super::{Census, LiveFields, PrefixWrite, THIS};
+use super::{PrefixWrite, THIS};
 
 /// `__cm_<C>__ctor` (the one constructor the factory enters; a `$$`
 /// twin is a separate write site the general census sees).
@@ -204,39 +202,5 @@ pub(in crate::ssa_lower_pass_0_5) fn nested_stmts<'a>(s: &'a Stmt, f: &mut impl 
         }
         Stmt::Block(v) | Stmt::Multi(v) => v.iter().for_each(&mut *f),
         _ => {}
-    }
-}
-
-impl<'a> Census<'a> {
-    /// Each declared function's returned values, or none when one of
-    /// its returns has no value.
-    pub(super) fn returns(&self) -> HashMap<&'a str, Option<Vec<ExprId>>> {
-        let mut out = HashMap::default();
-        for (f, (_, body)) in &self.fns {
-            let mut v = Some(Vec::new());
-            own_returns(body, &mut |r| match (r, v.as_mut()) {
-                (Some(e), Some(v)) => v.push(e),
-                _ => v = None,
-            });
-            out.insert(*f, v);
-        }
-        out
-    }
-
-    /// The live fields, with each also under the name of every class
-    /// deriving from its own: a derived class reads the field through
-    /// its own class name.
-    pub(super) fn with_derived(&self, live: &HashSet<(&str, &str)>) -> LiveFields {
-        let mut fields: LiveFields = (live.iter())
-            .map(|(c, f)| (c.to_string(), f.to_string()))
-            .collect();
-        for (class, field) in live {
-            for d in self.ast.class_parents.keys() {
-                if derives_from(self.ast, d, class) && !self.foreign_classes.contains(d.as_str()) {
-                    fields.insert((d.clone(), field.to_string()));
-                }
-            }
-        }
-        fields
     }
 }
