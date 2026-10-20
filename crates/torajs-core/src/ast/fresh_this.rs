@@ -27,9 +27,11 @@
 //! `this` typed `any` (an exotic-rooted class), disqualifies the whole
 //! body.
 
+use std::borrow::Cow;
 use std::collections::HashSet;
 
 use super::{Ast, Expr, ExprId, Param, Stmt};
+use crate::ssa::id_hash::HashSet as IdSet;
 
 const THIS: &str = "__this";
 
@@ -66,7 +68,7 @@ pub(crate) fn fresh_this_writes(
         return out;
     }
     let fields = DeclaredFields::of(ast, cname);
-    let mut written: HashSet<&str> = HashSet::new();
+    let mut written: IdSet<&str> = IdSet::default();
     for s in body {
         match s {
             Stmt::Expr(e) => {
@@ -132,27 +134,26 @@ fn mentions_this(ast: &Ast, e: ExprId) -> bool {
 }
 
 /// The fields a class declares, as the typed store lane sees them.
-struct DeclaredFields {
+struct DeclaredFields<'a> {
     /// Declared on the class with no setter anywhere on its chain:
     /// the write is a plain slot store.
-    plain: HashSet<String>,
+    plain: IdSet<Cow<'a, str>>,
     /// Whose factory default is `null` or `undefined` in the class
     /// and in every class derived from it — a derived class may
     /// redeclare a field with another type, and its factory then
     /// seeds a cell the base constructor's first write would leak.
-    nullish: HashSet<String>,
+    nullish: IdSet<Cow<'a, str>>,
 }
 
-impl DeclaredFields {
-    fn of(ast: &Ast, cname: &str) -> Self {
-        let mut plain: HashSet<String> = HashSet::new();
-        let mut nullish: HashSet<String> = HashSet::new();
-        let mut other: HashSet<String> = HashSet::new();
-        let factory = format!("__new_{cname}");
+impl<'a> DeclaredFields<'a> {
+    fn of(ast: &'a Ast, cname: &str) -> Self {
+        let mut plain: IdSet<Cow<'a, str>> = IdSet::default();
+        let mut nullish: IdSet<Cow<'a, str>> = IdSet::default();
+        let mut other: IdSet<Cow<'a, str>> = IdSet::default();
         let mut seed: Option<ExprId> = None;
         for s in &ast.stmts {
             if let Stmt::FnDecl { name, body, .. } = s
-                && *name == factory
+                && name.strip_prefix("__new_") == Some(cname)
             {
                 seed = this_seed(body);
             }
@@ -164,7 +165,7 @@ impl DeclaredFields {
                 continue;
             }
             for (f, ann) in fields {
-                let f = f.lossy().into_owned();
+                let f = f.lossy();
                 if ann.starts_with("__nullable(")
                     || matches!(ann.as_str(), "any" | "undefined" | "void")
                 {
@@ -188,7 +189,7 @@ impl DeclaredFields {
 /// sentinel (`desugar_classes::factory_unset`, or a type with no zero of
 /// its own), when no class derives from `cname`: a derived factory
 /// seeds the base fields itself, possibly with a cell.
-fn undefined_seeds(ast: &Ast, cname: &str, seed: Option<ExprId>) -> Vec<String> {
+fn undefined_seeds<'a>(ast: &'a Ast, cname: &str, seed: Option<ExprId>) -> Vec<Cow<'a, str>> {
     if (ast.class_parents.values()).any(|p| p.as_deref() == Some(cname)) {
         return Vec::new();
     }
@@ -198,7 +199,7 @@ fn undefined_seeds(ast: &Ast, cname: &str, seed: Option<ExprId>) -> Vec<String> 
     let marked = |e: &ExprId| matches!(ast.get_expr(*e), Expr::Ident(n) if n.starts_with(super::UNDEF_SLOT_MARKER));
     (fields.iter())
         .filter(|(_, e)| marked(e))
-        .map(|(k, _)| k.lossy().into_owned())
+        .map(|(k, _)| k.lossy())
         .collect()
 }
 
