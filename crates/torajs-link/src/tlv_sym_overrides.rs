@@ -19,23 +19,28 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
 
-use torajs_obj::{N_EXT, N_SECT, N_TYPE};
+use torajs_obj::{MH_MAGIC_64, N_EXT, N_SECT, N_TYPE};
 
 use crate::archive::MemberSymtabError;
 use crate::archives_merge::MergedArchives;
 use crate::data_section_layout::DataSectionLayout;
 use crate::layout_types::ArchiveLayout;
-use crate::member_obj::{MemberObj, symtab_lc_error, symtab_name_error};
+use crate::member_obj::{MemberObj, rd32, symtab_lc_error, symtab_name_error};
 use crate::member_resolve::MemberSymtab;
 use crate::member_sections::is_tlv_descriptor;
 use crate::resolve::SymTable;
 use crate::tlv_descriptor_layout::{TLV_DESCRIPTOR_SIZE, TlvDescriptorLayout};
 
-/// Member `key`'s object and symbol table; `None` without a table.
+/// Member `key`'s object and symbol table; `None` without a table or
+/// when the member is not a 64-bit Mach-O object.
 fn member_symtab<'a>(
     merged: &MergedArchives<'a>,
     key: &(usize, usize),
 ) -> Result<Option<(Rc<MemberObj<'a>>, MemberSymtab)>, TlvSymOverrideError> {
+    let data = merged.member(key.0, key.1).data;
+    if data.len() >= 32 && rd32(data, 0) != MH_MAGIC_64 {
+        return Ok(None);
+    }
     let obj = merged
         .obj(key.0, key.1)
         .map_err(|e| symtab_error(key, symtab_lc_error(e)))?;

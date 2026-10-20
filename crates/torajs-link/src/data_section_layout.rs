@@ -55,9 +55,11 @@ pub struct DataSectionLayout {
     pub sectname: [u8; 16],
     /// Raw 16-byte `segname` slot (always `__DATA` for this pass).
     pub segname: [u8; 16],
-    /// Byte offset inside the member where the file-storage payload
-    /// starts. Sentinel `0` for zerofill sections (use
-    /// `has_file_storage` to discriminate).
+    /// Byte offset of the file-storage payload in the member as the
+    /// link reads it: through its cut when the dead-strip pass cut it,
+    /// so not an offset into the image's bytes then (read the payload
+    /// with `MemberObj::payload`). Sentinel `0` for zerofill sections
+    /// (use `has_file_storage` to discriminate).
     pub member_internal_offset: u32,
     /// vm size of the section. Equals the file-storage size for
     /// regular sections; for zerofill sections, the loader allocates

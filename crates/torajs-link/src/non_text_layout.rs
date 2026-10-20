@@ -45,8 +45,10 @@ pub struct NonTextSectionLayout {
     pub sectname: [u8; 16],
     /// Raw 16-byte `segname` slot from the member's `section_64`.
     pub segname: [u8; 16],
-    /// Byte offset *inside the member* where the payload starts —
-    /// pair with `size` to slice the member's bytes.
+    /// Byte offset of the payload in the member as the link reads it:
+    /// through its cut when the dead-strip pass cut it, so not an
+    /// offset into the image's bytes then. Read the payload with
+    /// `MemberObj::payload`.
     pub member_internal_offset: u32,
     /// On-disk size of the section payload.
     pub size: u32,

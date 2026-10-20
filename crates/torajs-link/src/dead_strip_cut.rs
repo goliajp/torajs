@@ -52,8 +52,10 @@ impl Cut {
             .iter()
             .filter_map(|p| {
                 let hdr = &sects[usize::from(p.ord) - 1];
-                let table = &bytes[hdr.reloff as usize..][..hdr.nreloc as usize * 8];
-                (hdr.reloff != 0 && hdr.nreloc != 0).then(|| (p.ord, filter_relocs(table, p)))
+                (hdr.reloff != 0 && hdr.nreloc != 0).then(|| {
+                    let table = &bytes[hdr.reloff as usize..][..hdr.nreloc as usize * 8];
+                    (p.ord, filter_relocs(table, p))
+                })
             })
             .collect();
         let symtab = symtab_pos

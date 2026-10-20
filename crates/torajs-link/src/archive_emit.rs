@@ -93,9 +93,8 @@ enum Release {
 }
 
 fn link(cfg: &LinkConfig, release: Release) -> Result<Vec<u8>, ArchiveLayoutError> {
-    // Merge once: the dead-strip pre-pass reads this index, its
-    // rewritten members are swapped into it, and layout and emit share
-    // it — each merge re-parses every archive member's symtab.
+    // Read the image once: the dead-strip pre-pass walks it and
+    // installs its cuts into it, and layout and emit share it.
     let mut t = PhaseTimer::start(1);
     let merged = merge_archive_indexes(&cfg.image).map_err(ArchiveLayoutError::Merge)?;
     t.tick("merge_archive_indexes");

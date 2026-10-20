@@ -14,8 +14,18 @@ use crate::member_resolve::MemberSymtab;
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum SymtabFault {
     Missing,
-    Nlist { symoff: usize, nsyms: usize },
-    Strtab { stroff: usize, strsize: usize },
+    /// The command is shorter than an `LC_SYMTAB`.
+    Cmd {
+        offset: usize,
+    },
+    Nlist {
+        symoff: usize,
+        nsyms: usize,
+    },
+    Strtab {
+        stroff: usize,
+        strsize: usize,
+    },
 }
 
 /// One nlist row.
@@ -32,6 +42,9 @@ impl<'a> MemberObj<'a> {
     pub fn symtab(&self) -> Result<MemberSymtab, MemberRelocApplyError> {
         self.symtab.map_err(|f| match f {
             SymtabFault::Missing => MemberRelocApplyError::NoSymtab,
+            SymtabFault::Cmd { offset } => {
+                MemberRelocApplyError::Decode(MemberRelocError::TruncatedLoadCommand { offset })
+            }
             SymtabFault::Nlist { symoff, nsyms } => MemberRelocApplyError::TruncatedSymtab {
                 symoff,
                 nsyms,
@@ -147,6 +160,7 @@ impl<'a> MemberObj<'a> {
         let file_size = self.member.data.len();
         match f {
             SymtabFault::Missing => unreachable!("a missing table is not an error here"),
+            SymtabFault::Cmd { offset } => MemberSymtabError::TruncatedSymtabCmd { offset },
             SymtabFault::Nlist { symoff, nsyms } => MemberSymtabError::TruncatedSymtab {
                 symoff,
                 nsyms,
@@ -220,5 +234,37 @@ pub(crate) fn symtab_name_error(e: MemberRelocApplyError, sym_index: usize) -> M
             MemberSymtabError::UnterminatedSymName { sym_index, n_strx }
         }
         _ => MemberSymtabError::NameNotUtf8 { sym_index },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::archive::{ArMember, MemberSymtabError};
+    use crate::member_obj::{MemberObj, rd32};
+    use torajs_codegen::CompiledFunction;
+    use torajs_codegen::frame::FrameLayout;
+
+    #[test]
+    fn a_short_symtab_command_is_reported_by_the_readers_of_the_table() {
+        let f = CompiledFunction {
+            name: "_f".into(),
+            bytes: vec![0xC0, 0x03, 0x5F, 0xD6],
+            relocs: Vec::new(),
+            frame: FrameLayout::leaf_no_spill(),
+        };
+        let mut bytes = torajs_obj::write_object(&[f]);
+        let at = 184;
+        assert_eq!(rd32(&bytes, at), torajs_obj::LC_SYMTAB);
+        bytes[at + 4..at + 8].copy_from_slice(&16u32.to_le_bytes());
+        let obj = MemberObj::parse(ArMember {
+            name: "m.o",
+            data: &bytes,
+        })
+        .unwrap();
+        assert!(obj.text_section().is_some());
+        assert_eq!(
+            obj.symtab_if_any().unwrap_err(),
+            MemberSymtabError::TruncatedSymtabCmd { offset: at }
+        );
     }
 }

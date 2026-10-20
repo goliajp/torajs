@@ -98,10 +98,11 @@ impl<'a> MemberObj<'a> {
                     reloc_tables.push((rd32(bytes, sec + 56), rd32(bytes, sec + 60)));
                 }
             } else if cmd == LC_SYMTAB {
-                if cmdsize < 24 {
-                    return Err(MemberRelocError::TruncatedLoadCommand { offset: cursor });
-                }
-                symtab = checked_symtab(bytes, cursor);
+                symtab = if cmdsize < 24 {
+                    Err(SymtabFault::Cmd { offset: cursor })
+                } else {
+                    checked_symtab(bytes, cursor)
+                };
             }
             cursor += cmdsize;
         }

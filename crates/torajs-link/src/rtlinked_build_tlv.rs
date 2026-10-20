@@ -117,7 +117,8 @@ fn descriptor_init(
             )
         })
         .ok_or_else(|| unsupported(format!("TLV initial value {name} unresolved")))?;
-    let src = sec.member_internal_offset as usize + r_address as usize;
-    let addend = u64::from_le_bytes(member.data[src..src + 8].try_into().unwrap());
+    let src = r_address as usize;
+    let payload = obj.payload(sec.section_index);
+    let addend = u64::from_le_bytes(payload[src..src + 8].try_into().unwrap());
     Ok(target.wrapping_add(addend))
 }

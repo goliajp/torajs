@@ -13,6 +13,7 @@ use crate::member_apply::{MemberRelocApplyError, apply_member_relocs_with_got};
 use crate::member_data_apply::{collect_member_data_payloads, parse_member_section_relocs};
 use crate::member_data_rebase_layout::compute_member_data_rebase_targets;
 use crate::member_obj::MemberObj;
+use crate::member_reloc::MemberRelocError;
 use crate::resolve::SymTable;
 use crate::rtlinked_build::RtLinkedBuildError;
 use crate::rtlinked_build_encode::ImageParts;
@@ -85,8 +86,13 @@ pub(crate) fn text(
         let obj = obj.map_err(|e| reloc_err(m.key, e.into()))?;
         let member = &obj.member;
         no_text_pointers(&obj, m.key)?;
-        let start = m.member_text_offset_in_member as usize;
-        let mut bytes = member.data[start..start + m.text_size as usize].to_vec();
+        let text = obj.text_section().ok_or_else(|| {
+            reloc_err(
+                m.key,
+                MemberRelocApplyError::Decode(MemberRelocError::NoTextSection),
+            )
+        })?;
+        let mut bytes = obj.payload(text.section_index);
         apply_member_relocs_with_got(
             &mut bytes,
             &obj,
@@ -113,11 +119,10 @@ pub(crate) fn text(
                     String::from_utf8_lossy(&s.sectname).trim_end_matches('\0'),
                 )));
             }
-            let src = s.member_internal_offset as usize;
             put(
                 &mut buf,
                 off(s.final_vaddr, origin)?,
-                &member.data[src..][..s.size as usize],
+                &obj.payload(s.section_index),
             );
             const_lo = const_lo.min(s.final_vaddr);
             const_hi = const_hi.max(s.final_vaddr + u64::from(s.size));

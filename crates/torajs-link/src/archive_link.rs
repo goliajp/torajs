@@ -87,7 +87,6 @@ pub(crate) fn compute_archive_layout_with_required<'a>(
 
     let MemberScanLayouts {
         text_sizes: member_text_sizes,
-        text_offsets: member_text_offsets,
         defined_syms: mut member_defined_syms,
     } = scan_member_text_and_symbols(merged, &member_keys)?;
 
@@ -129,7 +128,6 @@ pub(crate) fn compute_archive_layout_with_required<'a>(
             text_size: member_text_sizes[i],
             file_offset: tp.text_file_offset + off,
             vaddr: text_base + u64::from(off),
-            member_text_offset_in_member: member_text_offsets[i],
             defined_syms: std::mem::take(&mut member_defined_syms[i]),
             symtab,
             non_text_sections: Vec::new(),

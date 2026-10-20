@@ -24,9 +24,8 @@ use crate::dead_strip_reach_table::{
 };
 
 /// Member bytes compared by address and length. The runtime image
-/// hands every copy of a deduplicated member the same slice, and a
-/// rewritten member owns new bytes, so slice identity is parse-input
-/// identity. Holding the borrow keeps the address from being reused
+/// hands every copy of a deduplicated member the same slice, so slice
+/// identity is parse-input identity. Holding the borrow keeps the address from being reused
 /// for other bytes while the entry lives.
 #[derive(Clone, Copy)]
 pub(crate) struct BytesKey<'a>(pub(crate) &'a [u8]);

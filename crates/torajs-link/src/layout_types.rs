@@ -43,8 +43,6 @@ pub struct MemberLayout {
     pub vaddr: u64,
     /// File offset within `__TEXT,__text` of the member's payload.
     pub file_offset: u32,
-    /// File offset of the member's `__text` *inside the `.o`*.
-    pub member_text_offset_in_member: u32,
     /// Defined-external symbols the member exports.
     pub defined_syms: Vec<(String, u64, u8)>,
     /// Rows `LC_SYMTAB` lists for this member; empty under

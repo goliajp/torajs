@@ -1,9 +1,8 @@
 //! A member's reachability tables as one flat byte table, and the
 //! unpacking into [`MemberReach`]. The runtime image stores the table
 //! of every member it holds, built from the member's bytes when `tr`
-//! was compiled; a member the image holds no table for (rewritten
-//! bytes, an image built without tables) gets one built from its
-//! bytes. Everything a parse would search for is in the table already
+//! was compiled; a member of an image built without tables gets one
+//! built from its bytes. Everything a parse would search for is in the table already
 //! (name lengths, the by-name lists, the no-dead-strip roots, each
 //! section's atom starts), so unpacking it is one pass over its rows
 //! with no NUL scan and no sort. The member's imports come with the row
@@ -95,13 +94,9 @@ impl<'a> MemberReach<'a> {
 }
 
 /// The image's table of member `m` of archive `a`; empty when the
-/// image holds none or the link swapped the member's bytes out.
+/// image was built without tables.
 pub(crate) fn image_table<'a>(merged: &MergedArchives<'a>, (a, m): (usize, usize)) -> &'a [u8] {
-    if std::ptr::eq(merged.member(a, m).data, merged.image.member(a, m).data) {
-        merged.image.member_table(a, m)
-    } else {
-        &[]
-    }
+    merged.image.member_table(a, m)
 }
 
 /// The member's imports as its table `tab` lists them, in nlist order.

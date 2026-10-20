@@ -1,5 +1,5 @@
 //! Phase 2 of [`compute_archive_layout`] — scan each required `.o`
-//! member's `__text` size/offset + defined externs into parallel
+//! member's `__text` size + defined externs into parallel
 //! `Vec`s indexed by `member_keys` order.
 
 use crate::archives_merge::MergedArchives;
@@ -9,7 +9,6 @@ use crate::member_text::MemberTextError;
 
 pub struct MemberScanLayouts {
     pub text_sizes: Vec<u32>,
-    pub text_offsets: Vec<u32>,
     pub defined_syms: Vec<Vec<(String, u64, u8)>>,
 }
 
@@ -19,7 +18,6 @@ pub fn scan_member_text_and_symbols(
 ) -> Result<MemberScanLayouts, ArchiveLayoutError> {
     let n = member_keys.len();
     let mut text_sizes: Vec<u32> = Vec::with_capacity(n);
-    let mut text_offsets: Vec<u32> = Vec::with_capacity(n);
     let mut defined_syms: Vec<Vec<(String, u64, u8)>> = Vec::with_capacity(n);
     for &(a_idx, m_idx) in member_keys {
         let text_err = |err| ArchiveLayoutError::MemberText {
@@ -33,9 +31,7 @@ pub fn scan_member_text_and_symbols(
         let text = obj
             .text_section()
             .ok_or_else(|| text_err(MemberTextError::NoTextSection))?;
-        let (text_off, text_size) = (text.member_internal_offset, text.size);
-        text_offsets.push(text_off);
-        text_sizes.push(text_size);
+        text_sizes.push(text.size);
         let defs = obj
             .defined_externs()
             .map_err(|err| ArchiveLayoutError::MemberSymtab {
@@ -53,7 +49,6 @@ pub fn scan_member_text_and_symbols(
     }
     Ok(MemberScanLayouts {
         text_sizes,
-        text_offsets,
         defined_syms,
     })
 }
