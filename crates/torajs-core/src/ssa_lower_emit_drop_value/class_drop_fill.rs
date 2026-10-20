@@ -3,8 +3,9 @@
 //! may settle later ([`DropHooks`]).
 //!
 //! A release fn tests every cell it reaches against what a slot of the
-//! sid could hold: a cell of another layout (the tag test), a cell
-//! with an expando bag, a cell a WeakRef observes. Which of those a
+//! sid could hold: the undefined sentinel, a cell of another layout
+//! (the tag test), a cell with an expando bag, a cell a WeakRef
+//! observes. Which of those a
 //! slot can hold is a question about the whole finished module, asked
 //! after lowering (`ssa_lower_pass_2_5::drop_proofs`). Each test is
 //! emitted as always and recorded with the block whose branch it
@@ -17,13 +18,21 @@ use std::collections::{HashMap, HashSet};
 use crate::ast::PropKey;
 use crate::ssa::{self, BlockId, FuncId, Module, Operand, Terminator, Type};
 use crate::ssa_lower::Intrinsics;
-use crate::ssa_lower_emit_drop_value::class_drop::{Cx, emit_release};
+use crate::ssa_lower_emit_drop_value::class_drop::{Cx, branch, emit_release};
+use crate::ssa_lower_emit_drop_value::class_drop_cells::emit_is_undef;
 use crate::ssa_lower_emit_drop_value::class_drop_setup::ClassDropFn;
 use crate::ssa_lower_emit_drop_value::class_drop_worklist as worklist;
 
 /// A per-cell test of a release fn.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Test {
+    /// A worklist's cell is the undefined sentinel. Settled, it holds
+    /// for every cell taken from an own-sid field, and the root is
+    /// tested once in the prelude instead ([`Test::UndefRoot`]).
+    Undef,
+    /// Where the worklist's root is tested once (the prelude), when the
+    /// per-cell [`Test::Undef`] is settled.
+    UndefRoot,
     /// The class tag is one of the sid's: a cell of the sid's layout.
     Tag,
     /// Something observes some cell through a WeakRef.
@@ -64,6 +73,11 @@ impl DropHooks {
         let mut fids = Vec::new();
         for h in self.hooks.iter().filter(|h| proven(h.sid, h.test)) {
             let f = &mut module.funcs[h.fid.0 as usize];
+            if h.test == Test::UndefRoot {
+                test_root(f, h.blk);
+                n += 1;
+                continue;
+            }
             if let Terminator::CondBr { cond, .. } = &mut f.blocks[h.blk.0 as usize].term {
                 *cond = Operand::ConstBool(h.test.settled());
                 n += 1;
@@ -76,6 +90,19 @@ impl DropHooks {
         }
         n
     }
+}
+
+/// Leave the release fn from `prelude` when its root is the undefined
+/// sentinel.
+fn test_root(f: &mut ssa::Function, prelude: BlockId) {
+    let Terminator::Br(entry) = f.blocks[prelude.0 as usize].term else {
+        unreachable!("a release fn's prelude branches to its entry");
+    };
+    let root = Operand::Value(f.params[0]);
+    let done = f.add_block();
+    f.set_term(done, Terminator::Ret(None));
+    let is_undef = emit_is_undef(f, prelude, root);
+    branch(f, prelude, is_undef, done, entry);
 }
 
 /// Drop what a fixed branch left without a use: the test's compare and
@@ -176,6 +203,7 @@ pub(crate) fn populate_class_drop_bodies(
         if worklist::holds_own_sid(&cx, sid) {
             let is_class = class_sids.contains(&sid);
             cx.worklist = Some(worklist::alloc(&mut f, prelude, sid, d.fid, p, is_class));
+            cx.hook(sid, Test::UndefRoot, prelude);
             let wl = cx.worklist.as_ref().expect("just set");
             worklist::emit_loop(&mut f, wl, entry, |f, head, c, pop| {
                 emit_release(f, &cx, head, c, sid, &mut stack, Some(pop))

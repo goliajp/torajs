@@ -10,6 +10,12 @@
 //! none decoded out of bits or named as a global (the undefined
 //! sentinel aside, which its own test still catches).
 //!
+//! A worklist release (a sid whose fields hold the sid) tests every
+//! cell it takes for the undefined sentinel. A closed and sealed sid's
+//! own-sid fields are written only by typed stores the module shows;
+//! when none of them can store the sentinel (`undef`), a cell taken
+//! from such a field never is one, and only the root is tested, once.
+//!
 //! The props test releases an expando bag, the WeakRef test tells the
 //! registry a target died. Only the runtime gives a cell a bag or a
 //! WeakRef, and only a cell that reached it as a value ([`exposed`]).
@@ -29,6 +35,7 @@ mod asleep;
 mod exposed;
 #[cfg(test)]
 mod tests;
+mod undef;
 
 use std::collections::{BTreeSet, HashMap};
 
@@ -73,29 +80,31 @@ pub(crate) fn settle(module: &mut Module, ast: &Ast, envs: &EnvLayouts, hooks: &
         }
     };
     let n = hooks.settle(module, |sid, test| {
-        let (sealed, closed) = verdicts[&sid];
+        let (sealed, closed, defined) = verdicts[&sid];
         match test {
             Test::Tag => closed,
             Test::WeakRef | Test::Props => sealed,
+            Test::Undef | Test::UndefRoot => defined,
         }
     });
     if stats() {
         let mut v: Vec<_> = verdicts.into_iter().collect();
         v.sort_unstable();
-        for (sid, (sealed, closed)) in v {
-            eprintln!("[drop_proof] sid {sid}: sealed {sealed} closed {closed}");
+        for (sid, (sealed, closed, defined)) in v {
+            eprintln!("[drop_proof] sid {sid}: sealed {sealed} closed {closed} defined {defined}");
         }
         eprintln!("[drop_proof] {n} of {} tests settled", hooks.hooks.len());
     }
 }
 
-/// Per hooked sid, whether it is sealed and whether it is closed.
+/// Per hooked sid, whether it is sealed, whether it is closed, and
+/// whether its own-sid fields never hold the undefined sentinel.
 fn verdicts(
     module: &Module,
     ast: &Ast,
     envs: &EnvLayouts,
     hooks: &DropHooks,
-) -> Result<HashMap<u32, (bool, bool)>, String> {
+) -> Result<HashMap<u32, (bool, bool, bool)>, String> {
     if let Some(why) = wakes_rows(ast) {
         return Err(why);
     }
@@ -121,7 +130,12 @@ fn verdicts(
             });
         let tags = hooks.tags.get(&sid).map_or(&[][..], Vec::as_slice);
         let closed = base && !extended(module, sid) && born_own(module, &skip, sid, tags);
-        out.insert(sid, (sealed, closed));
+        let defined = sealed
+            && closed
+            && widens.iter().all(|(w, n)| w.0 != sid && n.0 != sid)
+            && !undef::held_elsewhere(module, envs, sid)
+            && undef::own_fields_defined(module, &skip, sid);
+        out.insert(sid, (sealed, closed, defined));
     }
     Ok(out)
 }

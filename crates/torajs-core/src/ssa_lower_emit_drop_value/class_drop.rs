@@ -78,7 +78,7 @@ impl Cx<'_> {
         self.cold.borrow_mut().push(Box::new(leg));
     }
 
-    fn hook(&self, sid: u32, test: Test, blk: BlockId) {
+    pub(crate) fn hook(&self, sid: u32, test: Test, blk: BlockId) {
         self.hooks.borrow_mut().push((sid, test, blk));
     }
 }
@@ -175,6 +175,9 @@ pub(crate) fn emit_release(
     let skip = skip_to.unwrap_or(after);
     branch(f, blk, is_null, skip, undef_blk);
     branch(f, undef_blk, is_undef, skip, tag_blk);
+    if cx.worklist.as_ref().is_some_and(|wl| wl.sid == sid) {
+        cx.hook(sid, Test::Undef, undef_blk);
+    }
     let (obj_drop_rc, cycle_buffer, buffer_slow) = (
         cx.intr.obj_drop_rc,
         cx.intr.cycle_buffer,

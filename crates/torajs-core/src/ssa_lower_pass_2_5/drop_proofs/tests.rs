@@ -1,8 +1,10 @@
 //! Hand-built modules: which uses of a cell expose its layout, and
-//! which functions run only through a class method row.
+//! which functions run only through a class method row, and whether the
+//! undefined sentinel can reach an own-sid field.
 
 use super::asleep::row_only;
 use super::exposed::exposed_sids;
+use super::undef::own_fields_defined;
 use crate::ast::PropKey;
 use crate::ssa::{
     BlockId, ClassLayoutMeta, FuncId, Function, IPred, InstKind, MethodMetaSpec, Module, Operand,
@@ -184,4 +186,66 @@ fn what_only_a_method_row_enters_is_asleep() {
     });
     let asleep = row_only(&m);
     assert_eq!(&asleep[4..8], &[true, false, false, false]);
+}
+
+/// What `mk(l)` (a fresh cell of layout 0 whose `left` is `l`) is
+/// called with from `main`, built by `arg` from a fresh cell.
+fn undef_case(arg: impl FnOnce(&mut Function, BlockId, Operand) -> Operand) -> bool {
+    let mut m = module();
+    let mut alloc = Function::new("__torajs_obj_alloc", Type::Ptr);
+    alloc.add_param(Type::I64, "n");
+    m.funcs.push(alloc);
+    let own = Type::Obj(StructId(0));
+    func(&mut m, "mk", own, |f, b| {
+        let l = Operand::Value(f.add_param(own, "l"));
+        let size = vec![Operand::ConstI64(40)];
+        let c = f.append_inst(b, InstKind::Call(FuncId(2), size), own, None);
+        f.append_void(b, InstKind::Store(l, Operand::Value(c), 32));
+        f.set_term(b, Terminator::Ret(Some(Operand::Value(c))));
+    });
+    func(&mut m, "main", Type::Void, |f, b| {
+        let null = vec![Operand::ConstPtrNull];
+        let fresh = f.append_inst(b, InstKind::Call(FuncId(3), null), own, None);
+        let a = arg(f, b, Operand::Value(fresh));
+        f.append_inst(b, InstKind::Call(FuncId(3), vec![a]), own, None);
+    });
+    own_fields_defined(&m, &vec![false; m.funcs.len()], 0)
+}
+
+fn sentinel(f: &mut Function, b: BlockId) -> Operand {
+    let g = InstKind::GlobalRef("___TORAJS_UNDEF_CELL".into());
+    Operand::Value(f.append_inst(b, g, Type::Ptr, None))
+}
+
+fn through_slot(f: &mut Function, b: BlockId, v: Operand) -> Operand {
+    let own = Type::Obj(StructId(0));
+    let slot = Operand::Value(f.append_inst(b, InstKind::Alloca(own), Type::Ptr, None));
+    f.append_void(b, InstKind::Store(v, slot, 0));
+    Operand::Value(f.append_inst(b, InstKind::Load(own, slot, 0), own, None))
+}
+
+#[test]
+fn a_fresh_cell_or_a_field_read_keeps_the_field_clear() {
+    let own = Type::Obj(StructId(0));
+    assert!(undef_case(|_, _, fresh| fresh));
+    assert!(undef_case(through_slot));
+    assert!(undef_case(|f, b, fresh| {
+        Operand::Value(f.append_inst(b, InstKind::Load(own, fresh, 32), own, None))
+    }));
+}
+
+#[test]
+fn the_sentinel_reaches_the_field_by_any_path() {
+    let own = Type::Obj(StructId(0));
+    assert!(!undef_case(|f, b, _| sentinel(f, b)));
+    assert!(!undef_case(|f, b, _| {
+        let s = sentinel(f, b);
+        through_slot(f, b, s)
+    }));
+    assert!(!undef_case(|f, b, fresh| {
+        let s = sentinel(f, b);
+        let c = f.append_inst(b, InstKind::ICmp(IPred::Eq, fresh, s), Type::Bool, None);
+        let pick = InstKind::Select(own, Operand::Value(c), fresh, s);
+        Operand::Value(f.append_inst(b, pick, own, None))
+    }));
 }
