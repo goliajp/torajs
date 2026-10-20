@@ -36,7 +36,7 @@ impl FnToClosureCollector<'_> {
                 && !self.any_param_frames.iter().any(|f| f.contains(n))
         );
         if typed_ident_recv {
-            return self.target_fn_args(args);
+            return self.mark_typed_recv_reaction_args(name, args);
         }
         let raw_chain_site = matches!(name.as_str(), "then" | "catch")
             && args.len() == 1
@@ -48,6 +48,25 @@ impl FnToClosureCollector<'_> {
         // .call(g)` — the this-val-not-generator family).
         for &arg in args {
             if raw_chain_site && self.raw_reaction_handler(arg) {
+                self.target_fn_args(&[arg]);
+            } else {
+                self.try_mark(arg);
+            }
+        }
+    }
+
+    /// A typed ident receiver keeps its function arguments raw, but a
+    /// `.then` / `.catch` handler reaches the reaction kernels, which
+    /// call a raw handler with exactly one argument: one that declares
+    /// more parameters (`(a, b?)`) would read a slot nobody passed, so
+    /// it takes the forwarder cell the kernels call with the full
+    /// argument list, as on an untyped chain.
+    fn mark_typed_recv_reaction_args(&mut self, name: &str, args: &[ExprId]) {
+        if !matches!(name, "then" | "catch") {
+            return self.target_fn_args(args);
+        }
+        for &arg in args {
+            if self.raw_reaction_handler(arg) {
                 self.target_fn_args(&[arg]);
             } else {
                 self.try_mark(arg);
