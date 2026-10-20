@@ -52,6 +52,41 @@ pub(crate) struct Guard {
     pub(crate) budget: Operand,
 }
 
+/// The block that raises the RangeError for the appends of one walk
+/// (`emit_too_long_guard`), made by the first append that needs it,
+/// and the throw state at the walk's entry.
+#[derive(Clone, Copy)]
+pub(crate) struct WalkRaise {
+    pub(crate) blk: Option<BlockId>,
+    live: usize,
+    tries: usize,
+    teardowns: usize,
+    scopes: usize,
+}
+
+impl WalkRaise {
+    pub(crate) fn at_entry(ctx: &LowerCtx<'_>) -> Self {
+        Self {
+            blk: None,
+            live: ctx.temps.throw_live.iter().flatten().count(),
+            tries: ctx.try_stack.len(),
+            teardowns: ctx.for_of_teardown_stack.len(),
+            scopes: ctx.scope_stack.len(),
+        }
+    }
+
+    /// The shared block's throw path is filled once, by the first
+    /// append, so every append that branches to it has to leave the
+    /// same way: the same parked temps and try and for-of frames as at
+    /// the walk's entry, and nothing to drop in a frame opened since.
+    pub(crate) fn debug_assert_same(&self, ctx: &LowerCtx<'_>) {
+        debug_assert_eq!(ctx.temps.throw_live.iter().flatten().count(), self.live);
+        debug_assert_eq!(ctx.try_stack.len(), self.tries);
+        debug_assert_eq!(ctx.for_of_teardown_stack.len(), self.teardowns);
+        debug_assert!(!ctx.scopes_have_drops_from(self.scopes));
+    }
+}
+
 /// The low half of the packed capacity and head word.
 const CAP_MASK: i64 = 0xffff_ffff;
 

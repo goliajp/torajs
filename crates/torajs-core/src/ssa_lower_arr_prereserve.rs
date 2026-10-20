@@ -89,7 +89,7 @@ pub(crate) struct PreReserve {
     /// The block that raises the RangeError of an append past the
     /// longest array, shared by the guarded appends of one string walk
     /// (`crate::ssa_lower_while_push_fast::walk`).
-    pub(crate) walk_raise: Option<BlockId>,
+    pub(crate) walk_raise: Option<WalkRaise>,
 }
 
 impl PreReserve {
@@ -171,9 +171,9 @@ impl PreReserve {
 }
 
 mod guard;
-pub(crate) use guard::Guard;
+pub(crate) use guard::{Guard, WalkRaise};
 
-use crate::ssa::{BinOp as SsaBinOp, BlockId, IPred, InstKind, Operand, Type, ValueId};
+use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Type, ValueId};
 use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx, PreReserveState};
 use crate::ssa_lower_str_arr_inplace::emit_arr_lock_bits_guard;
 

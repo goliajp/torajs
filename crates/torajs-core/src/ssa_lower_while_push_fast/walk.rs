@@ -58,6 +58,7 @@ mod allow;
 use crate::ast::{Expr, ExprId, Stmt};
 use crate::ssa::{BinOp, IPred, InstKind, Operand, Terminator, Type, ValueId};
 use crate::ssa_lower::{ARR_CAP_HEAD_OFF, ARR_LEN_OFF, LocalInfo, LowerCtx};
+use crate::ssa_lower_arr_prereserve::WalkRaise;
 
 use super::lower_loop;
 use allow::{Names, body_decls, first_push_receiver, is_string_ident, walk_stmt};
@@ -95,6 +96,7 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx<'_>, counter: &str, cond: ExprId, bod
     }
     let state = ctx.emit_guarded_state(cell, k, headless, test_lock);
     ctx.prereserve.unchecked_for.insert(arr.clone(), state);
+    ctx.prereserve.walk_raise = Some(WalkRaise::at_entry(ctx));
     lower_loop(ctx, cond, body);
     ctx.emit_prereserved_len_writeback(state);
     ctx.prereserve.unchecked_for.remove(&arr);

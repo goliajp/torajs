@@ -126,9 +126,13 @@ pub(super) fn make_room(
     ctx.cur_block = grow_blk;
     // the grow may raise
     ctx.emit_settle_len(st, len);
-    let mut raise = ctx.prereserve.walk_raise.take();
-    emit_grow_to_fit(ctx, arr, need, cap, k, &mut raise);
-    ctx.prereserve.walk_raise = raise;
+    let mut site = ctx
+        .prereserve
+        .walk_raise
+        .expect("a guarded append is a walk's");
+    site.debug_assert_same(ctx);
+    emit_grow_to_fit(ctx, arr, need, cap, k, &mut site.blk);
+    ctx.prereserve.walk_raise = Some(site);
     let cb = ctx.cur_block;
     ctx.f.set_term(cb, Terminator::Br(fast_blk));
 }
