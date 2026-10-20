@@ -239,7 +239,7 @@ fn lower_once(
     let class_drop_fids: HashMap<u32, FuncId> =
         class_drops.iter().map(|d| (d.sid.0, d.fid)).collect();
     let suspend = async_setup::preregister(ast, &mut module, &mut fn_table, &mut fn_sigs);
-    body_passes::run(
+    let drop_hooks = body_passes::run(
         &suspend,
         decl_indices,
         closure_decls,
@@ -292,7 +292,7 @@ fn lower_once(
         &anon_stamp_pool,
         struct_layouts_pass15_len,
     );
-    let disagree = cell_size::settle(&mut module, &closure_captures, ast, &facts);
+    let disagree = cell_size::settle(&mut module, &closure_captures, ast, &facts, &drop_hooks);
     (module, struct_names(&aliases, &disagree))
 }
 

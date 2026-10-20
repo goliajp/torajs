@@ -50,6 +50,7 @@ mod paths;
 use super::any_holds::AnyHolds;
 pub(crate) use env::{EnvLayouts, env_layouts};
 use paths::Paths;
+pub(super) use paths::elem_obj;
 
 const OBJ_ALLOC: &str = "__torajs_obj_alloc";
 /// A capture box answers the pointer to its value slot; the payload
@@ -64,6 +65,17 @@ const FITS: [&str; 2] = ["__torajs_anyv_struct_fits", "__torajs_anyv_arr_fits"];
 /// nothing references never runs, and what its body hands on reaches
 /// no slot.
 pub(crate) fn open_sids(module: &Module, envs: &EnvLayouts) -> Vec<bool> {
+    open_sids_with(module, envs, &vec![false; module.funcs.len()]).0
+}
+
+/// [`open_sids`] over the functions `skip` leaves, with every prefix
+/// path a cell took (`(wide, narrow)`: a cell of `wide` reached a slot
+/// of `narrow`).
+pub(crate) fn open_sids_with(
+    module: &Module,
+    envs: &EnvLayouts,
+    skip: &[bool],
+) -> (Vec<bool>, Vec<(StructId, StructId)>) {
     let layouts = &module.struct_layouts;
     let globals: HashMap<&str, Type> = module
         .data_globals
@@ -82,14 +94,14 @@ pub(crate) fn open_sids(module: &Module, envs: &EnvLayouts) -> Vec<bool> {
     let holds = AnyHolds::of(module);
     let mut open = vec![false; layouts.len()];
     let paths = RefCell::new(Paths::default());
-    for fid in holds.address_taken() {
+    for fid in (holds.address_taken().into_iter()).filter(|f| !skip[f.0 as usize]) {
         for p in &module.funcs[fid.0 as usize].params {
             let ty = module.funcs[fid.0 as usize].value_type(*p);
             paths.borrow_mut().entered_blind(module, ty);
         }
     }
     for (i, f) in module.funcs.iter().enumerate() {
-        if holds.is_dead(FuncId(i as u32)) {
+        if holds.is_dead(FuncId(i as u32)) || skip[i] {
             continue;
         }
         let mut scan = Scan {
@@ -115,8 +127,10 @@ pub(crate) fn open_sids(module: &Module, envs: &EnvLayouts) -> Vec<bool> {
         };
         scan.run();
     }
-    paths.into_inner().settle(&mut open);
-    open
+    let paths = paths.into_inner();
+    let widens = paths.widens();
+    paths.settle(&mut open);
+    (open, widens)
 }
 
 /// `base` is `wide`'s layout by field name, field for field.

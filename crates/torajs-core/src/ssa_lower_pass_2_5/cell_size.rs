@@ -52,16 +52,22 @@ fn cell_bytes(n_fields: usize) -> usize {
 /// AST's `widen_clone_origin` are the closure side channels the env
 /// layouts are read from (`cell_slot_flow::env_layouts`); `facts` names
 /// the value classes the SSA is held to (`value_class_check`); the
-/// ones it contradicts are the answer.
+/// ones it contradicts are the answer. Once none does, the release fns'
+/// tests the module proves are settled (`drop_proofs`).
 pub(crate) fn settle(
     module: &mut Module,
     captures: &HashMap<String, Vec<(String, Type, bool)>>,
     ast: &crate::ast::Ast,
     facts: &crate::ssa_lower::proofs::ProgramFacts,
+    drop_hooks: &crate::ssa_lower_emit_drop_value::class_drop_fill::DropHooks,
 ) -> Vec<crate::ssa::StructId> {
     let envs = env_layouts(module, captures, &ast.widen_clone_origin);
     let unsettled = settle_alloc_sizes_to_rows(module);
-    settle_typed_frees(module, &envs, &unsettled, ast, facts)
+    let disagree = settle_typed_frees(module, &envs, &unsettled, ast, facts);
+    if disagree.is_empty() {
+        super::drop_proofs::settle(module, ast, &envs, drop_hooks);
+    }
+    disagree
 }
 
 /// A typed object drop leaves lowering as `obj_drop_sized(p, size,

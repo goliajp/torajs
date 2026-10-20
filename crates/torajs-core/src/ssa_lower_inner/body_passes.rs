@@ -50,7 +50,7 @@ pub(crate) fn run(
     promise_thunks: &crate::ssa_lower_promise_thunk::PromiseThunks,
     class_drop_fids: &std::collections::HashMap<u32, crate::ssa::FuncId>,
     boxed_entries: &HashMap<FuncId, (FuncId, ssa::SigId)>,
-) {
+) -> crate::ssa_lower_emit_drop_value::class_drop_fill::DropHooks {
     let scans = crate::ssa_lower_ctx_state::ModuleScans::of(ast, expr_types);
     // Pass 2: user FnDecl bodies; each body's interned strings go to
     // module.strings at once, so StringIds stay in step with its length.
@@ -201,9 +201,8 @@ pub(crate) fn run(
         module,
     );
 
-    // Pass 2.5c: the per-class release fn bodies, over the settled
-    // layouts — [`crate::ssa_lower_emit_drop_value::class_drop_fill::populate_class_drop_bodies`].
-    crate::ssa_lower_emit_drop_value::class_drop_fill::populate_class_drop_bodies(
+    // Pass 2.5c: the per-class release fn bodies, over the settled layouts.
+    let hooks = crate::ssa_lower_emit_drop_value::class_drop_fill::populate_class_drop_bodies(
         class_drops,
         class_name_to_tag,
         aliases,
@@ -214,4 +213,5 @@ pub(crate) fn run(
         module,
     );
     crate::ssa_lower_emit_drop_value::class_drop_reentry::route(class_drops, fn_sigs, module);
+    hooks
 }

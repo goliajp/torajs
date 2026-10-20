@@ -67,6 +67,13 @@ impl Paths {
         }
     }
 
+    /// Every `(wide, narrow)` path recorded.
+    pub(super) fn widens(&self) -> Vec<(StructId, StructId)> {
+        let mut v: Vec<_> = self.widens.iter().copied().collect();
+        v.sort_by_key(|(w, n)| (w.0, n.0));
+        v
+    }
+
     /// Close `open` over the recorded paths.
     pub(super) fn settle(self, open: &mut [bool]) {
         for sid in self.forced {
@@ -109,7 +116,7 @@ impl Paths {
 }
 
 /// The cell layout at the bottom of a (nested) array type.
-pub(super) fn elem_obj(module: &Module, ty: Type) -> Option<StructId> {
+pub(in crate::ssa_lower_pass_2_5) fn elem_obj(module: &Module, ty: Type) -> Option<StructId> {
     match ty {
         Type::Obj(sid) => Some(sid),
         Type::Arr(a) => elem_obj(module, module.arr_layouts[a.0 as usize]),

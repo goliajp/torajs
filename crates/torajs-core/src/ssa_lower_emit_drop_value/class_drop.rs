@@ -46,6 +46,7 @@ use crate::ssa_lower_emit_drop_value::class_drop_cells::{
     emit_cold_call, emit_colour_black, emit_cond_call, emit_has_props, emit_is_buffered,
     emit_is_null, emit_is_undef, emit_rc_dec, emit_tag_in_set, emit_weakref_notify,
 };
+use crate::ssa_lower_emit_drop_value::class_drop_fill::Test;
 use crate::ssa_lower_emit_drop_value::class_drop_worklist::{self as worklist, Worklist};
 
 /// What a release expansion reads besides the function it writes into.
@@ -66,6 +67,8 @@ pub(crate) struct Cx<'a> {
     pub cold: RefCell<Vec<ColdLeg>>,
     /// set when the sid's instances hold the sid (`class_drop_worklist`)
     pub worklist: Option<Worklist>,
+    /// the tests a whole-program proof may settle (`class_drop_fill`)
+    pub hooks: RefCell<Vec<(u32, Test, BlockId)>>,
 }
 
 /// a leg off the hot path, emitted once the body is complete
@@ -73,6 +76,10 @@ type ColdLeg = Box<dyn FnOnce(&mut ssa::Function)>;
 impl Cx<'_> {
     pub(crate) fn defer(&self, leg: impl FnOnce(&mut ssa::Function) + 'static) {
         self.cold.borrow_mut().push(Box::new(leg));
+    }
+
+    fn hook(&self, sid: u32, test: Test, blk: BlockId) {
+        self.hooks.borrow_mut().push((sid, test, blk));
     }
 }
 
@@ -232,6 +239,7 @@ fn emit_walk(
 ) -> BlockId {
     let mut cur = blk;
     if cx.class_sids.contains(&sid) {
+        cx.hook(sid, Test::WeakRef, cur);
         cur = emit_weakref_notify(f, cx, cur, val);
     }
     // the worklist's own instance goes on with its last own-sid field
@@ -259,5 +267,6 @@ fn emit_walk(
     }
     stack.pop();
     let has = emit_has_props(f, cur, val);
+    cx.hook(sid, Test::Props, cur);
     emit_cold_call(f, cx, cur, has, cx.intr.obj_props_drop_slow, val)
 }
