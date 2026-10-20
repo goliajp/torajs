@@ -25,20 +25,20 @@
 use crate::archive_emit::member_data_layouts;
 use crate::archives_merge::MergedArchives;
 use crate::class_name_table_layout::apply_class_name_table_overrides;
+use crate::data_section_layout::DataSectionLayout;
 use crate::exec::LinkConfig;
 use crate::fn_addr_syms::register_user_fn_syms;
 use crate::fn_name_table_layout::apply_fn_name_table_overrides;
+use crate::layout_types::ArchiveLayout;
 use crate::layout_types::ArchiveLayoutError;
+use crate::non_text_layout::NonTextSectionLayout;
+use crate::resolve::{SymIndex, SymTable};
 use crate::tlv_descriptor_layout::apply_tlv_overrides;
 use crate::user_class_layouts_layout::apply_user_class_layouts_overrides;
 use crate::user_data_globals_layout::apply_user_data_global_overrides;
 use crate::user_regex_baked_layout::apply_user_regex_baked_overrides;
 use crate::user_strings_emit::apply_user_string_overrides;
 use crate::user_vtables_layout::apply_user_vtable_overrides;
-use crate::data_section_layout::DataSectionLayout;
-use crate::layout_types::ArchiveLayout;
-use crate::non_text_layout::NonTextSectionLayout;
-use crate::resolve::{SymIndex, SymTable};
 
 /// Dispatch each defined extern's final vaddr through its home
 /// section. Mirrors [`crate::member_resolve::resolve_local_nsect`]

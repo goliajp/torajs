@@ -54,8 +54,8 @@ use crate::prune::{Winners, live_members};
 
 mod rows;
 mod view;
-use rows::{Names, sym_rows};
 pub use rows::SymbolRows;
+use rows::{Names, sym_rows};
 pub use view::{Image, ImageError, ImageSymbol};
 
 const MAGIC: &[u8; 8] = b"TRIMG\0\0\0";
