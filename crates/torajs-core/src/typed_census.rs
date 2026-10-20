@@ -139,12 +139,50 @@ impl Checker {
     /// 之后算出 —— 一次被拒的编译同样要有读数,否则 `refused` 永远是
     /// 0。打印由调用方决定:要带着生成器孪生请求重编的那一轮不打,
     /// 每次编译只打最后一轮的一行。
+    ///
+    /// `TORAJS_TYPED_CENSUS=any` prints the same line, then one
+    /// `torajs-typed-census-any: <start> <end> <expr>` line per expression
+    /// in the `any` bucket, in source order, so a drop in the ratio can
+    /// be read site by site (`<expr>` is the node's debug form, cut at 80
+    /// characters; a node desugaring made has span 0 0).
     pub(crate) fn typed_census_line(&self, ast: &Ast) -> Option<String> {
-        if std::env::var("TORAJS_TYPED_CENSUS").as_deref() != Ok("1") {
+        let mode = std::env::var("TORAJS_TYPED_CENSUS").ok()?;
+        if mode != "1" && mode != "any" {
             return None;
         }
         let skip = crate::ast::twin_body_exprs(ast);
-        Some(self.typed_census(&skip).report_line())
+        let mut line = self.typed_census(&skip).report_line();
+        if mode == "any" {
+            line.push_str(&self.any_sites(ast, &skip));
+        }
+        Some(line)
+    }
+
+    /// The `any` bucket of [`Self::typed_census`], one line per site.
+    fn any_sites(&self, ast: &Ast, skip: &HashSet<ExprId>) -> String {
+        let mut sites: Vec<(u32, u32, String)> = self
+            .expr_types
+            .iter()
+            .filter(|(eid, ty)| {
+                !skip.contains(eid)
+                    && matches!(ty, Type::Any)
+                    && !self.unions.types.contains_key(eid)
+            })
+            .map(|(eid, _)| {
+                let span = ast.expr_spans.get(eid.0 as usize).copied();
+                let (start, end) = span.map_or((0, 0), |s| (s.start, s.end));
+                let mut kind = format!("{:?}", ast.exprs[eid.0 as usize]);
+                if let Some((cut, _)) = kind.char_indices().nth(80) {
+                    kind.truncate(cut);
+                }
+                (start, end, kind)
+            })
+            .collect();
+        sites.sort();
+        sites
+            .iter()
+            .map(|(start, end, kind)| format!("\ntorajs-typed-census-any: {start} {end} {kind}"))
+            .collect()
     }
 }
 
