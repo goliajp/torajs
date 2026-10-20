@@ -6,7 +6,8 @@
 
 use super::container::{UnionFind, canon_key_frozen};
 use super::{Analysis, SlotKey};
-use std::collections::{HashMap, HashSet};
+use crate::ssa::id_hash::{HashMap, HashSet};
+use std::sync::OnceLock;
 
 /// Is the holder `h` of a promise value point in an untracked class:
 /// reached itself, or the element or program-named field of one that
@@ -36,8 +37,11 @@ pub(crate) struct PromiseTaint {
     /// The value point classes among `faces` one of whose holders is
     /// tainted.
     wide: HashSet<SlotKey>,
-    /// The classes that also hold a container.
-    held: HashSet<SlotKey>,
+    /// The keys the walk found a container in, and their classes, the
+    /// classes that keep their form; asked only of a face a promise
+    /// reaches.
+    containerish: Vec<SlotKey>,
+    held: OnceLock<HashSet<SlotKey>>,
 }
 
 impl PromiseTaint {
@@ -49,13 +53,28 @@ impl PromiseTaint {
     /// which keeps its form (an async body's result point also carries
     /// the `Error` it rejects with)?
     pub(crate) fn widens(&self, uf: &UnionFind, f: &SlotKey) -> bool {
-        !self.tainted.is_empty()
-            && !self.held.contains(&canon_key_frozen(uf, f))
-            && self.reaches(uf, f)
+        if self.tainted.is_empty() {
+            return false;
+        }
+        let c = canon_key_frozen(uf, f);
+        self.reaches_from(uf, f, &c) && !self.held(uf).contains(&c)
+    }
+
+    fn held(&self, uf: &UnionFind) -> &HashSet<SlotKey> {
+        self.held.get_or_init(|| {
+            (self.containerish.iter())
+                .map(|k| canon_key_frozen(uf, k))
+                .collect()
+        })
     }
 
     fn reaches(&self, uf: &UnionFind, f: &SlotKey) -> bool {
-        if self.class_wide(uf, &canon_key_frozen(uf, f)) {
+        self.reaches_from(uf, f, &canon_key_frozen(uf, f))
+    }
+
+    /// [`Self::reaches`] of `f`, whose class is `c`.
+    fn reaches_from(&self, uf: &UnionFind, f: &SlotKey, c: &SlotKey) -> bool {
+        if self.class_wide(uf, c) {
             return true;
         }
         match f {
@@ -88,19 +107,17 @@ impl PromiseTaint {
 }
 
 /// After `canonicalize`: take the frozen classes of the untracked
-/// sources, close them over every alias pair the walk recorded (`alias_pairs`,
-/// joined or not: a guarded pair joins only on container evidence, and
-/// a promise slot has none, yet the two sides hold the same promise),
+/// sources, close them over every alias pair the walk recorded
+/// (guarded and nested, joined or not: a guarded pair joins only on
+/// container evidence, and a promise slot has none, yet the two sides
+/// hold the same promise),
 /// then seed every number face noted under a promise that
 /// [`PromiseTaint::widens`]: only a number's width is at stake, and a
 /// value point a slot of another type joins (a handler's `any`
 /// parameter, an iterator step's `value`, a container) must keep its
 /// form. Answers what lowering's own `await` reads ask; nothing in a
 /// program that has no promise to read.
-pub(super) fn seed_untracked_points(
-    a: &mut Analysis,
-    alias_pairs: &[(SlotKey, SlotKey)],
-) -> PromiseTaint {
+pub(super) fn seed_untracked_points(a: &mut Analysis) -> PromiseTaint {
     if !a.promises {
         return PromiseTaint::default();
     }
@@ -114,10 +131,11 @@ pub(super) fn seed_untracked_points(
     if tainted.is_empty() {
         return PromiseTaint::default();
     }
-    close_over_pairs(&mut tainted, &a.uf, alias_pairs);
+    let pairs = a.guarded_unions.iter().chain(&a.nested_unions);
+    close_over_pairs(&mut tainted, &a.uf, pairs);
     // only the classes a noted face, or a value point above one, is in
     // can answer a read
-    let mut faces: HashSet<SlotKey> = HashSet::new();
+    let mut faces: HashSet<SlotKey> = HashSet::default();
     for f in &a.number_faces {
         let mut k = f;
         faces.insert(canon_key_frozen(&a.uf, k));
@@ -134,14 +152,12 @@ pub(super) fn seed_untracked_points(
         .filter(|(h, c)| faces.contains(c) && holder_untracked(&tainted, &a.uf, h))
         .map(|(_, c)| c)
         .collect();
-    let held = (a.containerish.iter())
-        .map(|k| canon_key_frozen(&a.uf, k))
-        .collect();
     let taint = PromiseTaint {
         tainted,
         faces,
         wide,
-        held,
+        containerish: a.containerish.iter().cloned().collect(),
+        held: OnceLock::new(),
     };
     let points: Vec<SlotKey> = (a.number_faces.iter())
         .filter(|f| taint.widens(&a.uf, f))
@@ -151,40 +167,96 @@ pub(super) fn seed_untracked_points(
     taint
 }
 
-/// The canonical keys whose class taints `k`: its own, and those of
-/// the arrays and program-named fields holding it.
-fn holder_chain(uf: &UnionFind, k: &SlotKey) -> Vec<SlotKey> {
-    let mut out = vec![canon_key_frozen(uf, k)];
-    let mut h = k;
-    while let SlotKey::Elem(g) | SlotKey::Field(g, _) = h {
-        if matches!(h, SlotKey::Field(_, f) if f.lossy().starts_with("__")) {
-            break;
+/// The alias classes the pairs' sides and their holders are in, as
+/// dense ids: the sides share most of their holders, so each spelling
+/// is canonicalized once and each class kept once.
+#[derive(Default)]
+struct Classes<'p> {
+    of: HashMap<&'p SlotKey, usize>,
+    ids: HashMap<SlotKey, usize>,
+    keys: Vec<SlotKey>,
+}
+
+impl<'p> Classes<'p> {
+    /// The id of `canon_key_frozen(uf, k)`.
+    fn id(&mut self, uf: &UnionFind, k: &'p SlotKey) -> usize {
+        if let Some(&i) = self.of.get(k) {
+            return i;
         }
-        out.push(canon_key_frozen(uf, g));
-        h = g;
+        let c = match k {
+            SlotKey::Elem(x) => {
+                let xi = self.id(uf, x);
+                uf.find_frozen(&SlotKey::Elem(Box::new(self.keys[xi].clone())))
+            }
+            SlotKey::Field(x, n) => {
+                let xi = self.id(uf, x);
+                uf.find_frozen(&SlotKey::Field(Box::new(self.keys[xi].clone()), n.clone()))
+            }
+            _ => uf.find_frozen(k),
+        };
+        let i = match self.ids.get(&c) {
+            Some(&i) => i,
+            None => {
+                self.keys.push(c.clone());
+                self.ids.insert(c, self.keys.len() - 1);
+                self.keys.len() - 1
+            }
+        };
+        self.of.insert(k, i);
+        i
     }
-    out
+
+    /// The classes whose taint reaches `k`: its own, and those of the
+    /// arrays and program-named fields holding it.
+    fn holder_chain(&mut self, uf: &UnionFind, k: &'p SlotKey) -> Vec<usize> {
+        let mut out = Vec::new();
+        let mut h = k;
+        loop {
+            out.push(self.id(uf, h));
+            match h {
+                SlotKey::Elem(g) => h = g,
+                SlotKey::Field(g, f) if !f.lossy().starts_with("__") => h = g,
+                _ => return out,
+            }
+        }
+    }
 }
 
 /// Close `tainted` over the alias pairs: a pair one side of which is
 /// held by a tainted class taints the other side's class. Each pair is
-/// filed under every key whose taint reaches it, so each newly tainted
-/// class is visited once.
-fn close_over_pairs(tainted: &mut HashSet<SlotKey>, uf: &UnionFind, pairs: &[(SlotKey, SlotKey)]) {
-    let mut by_holder: HashMap<SlotKey, Vec<SlotKey>> = HashMap::new();
+/// filed under every class whose taint reaches it, so each newly
+/// tainted class is visited once.
+fn close_over_pairs<'p>(
+    tainted: &mut HashSet<SlotKey>,
+    uf: &UnionFind,
+    pairs: impl Iterator<Item = &'p (SlotKey, SlotKey)>,
+) {
+    let mut cls = Classes::default();
+    // by class: the classes of the pair sides its taint reaches
+    let mut taints: Vec<Vec<usize>> = Vec::new();
     for (x, y) in pairs {
-        for (from, to) in [(x, y), (y, x)] {
-            let to = canon_key_frozen(uf, to);
-            for c in holder_chain(uf, from) {
-                by_holder.entry(c).or_default().push(to.clone());
-            }
+        let (cx, cy) = (cls.holder_chain(uf, x), cls.holder_chain(uf, y));
+        taints.resize(cls.keys.len(), Vec::new());
+        for &c in &cx {
+            taints[c].push(cy[0]);
+        }
+        for &c in &cy {
+            taints[c].push(cx[0]);
         }
     }
-    let mut work: Vec<SlotKey> = tainted.iter().cloned().collect();
-    while let Some(k) = work.pop() {
-        for to in by_holder.get(&k).into_iter().flatten() {
-            if tainted.insert(to.clone()) {
-                work.push(to.clone());
+    let mut marked = vec![false; cls.keys.len()];
+    let mut work: Vec<usize> = (tainted.iter())
+        .filter_map(|k| cls.ids.get(k).copied())
+        .collect();
+    for &i in &work {
+        marked[i] = true;
+    }
+    while let Some(i) = work.pop() {
+        for &t in &taints[i] {
+            if !marked[t] {
+                marked[t] = true;
+                tainted.insert(cls.keys[t].clone());
+                work.push(t);
             }
         }
     }
@@ -210,7 +282,7 @@ mod tests {
         let mut uf = UnionFind::default();
         uf.union(&point(local("a")), &point(local("b")));
         let taint = PromiseTaint {
-            tainted: HashSet::from([canon_key_frozen(&uf, &local("b"))]),
+            tainted: [canon_key_frozen(&uf, &local("b"))].into_iter().collect(),
             ..PromiseTaint::default()
         };
         assert!(taint.widens(&uf, &point(local("a"))));

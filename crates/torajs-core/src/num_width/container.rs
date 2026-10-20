@@ -61,7 +61,7 @@ impl UnionFind {
         }
     }
 
-    fn find_frozen(&self, k: &SlotKey) -> SlotKey {
+    pub(super) fn find_frozen(&self, k: &SlotKey) -> SlotKey {
         let mut cur = k;
         loop {
             match self.parent.get(cur) {
@@ -236,10 +236,11 @@ pub(super) fn objlit_ctor_unions(a: &mut Analysis) {
 /// the element side is trivially containerish, and scalars flowing
 /// into elements must contribute width only (one-way constraint),
 /// never glue onto the element class. Applying an edge spreads
-/// evidence, so chains activate transitively across both kinds.
+/// evidence, so chains activate transitively across both kinds. Both
+/// lists stay, applied or not: `promise_taint` reads every pair.
 pub(super) fn activate_guarded(a: &mut Analysis) {
-    let mut guarded: Vec<(SlotKey, SlotKey)> = std::mem::take(&mut a.guarded_unions);
-    let mut nested: Vec<(SlotKey, SlotKey)> = std::mem::take(&mut a.nested_unions);
+    let mut applied_g = vec![false; a.guarded_unions.len()];
+    let mut applied_n = vec![false; a.nested_unions.len()];
     loop {
         let mut changed = false;
         // Evidence is filed under whatever spelling its marking site
@@ -254,31 +255,24 @@ pub(super) fn activate_guarded(a: &mut Analysis) {
             .iter()
             .map(|k| canon_key_frozen(&a.uf, k))
             .collect();
-        let mut next_g: Vec<(SlotKey, SlotKey)> = Vec::new();
-        for (x, y) in guarded {
-            let known = evidence.contains(&canon_key_frozen(&a.uf, &x))
-                || evidence.contains(&canon_key_frozen(&a.uf, &y));
-            if known {
+        for ((x, y), applied) in a.guarded_unions.iter().zip(&mut applied_g) {
+            if !*applied
+                && (evidence.contains(&canon_key_frozen(&a.uf, x))
+                    || evidence.contains(&canon_key_frozen(&a.uf, y)))
+            {
                 a.containerish.insert(x.clone());
                 a.containerish.insert(y.clone());
-                a.uf.union(&x, &y);
-                changed = true;
-            } else {
-                next_g.push((x, y));
+                a.uf.union(x, y);
+                (*applied, changed) = (true, true);
             }
         }
-        guarded = next_g;
-        let mut next_n: Vec<(SlotKey, SlotKey)> = Vec::new();
-        for (ek, cand) in nested {
-            if evidence.contains(&canon_key_frozen(&a.uf, &cand)) {
+        for ((ek, cand), applied) in a.nested_unions.iter().zip(&mut applied_n) {
+            if !*applied && evidence.contains(&canon_key_frozen(&a.uf, cand)) {
                 a.containerish.insert(ek.clone());
-                a.uf.union(&ek, &cand);
-                changed = true;
-            } else {
-                next_n.push((ek, cand));
+                a.uf.union(ek, cand);
+                (*applied, changed) = (true, true);
             }
         }
-        nested = next_n;
         if !changed {
             break;
         }

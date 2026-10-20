@@ -19,18 +19,11 @@ pub(super) fn join_classes(a: &mut Analysis) -> promise_taint::PromiseTaint {
     slot_abi::relay_unions(a);
     a.alias_nominal_unions();
     a.fnsig_nominal_unions();
-    // every alias pair the walk recorded, before activation drops the
-    // ones no container evidence joins
-    let alias_pairs = if a.promises {
-        [&a.guarded_unions[..], &a.nested_unions[..]].concat()
-    } else {
-        Vec::new()
-    };
     container::activate_guarded(a);
     a.seeds.append(&mut a.c_seeds);
     for (d, ts) in std::mem::take(&mut a.c_edges) {
         a.edges.entry(d).or_default().extend(ts);
     }
     container::canonicalize(a);
-    promise_taint::seed_untracked_points(a, &alias_pairs)
+    promise_taint::seed_untracked_points(a)
 }
