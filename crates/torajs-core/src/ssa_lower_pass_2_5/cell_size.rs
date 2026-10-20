@@ -39,7 +39,7 @@ use crate::ssa_lower_emit_drop_value::leaf_arr::{
 };
 use crate::ssa_lower_intrinsics_obj_capture::{OBJ_DROP_SIZED_SYM, OBJ_FREE_CELL_SYM};
 
-use super::cell_slot_flow::{EnvLayouts, env_layouts, is_prefix, open_sids};
+use super::cell_slot_flow::{Both, env_layouts, is_prefix, open_sids, open_sids_both};
 
 const OBJ_ALLOC: &str = "__torajs_obj_alloc";
 
@@ -53,7 +53,9 @@ fn cell_bytes(n_fields: usize) -> usize {
 /// layouts are read from (`cell_slot_flow::env_layouts`); `facts` names
 /// the value classes the SSA is held to (`value_class_check`); the
 /// ones it contradicts are the answer. Once none does, the release fns'
-/// tests the module proves are settled (`drop_proofs`).
+/// tests the module proves are settled (`drop_proofs`), which read the
+/// open sids over the functions that run: those scans are shared with
+/// the ones over every function the frees read.
 pub(crate) fn settle(
     module: &mut Module,
     captures: &HashMap<String, Vec<(String, Type, bool)>>,
@@ -63,9 +65,23 @@ pub(crate) fn settle(
 ) -> Vec<crate::ssa::StructId> {
     let envs = env_layouts(module, captures, &ast.widen_clone_origin);
     let unsettled = settle_alloc_sizes_to_rows(module);
-    let disagree = settle_typed_frees(module, &envs, &unsettled, ast, facts);
-    if disagree.is_empty() {
-        super::drop_proofs::settle(module, ast, &envs, drop_hooks);
+    let (open, flow) = match super::drop_proofs::asleep(module, ast, drop_hooks) {
+        Some(asleep) => {
+            let Both {
+                all,
+                open,
+                widens,
+                skip,
+            } = open_sids_both(module, &envs, &asleep);
+            (all, Some((open, widens, skip)))
+        }
+        None => (open_sids(module, &envs), None),
+    };
+    let disagree = settle_typed_frees(module, &unsettled, ast, facts, &open);
+    if disagree.is_empty()
+        && let Some(flow) = flow
+    {
+        super::drop_proofs::settle(module, &envs, drop_hooks, flow);
     }
     disagree
 }
@@ -78,10 +94,10 @@ pub(crate) fn settle(
 /// by what the cell says of itself instead.
 fn settle_typed_frees(
     module: &mut Module,
-    envs: &EnvLayouts,
     unsettled: &HashSet<usize>,
     ast: &crate::ast::Ast,
     facts: &crate::ssa_lower::proofs::ProgramFacts,
+    open: &[bool],
 ) -> Vec<crate::ssa::StructId> {
     let find = |name: &str| {
         let at = module.funcs.iter().position(|f| f.name == name)?;
@@ -97,9 +113,8 @@ fn settle_typed_frees(
     .into_iter()
     .filter_map(|(s, b)| Some((find(s)?, find(b)?)))
     .collect();
-    let open = open_sids(module, envs);
     let strict = super::value_class_check::strict();
-    let disagree = super::value_class_check::report(module, ast, facts, &open, strict);
+    let disagree = super::value_class_check::report(module, ast, facts, open, strict);
     if !disagree.is_empty() {
         // the module lowers again without them
         return disagree;

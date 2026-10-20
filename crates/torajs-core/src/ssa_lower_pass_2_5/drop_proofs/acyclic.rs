@@ -23,15 +23,15 @@
 //!   runtime entry that could keep or buffer it.
 //!
 //! The collector itself then never meets such a cell: nothing it walks
-//! holds one.
+//! holds one. Only the running functions that hold cells of the sid are
+//! read: no other one stores into one, stores one, or hands one on.
 
-use std::collections::{HashMap, HashSet};
-
+use crate::ssa::id_hash::HashSet;
 use crate::ssa::{FuncId, InstKind, Module, Operand, StructId, Terminator, Type, ValueId};
 use crate::ssa_lower::OBJ_HEADER_SIZE;
 
 use super::super::cell_slot_flow::{EnvLayouts, elem_obj};
-use super::undef::{Shared, Slot};
+use super::undef::Shared;
 
 const OBJ_ALLOC: &str = "__torajs_obj_alloc";
 
@@ -58,24 +58,25 @@ pub(super) fn unbuffered(module: &Module, shared: &Shared, envs: &EnvLayouts, si
 
 struct Private<'a> {
     module: &'a Module,
+    shared: &'a Shared<'a>,
     sid: u32,
     own: Type,
     offs: Vec<u64>,
     alloc: Option<usize>,
-    running: &'a [usize],
-    /// The running functions other than the release fns.
+    /// The running functions that hold cells of the sid, release fns
+    /// aside.
     scan: Vec<usize>,
+    in_scan: Vec<bool>,
     /// Per function, whether its parameter 0 is a private cell.
     ctor: Vec<bool>,
-    slots: &'a [HashMap<ValueId, Slot>],
-    /// Per function, the values that are private cells.
+    /// Per function read, the values that are private cells.
     private: Vec<Vec<bool>>,
     /// Per function, the local slots that hold nothing but private cells.
     private_slots: Vec<HashSet<ValueId>>,
 }
 
 impl<'a> Private<'a> {
-    fn new(module: &'a Module, shared: &'a Shared, sid: u32) -> Self {
+    fn new(module: &'a Module, shared: &'a Shared<'a>, sid: u32) -> Self {
         let own = Type::Obj(StructId(sid));
         let offs = (module.struct_layouts[sid as usize].iter().enumerate())
             .filter(|(_, (_, t))| *t == own)
@@ -83,61 +84,59 @@ impl<'a> Private<'a> {
             .collect();
         let (entered, called) = (&shared.entered, &shared.called);
         let releases = &module.class_drop_fns;
-        let scan = (shared.running.iter().copied())
+        let scan: Vec<usize> = (shared.mentions(sid).iter().copied())
             .filter(|i| !releases.contains(&FuncId(*i as u32)))
             .collect();
+        let mut in_scan = vec![false; module.funcs.len()];
+        scan.iter().for_each(|i| in_scan[*i] = true);
+        // a call from a function not read passes no private cell
         let ctor = (module.funcs.iter().enumerate())
             .map(|(i, f)| {
                 !entered[i]
                     && called[i]
                     && f.params.first().is_some_and(|p| f.value_type(*p) == own)
+                    && shared.callers[i].iter().all(|c| in_scan[*c])
             })
             .collect();
         Private {
             module,
+            shared,
             sid,
             own,
             offs,
             alloc: module.funcs.iter().position(|f| f.name == OBJ_ALLOC),
-            running: &shared.running,
             scan,
+            in_scan,
             ctor,
-            slots: &shared.slots,
-            private: module
-                .funcs
-                .iter()
-                .map(|f| vec![false; f.values.len()])
-                .collect(),
-            private_slots: module.funcs.iter().map(|_| HashSet::new()).collect(),
+            private: module.funcs.iter().map(|_| Vec::new()).collect(),
+            private_slots: module.funcs.iter().map(|_| HashSet::default()).collect(),
         }
     }
 
     /// A constructor stays one while every direct call passes it a
-    /// private cell; recompute each function's private cells until no
-    /// constructor falls.
+    /// private cell. A function's private cells change only when it
+    /// stops being a constructor, and then only its own calls are read
+    /// again.
     fn settle(&mut self) {
-        loop {
-            for k in 0..self.scan.len() {
-                let i = self.scan[k];
-                let (private, slots) = self.local(i);
-                self.private[i] = private;
-                self.private_slots[i] = slots;
-            }
-            let mut moved = false;
-            for &i in self.running {
-                let f = &self.module.funcs[i];
-                for inst in f.blocks.iter().flat_map(|b| &b.insts) {
-                    if let InstKind::Call(g, args) = &inst.kind
-                        && self.ctor[g.0 as usize]
-                        && !args.first().is_some_and(|a| is(&self.private[i], a))
-                    {
-                        self.ctor[g.0 as usize] = false;
-                        moved = true;
+        for k in 0..self.scan.len() {
+            let i = self.scan[k];
+            (self.private[i], self.private_slots[i]) = self.local(i);
+        }
+        let module = self.module;
+        let mut work = self.scan.clone();
+        while let Some(i) = work.pop() {
+            for inst in module.funcs[i].blocks.iter().flat_map(|b| &b.insts) {
+                if let InstKind::Call(g, args) = &inst.kind
+                    && self.ctor[g.0 as usize]
+                    && !args.first().is_some_and(|a| is(&self.private[i], a))
+                {
+                    let g = g.0 as usize;
+                    self.ctor[g] = false;
+                    if self.in_scan[g] {
+                        (self.private[g], self.private_slots[g]) = self.local(g);
+                        work.push(g);
                     }
                 }
-            }
-            if !moved {
-                break;
             }
         }
     }
@@ -146,7 +145,8 @@ impl<'a> Private<'a> {
     /// them: the greatest set of slots whose stores are all private
     /// cells or null.
     fn local(&self, i: usize) -> (Vec<bool>, HashSet<ValueId>) {
-        let mut slots: HashSet<ValueId> = (self.slots[i].iter())
+        let all = self.shared.slots(i);
+        let mut slots: HashSet<ValueId> = (all.iter())
             .filter(|(_, s)| !s.escaped && !s.stores.is_empty())
             .map(|(v, _)| *v)
             .collect();
@@ -154,8 +154,7 @@ impl<'a> Private<'a> {
             let private = self.values(i, &slots);
             let before = slots.len();
             slots.retain(|s| {
-                (self.slots[i][s].stores.iter())
-                    .all(|v| *v == Operand::ConstPtrNull || is(&private, v))
+                (all[s].stores.iter()).all(|v| *v == Operand::ConstPtrNull || is(&private, v))
             });
             if slots.len() == before {
                 return (private, slots);
@@ -224,7 +223,7 @@ impl<'a> Private<'a> {
                     matches!(p, Operand::Value(s) if self.private_slots[i].contains(s))
                 }
                 InstKind::Store(v, p, _) if holds(v) => {
-                    matches!(p, Operand::Value(s) if self.slots[i].get(s).is_some_and(|s| !s.escaped))
+                    matches!(p, Operand::Value(s) if self.shared.slots(i).get(s).is_some_and(|s| !s.escaped))
                 }
                 InstKind::Store(..) => true,
                 InstKind::StoreDyn(v, p, _) | InstKind::StoreDynScaled8(v, p, _) => {
@@ -270,5 +269,5 @@ impl<'a> Private<'a> {
 }
 
 fn is(private: &[bool], o: &Operand) -> bool {
-    matches!(o, Operand::Value(v) if private[v.0 as usize])
+    matches!(o, Operand::Value(v) if private.get(v.0 as usize) == Some(&true))
 }

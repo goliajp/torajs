@@ -21,7 +21,7 @@ use crate::ssa::id_hash::HashSet;
 use super::is_prefix;
 use crate::ssa::{Module, StructId, Type};
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(super) struct Paths {
     /// `(wide, narrow)`: a cell of `wide` reached a slot of `narrow`,
     /// a prefix of it.

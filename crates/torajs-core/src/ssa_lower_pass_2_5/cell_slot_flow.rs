@@ -45,10 +45,13 @@ use crate::ssa_lower::{ARR_DATA_PTR_OFF, CLOSURE_FN_ADDR_OFF};
 
 mod env;
 mod fit;
+mod flow;
 mod paths;
 
 use super::any_holds::AnyHolds;
 pub(crate) use env::{EnvLayouts, env_layouts};
+use flow::Flow;
+pub(crate) use flow::{Both, open_sids_both};
 use paths::Paths;
 pub(super) use paths::elem_obj;
 
@@ -76,61 +79,10 @@ pub(crate) fn open_sids_with(
     envs: &EnvLayouts,
     skip: &[bool],
 ) -> (Vec<bool>, Vec<(StructId, StructId)>) {
-    let layouts = &module.struct_layouts;
-    let globals: HashMap<&str, Type> = module
-        .data_globals
-        .iter()
-        .map(|g| (g.name.as_str(), g.ty))
-        .collect();
-    let alloc = module.funcs.iter().position(|f| f.name == OBJ_ALLOC);
-    let box_alloc = module.funcs.iter().position(|f| f.name == BOX_ALLOC);
-    let fits: Vec<FuncId> = module
-        .funcs
-        .iter()
-        .enumerate()
-        .filter(|(_, f)| FITS.contains(&f.name.as_str()))
-        .map(|(i, _)| FuncId(i as u32))
-        .collect();
     let holds = AnyHolds::of(module);
-    let mut open = vec![false; layouts.len()];
-    let paths = RefCell::new(Paths::default());
-    for fid in (holds.address_taken().into_iter()).filter(|f| !skip[f.0 as usize]) {
-        for p in &module.funcs[fid.0 as usize].params {
-            let ty = module.funcs[fid.0 as usize].value_type(*p);
-            paths.borrow_mut().entered_blind(module, ty);
-        }
-    }
-    for (i, f) in module.funcs.iter().enumerate() {
-        if holds.is_dead(FuncId(i as u32)) || skip[i] {
-            continue;
-        }
-        let mut scan = Scan {
-            module,
-            f,
-            fid: FuncId(i as u32),
-            holds: &holds,
-            globals: &globals,
-            envs,
-            alloc,
-            box_alloc,
-            fits: &fits,
-            allocas: HashMap::default(),
-            global_refs: HashMap::default(),
-            data_of: HashMap::default(),
-            fn_addrs: HashMap::default(),
-            env_of: HashMap::default(),
-            loaded: HashMap::default(),
-            tested: HashSet::default(),
-            bits_of: HashMap::default(),
-            open: &mut open,
-            paths: &paths,
-        };
-        scan.run();
-    }
-    let paths = paths.into_inner();
-    let widens = paths.widens();
-    paths.settle(&mut open);
-    (open, widens)
+    let mut flow = Flow::new(module, envs, &holds);
+    flow.scan(|i| !skip[i]);
+    flow.settle()
 }
 
 /// `base` is `wide`'s layout by field name, field for field.

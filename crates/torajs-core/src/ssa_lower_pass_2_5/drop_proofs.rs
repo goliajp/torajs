@@ -51,8 +51,7 @@ use crate::ssa_lower::OBJ_CLASS_TAG_OFF;
 use crate::ssa_lower_binop_null_undef::UNDEF_CELL_SYM;
 use crate::ssa_lower_emit_drop_value::class_drop_fill::{DropHooks, Test};
 
-use super::any_holds::dead_adapters;
-use super::cell_slot_flow::{EnvLayouts, is_prefix, open_sids_with};
+use super::cell_slot_flow::{EnvLayouts, is_prefix};
 
 /// Names that reach a class, a prototype or a scope by a road the
 /// SSA does not show.
@@ -71,12 +70,29 @@ fn stats() -> bool {
     std::env::var_os("TORAJS_DROP_PROOF_STATS").is_some()
 }
 
-/// Settle every test of `hooks` the module proves.
-pub(crate) fn settle(module: &mut Module, ast: &Ast, envs: &EnvLayouts, hooks: &DropHooks) {
+/// The functions only a class method row enters, when some test is
+/// to be settled: none when no release fn made one, or when a name
+/// wakes the rows (printed under the stats).
+pub(crate) fn asleep(module: &Module, ast: &Ast, hooks: &DropHooks) -> Option<Vec<bool>> {
     if hooks.hooks.is_empty() {
-        return;
+        return None;
     }
-    let verdicts = match verdicts(module, ast, envs, hooks) {
+    if let Some(why) = wakes_rows(ast) {
+        if stats() {
+            eprintln!("[drop_proof] none: {why}");
+        }
+        return None;
+    }
+    Some(asleep::row_only(module))
+}
+
+/// The open sids over the functions that run, their prefix paths, and
+/// the functions ruled out (`cell_slot_flow::open_sids_both`).
+pub(crate) type Flow = (Vec<bool>, Vec<(StructId, StructId)>, Vec<bool>);
+
+/// Settle every test of `hooks` the module proves.
+pub(crate) fn settle(module: &mut Module, envs: &EnvLayouts, hooks: &DropHooks, flow: Flow) {
+    let verdicts = match verdicts(module, envs, hooks, flow) {
         Ok(v) => v,
         Err(why) => {
             if stats() {
@@ -119,23 +135,16 @@ struct Verdict {
 
 fn verdicts(
     module: &Module,
-    ast: &Ast,
     envs: &EnvLayouts,
     hooks: &DropHooks,
+    (open, widens, skip): Flow,
 ) -> Result<HashMap<u32, Verdict>, String> {
-    if let Some(why) = wakes_rows(ast) {
-        return Err(why);
-    }
-    let asleep = asleep::row_only(module);
-    let dead = dead_adapters(module);
-    let skip: Vec<bool> = asleep.iter().zip(&dead).map(|(a, d)| *a || *d).collect();
     let exposed = exposed::exposed_sids(module, &skip);
     let mut classes: Vec<u32> = hooks.class_sids.iter().copied().collect();
     classes.sort_unstable();
     if let Some(s) = classes.iter().find(|s| exposed[**s as usize]) {
         return Err(format!("an instance of class sid {s} reaches the runtime"));
     }
-    let (open, widens) = open_sids_with(module, envs, &skip);
     let shared = std::cell::OnceCell::new();
     let shared = || shared.get_or_init(|| undef::Shared::new(module, &skip));
     let sids: BTreeSet<u32> = hooks.hooks.iter().map(|h| h.sid).collect();
@@ -149,11 +158,11 @@ fn verdicts(
                     .all(|n| !exposed[*n as usize])
             });
         let tags = hooks.tags.get(&sid).map_or(&[][..], Vec::as_slice);
-        let closed = base && !extended(module, sid) && born_own(module, &skip, sid, tags);
+        let closed = base && !extended(module, sid) && born_own(module, shared(), sid, tags);
         let quiet = sealed && closed && widens.iter().all(|(w, n)| w.0 != sid && n.0 != sid);
         let defined = quiet
             && !undef::held_elsewhere(module, envs, sid)
-            && undef::own_fields_defined(module, &skip, shared(), sid);
+            && undef::own_fields_defined(module, shared(), sid);
         let unbuffered = quiet && acyclic::unbuffered(module, shared(), envs, sid);
         out.insert(
             sid,
@@ -212,13 +221,11 @@ fn extended(module: &Module, sid: u32) -> bool {
 
 /// Every cell typed `sid` that a running function makes is an
 /// allocation stamped with one of `tags`.
-fn born_own(module: &Module, skip: &[bool], sid: u32, tags: &[u32]) -> bool {
+fn born_own(module: &Module, shared: &undef::Shared, sid: u32, tags: &[u32]) -> bool {
     let alloc = module.funcs.iter().position(|f| f.name == OBJ_ALLOC);
     let own = Type::Obj(StructId(sid));
-    for (i, f) in module.funcs.iter().enumerate() {
-        if skip[i] {
-            continue;
-        }
+    for &i in shared.mentions(sid) {
+        let f = &module.funcs[i];
         let insts = || f.blocks.iter().flat_map(|b| &b.insts);
         let stamped = |v| {
             insts().any(|inst| {

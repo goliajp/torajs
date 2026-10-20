@@ -112,7 +112,7 @@ impl Scan<'_> {
         let f = self.f;
         // a bare pointer read out of a cell's cell-typed field holds
         // that field's cells
-        let mut field_ptrs = std::collections::HashMap::new();
+        let mut field_ptrs = crate::ssa::id_hash::HashMap::default();
         for inst in f.blocks.iter().flat_map(|b| &b.insts) {
             if let (InstKind::Load(Type::Ptr, Operand::Value(b), off), Some(v)) =
                 (&inst.kind, inst.result)
@@ -146,7 +146,7 @@ impl Scan<'_> {
         &mut self,
         kind: &InstKind,
         result: Option<Type>,
-        field_ptrs: &std::collections::HashMap<crate::ssa::ValueId, StructId>,
+        field_ptrs: &crate::ssa::id_hash::HashMap<crate::ssa::ValueId, StructId>,
     ) {
         match kind {
             InstKind::Load(..)
@@ -199,7 +199,7 @@ impl Scan<'_> {
         &mut self,
         fid: FuncId,
         args: &[Operand],
-        field_ptrs: &std::collections::HashMap<crate::ssa::ValueId, StructId>,
+        field_ptrs: &crate::ssa::id_hash::HashMap<crate::ssa::ValueId, StructId>,
     ) {
         let callee = &self.module.funcs[fid.0 as usize];
         let name = callee.name.as_str();

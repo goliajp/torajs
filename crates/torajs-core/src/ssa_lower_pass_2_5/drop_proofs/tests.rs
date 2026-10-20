@@ -213,7 +213,7 @@ fn undef_case(arg: impl FnOnce(&mut Function, BlockId, Operand) -> Operand) -> b
         f.append_inst(b, InstKind::Call(FuncId(3), vec![a]), own, None);
     });
     let skip = vec![false; m.funcs.len()];
-    own_fields_defined(&m, &skip, &Shared::new(&m, &skip), 0)
+    own_fields_defined(&m, &Shared::new(&m, &skip), 0)
 }
 
 fn sentinel(f: &mut Function, b: BlockId) -> Operand {

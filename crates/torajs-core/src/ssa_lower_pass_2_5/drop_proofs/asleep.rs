@@ -18,20 +18,21 @@ use crate::ssa::{FuncId, InstKind, Module};
 
 const ADAPTER_PREFIX: &str = "__boxed_";
 
+/// What a function names: its direct calls and the addresses it takes.
+fn named(module: &Module, i: usize) -> impl Iterator<Item = FuncId> + '_ {
+    let insts = module.funcs[i].blocks.iter().flat_map(|b| &b.insts);
+    insts.filter_map(|inst| match &inst.kind {
+        InstKind::Call(t, _) | InstKind::FnAddr(t) | InstKind::BoxedEntryAddr(t) => Some(*t),
+        _ => None,
+    })
+}
+
 /// Per function, whether it runs only through a class method row.
 pub(super) fn row_only(module: &Module) -> Vec<bool> {
     let n = module.funcs.len();
-    let mut edges: Vec<Vec<FuncId>> = vec![Vec::new(); n];
     let mut referenced = vec![false; n];
-    for (i, f) in module.funcs.iter().enumerate() {
-        for inst in f.blocks.iter().flat_map(|b| &b.insts) {
-            if let InstKind::Call(t, _) | InstKind::FnAddr(t) | InstKind::BoxedEntryAddr(t) =
-                &inst.kind
-            {
-                edges[i].push(*t);
-                referenced[t.0 as usize] = true;
-            }
-        }
+    for i in 0..n {
+        named(module, i).for_each(|t| referenced[t.0 as usize] = true);
     }
     let mut row_held = vec![false; n];
     for m in module.class_layouts.iter().flat_map(|c| &c.methods) {
@@ -61,7 +62,7 @@ pub(super) fn row_only(module: &Module) -> Vec<bool> {
         if std::mem::replace(&mut runs[i], true) {
             continue;
         }
-        stack.extend(edges[i].iter().filter(|t| !runs[t.0 as usize]));
+        stack.extend(named(module, i).filter(|t| !runs[t.0 as usize]));
     }
     (module.funcs.iter().zip(runs))
         .map(|(f, r)| !r && !f.blocks.is_empty())

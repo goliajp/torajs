@@ -75,6 +75,7 @@ pub(crate) struct AnyHolds<'a> {
     taken: HashSet<FuncId>,
 }
 
+#[derive(Default)]
 struct FnFacts<'a> {
     /// Every operand stored at offset 0 of each `Alloca` of the
     /// function. A slot behind any other pointer (a capture box, a
@@ -89,7 +90,17 @@ impl<'a> AnyHolds<'a> {
         let find = |name: &str| module.funcs.iter().position(|f| f.name == name);
         let mut holds = AnyHolds {
             module,
-            facts: module.funcs.iter().map(FnFacts::of).collect(),
+            // a body-less function has no instruction to read its own
+            // slots or parameters
+            facts: (module.funcs.iter())
+                .map(|f| {
+                    if f.blocks.is_empty() {
+                        FnFacts::default()
+                    } else {
+                        FnFacts::of(f)
+                    }
+                })
+                .collect(),
             values: vec![HashMap::default(); module.funcs.len()],
             params: HashMap::default(),
             unbox_value: find(UNBOX_VALUE),
