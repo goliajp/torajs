@@ -312,13 +312,9 @@ pub(crate) fn record_binding_flags(
     // cell's fn_addr is the typed-slot boundary throw, its boxed
     // entry the real receiver-less dispatcher (and the dispatcher
     // gives min/max-style variadic spec semantics for free). The id
-    // registers alongside so the `.length` member fold answers the
-    // table's spec length, not the checker-sig param count.
-    if let Some(id) =
-        crate::ssa_lower_stmt_let_decl_method_value::ns_static_member_init_id(ctx, init)
-    {
+    // registers once the binding has its slot (`ns_static_alias`).
+    if crate::ssa_lower_stmt_let_decl_method_value::ns_static_member_init_id(ctx, init).is_some() {
         ctx.variadic_locals.insert(name.to_string());
-        ctx.ns_static_locals.insert(name.to_string(), id);
     }
     // RFC 20260725-str-method-value-reify — a binding initialized
     // from a String-receiver method VALUE read (`const m = s.slice`)

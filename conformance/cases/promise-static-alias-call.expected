@@ -1,0 +1,8 @@
+no receiver true
+5 4 9
+17
+resolve call 7
+resolve apply 3
+reject call 5
+kept 9
+all call [ 1, 2 ]

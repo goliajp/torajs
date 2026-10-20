@@ -190,12 +190,12 @@ pub(crate) struct LowerCtx<'a> {
     /// declared-pair ABI — one binding serves closures of any
     /// declared arity.
     pub(crate) variadic_locals: std::collections::HashSet<String>,
-    /// RFC 20260719-ns-static-value-reify — bindings initialized
-    /// from a namespace-static VALUE read, name → table id. The
-    /// `.length` member fold reads the spec length off the shared
-    /// table row instead of the checker-sig param count (which is a
-    /// coincidence for Math and wrong for console's rest-shaped 0).
-    pub(crate) ns_static_locals: std::collections::HashMap<String, i64>,
+    /// RFC 20260719-ns-static-value-reify — bindings initialized from a
+    /// namespace-static VALUE read, by slot (so a shadowing binding has
+    /// none) → (table id, read spelled `Ns.m`), via
+    /// [`crate::ssa_lower_ns_static_alias`]. The `.length` fold reads the
+    /// spec length off the table row, not the checker-sig param count.
+    pub(crate) ns_static_locals: std::collections::HashMap<ValueId, (i64, bool)>,
     /// RFC 20260725-str-method-value-reify — bindings initialized
     /// from a String-receiver builtin method VALUE read
     /// (`const m = s.slice`), name → method id. The `.length` /

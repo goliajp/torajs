@@ -75,7 +75,7 @@ impl<'a> LowerCtx<'a> {
                     *init,
                     *mutable,
                 );
-                self.note_binding_ann(name, outer, type_ann.as_ref());
+                self.note_let(name, outer, type_ann.as_ref(), *init);
             }
             Stmt::While { cond, body } => {
                 self.proofs.forget_lets();

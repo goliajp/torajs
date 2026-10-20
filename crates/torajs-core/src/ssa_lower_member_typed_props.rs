@@ -202,9 +202,9 @@ pub(crate) fn try_lower(
 /// the direct nested member form (`Math.max.length`).
 fn ns_static_id_of_obj(ctx: &LowerCtx<'_>, obj: ExprId) -> Option<i64> {
     if let crate::ast::Expr::Ident(n) = ctx.ast.get_expr(obj)
-        && let Some(id) = ctx.ns_static_locals.get(n)
+        && let Some((id, _)) = crate::ssa_lower_ns_static_alias::of_ident(ctx, n)
     {
-        return Some(*id);
+        return Some(id);
     }
     crate::ssa_lower_stmt_let_decl_method_value::ns_static_member_init_id(ctx, obj)
 }
