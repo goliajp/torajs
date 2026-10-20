@@ -151,6 +151,8 @@ impl<'a> DeclaredFields<'a> {
         let mut nullish: IdSet<Cow<'a, str>> = IdSet::default();
         let mut other: IdSet<Cow<'a, str>> = IdSet::default();
         let mut seed: Option<ExprId> = None;
+        // a class some class extends; no other declares fields below it
+        let extended = (ast.class_parents.values()).any(|p| p.as_deref() == Some(cname));
         for s in &ast.stmts {
             if let Stmt::FnDecl { name, body, .. } = s
                 && name.strip_prefix("__new_") == Some(cname)
@@ -161,7 +163,7 @@ impl<'a> DeclaredFields<'a> {
                 continue;
             };
             let own = name == cname;
-            if !own && !derives_from(ast, name, cname) {
+            if !own && !(extended && derives_from(ast, name, cname)) {
                 continue;
             }
             for (f, ann) in fields {
@@ -179,7 +181,9 @@ impl<'a> DeclaredFields<'a> {
             }
         }
         nullish.retain(|f| !other.contains(f));
-        nullish.extend(undefined_seeds(ast, cname, seed));
+        if !extended {
+            nullish.extend(undefined_seeds(ast, seed));
+        }
         plain.retain(|f| !has_setter_in_chain(ast, cname, f));
         DeclaredFields { plain, nullish }
     }
@@ -187,12 +191,9 @@ impl<'a> DeclaredFields<'a> {
 
 /// The fields `__new_<cname>` seeds with an annotation's undefined
 /// sentinel (`desugar_classes::factory_unset`, or a type with no zero of
-/// its own), when no class derives from `cname`: a derived factory
-/// seeds the base fields itself, possibly with a cell.
-fn undefined_seeds<'a>(ast: &'a Ast, cname: &str, seed: Option<ExprId>) -> Vec<Cow<'a, str>> {
-    if (ast.class_parents.values()).any(|p| p.as_deref() == Some(cname)) {
-        return Vec::new();
-    }
+/// its own); the caller asks only when no class derives from `cname`: a
+/// derived factory seeds the base fields itself, possibly with a cell.
+fn undefined_seeds(ast: &Ast, seed: Option<ExprId>) -> Vec<Cow<'_, str>> {
     let Some(Expr::ObjectLit { fields }) = seed.map(|e| ast.get_expr(e)) else {
         return Vec::new();
     };
