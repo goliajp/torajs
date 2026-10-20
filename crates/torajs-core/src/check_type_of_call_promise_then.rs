@@ -41,6 +41,9 @@
 use crate::ast::{Ast, Expr, ExprId};
 use crate::check::{Checker, Type};
 use crate::check_type_of_call_promise_then_nullable::try_then_nullable;
+use legs::two_leg_result;
+
+mod legs;
 
 /// The result type of a `.then` / `.catch` whose handler returns `ret`.
 ///
@@ -150,6 +153,9 @@ fn try_then_two_arg(
                     | Type::ClassRef(_)
                     | Type::Undefined
                     | Type::Void
+                    // a two-handler `.then` whose legs differ by an
+                    // undefined; the kernel stamps each settle
+                    | Type::Nullable(_)
             )
         {
             let inner_ty = (**inner).clone();
@@ -157,12 +163,9 @@ fn try_then_two_arg(
             /* RFC 20260720-promise-any-cb knife 3 — either handler
              * may also be `(v: any) => R` (the knife-2 admit,
              * per-slot): the lowering's two-arg station marks each
-             * PARAM_ANY independently. The result inner follows the
-             * fulfilled leg: onOk `(any) => R` → Promise<R>, onOk
-             * `(T) => T` → Promise<T> (onErr's return joins the
-             * union in full TS; the single-value type here keeps
-             * the fulfilled leg's answer). */
-            let mut result_inner = inner_ty.clone();
+             * PARAM_ANY independently. Each leg answers its own
+             * handler's return ([`two_leg_result`] joins them). */
+            let mut legs = [inner_ty.clone(), inner_ty.clone()];
             for (i, a) in args.iter().enumerate() {
                 let aty = match checker.type_of(ast, *a) {
                     Ok(t) => t,
@@ -172,14 +175,9 @@ fn try_then_two_arg(
                     && params.len() == 1
                     && matches!(params[0], Type::Any)
                 {
-                    if i == 0 {
-                        // a throw-only leg settles nothing; keep the
-                        // void answer it had before never existed
-                        result_inner = match &**ret {
-                            Type::Never => Type::Void,
-                            other => other.clone(),
-                        };
-                    }
+                    // a throw-only leg (`never`) settles nothing:
+                    // `two_leg_result` leaves it out of the union
+                    legs[i] = (**ret).clone();
                     continue;
                 }
                 // A handler whose parameter matches T — or that
@@ -203,12 +201,10 @@ fn try_then_two_arg(
                     && (params.is_empty()
                         || (params.len() == 1 && (params[0] == inner_ty || inner_ty == Type::Any)))
                 {
-                    if i == 0 {
-                        result_inner = match &**ret {
-                            Type::Void | Type::Never => Type::Undefined,
-                            other => other.clone(),
-                        };
-                    }
+                    legs[i] = match &**ret {
+                        Type::Void => Type::Undefined,
+                        other => other.clone(),
+                    };
                     continue;
                 }
                 if aty != expected_cb {
@@ -218,7 +214,7 @@ fn try_then_two_arg(
                     )));
                 }
             }
-            return Some(Ok(promise_of(&result_inner)));
+            return Some(Ok(promise_of(&two_leg_result(legs))));
         }
     }
     None

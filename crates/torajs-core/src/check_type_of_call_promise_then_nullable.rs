@@ -52,26 +52,30 @@ pub(crate) fn try_then_nullable(
             "Promise.{m_name} on Promise<{inner_ty:?}>: cb must be `(v: {inner_ty:?}) => V`, got {cb_ty:?}"
         )));
     };
-    if params.len() != 1 {
+    // A handler that declares no parameter ignores the settled value
+    // (§27.2.5.4 passes it as one argument), as on every other lane.
+    if params.len() > 1 {
         return Some(Err(format!(
-            "Promise.{m_name} on Promise<{inner_ty:?}>: cb takes exactly one parameter, got {cb_ty:?}"
+            "Promise.{m_name} on Promise<{inner_ty:?}>: cb takes at most one parameter, got {cb_ty:?}"
         )));
     }
     // An `any` parameter is admitted the same way the sibling lanes
     // admit it: the lowering marks PARAM_ANY off the SSA signature
     // and the kernel boxes off the source's own repr stamp, which is
     // where the null / undefined distinction lives.
-    if !matches!(params[0], Type::Any) && params[0] != inner_ty {
+    if let Some(p) = params.first()
+        && !matches!(p, Type::Any)
+        && *p != inner_ty
+    {
         return Some(Err(format!(
-            "Promise.{m_name} on Promise<{inner_ty:?}>: cb parameter must be `{inner_ty:?}` or `any`, got {:?}",
-            params[0]
+            "Promise.{m_name} on Promise<{inner_ty:?}>: cb parameter must be `{inner_ty:?}` or `any`, got {p:?}"
         )));
     }
     // The nullable inner passes THROUGH a value-less cb: `.then(v =>
     // console.log(v))` keeps the chain's own T rather than collapsing
     // it, matching the other lanes' Void handling.
     let result_inner = match &**ret {
-        Type::Void | Type::Undefined => Type::Undefined,
+        Type::Void | Type::Undefined | Type::Never => Type::Undefined,
         other => other.clone(),
     };
     Some(Ok(Type::Promise(Box::new(result_inner))))

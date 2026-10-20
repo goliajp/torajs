@@ -1,0 +1,15 @@
+caught r
+caught s
+caught t
+ok 2
+done
+after reject undefined
+zero-param after reject
+typed leg undefined
+typed leg 8
+rejected boom 4
+str FALLBACK X
+await ok 70
+through catch 6
+await caught z
+after await
