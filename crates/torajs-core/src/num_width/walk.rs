@@ -273,7 +273,7 @@ impl<'a> Analysis<'a> {
                 self.walk_expr(*rhs, scope);
             }
             Expr::Member { obj, name } => {
-                self.seed_method_value_escape(*obj, name);
+                self.member_read_effects(eid, *obj, name, scope);
                 self.walk_expr(*obj, scope);
             }
             Expr::OptChain { obj, .. } => self.walk_expr(*obj, scope),

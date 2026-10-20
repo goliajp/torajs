@@ -25,13 +25,22 @@
 //! The walk keys a value wherever it is written into a slot (an
 //! initializer, an assignment, an argument, a return, a container
 //! method's operand, a literal's element or field), through
-//! `container_key_of`; that is where the sources are noted.
+//! `container_key_of`; that is where the sources are noted, and with
+//! them the number faces a value's type puts under a promise's value
+//! point (the point itself, an element of an array it settles with, a
+//! field of an object it settles with). An `await` notes the faces of
+//! what it reads too, as does a handler declaring a `number`
+//! parameter.
+//!
+//! `promise_taint::PromiseTaint::widens` is the one answer to "is this face wide
+//! because a promise can reach it unseen": the analysis seeds the
+//! faces it holds true for, and lowering's `await` asks it for the
+//! keys it reads through.
 
-use super::container::canon_key_frozen;
 use super::{Analysis, SlotKey};
 use crate::ast::{Ast, Expr, ExprId};
 use crate::check::Type;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 /// Does a value of type `t` come from, or hold, a value whose type the
 /// program did not fix? A function value does not by itself: its
@@ -48,12 +57,54 @@ fn untracked(t: &Type) -> bool {
     }
 }
 
+/// The number faces a value of type `t` held at `k` has under a
+/// promise's value point (`under`: `k` is already under one), pushed
+/// onto `out`.
+fn number_faces(t: &Type, k: &SlotKey, under: bool, out: &mut Vec<SlotKey>) {
+    match t {
+        Type::Number if under => out.push(k.clone()),
+        Type::Promise(e) => number_faces(
+            e,
+            &SlotKey::Field(Box::new(k.clone()), "value".into()),
+            true,
+            out,
+        ),
+        Type::Array(e) => number_faces(e, &SlotKey::Elem(Box::new(k.clone())), under, out),
+        Type::Nullable(e) => number_faces(e, k, under, out),
+        Type::Struct(fs) => {
+            for (n, ft) in fs.iter() {
+                number_faces(
+                    ft,
+                    &SlotKey::Field(Box::new(k.clone()), n.clone()),
+                    under,
+                    out,
+                );
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Does a value of type `t` hold a number under a promise (`under`:
+/// it is under one already)? [`number_faces`] without the keys.
+fn has_number_face(t: &Type, under: bool) -> bool {
+    match t {
+        Type::Number => under,
+        Type::Promise(e) => has_number_face(e, true),
+        Type::Array(e) | Type::Nullable(e) => has_number_face(e, under),
+        Type::Struct(fs) => fs.iter().any(|(_, ft)| has_number_face(ft, under)),
+        _ => false,
+    }
+}
+
 /// Does the program read a number out of a promise: an expression of
-/// type `Promise<number>`, or a handler declaring a `number` parameter
-/// (a promise of `any` hands it whatever it settles with)? A program
-/// that does not has no value point at stake.
+/// a type holding a number under a promise (`Promise<number>`,
+/// `Promise<number[]>`, `Promise<{ n: number }>`, `Promise<number>[]`
+/// …), or a handler declaring a `number` parameter (a promise of `any`
+/// hands it whatever it settles with)? A program that does not has no
+/// value point at stake.
 pub(super) fn reads_number_promises(ast: &Ast, expr_types: &HashMap<ExprId, Type>) -> bool {
-    let number = |t: &Type| matches!(t, Type::Promise(t) if **t == Type::Number);
+    let number = |t: &Type| has_number_face(t, false);
     let number_param = |a: &ExprId| matches!(expr_types.get(a), Some(Type::Function(ps, _)) if ps.first() == Some(&Type::Number));
     let handler = |e: &Expr| match e {
         Expr::Call { callee, args } => {
@@ -65,139 +116,68 @@ pub(super) fn reads_number_promises(ast: &Ast, expr_types: &HashMap<ExprId, Type
     (expr_types.values()).any(number) || ast.exprs.iter().any(handler)
 }
 
-/// Is the holder `h` of a promise value point in an untracked class:
-/// reached itself, or the element or program-named field of one that
-/// is?
-pub(super) fn holder_untracked(
-    tainted: &HashSet<SlotKey>,
-    uf: &super::container::UnionFind,
-    h: &SlotKey,
-) -> bool {
-    if tainted.is_empty() {
-        return false;
-    }
-    if tainted.contains(&canon_key_frozen(uf, h)) {
-        return true;
-    }
-    match h {
-        SlotKey::Elem(g) => holder_untracked(tainted, uf, g),
-        SlotKey::Field(g, f) if !f.lossy().starts_with("__") => holder_untracked(tainted, uf, g),
-        _ => false,
-    }
-}
-
 impl Analysis<'_> {
     /// Note `k`, the key the walk gave the value expression `eid`, as
     /// a source the walk does not follow when `eid`'s type holds `any`,
-    /// and as the slot of a promise of a number when it is one.
-    pub(super) fn note_untracked_value(&mut self, eid: ExprId, k: &SlotKey) {
+    /// and its number faces under a promise. `Promise.reject(r)` is no
+    /// source: its `Promise<any>` stands for `never`, as it never
+    /// fulfills (§27.2.4.6).
+    pub(super) fn note_untracked_value(&mut self, eid: ExprId, k: &SlotKey, scope: &super::Scope) {
         if !self.promises {
             return;
         }
         let unions = |e| self.union_types.get(e).is_some_and(untracked);
         let ty = self.expr_types.get(&eid);
-        if ty.is_some_and(untracked) || unions(&eid) {
+        if (ty.is_some_and(untracked) || unions(&eid)) && !self.is_promise_reject(eid, scope) {
             self.untracked_values.insert(k.clone());
         }
-        if let Some(Type::Promise(t)) = ty
-            && **t == Type::Number
+        if let Some(t) = ty {
+            self.note_number_faces(t, k);
+        }
+    }
+
+    fn is_promise_reject(&self, eid: ExprId, scope: &super::Scope) -> bool {
+        let Expr::Call { callee, .. } = self.ast.get_expr(eid) else {
+            return false;
+        };
+        matches!(self.ast.get_expr(*callee), Expr::Member { obj, name } if name == "reject"
+            && matches!(self.ast.get_expr(*obj), Expr::Ident(ns) if ns == "Promise" && self.resolve(ns, scope).is_none()))
+    }
+
+    /// Note the number faces a value of type `t` held at `k` has under
+    /// a promise's value point.
+    pub(super) fn note_number_faces(&mut self, t: &Type, k: &SlotKey) {
+        let mut out = Vec::new();
+        number_faces(t, k, false, &mut out);
+        self.number_faces.extend(out);
+    }
+
+    /// What a member read `obj.name` (`eid`) does besides walking `obj`:
+    /// a method value read off it may escape, and an await's read
+    /// notes its number faces.
+    pub(super) fn member_read_effects(
+        &mut self,
+        eid: ExprId,
+        obj: ExprId,
+        name: &str,
+        scope: &super::Scope,
+    ) {
+        self.seed_method_value_escape(obj, name);
+        self.note_awaited_read(eid, obj, scope);
+    }
+
+    /// The marked read `eid` of an `await` (`obj.value`, `obj` a
+    /// promise): its faces are read whatever wrote them, keyed the way
+    /// `width_of` keys the read.
+    fn note_awaited_read(&mut self, eid: ExprId, obj: ExprId, scope: &super::Scope) {
+        if !self.promises {
+            return;
+        }
+        if let Some(t) = self.expr_types.get(&obj)
+            && super::awaited_promise_inner_of(self.ast, self.expr_types, eid).is_some()
+            && let Some(k) = self.container_key_lookup(obj, scope)
         {
-            self.number_promises.insert(k.clone());
-        }
-    }
-}
-
-/// After `canonicalize`: take the frozen classes of the untracked
-/// sources, close them over every alias pair the walk recorded (`alias_pairs`,
-/// joined or not: a guarded pair joins only on container evidence, and
-/// a promise slot has none, yet the two sides hold the same promise),
-/// then seed every `value` point they hold that a number is read
-/// from: only a number's width is at stake, and a value point a slot
-/// of another type joins (a handler's `any` parameter, an iterator
-/// step's `value`, a container) must keep its form. Answers the
-/// reached class representatives, which the table keeps for the
-/// lowering's own `await` reads (`promise_value_is_f64`); none in a
-/// program that has no promise to read.
-pub(super) fn seed_untracked_points(
-    a: &mut Analysis,
-    alias_pairs: &[(SlotKey, SlotKey)],
-) -> HashSet<SlotKey> {
-    if !a.promises {
-        return HashSet::new();
-    }
-    // a slot the desugar spelled carries what the compiler routes
-    // through it, in the form it was handed (`escape_propagate`)
-    let sources = (a.any_seeds.iter())
-        .chain(&a.escape_only_seeds)
-        .chain(&a.untracked_values)
-        .filter(|k| !super::escape_propagate::synthetic(k));
-    let mut tainted: HashSet<SlotKey> = sources.map(|k| canon_key_frozen(&a.uf, k)).collect();
-    if tainted.is_empty() {
-        return tainted;
-    }
-    close_over_pairs(&mut tainted, &a.uf, alias_pairs);
-    let value = |k: &SlotKey| SlotKey::Field(Box::new(k.clone()), "value".into());
-    // a class that also holds a container (a rejection's `Error` shares
-    // the point with the value it would have fulfilled with) is that
-    // container's too, and keeps its form
-    let held: HashSet<SlotKey> = (a.containerish.iter())
-        .map(|k| canon_key_frozen(&a.uf, k))
-        .collect();
-    let numbers: HashSet<SlotKey> = (a.number_promises.iter())
-        .map(|k| canon_key_frozen(&a.uf, &value(k)))
-        .filter(|k| !held.contains(k))
-        .collect();
-    let points: Vec<SlotKey> = (a.uf.keys())
-        .filter_map(|k| match k {
-            SlotKey::Field(h, n) if n.lossy() == "value" => Some((h, canon_key_frozen(&a.uf, k))),
-            _ => None,
-        })
-        .filter(|(h, c)| numbers.contains(c) && holder_untracked(&tainted, &a.uf, h))
-        .map(|(_, c)| c)
-        .collect();
-    a.seeds.extend(points);
-    tainted
-}
-
-/// The canonical keys whose class taints `k`: its own, and those of
-/// the arrays and program-named fields holding it.
-fn holder_chain(uf: &super::container::UnionFind, k: &SlotKey) -> Vec<SlotKey> {
-    let mut out = vec![canon_key_frozen(uf, k)];
-    let mut h = k;
-    while let SlotKey::Elem(g) | SlotKey::Field(g, _) = h {
-        if matches!(h, SlotKey::Field(_, f) if f.lossy().starts_with("__")) {
-            break;
-        }
-        out.push(canon_key_frozen(uf, g));
-        h = g;
-    }
-    out
-}
-
-/// Close `tainted` over the alias pairs: a pair one side of which is
-/// held by a tainted class taints the other side's class. Each pair is
-/// filed under every key whose taint reaches it, so each newly tainted
-/// class is visited once.
-fn close_over_pairs(
-    tainted: &mut HashSet<SlotKey>,
-    uf: &super::container::UnionFind,
-    pairs: &[(SlotKey, SlotKey)],
-) {
-    let mut by_holder: HashMap<SlotKey, Vec<SlotKey>> = HashMap::new();
-    for (x, y) in pairs {
-        for (from, to) in [(x, y), (y, x)] {
-            let to = canon_key_frozen(uf, to);
-            for c in holder_chain(uf, from) {
-                by_holder.entry(c).or_default().push(to.clone());
-            }
-        }
-    }
-    let mut work: Vec<SlotKey> = tainted.iter().cloned().collect();
-    while let Some(k) = work.pop() {
-        for to in by_holder.get(&k).into_iter().flatten() {
-            if tainted.insert(to.clone()) {
-                work.push(to.clone());
-            }
+            self.note_number_faces(t, &k);
         }
     }
 }

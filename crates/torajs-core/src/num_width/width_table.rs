@@ -31,9 +31,9 @@ pub(crate) struct WidthTable {
     pub(crate) hidden_any: super::HiddenAny,
     uf: UnionFind,
     container_poison: bool,
-    /// The classes a promise can reach unseen (`promise_entry`): a
-    /// promise value point they hold reads at f64.
-    pub(super) promise_untracked: HashSet<SlotKey>,
+    /// The classes a promise can reach unseen (`promise_taint`): a
+    /// promise value point it widens reads at f64.
+    pub(super) promise_taint: super::promise_taint::PromiseTaint,
     /// D5 — cyclic plain-alias names (see `alias.rs`); the TypeDecl
     /// fill site takes nominal widths for these, like classes.
     nominal_aliases: HashSet<String>,
@@ -137,7 +137,7 @@ impl WidthTable {
             hidden_any,
             uf,
             container_poison,
-            promise_untracked: HashSet::new(),
+            promise_taint: Default::default(),
             nominal_aliases,
             fallthrough_fns,
             undef_sentinel_params,
@@ -280,10 +280,11 @@ impl WidthTable {
     }
 
     /// Is the value point of the promise slot `holder` f64: widened by
-    /// a writer, or held by a class a promise can reach unseen?
+    /// a writer, or one a promise can reach unseen (the predicate the
+    /// analysis seeded by, `PromiseTaint::widens`)?
     pub(crate) fn promise_value_is_f64(&self, holder: &SlotKey) -> bool {
-        self.field_is_f64(holder, "value")
-            || super::promise_entry::holder_untracked(&self.promise_untracked, &self.uf, holder)
+        let point = SlotKey::Field(Box::new(holder.clone()), "value".into());
+        self.field_is_f64(holder, "value") || self.promise_taint.widens(&self.uf, &point)
     }
 
     #[allow(dead_code)] // D3 wires the struct/class field face

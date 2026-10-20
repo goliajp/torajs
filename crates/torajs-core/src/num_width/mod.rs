@@ -63,6 +63,7 @@ mod mono;
 mod nonzero_neg;
 mod pipeline;
 mod promise_entry;
+mod promise_taint;
 mod sentinel_hof;
 mod sentinel_member_reads;
 mod sentinel_tables;
@@ -203,8 +204,8 @@ pub(super) struct Analysis<'a> {
     /// The keys of the values the walk keyed while their type held
     /// `any`: sources of promises it does not follow (`promise_entry`).
     pub(super) untracked_values: HashSet<SlotKey>,
-    /// The slots of the promises a number is read from (`promise_entry`).
-    pub(super) number_promises: HashSet<SlotKey>,
+    /// The number faces noted under a promise's value point (`promise_entry`).
+    pub(super) number_faces: HashSet<SlotKey>,
     /// Does the program read a number out of a promise? Gates the two
     /// above (`promise_entry`).
     pub(super) promises: bool,
@@ -306,7 +307,7 @@ pub(crate) fn analyze(
         struct_decls: escape::collect_struct_decls(ast),
         container_poison: false,
         untracked_values: HashSet::new(),
-        number_promises: HashSet::new(),
+        number_faces: HashSet::new(),
         promises: promise_entry::reads_number_promises(ast, expr_types),
         bounds_stack: Vec::new(),
         lower_settled: bounds_lower::settled_guards(ast),
@@ -355,7 +356,7 @@ pub(crate) fn analyze(
 
     alias_fallthrough_closures(ast, &mut fallthrough_fns);
 
-    let promise_untracked = pipeline::join_classes(&mut a);
+    let promise_taint = pipeline::join_classes(&mut a);
     cycle::seed_growth_cycles(&a.edges, &mut a.seeds);
     let arith_in_window = magnitude::settle(&mut a);
     analyze_tables::seed_any_and_poison(&mut a);
@@ -385,7 +386,7 @@ pub(crate) fn analyze(
         a.captures,
         a.bound_closures,
     );
-    table.promise_untracked = promise_untracked;
+    table.promise_taint = promise_taint;
     table
 }
 

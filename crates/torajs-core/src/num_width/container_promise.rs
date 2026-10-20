@@ -97,7 +97,14 @@ impl Analysis<'_> {
         {
             let w = self.flow(*a0, scope);
             self.add_container_constraint(pv.clone(), w);
-            if let Some(ak) = self.container_key_of(*a0, scope) {
+            // a rejection's reason shares the slot (a number reason is
+            // read at the point's width), but no reader of the value
+            // reads it as the value's container: joining it there
+            // left a `Promise<number>` point in the class of an
+            // `Error`, which keeps its form
+            if let Some(ak) = self.container_key_of(*a0, scope)
+                && name == "resolve"
+            {
                 // RFC 20260726-array-elem-width — which point the
                 // argument contributes depends on what it IS. Handing
                 // `resolve` another promise passes that promise's value
@@ -192,7 +199,8 @@ impl Analysis<'_> {
                         if let Some(Type::Function(ps, _)) = self.expr_types.get(a)
                             && ps.first() == Some(&Type::Number)
                         {
-                            self.number_promises.insert(recv.clone());
+                            self.number_faces
+                                .insert(SlotKey::Field(Box::new(recv.clone()), "value".into()));
                         }
                     }
                     if r_num {

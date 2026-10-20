@@ -5,14 +5,12 @@
 //! representative. The fixpoint runs per alias class; queries
 //! canonicalize through the frozen union-find.
 
-use std::collections::HashSet;
+use super::{Analysis, container, promise_taint, slot_abi};
 
-use super::{Analysis, SlotKey, container, promise_entry, slot_abi};
-
-/// Join and freeze the alias classes, then seed the promise value
-/// points a promise can reach unseen; answers the classes that reach
-/// them (`promise_entry`).
-pub(super) fn join_classes(a: &mut Analysis) -> HashSet<SlotKey> {
+/// Join and freeze the alias classes, then seed the number faces under
+/// a promise that a promise can reach unseen; answers what lowering's
+/// reads ask (`promise_taint`).
+pub(super) fn join_classes(a: &mut Analysis) -> promise_taint::PromiseTaint {
     container::nominal_unions(a);
     a.join_bound_candidates();
     container::objlit_ctor_unions(a);
@@ -34,5 +32,5 @@ pub(super) fn join_classes(a: &mut Analysis) -> HashSet<SlotKey> {
         a.edges.entry(d).or_default().extend(ts);
     }
     container::canonicalize(a);
-    promise_entry::seed_untracked_points(a, &alias_pairs)
+    promise_taint::seed_untracked_points(a, &alias_pairs)
 }

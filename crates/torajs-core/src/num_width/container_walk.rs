@@ -62,7 +62,7 @@ impl<'a> Analysis<'a> {
     /// source of promises the walk does not follow (`promise_entry`).
     pub(super) fn container_key_of(&mut self, eid: ExprId, scope: &Scope) -> Option<SlotKey> {
         let k = self.container_key_shape(eid, scope)?;
-        self.note_untracked_value(eid, &k);
+        self.note_untracked_value(eid, &k, scope);
         Some(k)
     }
 
