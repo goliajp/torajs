@@ -31,7 +31,8 @@ fn holder_untracked(tainted: &HashSet<SlotKey>, uf: &UnionFind, h: &SlotKey) -> 
 pub(crate) struct PromiseTaint {
     /// The classes holding a promise the walk does not follow.
     tainted: HashSet<SlotKey>,
-    /// The value point classes one of whose holders is tainted.
+    /// The value point classes, among those of the noted faces and the
+    /// points above them, one of whose holders is tainted.
     wide: HashSet<SlotKey>,
     /// The classes that also hold a container.
     held: HashSet<SlotKey>,
@@ -94,15 +95,24 @@ pub(super) fn seed_untracked_points(
         return PromiseTaint::default();
     }
     close_over_pairs(&mut tainted, &a.uf, alias_pairs);
+    // only the classes a noted face, or a value point above one, is in
+    // can answer a read
+    let mut faces: HashSet<SlotKey> = HashSet::new();
+    for f in &a.number_faces {
+        let mut k = f;
+        faces.insert(canon_key_frozen(&a.uf, k));
+        while let SlotKey::Elem(g) | SlotKey::Field(g, _) = k {
+            faces.insert(canon_key_frozen(&a.uf, g));
+            k = g;
+        }
+    }
     let wide = (a.uf.keys())
         .filter_map(|k| match k {
-            SlotKey::Field(h, n)
-                if n.lossy() == "value" && holder_untracked(&tainted, &a.uf, h) =>
-            {
-                Some(canon_key_frozen(&a.uf, k))
-            }
+            SlotKey::Field(h, n) if n.lossy() == "value" => Some((h, canon_key_frozen(&a.uf, k))),
             _ => None,
         })
+        .filter(|(h, c)| faces.contains(c) && holder_untracked(&tainted, &a.uf, h))
+        .map(|(_, c)| c)
         .collect();
     let held = (a.containerish.iter())
         .map(|k| canon_key_frozen(&a.uf, k))

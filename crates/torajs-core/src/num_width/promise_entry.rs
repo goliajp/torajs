@@ -147,6 +147,9 @@ impl Analysis<'_> {
     /// Note the number faces a value of type `t` held at `k` has under
     /// a promise's value point.
     pub(super) fn note_number_faces(&mut self, t: &Type, k: &SlotKey) {
+        if !has_number_face(t, false) {
+            return;
+        }
         let mut out = Vec::new();
         number_faces(t, k, false, &mut out);
         self.number_faces.extend(out);
@@ -173,8 +176,9 @@ impl Analysis<'_> {
         if !self.promises {
             return;
         }
-        if let Some(t) = self.expr_types.get(&obj)
-            && super::awaited_promise_inner_of(self.ast, self.expr_types, eid).is_some()
+        if super::awaited_promise_inner_of(self.ast, self.expr_types, eid).is_some()
+            && let Some(t) = self.expr_types.get(&obj)
+            && has_number_face(t, false)
             && let Some(k) = self.container_key_lookup(obj, scope)
         {
             self.note_number_faces(t, &k);
