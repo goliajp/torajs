@@ -198,6 +198,8 @@ pub(crate) fn emit_release(
     // instance can only close a cycle through its expando bag, so it
     // buffers behind the bag's seam
     let scalar = layout.iter().all(|(_, fty)| fty.is_copy());
+    cx.hook(sid, Test::BufferLeg(skip), dec_blk);
+    cx.hook(sid, Test::Buffered, walk_end);
     cx.defer(move |f| {
         let buffer_blk = f.add_block();
         branch(f, dec_blk, is_zero, walk_blk, buffer_blk);

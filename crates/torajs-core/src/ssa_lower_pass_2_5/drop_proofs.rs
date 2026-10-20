@@ -24,6 +24,11 @@
 //! read as (along the prefix paths `cell_slot_flow` records), nor one
 //! whose cells can reach its slots, is exposed.
 //!
+//! A release fn buffers a class cell whose count stays above zero as
+//! a cycle root and tests a dying one for the buffer's flag. A sid
+//! whose cells no cycle can pass through, and that nothing but its
+//! release fn could buffer ([`acyclic`]), needs neither.
+//!
 //! All of it is read over the functions that run (`asleep`): a class's
 //! method rows are entered only once an instance or the class itself
 //! became a value, which an exposed class instance, or a name that
@@ -31,6 +36,7 @@
 //! possible; then nothing is settled. `TORAJS_DROP_PROOF_STATS=1` prints
 //! the verdict per sid.
 
+mod acyclic;
 mod asleep;
 mod exposed;
 #[cfg(test)]
@@ -80,31 +86,43 @@ pub(crate) fn settle(module: &mut Module, ast: &Ast, envs: &EnvLayouts, hooks: &
         }
     };
     let n = hooks.settle(module, |sid, test| {
-        let (sealed, closed, defined) = verdicts[&sid];
+        let v = &verdicts[&sid];
         match test {
-            Test::Tag => closed,
-            Test::WeakRef | Test::Props => sealed,
-            Test::Undef | Test::UndefRoot => defined,
+            Test::Tag => v.closed,
+            Test::WeakRef | Test::Props => v.sealed,
+            Test::Undef | Test::UndefRoot => v.defined,
+            Test::Buffered | Test::BufferLeg(_) => v.unbuffered,
         }
     });
     if stats() {
         let mut v: Vec<_> = verdicts.into_iter().collect();
-        v.sort_unstable();
-        for (sid, (sealed, closed, defined)) in v {
-            eprintln!("[drop_proof] sid {sid}: sealed {sealed} closed {closed} defined {defined}");
+        v.sort_unstable_by_key(|(sid, _)| *sid);
+        for (sid, v) in v {
+            eprintln!(
+                "[drop_proof] sid {sid}: sealed {} closed {} defined {} unbuffered {}",
+                v.sealed, v.closed, v.defined, v.unbuffered
+            );
         }
         eprintln!("[drop_proof] {n} of {} tests settled", hooks.hooks.len());
     }
 }
 
-/// Per hooked sid, whether it is sealed, whether it is closed, and
-/// whether its own-sid fields never hold the undefined sentinel.
+/// What the module proves of one hooked sid.
+struct Verdict {
+    sealed: bool,
+    closed: bool,
+    /// its own-sid fields never hold the undefined sentinel
+    defined: bool,
+    /// nothing can buffer one of its cells as a cycle root
+    unbuffered: bool,
+}
+
 fn verdicts(
     module: &Module,
     ast: &Ast,
     envs: &EnvLayouts,
     hooks: &DropHooks,
-) -> Result<HashMap<u32, (bool, bool, bool)>, String> {
+) -> Result<HashMap<u32, Verdict>, String> {
     if let Some(why) = wakes_rows(ast) {
         return Err(why);
     }
@@ -118,6 +136,8 @@ fn verdicts(
         return Err(format!("an instance of class sid {s} reaches the runtime"));
     }
     let (open, widens) = open_sids_with(module, envs, &skip);
+    let shared = std::cell::OnceCell::new();
+    let shared = || shared.get_or_init(|| undef::Shared::new(module, &skip));
     let sids: BTreeSet<u32> = hooks.hooks.iter().map(|h| h.sid).collect();
     let mut out = HashMap::new();
     for sid in sids {
@@ -130,12 +150,20 @@ fn verdicts(
             });
         let tags = hooks.tags.get(&sid).map_or(&[][..], Vec::as_slice);
         let closed = base && !extended(module, sid) && born_own(module, &skip, sid, tags);
-        let defined = sealed
-            && closed
-            && widens.iter().all(|(w, n)| w.0 != sid && n.0 != sid)
+        let quiet = sealed && closed && widens.iter().all(|(w, n)| w.0 != sid && n.0 != sid);
+        let defined = quiet
             && !undef::held_elsewhere(module, envs, sid)
-            && undef::own_fields_defined(module, &skip, sid);
-        out.insert(sid, (sealed, closed, defined));
+            && undef::own_fields_defined(module, &skip, shared(), sid);
+        let unbuffered = quiet && acyclic::unbuffered(module, shared(), envs, sid);
+        out.insert(
+            sid,
+            Verdict {
+                sealed,
+                closed,
+                defined,
+                unbuffered,
+            },
+        );
     }
     Ok(out)
 }

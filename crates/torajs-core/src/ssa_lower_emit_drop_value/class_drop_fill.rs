@@ -5,7 +5,8 @@
 //! A release fn tests every cell it reaches against what a slot of the
 //! sid could hold: the undefined sentinel, a cell of another layout
 //! (the tag test), a cell with an expando bag, a cell a WeakRef
-//! observes. Which of those a
+//! observes, a cell the cycle buffer holds; and it buffers a cell whose
+//! count stays above zero. Which of those a
 //! slot can hold is a question about the whole finished module, asked
 //! after lowering (`ssa_lower_pass_2_5::drop_proofs`). Each test is
 //! emitted as always and recorded with the block whose branch it
@@ -39,6 +40,11 @@ pub(crate) enum Test {
     WeakRef,
     /// The cell carries an expando bag.
     Props,
+    /// The cycle buffer holds the dying cell.
+    Buffered,
+    /// The block whose branch sends a cell with references left to the
+    /// cycle buffer; proven, that edge goes to the given block instead.
+    BufferLeg(BlockId),
 }
 
 impl Test {
@@ -78,11 +84,16 @@ impl DropHooks {
                 n += 1;
                 continue;
             }
-            if let Terminator::CondBr { cond, .. } = &mut f.blocks[h.blk.0 as usize].term {
-                *cond = Operand::ConstBool(h.test.settled());
-                n += 1;
-                fids.push(h.fid);
+            let Terminator::CondBr { cond, else_blk, .. } = &mut f.blocks[h.blk.0 as usize].term
+            else {
+                continue;
+            };
+            match h.test {
+                Test::BufferLeg(skip) => *else_blk = skip,
+                t => *cond = Operand::ConstBool(t.settled()),
             }
+            n += 1;
+            fids.push(h.fid);
         }
         fids.dedup();
         for fid in fids {
@@ -105,10 +116,36 @@ fn test_root(f: &mut ssa::Function, prelude: BlockId) {
     branch(f, prelude, is_undef, done, entry);
 }
 
-/// Drop what a fixed branch left without a use: the test's compare and
-/// the loads and addresses that fed it. A release fn is not optimized
-/// further, so nothing else would.
+/// Drop what a fixed branch left without a use: the blocks no longer
+/// reached, the test's compare and the loads, masks and addresses that
+/// fed it. A release fn is not optimized further, so nothing else
+/// would.
 fn sweep(f: &mut ssa::Function) {
+    let mut reached = vec![false; f.blocks.len()];
+    let mut work = vec![0usize];
+    while let Some(b) = work.pop() {
+        if std::mem::replace(&mut reached[b], true) {
+            continue;
+        }
+        match &f.blocks[b].term {
+            Terminator::Br(t) => work.push(t.0 as usize),
+            Terminator::CondBr {
+                cond: Operand::ConstBool(c),
+                then_blk,
+                else_blk,
+            } => work.push(if *c { then_blk.0 } else { else_blk.0 } as usize),
+            Terminator::CondBr {
+                then_blk, else_blk, ..
+            } => work.extend([then_blk.0 as usize, else_blk.0 as usize]),
+            _ => {}
+        }
+    }
+    for (b, r) in f.blocks.iter_mut().zip(reached) {
+        if !r {
+            b.insts.clear();
+            b.term = Terminator::Unreachable;
+        }
+    }
     loop {
         let mut used = vec![false; f.values.len()];
         for b in &f.blocks {
@@ -129,7 +166,10 @@ fn sweep(f: &mut ssa::Function) {
             b.insts.retain(|i| {
                 let pure = matches!(
                     i.kind,
-                    ssa::InstKind::ICmp(..) | ssa::InstKind::Load(..) | ssa::InstKind::GlobalRef(_)
+                    ssa::InstKind::ICmp(..)
+                        | ssa::InstKind::Load(..)
+                        | ssa::InstKind::GlobalRef(_)
+                        | ssa::InstKind::BinOp(..)
                 );
                 let dead = pure && i.result.is_some_and(|r| !used[r.0 as usize]);
                 removed |= dead;

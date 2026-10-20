@@ -39,23 +39,56 @@ pub(super) fn held_elsewhere(module: &Module, envs: &EnvLayouts, sid: u32) -> bo
 
 /// No store a running function makes into an own-sid field of a cell of
 /// `sid` can store the undefined sentinel.
-pub(super) fn own_fields_defined(module: &Module, skip: &[bool], sid: u32) -> bool {
+pub(super) fn own_fields_defined(
+    module: &Module,
+    skip: &[bool],
+    shared: &Shared,
+    sid: u32,
+) -> bool {
     let own = Type::Obj(StructId(sid));
     let offs: Vec<u64> = (module.struct_layouts[sid as usize].iter().enumerate())
         .filter(|(_, (_, t))| *t == own)
         .map(|(i, _)| OBJ_HEADER_SIZE + 8 * i as u64)
         .collect();
-    let mut a = Analysis::new(module, skip, own, offs);
+    let mut a = Analysis::new(module, skip, shared, own, offs);
     a.settle();
     a.stores_clear()
+}
+
+/// What every proof reads of the functions that run: which they are,
+/// which of all are entered through an address or a table and which
+/// they call directly, and the local slots of each.
+pub(super) struct Shared {
+    pub running: Vec<usize>,
+    pub entered: Vec<bool>,
+    pub called: Vec<bool>,
+    pub slots: Vec<HashMap<ValueId, Slot>>,
+}
+
+impl Shared {
+    pub(super) fn new(module: &Module, skip: &[bool]) -> Shared {
+        let running = running(module, skip);
+        let (entered, called) = entries(module, &running);
+        let mut slots: Vec<HashMap<ValueId, Slot>> =
+            module.funcs.iter().map(|_| HashMap::new()).collect();
+        for &i in &running {
+            slots[i] = local_slots(&module.funcs[i]);
+        }
+        Shared {
+            running,
+            entered,
+            called,
+            slots,
+        }
+    }
 }
 
 /// A local slot: what is stored through it, and whether its address
 /// goes anywhere but the pointer of a load or a store.
 #[derive(Default)]
-struct Slot {
-    stores: Vec<Operand>,
-    escaped: bool,
+pub(super) struct Slot {
+    pub stores: Vec<Operand>,
+    pub escaped: bool,
 }
 
 struct Analysis<'a> {
@@ -65,7 +98,7 @@ struct Analysis<'a> {
     offs: Vec<u64>,
     alloc: Option<usize>,
     /// The functions that run and have a body.
-    running: Vec<usize>,
+    running: &'a [usize],
     /// Per function, the values that may be the sentinel.
     maybe: Vec<Vec<bool>>,
     /// Per function, whether some return may be the sentinel.
@@ -73,54 +106,35 @@ struct Analysis<'a> {
     /// Per function, which parameters may be the sentinel.
     params: Vec<Vec<bool>>,
     /// Per function, its local slots.
-    slots: Vec<HashMap<ValueId, Slot>>,
+    slots: &'a [HashMap<ValueId, Slot>],
 }
 
 impl<'a> Analysis<'a> {
-    fn new(module: &'a Module, skip: &'a [bool], own: Type, offs: Vec<u64>) -> Self {
+    fn new(
+        module: &'a Module,
+        skip: &'a [bool],
+        shared: &'a Shared,
+        own: Type,
+        offs: Vec<u64>,
+    ) -> Self {
         let n = module.funcs.len();
-        let running: Vec<usize> = (0..n)
-            .filter(|i| !skip[*i] && !module.funcs[*i].blocks.is_empty())
-            .collect();
-        let mut entered = vec![false; n];
-        let mut called = vec![false; n];
-        for &i in &running {
-            for inst in module.funcs[i].blocks.iter().flat_map(|b| &b.insts) {
-                match &inst.kind {
-                    InstKind::Call(t, _) => called[t.0 as usize] = true,
-                    InstKind::FnAddr(t) | InstKind::BoxedEntryAddr(t) => {
-                        entered[t.0 as usize] = true
-                    }
-                    _ => {}
-                }
-            }
-        }
-        let tables = (module.vtable_globals.iter())
-            .flat_map(|v| v.fn_ids.iter().flatten().copied())
-            .chain((module.suspend_fns.iter()).flat_map(|s| [s.resume, s.drop, s.trace]));
-        for t in tables {
-            entered[t.0 as usize] = true;
-        }
+        let (entered, called) = (&shared.entered, &shared.called);
         let params = (module.funcs.iter().enumerate())
             .map(|(i, f)| vec![entered[i] || !called[i]; f.params.len()])
             .collect();
-        let mut slots: Vec<HashMap<ValueId, Slot>> = (0..n).map(|_| HashMap::new()).collect();
-        for &i in &running {
-            slots[i] = local_slots(&module.funcs[i]);
-        }
         Analysis {
             module,
             skip,
             own,
             offs,
             alloc: module.funcs.iter().position(|f| f.name == OBJ_ALLOC),
-            running,
+            running: &shared.running,
             maybe: (module.funcs.iter())
                 .map(|f| vec![false; f.values.len()])
                 .collect(),
             ret: vec![false; n],
             params,
-            slots,
+            slots: &shared.slots,
         }
     }
 
@@ -228,6 +242,38 @@ impl<'a> Analysis<'a> {
             })
         })
     }
+}
+
+/// The functions `skip` leaves that have a body.
+fn running(module: &Module, skip: &[bool]) -> Vec<usize> {
+    (0..module.funcs.len())
+        .filter(|i| !skip[*i] && !module.funcs[*i].blocks.is_empty())
+        .collect()
+}
+
+/// Per function, whether something enters it through an address or a
+/// table (`entered`), and whether one of `running` calls it directly
+/// (`called`).
+fn entries(module: &Module, running: &[usize]) -> (Vec<bool>, Vec<bool>) {
+    let n = module.funcs.len();
+    let mut entered = vec![false; n];
+    let mut called = vec![false; n];
+    for &i in running {
+        for inst in module.funcs[i].blocks.iter().flat_map(|b| &b.insts) {
+            match &inst.kind {
+                InstKind::Call(t, _) => called[t.0 as usize] = true,
+                InstKind::FnAddr(t) | InstKind::BoxedEntryAddr(t) => entered[t.0 as usize] = true,
+                _ => {}
+            }
+        }
+    }
+    let tables = (module.vtable_globals.iter())
+        .flat_map(|v| v.fn_ids.iter().flatten().copied())
+        .chain((module.suspend_fns.iter()).flat_map(|s| [s.resume, s.drop, s.trace]));
+    for t in tables {
+        entered[t.0 as usize] = true;
+    }
+    (entered, called)
 }
 
 /// The local slots of `f`, each with what is stored through it and

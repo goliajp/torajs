@@ -1,9 +1,12 @@
 //! Hand-built modules: which uses of a cell expose its layout, and
-//! which functions run only through a class method row, and whether the
-//! undefined sentinel can reach an own-sid field.
+//! which functions run only through a class method row, whether the
+//! undefined sentinel can reach an own-sid field, and whether a cell
+//! can be buffered as a cycle root.
 
+use super::acyclic::unbuffered;
 use super::asleep::row_only;
 use super::exposed::exposed_sids;
+use super::undef::Shared;
 use super::undef::own_fields_defined;
 use crate::ast::PropKey;
 use crate::ssa::{
@@ -209,7 +212,8 @@ fn undef_case(arg: impl FnOnce(&mut Function, BlockId, Operand) -> Operand) -> b
         let a = arg(f, b, Operand::Value(fresh));
         f.append_inst(b, InstKind::Call(FuncId(3), vec![a]), own, None);
     });
-    own_fields_defined(&m, &vec![false; m.funcs.len()], 0)
+    let skip = vec![false; m.funcs.len()];
+    own_fields_defined(&m, &skip, &Shared::new(&m, &skip), 0)
 }
 
 fn sentinel(f: &mut Function, b: BlockId) -> Operand {
@@ -247,5 +251,94 @@ fn the_sentinel_reaches_the_field_by_any_path() {
         let c = f.append_inst(b, InstKind::ICmp(IPred::Eq, fresh, s), Type::Bool, None);
         let pick = InstKind::Select(own, Operand::Value(c), fresh, s);
         Operand::Value(f.append_inst(b, pick, own, None))
+    }));
+}
+
+/// Layout 0 `{left: 0}`; `holder` adds layout 1 `{held: 0}`. Func 0
+/// allocates, func 1 is the cycle buffer, func 2 `init(this, l)` writes
+/// `this.left = l` (and `this.left = this` when `self_edge`), func 3
+/// `mk(l)` allocates a cell and calls `init` on it, `main` is built by
+/// `body` from a call of `mk` and one of `init`.
+fn acyclic_case(
+    holder: bool,
+    self_edge: bool,
+    body: impl FnOnce(&mut Function, BlockId, &dyn Fn(&mut Function, Operand) -> Operand),
+) -> bool {
+    let own = Type::Obj(StructId(0));
+    let mut m = Module {
+        struct_layouts: vec![vec![(PropKey::from("left"), own)]],
+        ..Default::default()
+    };
+    if holder {
+        m.struct_layouts.push(vec![(PropKey::from("held"), own)]);
+    }
+    let mut alloc = Function::new("__torajs_obj_alloc", Type::Ptr);
+    alloc.add_param(Type::I64, "n");
+    m.funcs.push(alloc);
+    let mut buffer = Function::new("__torajs_cycle_buffer", Type::Void);
+    buffer.add_param(Type::Ptr, "p");
+    m.funcs.push(buffer);
+    func(&mut m, "init", Type::Void, |f, b| {
+        let this = Operand::Value(f.add_param(own, "this"));
+        let l = Operand::Value(f.add_param(own, "l"));
+        f.append_void(b, InstKind::Store(l, this, 32));
+        if self_edge {
+            f.append_void(b, InstKind::Store(this, this, 32));
+        }
+    });
+    func(&mut m, "mk", own, |f, b| {
+        let l = Operand::Value(f.add_param(own, "l"));
+        let size = vec![Operand::ConstI64(40)];
+        let c = Operand::Value(f.append_inst(b, InstKind::Call(FuncId(0), size), own, None));
+        f.append_void(b, InstKind::Store(Operand::ConstPtrNull, c, 32));
+        f.append_void(b, InstKind::Call(FuncId(2), vec![c, l]));
+        f.set_term(b, Terminator::Ret(Some(c)));
+    });
+    func(&mut m, "main", Type::Void, |f, b| {
+        let mk = |f: &mut Function, l: Operand| {
+            Operand::Value(f.append_inst(b, InstKind::Call(FuncId(3), vec![l]), own, None))
+        };
+        body(f, b, &mk);
+    });
+    let skip = vec![false; m.funcs.len()];
+    unbuffered(&m, &Shared::new(&m, &skip), &Default::default(), 0)
+}
+
+#[test]
+fn a_tree_built_bottom_up_is_unbuffered() {
+    assert!(acyclic_case(false, false, |f, _, mk| {
+        let leaf = mk(f, Operand::ConstPtrNull);
+        mk(f, leaf);
+    }));
+}
+
+#[test]
+fn a_cycle_or_a_road_to_the_buffer_keeps_the_buffer() {
+    let tree = |f: &mut Function, mk: &dyn Fn(&mut Function, Operand) -> Operand| {
+        let leaf = mk(f, Operand::ConstPtrNull);
+        (leaf, mk(f, leaf))
+    };
+    // a published cell's field written again
+    assert!(!acyclic_case(false, false, |f, b, mk| {
+        let (leaf, root) = tree(f, mk);
+        f.append_void(b, InstKind::Store(root, leaf, 32));
+    }));
+    // the constructor called on a published cell
+    assert!(!acyclic_case(false, false, |f, b, mk| {
+        let (leaf, root) = tree(f, mk);
+        f.append_void(b, InstKind::Call(FuncId(2), vec![leaf, root]));
+    }));
+    // a cell that points at itself
+    assert!(!acyclic_case(false, true, |f, _, mk| {
+        tree(f, mk);
+    }));
+    // another layout holds the sid
+    assert!(!acyclic_case(true, false, |f, _, mk| {
+        tree(f, mk);
+    }));
+    // a runtime entry that can buffer it
+    assert!(!acyclic_case(false, false, |f, b, mk| {
+        let (_, root) = tree(f, mk);
+        f.append_void(b, InstKind::Call(FuncId(1), vec![root]));
     }));
 }
