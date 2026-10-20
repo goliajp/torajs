@@ -174,23 +174,7 @@ use crate::ssa_lower_str_arr_inplace::emit_arr_lock_bits_guard;
 const EXTEND_LOCK_BITS: u16 =
     torajs_rc::FLAG_FROZEN | torajs_rc::FLAG_SEALED | torajs_rc::FLAG_NON_EXTENSIBLE;
 
-/// Appends per trip for each distinct array a fill loop fills, in
-/// first-push order. The detector lists every push site, so a body
-/// that pushes one array three times names it three times — and the
-/// reserve used to run once per site on the same pre-loop length,
-/// leaving room for one append a trip while the unchecked stores made
-/// three: `for (…) { xs.push(a); xs.push(b) }` wrote a second bound's
-/// worth of slots into whatever cells sat past the buffer.
-pub(crate) fn push_counts(names: &[String]) -> Vec<(String, i64)> {
-    let mut out: Vec<(String, i64)> = Vec::new();
-    for n in names {
-        match out.iter_mut().find(|(m, _)| m == n) {
-            Some((_, k)) => *k += 1,
-            None => out.push((n.clone(), 1)),
-        }
-    }
-    out
-}
+pub(crate) use crate::ssa_lower_push_loop_gate::push_counts;
 
 /// The longest an array may grow (§10.4.2.4: a length is a u32).
 const ARRAY_LENGTH_MAX: i64 = u32::MAX as i64;
