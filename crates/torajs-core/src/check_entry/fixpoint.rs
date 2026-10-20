@@ -22,23 +22,26 @@ use crate::check::{Checker, Severity};
 /// then it lowers from the declared run, as if no call were typed
 /// `any`.
 pub(super) fn check_to_fixpoint(ast: &Ast) -> Checker {
-    fixpoint_hidden(ast, &HashSet::new(), &ShadowedNames::default())
+    fixpoint_hidden(ast, &HashSet::new(), &ShadowedNames::default(), false)
 }
 
 /// [`check_to_fixpoint`] with the call arguments `hidden` holds read as
 /// values of any kind ([`super::hidden_any::settle`]), and the members
 /// `shadowed` holds retyped from the first run (a round the census over
-/// the mono program asked for, [`super::check_round`]).
+/// the mono program asked for, [`super::check_round`]); with
+/// `then_open`, the first run starts with the `then` closure proof open
+/// (a round the proof over the mono program asked for).
 pub(super) fn fixpoint_hidden(
     ast: &Ast,
     hidden: &HashSet<ExprId>,
     shadowed: &ShadowedNames,
+    then_open: bool,
 ) -> Checker {
-    let c = fixpoint_with(ast, false, hidden, shadowed);
+    let c = fixpoint_with(ast, false, hidden, shadowed, then_open);
     if c.widen_ret_any.is_empty() {
         return c;
     }
-    let declared = fixpoint_with(ast, true, hidden, shadowed);
+    let declared = fixpoint_with(ast, true, hidden, shadowed, then_open);
     if has_errors(&c) || has_errors(&declared) {
         declared
     } else {
@@ -76,12 +79,13 @@ fn fixpoint_with(
     widen_ret_declared: bool,
     hidden: &HashSet<ExprId>,
     shadowed: &ShadowedNames,
+    then_open: bool,
 ) -> Checker {
     let mut c = fresh(
         widen_ret_declared,
         hidden,
         shadowed.clone(),
-        ShadowSet::default(),
+        ShadowSet::then_seeded(then_open),
     );
     c.run_full_pipeline(ast);
     let program = Default::default();
@@ -93,8 +97,8 @@ fn fixpoint_with(
         // stands the typed String regex calls down, which only the
         // run's types can tell from an array store
         let exec = c.proto_shadow.needs_typed_exec_run(ast, &c.expr_types);
-        // an await of an object typed by a `then` closure proof that a
-        // computed key of this run's types does not clear
+        // an await of an object typed by a `then` closure proof that an
+        // `as` cast of this run's types does not clear
         let then = c.proto_shadow.needs_typed_then_run(ast, &c.expr_types);
         let kept = &c.narrows.capture_wanted;
         if found.is_subset(&c.cross_type_widened)

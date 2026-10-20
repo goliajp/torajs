@@ -17,13 +17,15 @@ fn why(src: &str) -> Option<&'static str> {
     then_opening(&ast_of(src), None).map(|o| o.why)
 }
 
-/// The proof with every computed key typed `ty`.
-fn why_typed(src: &str, ty: Type) -> Option<&'static str> {
+/// The proof with every `as` cast's operand typed `from` and the cast
+/// itself typed `to`.
+fn why_cast(src: &str, from: Type, to: Type) -> Option<&'static str> {
     let ast = ast_of(src);
     let mut types: HashMap<ExprId, Type> = HashMap::new();
-    for e in &ast.exprs {
-        if let Expr::Index { index, .. } = e {
-            types.insert(*index, ty.clone());
+    for (i, e) in ast.exprs.iter().enumerate() {
+        if let Expr::As { expr, .. } = e {
+            types.insert(*expr, from.clone());
+            types.insert(ExprId(i as u32), to.clone());
         }
     }
     then_opening(&ast, Some(&types)).map(|o| o.why)
@@ -85,6 +87,8 @@ fn a_reflective_form_however_reached_opens() {
         "const o: any = {}; o.__proto__ = null;",
         "const o = { __proto__: null };",
         "const x = JSON.parse(\"{}\", (k: any, v: any) => v);",
+        "const a: any = []; const x = JSON.parse(...a);",
+        "const p = Object.getPrototypeOf(Promise.resolve(1));",
         "const p = JSON.parse; const x = p(\"{}\", (k: any, v: any) => v);",
         "const pr = Object.prototype;",
         "class P2 extends Promise<number> {}",
@@ -94,16 +98,39 @@ fn a_reflective_form_however_reached_opens() {
 }
 
 #[test]
-fn a_computed_key_clears_only_by_its_type() {
-    let src = "const o: any = {}; const k = \"a\"; o[k] = 1; console.log(o[k]);";
-    assert_eq!(why(src), None);
-    assert_eq!(why_typed(src, Type::Number), None);
-    assert!(why_typed(src, Type::String).is_some());
-    assert!(why_typed(src, Type::Any).is_some());
+fn a_computed_key_clears_only_by_its_spelled_value() {
+    // a binding's value is not spelled at the key, whatever its type
+    assert!(why("const o: any = {}; const k = \"a\"; o[k] = 1;").is_some());
+    assert!(why("const o: any = {}; const k = \"a\" as \"a\"; o[k] = 1;").is_some());
+    assert!(why("const xs = [1]; for (let i = 0; i < 1; i++) xs[i] = 2;").is_some());
     let m = "const o: any = {}; const m = \"__defineGetter__\"; o[m](\"x\", () => 1);";
     assert!(why(m).is_some());
-    assert!(why("const o: any = {}; o[\"__pro\" + \"to__\"];").is_none());
-    assert!(why_typed("const o: any = {}; o[\"__pro\" + \"to__\"];", Type::String).is_some());
+    // literals fold
+    assert_eq!(
+        why("const o: any = {}; o[\"a\" + \"b\"] = 1; o[-1] = 2; o[1 + 2] = 3;"),
+        None
+    );
+    assert_eq!(
+        why("const o: any = {}; o[!0] = 1; o[2n] = 2; o[1 < 2] = 3;"),
+        None
+    );
+    assert!(why("const o: any = {}; o[\"__pro\" + \"to__\"];").is_some());
+    assert!(why("const o: any = {}; o[\"th\" + \"en\"] = 1;").is_some());
+    // a number's spelling and the operand `&&` answers are not modelled
+    assert!(why("const o: any = {}; o[\"a\" + 1] = 1;").is_some());
+    assert!(why("const o: any = {}; o[\"a\" || \"b\"] = 1;").is_some());
+}
+
+#[test]
+fn a_cast_from_any_to_an_object_type_opens() {
+    let src = "const v: any = 1; const o = v as { a: number };";
+    let obj = Type::Struct(Default::default());
+    assert_eq!(why(src), None);
+    assert!(why_cast(src, Type::Any, obj.clone()).is_some());
+    // a generic body's cast is judged by its specializations' copies
+    assert_eq!(why_cast(src, Type::TypeVar("T".into()), obj.clone()), None);
+    assert_eq!(why_cast(src, Type::Number, obj), None);
+    assert_eq!(why_cast(src, Type::Any, Type::Number), None);
 }
 
 #[test]
@@ -123,4 +150,23 @@ fn a_super_write_clears_only_under_a_spelled_harmless_key() {
     assert!(objlit("super[k] = v;").is_some());
     assert!(objlit("super.__proto__ = v;").is_some());
     assert_eq!(objlit("super.a = v;"), None);
+    assert_eq!(objlit("super[\"a\" + \"b\"] = v;"), None);
+    assert!(objlit("super[\"th\" + \"en\"] = v;").is_some());
+}
+
+#[test]
+fn the_super_base_of_a_literal_method_clears_and_no_other_get_prototype_of() {
+    let objlit = |body: &str| why(&format!("const o = {{ m() {{ {body} }} }};"));
+    assert_eq!(objlit("return super.a;"), None);
+    assert_eq!(objlit("return delete super.a;"), None);
+    let user_home =
+        "const __home_0 = Promise.resolve(1); const p = Object.getPrototypeOf(__home_0);";
+    assert!(why(user_home).is_some());
+}
+
+#[test]
+fn a_spread_into_json_parse_opens_wherever_it_stands() {
+    assert!(why("const a: any = []; const x = JSON.parse(...a);").is_some());
+    assert!(why("const a: any = []; const x = JSON.parse(\"{}\", ...a);").is_some());
+    assert_eq!(why("const x = JSON.parse(\"{}\");"), None);
 }

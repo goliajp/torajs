@@ -13,8 +13,8 @@ use crate::check::Type;
 /// the checker carries from run to run.
 #[derive(Default)]
 pub(crate) struct ThenClosure {
-    /// A run before this one found a computed key the proof cannot
-    /// clear under the run's types.
+    /// A run before this one, or the mono program after it, found a cast
+    /// the proof cannot clear under its types.
     seeded_open: bool,
     /// The proof without types, taken the first time a run asks.
     syntactic: OnceCell<bool>,
@@ -41,7 +41,8 @@ impl ShadowSet {
 
     /// Does a checker run that answered `types` need another run with
     /// the proof marked open? Only when some await was typed by a closed
-    /// proof and a computed key does not clear under the run's types.
+    /// proof and an `as` cast does not clear under the run's types. Asked
+    /// of a run's program and of the mono program after it.
     pub(crate) fn needs_typed_then_run(&self, ast: &Ast, types: &HashMap<ExprId, Type>) -> bool {
         if self.then.seeded_open || !crate::check::awaited::typed_object_await(ast, types) {
             return false;
@@ -61,6 +62,14 @@ impl ShadowSet {
     /// Mark the proof open for the next run.
     pub(crate) fn seed_then_open(&mut self) {
         self.then.seeded_open = true;
+    }
+
+    /// The seed of a round's first run: the proof open when `open` is (a
+    /// round the proof over the mono program asked for).
+    pub(crate) fn then_seeded(open: bool) -> ShadowSet {
+        let mut s = ShadowSet::default();
+        s.then.seeded_open = open;
+        s
     }
 
     /// Carry the run-to-run seed from `prev`.

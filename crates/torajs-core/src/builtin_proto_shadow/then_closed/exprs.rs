@@ -30,7 +30,7 @@ pub(super) fn expr_opening(
         Expr::Member { obj, name } | Expr::OptChain { obj, name } => {
             member_opening(ast, *obj, name)
         }
-        Expr::Index { index, .. } | Expr::OptIndex { index, .. } => key_opening(ast, *index, types),
+        Expr::Index { index, .. } | Expr::OptIndex { index, .. } => key_opening(ast, *index),
         Expr::Call { callee, args } | Expr::OptCall { callee, args } => {
             call_opening(ast, *callee, args)
         }
@@ -120,7 +120,9 @@ fn literal_member_opening(k: &str) -> Option<Opening> {
 }
 
 /// An `as` cast: a promise or a value of another layout may travel
-/// under the object type a cast of an `any` names.
+/// under the object type a cast of an `any` names. A generic body's
+/// cast is judged by its specializations' copies, which the proof over
+/// the mono program sees with their own types.
 fn cast_opening(
     types: &HashMap<ExprId, Type>,
     eid: ExprId,

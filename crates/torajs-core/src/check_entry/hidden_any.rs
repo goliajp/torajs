@@ -91,7 +91,7 @@ fn settle_with(
         retype_returns_any(&mut r.stmts, &rets);
         spell_fields_any(r, &fields);
         reinfer::reinfer_returns(ast, r);
-        round = Some(check_round(r, &args, &ShadowedNames::default())?);
+        round = Some(check_round(r, &args, &ShadowedNames::default(), false)?);
     }
 }
 

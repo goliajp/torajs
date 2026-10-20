@@ -90,7 +90,7 @@ pub fn check_with_arity_warn(ast: &Ast) -> Result<(CheckArtifacts, Vec<String>),
     crate::iface_witness::begin_compile();
     let (artifacts, warnings, census) = hidden_any::settle(
         ast,
-        check_round(ast, &HashSet::new(), &ShadowedNames::default())?,
+        check_round(ast, &HashSet::new(), &ShadowedNames::default(), false)?,
     )?;
     if let Some(line) = census {
         eprintln!("{line}");
@@ -104,13 +104,15 @@ type Round = (CheckArtifacts, Vec<String>, Option<String>);
 
 /// One check of `ast` and its mono pass, reading the call arguments
 /// `hidden` holds as values of any kind, and the members `shadowed`
-/// holds as written values of another kind.
+/// holds as written values of another kind; with `then_open`, the
+/// `then` closure proof starts open.
 fn check_round(
     ast: &Ast,
     hidden: &HashSet<ExprId>,
     shadowed: &ShadowedNames,
+    then_open: bool,
 ) -> Result<Round, String> {
-    let mut c = fixpoint_hidden(ast, hidden, shadowed);
+    let mut c = fixpoint_hidden(ast, hidden, shadowed, then_open);
     // typed 覆盖率读数(`TORAJS_TYPED_CENSUS=1` 下才打)。在错误分支
     // 提前返回**之前**算 —— 一次被拒的编译同样要有读数,否则 `refused`
     // 永远是 0。见 `crate::typed_census`。
@@ -145,7 +147,16 @@ fn check_round(
     if c.shadowed_reads.would_retype(found) {
         let mut seed = std::mem::take(&mut c.shadowed_reads).names;
         seed.extend(found.clone());
-        return check_round(ast, hidden, &seed);
+        return check_round(ast, hidden, &seed, then_open);
+    }
+    // the specializations' awaits and casts, which no run over the
+    // generic program typed: an await one of them types as its object
+    // under a cast the proof does not clear asks for a round with the
+    // proof open
+    if c.proto_shadow
+        .needs_typed_then_run(&mono.mono_ast, &c.expr_types)
+    {
+        return check_round(ast, hidden, shadowed, true);
     }
     mono.mono_ast.face_slots = std::mem::take(&mut c.face_slots);
     mono.mono_ast.face_slots.ret_any = std::mem::take(&mut c.fn_slot_ret_any);

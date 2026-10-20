@@ -40,9 +40,11 @@ pub(super) fn gated_root(n: &str) -> bool {
     matches!(n, "Object" | "JSON" | "Promise")
 }
 
-/// The statics of a [`gated_root`] that define no property and set no
-/// prototype. `JSON.parse` runs a reviver given as a second argument,
-/// so it clears only where it is called without one ([`vetted_roots`]).
+/// The statics of a [`gated_root`] that define no property, set no
+/// prototype and hand out no builtin prototype (`getPrototypeOf` is
+/// not one, see [`super_base_root`]). `JSON.parse` runs a reviver given
+/// as a second argument, so it clears only where it is called without
+/// one ([`vetted_roots`]).
 pub(super) fn gated_member(root: &str, name: &str) -> bool {
     match root {
         "Object" => matches!(
@@ -56,7 +58,6 @@ pub(super) fn gated_member(root: &str, name: &str) -> bool {
                 | "isSealed"
                 | "preventExtensions"
                 | "isExtensible"
-                | "getPrototypeOf"
                 | "is"
                 | "hasOwn"
                 | "getOwnPropertyNames"
@@ -86,18 +87,66 @@ pub(super) fn vetted_roots(ast: &Ast) -> HashSet<ExprId> {
             Expr::InstanceOf { rhs, .. } => {
                 vetted.insert(*rhs);
             }
-            Expr::Call { callee, args } | Expr::OptCall { callee, args } if args.len() <= 1 => {
-                if let Expr::Member { obj, name } = ast.get_expr(*callee)
-                    && name == "parse"
-                    && matches!(ast.get_expr(*obj), Expr::Ident(r) if r == "JSON")
-                {
-                    vetted.insert(*obj);
-                }
+            Expr::Call { callee, args } | Expr::OptCall { callee, args } => {
+                vetted.extend(json_parse_root(ast, *callee, args));
+                vetted.extend(super_kernel_base_root(ast, *callee, args));
             }
             _ => {}
         }
     }
+    for site in &ast.super_delete_operands {
+        if let Expr::Member { obj, .. } | Expr::Index { obj, .. } = ast.get_expr(*site) {
+            vetted.extend(super_base_root(ast, *obj));
+        }
+    }
     vetted
+}
+
+/// The `JSON` of a `JSON.parse` called without a reviver: one argument
+/// at most, and no spread, which may carry one however few arguments
+/// it spells.
+fn json_parse_root(ast: &Ast, callee: ExprId, args: &[ExprId]) -> Option<ExprId> {
+    let Expr::Member { obj, name } = ast.get_expr(callee) else {
+        return None;
+    };
+    let spread = |a: &ExprId| matches!(ast.get_expr(*a), Expr::Spread { .. });
+    let plain = name == "parse" && args.len() <= 1 && !args.iter().any(spread);
+    (plain && is_ident(ast, *obj, "JSON")).then_some(*obj)
+}
+
+/// The base of a `super` property kernel (its first argument), when it
+/// is an object literal method's home base.
+fn super_kernel_base_root(ast: &Ast, callee: ExprId, args: &[ExprId]) -> Option<ExprId> {
+    match ast.get_expr(callee) {
+        Expr::Ident(n) if n.starts_with("__torajs_super_prop_") => {
+            super_base_root(ast, *args.first()?)
+        }
+        _ => None,
+    }
+}
+
+/// The `Object` of `Object.getPrototypeOf(__home_N)`, the `super` base
+/// of an object literal's method (`desugar_objlit_super`), where it
+/// stands as a kernel's base or a `delete` operand's object: the value
+/// goes nowhere else, and the home is the literal itself, whose
+/// [[Prototype]] no form the proof clears can replace, so the base is
+/// %Object.prototype%. `Object.getPrototypeOf` anywhere else opens: of
+/// a promise it hands out %Promise.prototype%, whose `then` an await
+/// calls.
+fn super_base_root(ast: &Ast, base: ExprId) -> Option<ExprId> {
+    let Expr::Call { callee, args } = ast.get_expr(base) else {
+        return None;
+    };
+    let Expr::Member { obj, name } = ast.get_expr(*callee) else {
+        return None;
+    };
+    let home = |h: &ExprId| matches!(ast.get_expr(*h), Expr::Ident(n) if n.starts_with("__home_"));
+    let gpo = name == "getPrototypeOf" && is_ident(ast, *obj, "Object");
+    (gpo && matches!(args.as_slice(), [h] if home(h))).then_some(*obj)
+}
+
+fn is_ident(ast: &Ast, e: ExprId, n: &str) -> bool {
+    matches!(ast.get_expr(e), Expr::Ident(r) if r == n)
 }
 
 /// A builtin global whose `.prototype` is a builtin prototype.
