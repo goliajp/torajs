@@ -6,7 +6,7 @@
 //! (`rules/common/file-size.md`); pure mechanical pull, no semantic
 //! change.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use torajs_codegen::CompiledFunction;
 use torajs_codegen::id_hash::HashSet;
@@ -94,5 +94,33 @@ pub(crate) struct UserDefined<'a> {
 impl UserDefined<'_> {
     pub(crate) fn contains(&self, name: &str) -> bool {
         self.names.contains(name) || self.extra.is_fn_alias(name)
+    }
+}
+
+/// The names the member closure meets that the image's symbol index
+/// lacks: none of them pulls a member.
+pub(crate) struct Foreign<'u, 'a> {
+    pub(crate) defined_in_user: &'u UserDefined<'u>,
+    pub(crate) visited: HashSet<&'a str>,
+    pub(crate) unresolved: BTreeSet<String>,
+    pub(crate) dyld_imports: BTreeMap<String, u8>,
+}
+
+impl<'a> Foreign<'_, 'a> {
+    pub(crate) fn visit(&mut self, name: &'a str) {
+        if !self.visited.insert(name) || self.defined_in_user.contains(name) {
+            return;
+        }
+        // SD-1 / SD-4b: dyld-class externs (libSystem or libcurl) bind
+        // through `LC_LOAD_DYLIB`, not through any archive's
+        // defined-extern set. Classify them out of `unresolved` so the
+        // link can proceed; record the resolving dylib's `lib_ordinal`
+        // so downstream encoders know which LC_LOAD_DYLIB to bind
+        // against.
+        if let Some(lib) = crate::dyld_syms::dyld_lib_for(name) {
+            self.dyld_imports.insert(name.to_string(), lib.ordinal());
+        } else {
+            self.unresolved.insert(name.to_string());
+        }
     }
 }

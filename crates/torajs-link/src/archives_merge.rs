@@ -1,11 +1,6 @@
 //! Merge multiple parsed `.a` archives into a single global
 //! `name → (archive_idx, member_idx, n_value)` symbol lookup.
 //!
-//! S7-C1 — first half of wiring `LinkConfig.archives` into the link
-//! path so the worklist closure (S7-C2: `compute_required_members`)
-//! can resolve `__torajs_*` / `_libc_*` externs from `libtorajs_*.a`
-//! instead of relying on a hand-filled `SymTable`.
-//!
 //! The parse, per-archive index and first-archive-wins merge
 //! (matching Apple `ld64` search-order semantics) run once, when `tr`
 //! is compiled, in `torajs_rtimage::image::build`; here the runtime
@@ -23,7 +18,7 @@ use torajs_rtimage::image::{Image, ImageError};
 
 use crate::archive::{ArMember, MemberSymtabError};
 pub use crate::archive_link_extra_syms::ExtraDefined;
-use crate::archive_link_extra_syms::UserDefined;
+use crate::archive_link_extra_syms::Foreign;
 use crate::dead_strip_reach_cache::ReachCache;
 use crate::dead_strip_reach_table::ImportRef;
 use crate::sym_rows::SymSet;
@@ -283,34 +278,6 @@ pub(crate) fn compute_required_members_cached<'a>(
         members: required,
         dyld_imports,
     })
-}
-
-/// The names the member closure meets that the image's symbol index
-/// lacks: none of them pulls a member.
-struct Foreign<'u, 'a> {
-    defined_in_user: &'u UserDefined<'u>,
-    visited: HashSet<&'a str>,
-    unresolved: BTreeSet<String>,
-    dyld_imports: BTreeMap<String, u8>,
-}
-
-impl<'a> Foreign<'_, 'a> {
-    fn visit(&mut self, name: &'a str) {
-        if !self.visited.insert(name) || self.defined_in_user.contains(name) {
-            return;
-        }
-        // SD-1 / SD-4b: dyld-class externs (libSystem or libcurl) bind
-        // through `LC_LOAD_DYLIB`, not through any archive's
-        // defined-extern set. Classify them out of `unresolved` so the
-        // link can proceed; record the resolving dylib's `lib_ordinal`
-        // so downstream encoders know which LC_LOAD_DYLIB to bind
-        // against.
-        if let Some(lib) = crate::dyld_syms::dyld_lib_for(name) {
-            self.dyld_imports.insert(name.to_string(), lib.ordinal());
-        } else {
-            self.unresolved.insert(name.to_string());
-        }
-    }
 }
 
 /// Name of the external symbol a `RelocKind` references, or

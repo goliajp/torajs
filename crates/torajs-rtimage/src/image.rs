@@ -52,7 +52,10 @@ use crate::archive::{
 };
 use crate::prune::{Winners, live_members};
 
+mod rows;
 mod view;
+use rows::{Names, sym_rows};
+pub use rows::SymbolRows;
 pub use view::{Image, ImageError, ImageSymbol};
 
 const MAGIC: &[u8; 8] = b"TRIMG\0\0\0";
@@ -86,21 +89,6 @@ pub enum BuildError {
 /// image's symbol index will give each name come along, so a table can
 /// name a symbol by its row.
 type TableFn<'f> = dyn FnMut(&ArMember<'_>, &SymbolRows<'_>) -> Result<Vec<u8>, String> + 'f;
-
-/// The image's symbol index while the image is built: the names it
-/// will hold, sorted as [`Image::find_symbol`] searches them.
-pub struct SymbolRows<'s> {
-    names: &'s [&'s str],
-}
-
-impl SymbolRows<'_> {
-    /// The row `name` will have in the image's symbol index.
-    pub fn row(&self, name: &str) -> Option<u32> {
-        let i = self.names.binary_search(&name).ok()?;
-        // `build_members` refuses an index of more than u32::MAX rows
-        Some(i as u32)
-    }
-}
 
 fn u32v(n: usize) -> Result<u32, BuildError> {
     u32::try_from(n).map_err(|_| BuildError::TooLarge)
@@ -172,13 +160,7 @@ fn build_members(
     table: &mut TableFn<'_>,
 ) -> Result<Vec<u8>, BuildError> {
     let (winners, live) = winners_and_live(parsed, reachable_only)?;
-    // the names `sym_rows` writes: those whose winner is kept
-    let indexed: Vec<&str> = winners
-        .iter()
-        .filter(|(_, (a, m, _))| live[*a as usize][*m as usize])
-        .map(|(name, _)| *name)
-        .collect();
-    u32v(indexed.len())?;
+    let indexed = SymbolRows::kept_names(&winners, &live)?;
     let rows = SymbolRows { names: &indexed };
     let mut names = Names::default();
     let mut blob: Vec<u8> = Vec::new();
@@ -276,47 +258,6 @@ fn build_members(
     out.extend_from_slice(&blob);
     out.extend_from_slice(&tables);
     Ok(out)
-}
-
-/// The `syms` rows of the names whose winner is kept, sorted by name,
-/// and their count.
-fn sym_rows<'a>(
-    winners: Winners<'a>,
-    renumber: &[Vec<Option<u32>>],
-    names: &mut Names<'a>,
-) -> Result<(usize, Vec<u8>), BuildError> {
-    let index: BTreeMap<&str, (u32, u32, u64)> = winners
-        .into_iter()
-        .filter_map(|(name, (a, m, v))| renumber[a as usize][m as usize].map(|k| (name, (a, k, v))))
-        .collect();
-    let mut syms: Vec<u8> = Vec::with_capacity(index.len() * SYM_LEN);
-    for (name, (a, m, n_value)) in &index {
-        let (name_off, name_len) = names.intern(name)?;
-        for v in [name_off, name_len, *a, *m] {
-            syms.extend_from_slice(&v.to_le_bytes());
-        }
-        syms.extend_from_slice(&n_value.to_le_bytes());
-    }
-    Ok((index.len(), syms))
-}
-
-/// The names blob under construction, each distinct name written once.
-#[derive(Default)]
-struct Names<'a> {
-    bytes: Vec<u8>,
-    offs: HashMap<&'a str, (u32, u32)>,
-}
-
-impl<'a> Names<'a> {
-    fn intern(&mut self, s: &'a str) -> Result<(u32, u32), BuildError> {
-        if let Some(&r) = self.offs.get(s) {
-            return Ok(r);
-        }
-        let r = (u32v(self.bytes.len())?, u32v(s.len())?);
-        self.bytes.extend_from_slice(s.as_bytes());
-        self.offs.insert(s, r);
-        Ok(r)
-    }
 }
 
 fn align8(n: usize) -> usize {

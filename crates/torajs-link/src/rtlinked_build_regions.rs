@@ -10,7 +10,7 @@ use crate::archives_merge::MergedArchives;
 use crate::dyld_syms::DyldLib;
 use crate::lc::TEXT_VMADDR_BASE;
 use crate::member_apply::{MemberRelocApplyError, apply_member_relocs_with_got};
-use crate::member_data_apply::{collect_member_data_payloads, parse_member_section_relocs};
+use crate::member_data_apply::collect_member_data_payloads;
 use crate::member_data_rebase_layout::compute_member_data_rebase_targets;
 use crate::member_obj::MemberObj;
 use crate::member_reloc::MemberRelocError;
@@ -105,7 +105,8 @@ pub(crate) fn text(
         .map_err(|e| reloc_err(m.key, e))?;
         put(&mut buf, off(m.vaddr, origin)?, &bytes);
         for s in &m.non_text_sections {
-            let rs = parse_member_section_relocs(member, s.section_index)
+            let rs = obj
+                .section_relocs(s.section_index)
                 .map_err(|e| reloc_err(m.key, e.into()))?;
             // `__eh_frame` is carried unrelocated, as the stock link does:
             // nothing registers unwind tables (panic=abort substrate), so

@@ -8,32 +8,23 @@ use crate::archive_emit_members::MemberText;
 use crate::archive_link::{ArchiveLayout, ArchiveLayoutError};
 use crate::archives_merge::{MergedArchives, merge_archive_indexes};
 use crate::chained_fixups_call::recompute_chained_fixups_with_data_rebase;
-use crate::class_name_table_layout::{
-    apply_class_name_table_overrides, build_class_name_table_payload,
-};
+use crate::class_name_table_layout::build_class_name_table_payload;
 use crate::data_section_emit::DataAt;
 use crate::data_section_layout::DataSectionLayout;
 use crate::dead_strip_reach_cache::ReachCache;
 use crate::dead_strip_repack::{DeadRows, StrippedMembers, install_cuts, rewritten_config};
-use crate::defined_extern_resolve::index_member_syms;
+use crate::defined_extern_resolve::{effective_syms, link_defined_syms};
 use crate::dyld_emit::{write_la_ptr_section, write_stubs_section};
 use crate::exec::LinkConfig;
-use crate::fn_addr_syms::register_user_fn_syms;
-use crate::fn_name_table_layout::{apply_fn_name_table_overrides, build_fn_name_table_payload};
+use crate::fn_name_table_layout::build_fn_name_table_payload;
 use crate::member_data_apply::patch_member_data;
 use crate::member_data_rebase_layout::compute_member_data_rebase_targets;
 use crate::phase_timer::PhaseTimer;
-use crate::resolve::{SymIndex, SymTable, apply_relocs};
+use crate::resolve::apply_relocs;
 use crate::sign::build_adhoc_codesign_blob;
 use crate::text_payload::write_text_payload;
-use crate::tlv_descriptor_layout::apply_tlv_overrides;
-use crate::user_class_layouts_layout::{
-    apply_user_class_layouts_overrides, build_user_class_layouts_payload,
-};
-use crate::user_data_globals_layout::apply_user_data_global_overrides;
-use crate::user_regex_baked_layout::apply_user_regex_baked_overrides;
-use crate::user_strings_emit::apply_user_string_overrides;
-use crate::user_vtables_layout::{apply_user_vtable_overrides, build_user_vtables_payload};
+use crate::user_class_layouts_layout::build_user_class_layouts_payload;
+use crate::user_vtables_layout::build_user_vtables_payload;
 
 /// S2 dead-strip blade 2b (RFC 20260824-s2-dead-strip) — opt-in
 /// input-normalization pre-pass: rewrite the archives with dead
@@ -217,62 +208,6 @@ fn link(cfg: &LinkConfig, release: Release) -> Result<Vec<u8>, ArchiveLayoutErro
         std::mem::forget((stripped_cfg, derived_cfg, dead_rows));
     }
     Ok(bytes)
-}
-
-/// The names the link itself places — the dyld stubs, then the TLV
-/// variables and the link's own tables — later ones winning.
-fn link_defined_syms(
-    layout: &ArchiveLayout,
-    merged: &MergedArchives<'_>,
-) -> Result<SymTable, ArchiveLayoutError> {
-    let mut syms = SymTable::new();
-    for (name, stub_vaddr) in &layout.stub_vaddrs {
-        syms.insert(name.clone(), *stub_vaddr);
-    }
-    apply_tlv_overrides(layout, merged, &mut syms)?;
-    apply_user_string_overrides(&layout.user_strings_layout, &mut syms);
-    apply_user_data_global_overrides(&layout.user_data_globals_layout, &mut syms);
-    apply_user_vtable_overrides(&layout.user_vtables_layout, &mut syms);
-    apply_user_class_layouts_overrides(&layout.data_const_layout.class_layouts_layout, &mut syms);
-    apply_fn_name_table_overrides(&layout.fn_name_table_layout, &mut syms);
-    apply_class_name_table_overrides(&layout.class_name_table_layout, &mut syms);
-    // C-5c.2d — outer `___torajs_baked_regex_<i>` syms point at each
-    // entry's `BakedDfaMeta` block in __DATA_CONST. Inner `states_sym`
-    // is not registered (reader goes through chain-LC rebased
-    // `BakedDfaMeta::states_ptr` slot, see C-5c.2b/c).
-    apply_user_regex_baked_overrides(&layout.data_const_layout.baked_regex_layout, &mut syms);
-    Ok(syms)
-}
-
-/// Effective sym table = caller externs + member defined-externs
-/// (vaddr dispatched by home section, `member_syms[i]` those of member
-/// `i`) + user fns + `link_defined`, a later layer winning a name.
-fn effective_syms<'s>(
-    cfg: &'s LinkConfig,
-    layout: &ArchiveLayout,
-    member_syms: &'s [Vec<(String, u64, u8)>],
-    link_defined: &'s SymTable,
-) -> SymIndex<'s> {
-    let n = cfg.sym_table.len()
-        + member_syms.iter().map(Vec::len).sum::<usize>()
-        + cfg.funcs.len()
-        + link_defined.len();
-    let mut index = SymIndex::with_capacity_and_hasher(n, Default::default());
-    for (name, &vaddr) in &cfg.sym_table {
-        index.insert(name, vaddr);
-    }
-    index_member_syms(layout, member_syms, &mut index);
-    // S2-5 blade 2 prereq — user-fn names shadow member
-    // defined-externs (user-first, matching the required-members walk
-    // and dead-strip reachability, which both skip member pulls for
-    // names in `defined_in_user`). Runs after the member sweep so a
-    // same-named archive definition kept alive by an unrelated export
-    // cannot win the vaddr table.
-    register_user_fn_syms(&cfg.funcs, &layout.fn_vaddrs, &mut index);
-    for (name, &vaddr) in link_defined {
-        index.insert(name, vaddr);
-    }
-    index
 }
 
 /// Concatenate header + LCs + __text + __LINKEDIT (nlist, strtab,
