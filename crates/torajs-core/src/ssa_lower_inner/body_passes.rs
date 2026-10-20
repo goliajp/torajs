@@ -202,8 +202,8 @@ pub(crate) fn run(
     );
 
     // Pass 2.5c: the per-class release fn bodies, over the settled
-    // layouts — [`crate::ssa_lower_emit_drop_value::class_drop::populate_class_drop_bodies`].
-    crate::ssa_lower_emit_drop_value::class_drop::populate_class_drop_bodies(
+    // layouts — [`crate::ssa_lower_emit_drop_value::class_drop_fill::populate_class_drop_bodies`].
+    crate::ssa_lower_emit_drop_value::class_drop_fill::populate_class_drop_bodies(
         class_drops,
         class_name_to_tag,
         aliases,

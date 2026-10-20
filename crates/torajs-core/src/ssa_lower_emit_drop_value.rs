@@ -49,6 +49,7 @@ use closure::emit_drop_closure;
 pub(crate) mod class_drop;
 pub(crate) mod class_drop_arr;
 pub(crate) mod class_drop_cells;
+pub(crate) mod class_drop_fill;
 pub(crate) mod class_drop_reentry;
 pub(crate) mod class_drop_setup;
 pub(crate) mod class_drop_worklist;
