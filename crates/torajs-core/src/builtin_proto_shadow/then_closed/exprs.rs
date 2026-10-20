@@ -23,10 +23,7 @@ pub(super) fn expr_opening(
 ) -> Option<Opening> {
     match e {
         Expr::Ident(n) => ident_opening(n, vetted.contains(&eid)),
-        Expr::String(s) => match s.as_wtf8().as_str() {
-            Some(k) if danger_string(k) => open("string", k),
-            _ => None,
-        },
+        Expr::String(s) => s.as_wtf8().as_str().and_then(string_opening),
         Expr::Member { obj, name } | Expr::OptChain { obj, name } => {
             member_opening(ast, *obj, name)
         }
@@ -80,6 +77,15 @@ fn ident_opening(n: &str, vetted: bool) -> Option<Opening> {
         Some(h) if !helper_defines_nothing(h) => open("helper", n),
         _ => None,
     }
+}
+
+/// A string literal that names `then`, the `__proto__` accessor or a
+/// definer, wherever it stands.
+fn string_opening(k: &str) -> Option<Opening> {
+    if danger_string(k) {
+        return open("string", k);
+    }
+    None
 }
 
 /// A member read: a dangerous name, or a builtin's `.prototype`.
