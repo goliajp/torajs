@@ -32,11 +32,14 @@ use crate::ssa_lower::LowerCtx;
 use crate::ssa_lower_member_promise_value as pv;
 use crate::ssa_lower_temp_scratch::ThrowTemp;
 
+/// Does `obj` read a promise some binding or container still holds,
+/// so the await takes a reference of its own? An assertion (`h as
+/// Promise<number>`) reads what its operand reads.
 fn borrow_shaped(ctx: &LowerCtx<'_>, obj: ExprId) -> bool {
-    matches!(
-        ctx.ast.get_expr(obj),
-        Expr::Ident(_) | Expr::Member { .. } | Expr::Index { .. }
-    )
+    match ctx.ast.get_expr(obj) {
+        Expr::As { expr, .. } => borrow_shaped(ctx, *expr),
+        e => matches!(e, Expr::Ident(_) | Expr::Member { .. } | Expr::Index { .. }),
+    }
 }
 
 pub(crate) fn lower_await(ctx: &mut LowerCtx<'_>, eid: ExprId, obj: ExprId) -> Operand {
