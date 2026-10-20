@@ -52,6 +52,9 @@ pub(crate) struct ReachCache<'a> {
     /// The imports of the members the dead-strip pass cut.
     cut_imports: HashMap<(usize, usize), Rc<[Import<'a>]>>,
     pub(crate) edges: EdgeIndex<'a>,
+    /// Where each row of the image's symbol index is defined in its
+    /// owner, filled as the closures reach it (`dead_strip_reach_walk`).
+    pub(crate) sym_loc: Vec<u64>,
 }
 
 impl<'a> ReachCache<'a> {
@@ -89,12 +92,12 @@ impl<'a> ReachCache<'a> {
         key: (usize, usize),
     ) -> Result<Rc<[Import<'a>]>, MemberSymtabError> {
         let Some(obj) = merged.cut_obj(key) else {
-            return self.imports(merged, key);
+            return self.bytes_imports(merged, key);
         };
         if let Some(u) = self.cut_imports.get(&key) {
             return Ok(u.clone());
         }
-        let all = self.imports(merged, key)?;
+        let all = self.bytes_imports(merged, key)?;
         let cut = obj.cut.as_ref().expect("cut_obj answers cut members only");
         let u: Rc<[Import<'a>]> = all
             .iter()
@@ -107,7 +110,7 @@ impl<'a> ReachCache<'a> {
 
     /// The imports of member `key` as its bytes list them: off the
     /// image's table, or read from the bytes when the image holds none.
-    fn imports(
+    pub(crate) fn bytes_imports(
         &mut self,
         merged: &MergedArchives<'a>,
         key: (usize, usize),

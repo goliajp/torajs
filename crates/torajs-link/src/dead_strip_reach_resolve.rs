@@ -51,7 +51,8 @@ pub(crate) fn local_node(key: (usize, usize), sect: u8, atom: Option<u32>) -> No
     }
 }
 
-fn atom_at(r: &MemberReach<'_>, n_sect: u8, addr: u64) -> Option<u32> {
+/// The atom of section `n_sect` covering `addr`.
+pub(crate) fn atom_at(r: &MemberReach<'_>, n_sect: u8, addr: u64) -> Option<u32> {
     let sa = sect_of(r, n_sect)?;
     covering_atom(&sa.atoms, addr).map(|a| a as u32)
 }
@@ -79,11 +80,9 @@ fn covering_atom(atoms: &[(u64, u64)], addr: u64) -> Option<usize> {
 #[derive(Clone, Copy)]
 pub(crate) enum RelocTarget<'a> {
     /// `atom: None` is the whole section.
-    Local {
-        sect: u8,
-        atom: Option<u32>,
-    },
-    Undef(&'a str),
+    Local { sect: u8, atom: Option<u32> },
+    /// The nlist row of the undefined symbol, and its name.
+    Undef(u32, &'a str),
 }
 
 /// Decode one reloc entry of section `site_sect` (`None` = no edge).
@@ -96,7 +95,7 @@ pub(crate) fn decode_reloc<'a>(
     if e.r_extern == 1 {
         let entry = r.nlist.get(e.r_symbolnum as usize)?;
         if entry.n_type & N_TYPE == N_UNDF {
-            Some(RelocTarget::Undef(entry.name))
+            Some(RelocTarget::Undef(e.r_symbolnum, entry.name))
         } else if entry.n_type & N_TYPE == N_SECT {
             Some(RelocTarget::Local {
                 sect: entry.n_sect,
@@ -182,7 +181,7 @@ pub(crate) fn resolve_reloc_target(
 ) -> Option<Node> {
     match decode_reloc(site_sect, e, member, r)? {
         RelocTarget::Local { sect, atom } => Some(local_node(key, sect, atom)),
-        RelocTarget::Undef(name) => {
+        RelocTarget::Undef(_, name) => {
             resolve_undef(name, merged, reach, defined_in_user, required, unresolved)
         }
     }

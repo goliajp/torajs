@@ -5,11 +5,12 @@
 //! An edge to a node of the same member depends only on the member
 //! bytes, so it is decoded at the first expansion and kept for every
 //! later closure of the link (the elide fix-point runs several). An
-//! edge through an undefined name stays a name: whether a user fn, a
-//! dyld import or a required member answers it is the closure's own
-//! question, asked once per name per closure.
+//! import the runtime image's symbol index holds becomes the row of its
+//! name there; any other undefined name stays a name. Whether a user
+//! fn, a dyld import or a required member answers either is the
+//! closure's own question, asked once per symbol per closure.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use crate::archive::ArMember;
@@ -17,43 +18,67 @@ use crate::dead_strip_reach::{MemberReach, Node};
 use crate::dead_strip_reach_cache::BytesKey;
 use crate::dead_strip_reach_relocs::RelocIndex;
 use crate::dead_strip_reach_resolve::{RelocTarget, decode_reloc};
+use crate::dead_strip_reach_table::{Import, ImportRef};
 
-/// One out-edge; `Undef` carries the id `EdgeIndex::name` reads back.
+/// One out-edge.
 #[derive(Clone, Copy)]
 pub(crate) enum Edge {
     /// `atom: None` is the whole section.
-    Local {
-        sect: u8,
-        atom: Option<u32>,
-    },
-    Undef(u32),
+    Local { sect: u8, atom: Option<u32> },
+    /// An import, by the row of its name in the image's symbol index.
+    Sym(u32),
+    /// Any other undefined name, by the id `EdgeIndex::name` reads
+    /// back.
+    Name(u32),
 }
+
+/// One section's decoded out-edges: per atom (empty until the
+/// section's first atom is expanded), and the whole section's.
+type SectEdges = (Vec<Option<Rc<[Edge]>>>, Option<Rc<[Edge]>>);
 
 #[derive(Default)]
 pub(crate) struct EdgeIndex<'a> {
     relocs: RelocIndex<'a>,
-    /// Keyed by member bytes, section ordinal and atom (`None` = the
-    /// whole section).
-    lists: HashMap<(BytesKey<'a>, u8, Option<u32>), Rc<[Edge]>>,
+    /// The slot in `members` of each member's bytes.
+    slots: HashMap<BytesKey<'a>, u32>,
+    /// Per member slot, per section.
+    members: Vec<Vec<SectEdges>>,
     ids: HashMap<&'a str, u32>,
     names: Vec<&'a str>,
 }
 
 impl<'a> EdgeIndex<'a> {
+    /// The slot of the edges of `member`, whose tables are `r`.
+    pub(crate) fn slot(&mut self, member: &ArMember<'a>, r: &MemberReach<'a>) -> u32 {
+        let next = self.members.len() as u32;
+        let slot = *self.slots.entry(BytesKey(member.data)).or_insert(next);
+        if slot == next {
+            self.members.push(vec![(Vec::new(), None); r.sects.len()]);
+        }
+        slot
+    }
+
     /// The out-edges of `atom` of section `sect` (`None` = every reloc
-    /// of the section), in reloc-table order.
+    /// of the section) of the member in `slot`, in reloc-table order.
+    /// `imports` are the member's imports, in nlist order.
     pub(crate) fn out_edges(
         &mut self,
+        slot: u32,
         member: &ArMember<'a>,
         r: &MemberReach<'a>,
+        imports: &[Import<'a>],
         sect: u8,
         atom: Option<u32>,
     ) -> Result<Rc<[Edge]>, String> {
-        let key = (BytesKey(member.data), sect, atom);
-        if let Some(list) = self.lists.get(&key) {
+        let sa = r.sects.get(sect as usize - 1).ok_or("bad sect")?;
+        let (atoms, whole) = &self.members[slot as usize][sect as usize - 1];
+        let cached = match atom {
+            Some(a) => atoms.get(a as usize).and_then(Option::as_ref),
+            None => whole.as_ref(),
+        };
+        if let Some(list) = cached {
             return Ok(list.clone());
         }
-        let sa = r.sects.get(sect as usize - 1).ok_or("bad sect")?;
         // r_address is section-relative; atom ranges are object-file
         // addresses.
         let (lo, hi) = match atom {
@@ -67,19 +92,38 @@ impl<'a> EdgeIndex<'a> {
         for e in self.relocs.in_range(member, sect, lo, hi)? {
             match decode_reloc(sect, e, member, r) {
                 Some(RelocTarget::Local { sect, atom }) => list.push(Edge::Local { sect, atom }),
-                Some(RelocTarget::Undef(name)) => {
-                    let next = self.names.len() as u32;
-                    let id = *self.ids.entry(name).or_insert(next);
-                    if id == next {
-                        self.names.push(name);
-                    }
-                    list.push(Edge::Undef(id));
+                Some(RelocTarget::Undef(row, name)) => {
+                    let sym = imports
+                        .binary_search_by_key(&row, |i| i.row)
+                        .ok()
+                        .and_then(|k| match imports[k].to {
+                            ImportRef::Sym(s) => Some(s),
+                            ImportRef::Foreign(_) => None,
+                        });
+                    list.push(match sym {
+                        Some(s) => Edge::Sym(s),
+                        None => {
+                            let next = self.names.len() as u32;
+                            let id = *self.ids.entry(name).or_insert(next);
+                            if id == next {
+                                self.names.push(name);
+                            }
+                            Edge::Name(id)
+                        }
+                    });
                 }
                 None => {}
             }
         }
         let list: Rc<[Edge]> = list.into();
-        self.lists.insert(key, list.clone());
+        let (atoms, whole) = &mut self.members[slot as usize][sect as usize - 1];
+        match atom {
+            Some(a) => {
+                atoms.resize(sa.atoms.len(), None);
+                atoms[a as usize] = Some(list.clone());
+            }
+            None => *whole = Some(list.clone()),
+        }
         Ok(list)
     }
 
@@ -95,23 +139,24 @@ pub(crate) struct UndefMemo {
 }
 
 impl UndefMemo {
-    pub(crate) fn get_or(
-        &mut self,
-        id: u32,
-        resolve: impl FnOnce() -> Option<Node>,
-    ) -> Option<Node> {
+    /// The answer for `id`, when asked before.
+    pub(crate) fn get(&self, id: u32) -> Option<Option<Node>> {
+        self.answers.get(id as usize).copied().flatten()
+    }
+
+    pub(crate) fn set(&mut self, id: u32, answer: Option<Node>) {
         let i = id as usize;
         if i >= self.answers.len() {
             self.answers.resize(i + 1, None);
         }
-        *self.answers[i].get_or_insert_with(resolve)
+        self.answers[i] = Some(answer);
     }
 }
 
 /// The closure's visited set: one bit per atom and per whole section
-/// of the members it walks.
+/// of the members it walks, each member named by its position in the
+/// walk.
 pub(crate) struct Seen {
-    keys: Vec<(usize, usize)>,
     /// Per member, per section: where its atoms start in `atoms`.
     base: Vec<Vec<usize>>,
     atoms: Vec<bool>,
@@ -119,15 +164,14 @@ pub(crate) struct Seen {
 }
 
 impl Seen {
-    pub(crate) fn new(reach: &BTreeMap<(usize, usize), MemberReach<'_>>) -> Self {
+    pub(crate) fn new(members: &[MemberReach<'_>]) -> Self {
         let mut seen = Seen {
-            keys: reach.keys().copied().collect(),
-            base: Vec::with_capacity(reach.len()),
+            base: Vec::with_capacity(members.len()),
             atoms: Vec::new(),
-            whole: Vec::with_capacity(reach.len()),
+            whole: Vec::with_capacity(members.len()),
         };
         let mut n = 0;
-        for r in reach.values() {
+        for r in members {
             seen.base.push(
                 r.sects
                     .iter()
@@ -144,18 +188,15 @@ impl Seen {
         seen
     }
 
-    /// Mark `node` visited; true on its first visit. A node outside
-    /// the walked members and sections is never recorded — expanding
-    /// it does nothing, so a repeat costs nothing.
-    pub(crate) fn insert(&mut self, node: Node) -> bool {
-        let (key, sect, atom) = match node {
-            Node::Atom { key, sect, atom } => (key, sect, Some(atom)),
-            Node::AllSect { key, sect } => (key, sect, None),
+    /// Mark `node` of walked member `m` visited; true on its first
+    /// visit. A section outside the member is never recorded —
+    /// expanding it does nothing, so a repeat costs nothing.
+    pub(crate) fn insert(&mut self, m: usize, node: Node) -> bool {
+        let (sect, atom) = match node {
+            Node::Atom { sect, atom, .. } => (sect, Some(atom)),
+            Node::AllSect { sect, .. } => (sect, None),
         };
-        let (Ok(m), Some(s)) = (
-            self.keys.binary_search(&key),
-            (sect as usize).checked_sub(1),
-        ) else {
+        let Some(s) = (sect as usize).checked_sub(1) else {
             return true;
         };
         let bit = match atom {
@@ -168,8 +209,6 @@ impl Seen {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
-
     use super::Seen;
     use crate::dead_strip_reach::{MemberReach, Node};
     use crate::dead_strip_reach_table::test_support::sections_reach;
@@ -188,43 +227,31 @@ mod tests {
 
     #[test]
     fn each_node_is_new_once_and_members_do_not_share_bits() {
-        let reach = BTreeMap::from([((0, 3), member(&[2, 3])), ((1, 0), member(&[1]))]);
-        let mut seen = Seen::new(&reach);
+        let members = [member(&[2, 3]), member(&[1])];
+        let mut seen = Seen::new(&members);
         let atom = |key, sect, atom| Node::Atom { key, sect, atom };
-        assert!(seen.insert(atom((0, 3), 2, 2)));
-        assert!(!seen.insert(atom((0, 3), 2, 2)));
-        assert!(seen.insert(atom((0, 3), 1, 1)));
-        assert!(seen.insert(atom((1, 0), 1, 0)));
-        assert!(!seen.insert(atom((1, 0), 1, 0)));
+        assert!(seen.insert(0, atom((0, 3), 2, 2)));
+        assert!(!seen.insert(0, atom((0, 3), 2, 2)));
+        assert!(seen.insert(0, atom((0, 3), 1, 1)));
+        assert!(seen.insert(1, atom((1, 0), 1, 0)));
+        assert!(!seen.insert(1, atom((1, 0), 1, 0)));
         let whole = Node::AllSect {
             key: (0, 3),
             sect: 2,
         };
-        assert!(seen.insert(whole));
-        assert!(!seen.insert(whole));
-        assert!(!seen.insert(atom((0, 3), 2, 2)));
+        assert!(seen.insert(0, whole));
+        assert!(!seen.insert(0, whole));
+        assert!(!seen.insert(0, atom((0, 3), 2, 2)));
     }
 
     #[test]
-    fn nodes_outside_the_walked_sections_are_never_recorded() {
-        let reach = BTreeMap::from([((0, 0), member(&[1]))]);
-        let mut seen = Seen::new(&reach);
-        for node in [
-            Node::AllSect {
-                key: (0, 0),
-                sect: 0,
-            },
-            Node::AllSect {
-                key: (0, 0),
-                sect: 9,
-            },
-            Node::AllSect {
-                key: (5, 5),
-                sect: 1,
-            },
-        ] {
-            assert!(seen.insert(node));
-            assert!(seen.insert(node));
+    fn sections_outside_the_member_are_never_recorded() {
+        let members = [member(&[1])];
+        let mut seen = Seen::new(&members);
+        for sect in [0, 9] {
+            let node = Node::AllSect { key: (0, 0), sect };
+            assert!(seen.insert(0, node));
+            assert!(seen.insert(0, node));
         }
     }
 }
