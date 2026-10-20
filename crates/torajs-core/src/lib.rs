@@ -611,6 +611,7 @@ mod ssa_lower_new_collection;
 pub(crate) mod ssa_lower_new_dynamic;
 pub(crate) mod ssa_lower_new_extra_args;
 pub(crate) mod ssa_lower_new_finreg;
+pub(crate) mod ssa_lower_ns_static_alias;
 pub(crate) mod ssa_lower_nullable_guard;
 pub(crate) mod ssa_lower_nullable_guard_emit;
 pub(crate) mod ssa_lower_nullish;

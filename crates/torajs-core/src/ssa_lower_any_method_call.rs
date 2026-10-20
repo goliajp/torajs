@@ -207,16 +207,7 @@ fn non_any_recv_admitted(ctx: &LowerCtx<'_>, callee: ExprId, obj: &ExprId, name:
             ctx, *obj,
         )
         .is_some());
-    // RFC 20260808-construct-channel B6 刀 2 — the same surfaces
-    // on a reified NAMESPACE-STATIC read (`Array.from.call(C,…)`)
-    // ride the any lane: the baked cell's runtime dispatch honors
-    // the receiver channel (recv-first statics read the thisArg
-    // as the constructor C; receiver-less ones ignore it per
-    // their spec). Checker mirror: route_early's ns-static arm.
-    let ns_static_fn = is_fn_surface
-        && matches!(ctx.ast.get_expr(*obj), Expr::Member { obj: ns, name: m }
-            if matches!(ctx.ast.get_expr(*ns), Expr::Ident(n)
-                if torajs_rc::ns_static::ns_static_id(n, m) >= 0));
+    let ns_static_fn = is_fn_surface && crate::ssa_lower_ns_static_alias::is_fn_read(ctx, *obj);
     // The same surfaces on a builtin CONSTRUCTOR value
     // (`Number.bind(null)` / `Promise.call(p, fn)`): the bare
     // namespace ident lowers to the interned ctor cell
