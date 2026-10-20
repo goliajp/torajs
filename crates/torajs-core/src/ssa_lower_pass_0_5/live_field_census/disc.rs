@@ -17,7 +17,7 @@
 //! the name ends it, from the start of the statement that holds the
 //! declaration. Each function starts with no fact.
 
-use crate::ssa::id_hash::{HashMap, HashSet};
+use super::names::{HashMap, HashSet};
 use std::collections::hash_map::Entry;
 
 use crate::ast::{BinOp, Expr, ExprId, Stmt};

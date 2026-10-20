@@ -20,9 +20,9 @@
 
 use std::collections::HashMap as StdMap;
 
+use super::names::{HashMap, HashSet};
 use crate::ast::{Ast, Expr, ExprId, Param};
 use crate::check::Type;
-use crate::ssa::id_hash::{HashMap, HashSet};
 use crate::ssa_lower_nullable_guard::spells_undef_with_generic_cell;
 use crate::ssa_lower_pass_0_5::arr_head_census::ExprMask;
 

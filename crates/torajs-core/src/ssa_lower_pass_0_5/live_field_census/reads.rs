@@ -1,9 +1,9 @@
 //! What the fixed point answers about reads and calls, and the
 //! judgements of the fixed point itself.
 
+use super::names::{HashMap, HashSet};
 use crate::ast::Expr;
 use crate::check::Type;
-use crate::ssa::id_hash::{HashMap, HashSet};
 
 use super::judge::{State, Visit, Visiting};
 use super::scope::{Binder, Owner};
@@ -176,7 +176,7 @@ impl<'a, 'b> State<'a, 'b> {
     /// those at a tested index the census does not prove live there.
     pub(super) fn entry_calls(&self, entry: &HashMap<&str, Vec<usize>>) -> Entry {
         let c = self.c;
-        let mut out = HashMap::default();
+        let mut out = Entry::default();
         if entry.is_empty() {
             return out;
         }

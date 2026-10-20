@@ -1,8 +1,8 @@
 //! Which construction sites a read under a fact can see, and what
 //! each of them stores in the field read.
 
+use super::super::names::HashMap;
 use crate::ast::{Expr, ExprId, Stmt};
-use crate::ssa::id_hash::HashMap;
 use crate::ssa_lower_pass_0_5::arr_head_census::ExprMask;
 
 use super::super::judge::{State, Visiting};

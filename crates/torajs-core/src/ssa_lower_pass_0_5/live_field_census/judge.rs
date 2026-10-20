@@ -2,7 +2,7 @@
 //! fields and functions, and what "live by construction" means for a
 //! value, a constructor parameter and a function's returns.
 
-use crate::ssa::id_hash::{HashMap, HashSet};
+use super::names::{HashMap, HashSet};
 
 use crate::ast::desugar_async_sm_walk::visit_stmt_exprs;
 use crate::ast::{ExprId, Stmt};

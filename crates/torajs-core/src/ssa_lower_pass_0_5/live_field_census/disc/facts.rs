@@ -4,7 +4,7 @@
 //! changes it, and drops it at its end. Each change is logged instead,
 //! and the copy dropped by undoing the log back to where it began.
 
-use crate::ssa::id_hash::HashMap;
+use super::super::names::HashMap;
 
 use super::Key;
 

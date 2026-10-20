@@ -21,7 +21,7 @@
 //! there, whatever its shape, so every argument the callee reads is
 //! tested or live.
 
-use crate::ssa::id_hash::{HashMap, HashSet};
+use super::names::{HashMap, HashSet};
 
 use crate::ast::{Ast, BinOp, Expr, ExprId, Param, Stmt};
 

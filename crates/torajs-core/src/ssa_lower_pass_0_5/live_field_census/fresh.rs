@@ -2,7 +2,7 @@
 //! function of the program returns it: a builtin method that answers a
 //! fresh object, and a method call that dispatches over several owners.
 
-use crate::ssa::id_hash::HashMap;
+use super::names::HashMap;
 
 use crate::ast::{BinOp, Expr, ExprId};
 use crate::check::Type;

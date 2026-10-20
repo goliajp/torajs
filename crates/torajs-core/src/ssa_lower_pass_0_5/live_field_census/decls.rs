@@ -4,11 +4,11 @@
 
 use std::collections::HashMap as StdMap;
 
+use super::names::{HashMap, HashSet};
 use crate::ast::desugar_async_sm_walk::{visit_expr_children, visit_stmt_exprs};
 use crate::ast::{Ast, ExprId, Stmt};
 use crate::check::Type;
 use crate::num_width::WidthTable;
-use crate::ssa::id_hash::{HashMap, HashSet};
 
 use super::walk::{ctor_class, ctor_fed_seed, ctor_prefix, nested_stmts, user_params};
 use super::{Census, Ctor, ExprMask, Live, bindings, scope};

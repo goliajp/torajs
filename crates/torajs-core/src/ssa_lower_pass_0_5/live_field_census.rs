@@ -59,6 +59,7 @@ mod disc;
 mod entry;
 mod fresh;
 mod judge;
+mod names;
 mod reads;
 mod scope;
 mod value;
@@ -71,13 +72,14 @@ use std::collections::HashMap as StdMap;
 use crate::ast::{Ast, ExprId, Param, Stmt};
 use crate::check::Type;
 use crate::num_width::WidthTable;
-use crate::ssa::id_hash::{HashMap, HashSet};
+use crate::ssa::id_hash;
 
 use super::arr_head_census::ExprMask;
+use names::{HashMap, HashSet};
 use walk::Few;
 
 /// `(class, field)` pairs whose reads never see the undefined cell.
-pub(crate) type LiveFields = HashSet<(String, String)>;
+pub(crate) type LiveFields = id_hash::HashSet<(String, String)>;
 
 /// What the census proved live.
 #[derive(Default)]
@@ -93,7 +95,7 @@ pub(crate) struct Live {
 }
 
 /// Argument indices, by direct call.
-type Entry = HashMap<ExprId, Vec<usize>>;
+type Entry = id_hash::HashMap<ExprId, Vec<usize>>;
 
 const THIS: &str = "__this";
 /// Member / identifier / string names that reach a field or an
