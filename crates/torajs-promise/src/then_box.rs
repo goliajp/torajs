@@ -227,7 +227,7 @@ pub(crate) unsafe fn unbox_settled(param_repr: u8, av: i64) -> i64 {
             },
             REPR_I64 => match tag {
                 TAG_I64 | TAG_BOOL => raw,
-                TAG_F64 => f64::from_bits(raw as u64) as i64,
+                TAG_F64 => crate::settled_form::exact_i64(f64::from_bits(raw as u64)),
                 _ => 0,
             },
             REPR_BOOL => match tag {

@@ -107,8 +107,15 @@ fn other_width(src: u8, v: i64) -> i64 {
     if src == REPR_I64 {
         (v as f64).to_bits() as i64
     } else {
-        let f = f64::from_bits(v as u64);
-        debug_assert!(f.fract() == 0.0, "a fraction settled into an i64 reader");
-        f as i64
+        exact_i64(f64::from_bits(v as u64))
     }
+}
+
+/// `f` read by an i64 reader, which the width analysis gives only a
+/// number it proved integral; a debug build stops on a fraction (NaN
+/// and the infinities are none: their `fract()` is NaN).
+#[inline]
+pub(crate) fn exact_i64(f: f64) -> i64 {
+    debug_assert!(!f.is_finite() || f.fract() == 0.0, "a fraction read at i64");
+    f as i64
 }
