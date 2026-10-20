@@ -4,7 +4,8 @@
 use std::collections::HashMap;
 
 use super::forms::{
-    builtin_global, danger_member, danger_string, helper_defines_nothing, ident_opens,
+    builtin_global, danger_member, danger_string, global_member, helper_defines_nothing,
+    ident_opens,
 };
 use super::keys::{call_opening, key_opening};
 use super::{Opening, open};
@@ -88,9 +89,10 @@ fn string_opening(k: &str) -> Option<Opening> {
     None
 }
 
-/// A member read: a dangerous name, or a builtin's `.prototype`.
+/// A member read: a dangerous name, a global's name, or a builtin's
+/// `.prototype`.
 fn member_opening(ast: &Ast, obj: ExprId, name: &str) -> Option<Opening> {
-    if danger_member(name) {
+    if danger_member(name) || global_member(name) {
         return open("member", name);
     }
     match ast.get_expr(obj) {

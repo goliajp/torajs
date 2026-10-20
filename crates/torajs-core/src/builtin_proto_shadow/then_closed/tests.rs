@@ -170,3 +170,15 @@ fn a_spread_into_json_parse_opens_wherever_it_stands() {
     assert!(why("const a: any = []; const x = JSON.parse(\"{}\", ...a);").is_some());
     assert_eq!(why("const x = JSON.parse(\"{}\");"), None);
 }
+
+#[test]
+fn a_global_read_off_some_object_opens() {
+    for src in [
+        "function g(this: any) { return this; } const G = g(); G.Object.keys({});",
+        "const G: any = {}; G[\"Reflect\"].set({}, \"a\", 1);",
+        "const G: any = {}; const P = G.Promise;",
+        "const G: any = {}; G[\"Fun\" + \"ction\"](\"return 1\");",
+    ] {
+        assert!(why(src).is_some(), "closed: {src}");
+    }
+}

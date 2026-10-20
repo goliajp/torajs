@@ -169,10 +169,22 @@ pub(super) fn danger_member(n: &str) -> bool {
     )
 }
 
+/// Member names under which the global object holds a global that
+/// [`ident_opens`] or [`gated_root`] judges: read off any object they
+/// open, so a global object reached without naming it (a sloppy
+/// function's `this`, ECMA-262 §10.2.1.2 step 6) hands out nothing the
+/// name walk did not see.
+pub(super) fn global_member(n: &str) -> bool {
+    matches!(
+        n,
+        "Reflect" | "Proxy" | "eval" | "Function" | "globalThis" | "Object" | "JSON" | "Promise"
+    )
+}
+
 /// Keys a computed access may not name: `then`, a [`danger_member`],
-/// or `prototype`.
+/// a [`global_member`], or `prototype`.
 pub(super) fn danger_key(k: &str) -> bool {
-    k == "then" || k == "prototype" || danger_member(k)
+    k == "then" || k == "prototype" || danger_member(k) || global_member(k)
 }
 
 /// String literals that open the proof wherever they stand: a key that

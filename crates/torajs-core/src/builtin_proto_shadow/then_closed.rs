@@ -25,7 +25,9 @@
 //! - it names no form that answers any key or runs code from a string:
 //!   `Reflect`, `Proxy`, `eval`, `Function`, the global object, `with`,
 //!   a dynamic `import()`, `require`, a `constructor` read (a function's
-//!   is %Function%);
+//!   is %Function%), and reads no such global's name, nor `Object`,
+//!   `JSON` or `Promise`, off another object (the global object a sloppy
+//!   function's `this` is);
 //! - no `as` cast hands an `any` to an object type: the value under it
 //!   may be a promise, or an object of another layout. A generic body's
 //!   cast counts as each of its specializations' copies, so the proof
