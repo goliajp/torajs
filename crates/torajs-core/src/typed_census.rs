@@ -144,7 +144,9 @@ impl Checker {
     /// `torajs-typed-census-any: <start> <end> <expr>` line per expression
     /// in the `any` bucket, in source order, so a drop in the ratio can
     /// be read site by site (`<expr>` is the node's debug form, cut at 80
-    /// characters; a node desugaring made has span 0 0).
+    /// characters). Span 0 0 means the node carries no span: desugared
+    /// and injected nodes, but also every identifier and assignment the
+    /// parser adds, so it does not by itself tell injected code apart.
     pub(crate) fn typed_census_line(&self, ast: &Ast) -> Option<String> {
         let mode = std::env::var("TORAJS_TYPED_CENSUS").ok()?;
         if mode != "1" && mode != "any" {
