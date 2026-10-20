@@ -1,7 +1,7 @@
 //! Whether anything can buffer a cell of a class sid as a cycle root.
 //!
 //! A release fn buffers a cell whose count stays above zero as a
-//! candidate root of a garbage cycle, and tests every dying cell for
+//! candidate root of a dead cycle, and tests every dying cell for
 //! the buffer's flag. A cell no cycle passes through needs neither: the
 //! acyclic cells Bacon and Rajan's collector never buffers. Asked for a
 //! closed, sealed sid with no prefix path through it, three things

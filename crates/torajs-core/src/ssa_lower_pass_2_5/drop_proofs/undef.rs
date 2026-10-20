@@ -296,6 +296,11 @@ impl<'a> Analysis<'a> {
                 | InstKind::StoreDynScaled8(_, Operand::Value(p), _) => {
                     f.value_type(*p) != self.own
                 }
+                // a bare pointer read out of an own-sid field could be
+                // written through where no store shows the sid
+                InstKind::Load(Type::Ptr, Operand::Value(p), off) => {
+                    !(f.value_type(*p) == self.own && self.offs.contains(off))
+                }
                 _ => true,
             })
         })
