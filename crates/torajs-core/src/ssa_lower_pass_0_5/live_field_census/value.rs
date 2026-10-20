@@ -205,7 +205,7 @@ impl<'a, 'b> State<'a, 'b> {
             return false;
         }
         let mut found = false;
-        for (o, f) in self.methods.get(m).into_iter().flatten() {
+        for (o, f) in self.methods.get(m).map_or(&[][..], Few::as_slice) {
             if *o == class || derives_from(c.ast, o, class) || derives_from(c.ast, class, o) {
                 if !self.live_fns.contains(*f) {
                     return false;

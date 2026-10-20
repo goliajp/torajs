@@ -8,6 +8,7 @@ use crate::ast::{BinOp, Expr, ExprId};
 use crate::check::Type;
 
 use super::Census;
+use super::walk::Few;
 
 /// Array methods that answer a new array or iterator, never an element.
 const ARRAY_FRESH: &[&str] = &[
@@ -152,4 +153,4 @@ const STRING_FRESH: &[&str] = &[
 ];
 
 /// The bodies of each instance method, as `(owner, function)`.
-pub(super) type Methods<'a> = HashMap<&'a str, Vec<(&'a str, &'a str)>>;
+pub(super) type Methods<'a> = HashMap<&'a str, Few<(&'a str, &'a str)>>;

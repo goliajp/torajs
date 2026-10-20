@@ -147,10 +147,10 @@ impl<'a> Census<'a> {
 
     /// Each declared function's returned values, or none when one of
     /// its returns has no value.
-    pub(super) fn returns(&self) -> HashMap<&'a str, Option<Vec<ExprId>>> {
+    pub(super) fn returns(&self) -> HashMap<&'a str, Option<Few<ExprId>>> {
         let mut out = HashMap::default();
         for (f, (_, body)) in &self.fns {
-            let mut v = Some(Vec::new());
+            let mut v = Some(Few::default());
             own_returns(body, &mut |r| match (r, v.as_mut()) {
                 (Some(e), Some(v)) => v.push(e),
                 _ => v = None,
@@ -189,7 +189,7 @@ pub(super) struct State<'a, 'b> {
     pub(super) construct_args: &'b HashMap<&'a str, Few<&'a [ExprId]>>,
     pub(super) discs: &'b Discs<'a>,
     pub(super) methods: &'b super::fresh::Methods<'b>,
-    pub(super) rets: &'b HashMap<&'a str, Option<Vec<ExprId>>>,
+    pub(super) rets: &'b HashMap<&'a str, Option<Few<ExprId>>>,
     /// No road the census cannot see reaches a field or a method.
     pub(super) fields_open: bool,
 }

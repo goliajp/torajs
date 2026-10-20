@@ -53,7 +53,7 @@ impl<'a, 'b> State<'a, 'b> {
             return false;
         }
         let visiting = &mut self.scratch.borrow_mut();
-        rets.iter().all(|e| self.value_live(*e, visiting))
+        (rets.as_slice().iter()).all(|e| self.value_live(*e, visiting))
     }
 
     /// The reads and calls [`Live::unproven_read`] answers, given the
