@@ -13,7 +13,7 @@ use super::container::{UnionFind, canon_key_frozen};
 /// slots — no program write reaches a container through them. A
 /// program-named binding inside a synthetic fn (a hoisted local of an
 /// async body, the parameter of an any-widened twin) is the program's.
-fn synthetic(k: &SlotKey) -> bool {
+pub(super) fn synthetic(k: &SlotKey) -> bool {
     let dunder = |s: &str| s.starts_with("__");
     match k {
         SlotKey::Global(n)

@@ -189,7 +189,11 @@ impl Analysis<'_> {
                     if p_num && let Some(p0) = self.callback_params(&cb).first() {
                         self.uf
                             .union(&src_pv, &SlotKey::Param(cb.clone(), p0.clone()));
-                        self.any_number_reader(eid, *a, &src_pv);
+                        if let Some(Type::Function(ps, _)) = self.expr_types.get(a)
+                            && ps.first() == Some(&Type::Number)
+                        {
+                            self.number_promises.insert(recv.clone());
+                        }
                     }
                     if r_num {
                         self.uf.union(&res_pv, &SlotKey::Ret(cb));
@@ -209,26 +213,6 @@ impl Analysis<'_> {
                     }
                 }
             }
-        }
-    }
-
-    /// A handler `cb` declaring a `number` parameter on a promise of
-    /// `any` (the receiver of the chain call `eid` is a `.then` whose
-    /// handler returned `any`, or a `Promise<any>`) takes whatever the
-    /// `any` held, so the source value point `src_pv` widens.
-    fn any_number_reader(&mut self, eid: ExprId, cb: ExprId, src_pv: &SlotKey) {
-        let Expr::Call { callee, .. } = self.ast.get_expr(eid) else {
-            return;
-        };
-        let Expr::Member { obj, .. } = self.ast.get_expr(*callee) else {
-            return;
-        };
-        let any_src =
-            matches!(self.expr_types.get(obj), Some(Type::Promise(t)) if **t == Type::Any);
-        let num_param = matches!(self.expr_types.get(&cb),
-            Some(Type::Function(ps, _)) if ps.first() == Some(&Type::Number));
-        if any_src && num_param {
-            self.add_container_constraint(src_pv.clone(), super::magnitude::f64_flow());
         }
     }
 

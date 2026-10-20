@@ -61,6 +61,8 @@ mod magnitude;
 mod method_value;
 mod mono;
 mod nonzero_neg;
+mod pipeline;
+mod promise_entry;
 mod sentinel_hof;
 mod sentinel_member_reads;
 mod sentinel_tables;
@@ -198,6 +200,14 @@ pub(super) struct Analysis<'a> {
     /// every elem/field query answers F64 — conservative, loud in
     /// STATS, never silent-wrong.
     pub(super) container_poison: bool,
+    /// The keys of the values the walk keyed while their type held
+    /// `any`: sources of promises it does not follow (`promise_entry`).
+    pub(super) untracked_values: HashSet<SlotKey>,
+    /// The slots of the promises a number is read from (`promise_entry`).
+    pub(super) number_promises: HashSet<SlotKey>,
+    /// Does the program read a number out of a promise? Gates the two
+    /// above (`promise_entry`).
+    pub(super) promises: bool,
     /// The `(i, xs)` guard pairs standing at the walk's current point
     /// — pushed by a loop whose condition is `i < xs.length`, evicted
     /// by a statement that taints them, popped at the loop's end. See
@@ -295,6 +305,9 @@ pub(crate) fn analyze(
         generic_decls,
         struct_decls: escape::collect_struct_decls(ast),
         container_poison: false,
+        untracked_values: HashSet::new(),
+        number_promises: HashSet::new(),
+        promises: promise_entry::reads_number_promises(ast, expr_types),
         bounds_stack: Vec::new(),
         lower_settled: bounds_lower::settled_guards(ast),
         proven_reads: HashSet::new(),
@@ -342,25 +355,7 @@ pub(crate) fn analyze(
 
     alias_fallthrough_closures(ast, &mut fallthrough_fns);
 
-    // W4 container pipeline: nominal class hookups, guarded-union
-    // activation, container-channel merge, congruence closure, then
-    // rewrite of every seed / edge key onto its alias-class
-    // representative. The fixpoint runs per alias class; queries
-    // canonicalize through the frozen union-find.
-    container::nominal_unions(&mut a);
-    a.join_bound_candidates();
-    container::objlit_ctor_unions(&mut a);
-    container::generator_step_unions(&mut a);
-    slot_abi::dispatch_unions(&mut a);
-    slot_abi::relay_unions(&mut a);
-    a.alias_nominal_unions();
-    a.fnsig_nominal_unions();
-    container::activate_guarded(&mut a);
-    a.seeds.append(&mut a.c_seeds);
-    for (d, ts) in std::mem::take(&mut a.c_edges) {
-        a.edges.entry(d).or_default().extend(ts);
-    }
-    container::canonicalize(&mut a);
+    let promise_untracked = pipeline::join_classes(&mut a);
     cycle::seed_growth_cycles(&a.edges, &mut a.seeds);
     let arith_in_window = magnitude::settle(&mut a);
     analyze_tables::seed_any_and_poison(&mut a);
@@ -371,7 +366,7 @@ pub(crate) fn analyze(
     // W-ESC — escape faces on frozen class reps, Elem chains included
     let escapes = hof_receivers::settle(&a, &mut tables.params);
 
-    WidthTable::new(
+    let mut table = WidthTable::new(
         canon_out,
         escapes,
         a.uf,
@@ -389,7 +384,9 @@ pub(crate) fn analyze(
         a.by_name,
         a.captures,
         a.bound_closures,
-    )
+    );
+    table.promise_untracked = promise_untracked;
+    table
 }
 
 #[cfg(test)]

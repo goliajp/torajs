@@ -58,8 +58,16 @@ impl<'a> Analysis<'a> {
     /// (scalar literals, unknown intrinsics). Literal arms attach
     /// their element / field constraints on first construction —
     /// revisits re-push identical constraints, which the set-based
-    /// fixpoint absorbs.
+    /// fixpoint absorbs. A value whose type holds `any` is noted as a
+    /// source of promises the walk does not follow (`promise_entry`).
     pub(super) fn container_key_of(&mut self, eid: ExprId, scope: &Scope) -> Option<SlotKey> {
+        let k = self.container_key_shape(eid, scope)?;
+        self.note_untracked_value(eid, &k);
+        Some(k)
+    }
+
+    /// [`Self::container_key_of`] before the value is noted as a source.
+    fn container_key_shape(&mut self, eid: ExprId, scope: &Scope) -> Option<SlotKey> {
         let e = self.ast.get_expr(eid).clone();
         match &e {
             Expr::Ident(n) => {

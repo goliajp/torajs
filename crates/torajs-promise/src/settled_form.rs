@@ -99,14 +99,16 @@ unsafe fn convert(src: u8, target: u8, v: i64) -> i64 {
 ///
 /// From f64 to i64 this is exact only for an integer, and the compiler
 /// keeps it so: a reader asks for i64 only at a value point the width
-/// analysis proved integral, and every promise that can reach the
-/// point joins its width (a `Promise<number>` slot written from `any`,
-/// a field read back, an `allSettled` record's `value`). A fraction
-/// here is a value point the analysis missed.
+/// analysis proved integral, which it does only when every promise
+/// that can reach the point is one it follows (a point a promise from
+/// `any` can reach reads at f64). A fraction here is a value point the
+/// analysis missed; a debug build stops on it.
 fn other_width(src: u8, v: i64) -> i64 {
     if src == REPR_I64 {
         (v as f64).to_bits() as i64
     } else {
-        f64::from_bits(v as u64) as i64
+        let f = f64::from_bits(v as u64);
+        debug_assert!(f.fract() == 0.0, "a fraction settled into an i64 reader");
+        f as i64
     }
 }

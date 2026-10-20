@@ -69,7 +69,7 @@ impl crate::ssa_lower::LowerCtx<'_> {
                 }
                 vec![SlotKey::Anon(obj.0)]
             }
-            Expr::Index { obj: base, .. } => self
+            Expr::Index { obj: base, .. } | Expr::OptIndex { obj: base, .. } => self
                 .promise_obj_keys(*base)
                 .into_iter()
                 .map(|k| SlotKey::Elem(Box::new(k)))
@@ -79,6 +79,9 @@ impl crate::ssa_lower::LowerCtx<'_> {
                 .map(|k| SlotKey::Field(Box::new(k), name.as_str().into()))
                 .chain([SlotKey::Anon(obj.0)])
                 .collect(),
+            // the value the analysis keys these by (`container_key_of`)
+            Expr::As { expr: e, .. } | Expr::Sequence { right: e, .. } => self.promise_obj_keys(*e),
+            Expr::Assign { value, .. } => self.promise_obj_keys(*value),
             _ => vec![SlotKey::Anon(obj.0)],
         }
     }
@@ -89,7 +92,7 @@ impl crate::ssa_lower::LowerCtx<'_> {
     pub(crate) fn promise_value_is_f64(&self, obj: ExprId) -> bool {
         self.promise_obj_keys(obj)
             .iter()
-            .any(|k| self.num_f64_slots.field_is_f64(k, "value"))
+            .any(|k| self.num_f64_slots.promise_value_is_f64(k))
     }
 
     /// ②.6b — width-face decode for the awaited value's SSA type.
