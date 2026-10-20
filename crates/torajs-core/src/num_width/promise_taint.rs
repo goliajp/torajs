@@ -31,8 +31,10 @@ fn holder_untracked(tainted: &HashSet<SlotKey>, uf: &UnionFind, h: &SlotKey) -> 
 pub(crate) struct PromiseTaint {
     /// The classes holding a promise the walk does not follow.
     tainted: HashSet<SlotKey>,
-    /// The value point classes, among those of the noted faces and the
-    /// points above them, one of whose holders is tainted.
+    /// The classes of the noted faces and of the points above them.
+    faces: HashSet<SlotKey>,
+    /// The value point classes among `faces` one of whose holders is
+    /// tainted.
     wide: HashSet<SlotKey>,
     /// The classes that also hold a container.
     held: HashSet<SlotKey>,
@@ -53,7 +55,7 @@ impl PromiseTaint {
     }
 
     fn reaches(&self, uf: &UnionFind, f: &SlotKey) -> bool {
-        if self.wide.contains(&canon_key_frozen(uf, f)) {
+        if self.class_wide(uf, &canon_key_frozen(uf, f)) {
             return true;
         }
         match f {
@@ -64,6 +66,24 @@ impl PromiseTaint {
             SlotKey::Field(g, n) if !n.lossy().starts_with("__") => self.reaches(uf, g),
             _ => false,
         }
+    }
+}
+
+impl PromiseTaint {
+    /// Is the class `c` a value point class one of whose holders is
+    /// tainted? Answered ahead of time for the classes of the noted
+    /// faces; a lowering read keyed outside them (a spelling the walk
+    /// never keyed a number face under) is answered here by the same
+    /// test over the class's members.
+    fn class_wide(&self, uf: &UnionFind, c: &SlotKey) -> bool {
+        if self.faces.contains(c) {
+            return self.wide.contains(c);
+        }
+        uf.keys().any(|k| {
+            matches!(k, SlotKey::Field(h, n) if n.lossy() == "value"
+                && canon_key_frozen(uf, k) == *c
+                && holder_untracked(&self.tainted, uf, h))
+        })
     }
 }
 
@@ -119,6 +139,7 @@ pub(super) fn seed_untracked_points(
         .collect();
     let taint = PromiseTaint {
         tainted,
+        faces,
         wide,
         held,
     };
@@ -166,5 +187,33 @@ fn close_over_pairs(tainted: &mut HashSet<SlotKey>, uf: &UnionFind, pairs: &[(Sl
                 work.push(to.clone());
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn local(n: &str) -> SlotKey {
+        SlotKey::Local("f".into(), n.into())
+    }
+
+    fn point(h: SlotKey) -> SlotKey {
+        SlotKey::Field(Box::new(h), "value".into())
+    }
+
+    /// A read keyed outside the noted faces answers by its class: `a`'s
+    /// value point shares a class with that of the tainted `b`, though
+    /// `a` itself is not tainted and no face was noted under either.
+    #[test]
+    fn unnoted_point_answers_by_its_class() {
+        let mut uf = UnionFind::default();
+        uf.union(&point(local("a")), &point(local("b")));
+        let taint = PromiseTaint {
+            tainted: HashSet::from([canon_key_frozen(&uf, &local("b"))]),
+            ..PromiseTaint::default()
+        };
+        assert!(taint.widens(&uf, &point(local("a"))));
+        assert!(!taint.widens(&uf, &point(local("c"))));
     }
 }
