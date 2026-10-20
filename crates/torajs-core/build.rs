@@ -91,6 +91,16 @@ fn main() {
     for _ in 0..3 {
         target_profile_dir.pop();
     }
+    // The checks that two phases agree, which cost compile time: on in
+    // the `iter` gate build and the test builds only, so neither the
+    // release tr nor a `release-vanilla` control carries them.
+    println!("cargo::rustc-check-cfg=cfg(torajs_checks)");
+    if target_profile_dir
+        .file_name()
+        .is_some_and(|p| p == "iter" || p == "debug")
+    {
+        println!("cargo::rustc-cfg=torajs_checks");
+    }
 
     for name in STATICLIBS {
         let filename = format!("lib{name}.a");

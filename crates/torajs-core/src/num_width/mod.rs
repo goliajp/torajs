@@ -204,8 +204,8 @@ pub(super) struct Analysis<'a> {
     /// The keys of the values the walk keyed while their type held
     /// `any`: sources of promises it does not follow (`promise_entry`).
     pub(super) untracked_values: crate::ssa::id_hash::HashSet<SlotKey>,
-    /// The number faces noted under a promise's value point (`promise_entry`).
-    pub(super) number_faces: crate::ssa::id_hash::HashSet<SlotKey>,
+    /// The promise reads the walk noted: faces, and await keys (`promise_entry`).
+    pub(super) promise_reads: promise_entry::PromiseReads,
     /// Does the program read a number out of a promise? Gates the two
     /// above (`promise_entry`).
     pub(super) promises: bool,
@@ -307,7 +307,7 @@ pub(crate) fn analyze(
         struct_decls: escape::collect_struct_decls(ast),
         container_poison: false,
         untracked_values: Default::default(),
-        number_faces: Default::default(),
+        promise_reads: Default::default(),
         promises: promise_entry::reads_number_promises(ast, expr_types),
         bounds_stack: Vec::new(),
         lower_settled: bounds_lower::settled_guards(ast),

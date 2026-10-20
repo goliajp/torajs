@@ -287,7 +287,12 @@ impl WidthTable {
         self.field_is_f64(holder, "value") || self.promise_taint.widens(&self.uf, &point)
     }
 
-    #[allow(dead_code)] // D3 wires the struct/class field face
+    /// [`super::promise_taint::PromiseTaint::await_point_agrees`] here.
+    #[cfg(torajs_checks)]
+    pub(crate) fn await_point_agrees(&self, obj: ExprId, keys: &[SlotKey]) -> bool {
+        self.promise_taint.await_point_agrees(&self.uf, obj, keys)
+    }
+
     pub(crate) fn field_is_f64(&self, holder: &SlotKey, name: impl Into<PropKey>) -> bool {
         self.container_poison
             || self.slot_is_f64(&SlotKey::Field(Box::new(holder.clone()), name.into()))

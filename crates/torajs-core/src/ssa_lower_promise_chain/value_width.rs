@@ -86,11 +86,25 @@ impl crate::ssa_lower::LowerCtx<'_> {
         }
     }
 
+    /// [`Self::promise_obj_keys`] of a read's operand: the keys the
+    /// analysis must have read the same value point through.
+    fn promise_read_keys(&self, obj: ExprId) -> Vec<crate::num_width::SlotKey> {
+        let keys = self.promise_obj_keys(obj);
+        #[cfg(torajs_checks)]
+        assert!(
+            self.num_f64_slots.await_point_agrees(obj, &keys),
+            "await of expr {} in {}: lowering reads {keys:?}, not the value point the analysis read",
+            obj.0,
+            self.f.name,
+        );
+        keys
+    }
+
     /// ②.6b — is the promise value point of `obj`'s expr f64? The
     /// `value` projection matches the parser's `await p` → `p.value`
     /// desugar spelling.
     pub(crate) fn promise_value_is_f64(&self, obj: ExprId) -> bool {
-        self.promise_obj_keys(obj)
+        self.promise_read_keys(obj)
             .iter()
             .any(|k| self.num_f64_slots.promise_value_is_f64(k))
     }
@@ -114,7 +128,7 @@ impl crate::ssa_lower::LowerCtx<'_> {
             Some(Type::I64) if self.promise_value_is_f64(obj) => Some(Type::F64),
             Some(t @ Type::Arr(_)) => {
                 let mut t = t;
-                for k in self.promise_obj_keys(obj) {
+                for k in self.promise_read_keys(obj) {
                     let pv = SlotKey::Field(Box::new(k), "value".into());
                     t = crate::ssa_lower_container_width::widen_arr_elem(
                         t,
@@ -149,7 +163,7 @@ impl crate::ssa_lower::LowerCtx<'_> {
             // layout the writer widened.
             Some(t @ Type::Obj(_)) => {
                 let mut t = t;
-                for k in self.promise_obj_keys(obj) {
+                for k in self.promise_read_keys(obj) {
                     let pv = SlotKey::Field(Box::new(k), "value".into());
                     t = crate::ssa_lower_container_width::widen_struct_fields(
                         t,

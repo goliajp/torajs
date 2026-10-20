@@ -45,6 +45,13 @@ pub(crate) struct PromiseTaint {
     /// reaches.
     containerish: Vec<SlotKey>,
     held: OnceLock<HashSet<SlotKey>>,
+    /// The value point classes outside `faces` one of whose holders is
+    /// tainted, built on the first read keyed outside the faces.
+    wide_unnoted: OnceLock<HashSet<SlotKey>>,
+    /// By the operand of each `await` the analysis noted, the class of
+    /// the value point it read (`PromiseReads::awaits`).
+    #[cfg(torajs_checks)]
+    awaits: crate::ssa::id_hash::HashMap<crate::ast::ExprId, SlotKey>,
 }
 
 impl PromiseTaint {
@@ -95,18 +102,55 @@ impl PromiseTaint {
     /// Is the class `c` a value point class one of whose holders is
     /// tainted? Answered ahead of time for the classes of the noted
     /// faces; a lowering read keyed outside them (a spelling the walk
-    /// never keyed a number face under) is answered here by the same
-    /// test over the class's members.
+    /// never keyed a number face under) is answered by the same test,
+    /// over every value point once.
     fn class_wide(&self, uf: &UnionFind, c: &SlotKey) -> bool {
         if self.faces.contains(c) {
             return self.wide.contains(c);
         }
-        uf.keys().any(|k| {
-            matches!(k, SlotKey::Field(h, n) if n.lossy() == "value"
-                && canon_key_frozen(uf, k) == *c
-                && holder_untracked(&self.tainted, uf, h))
-        })
+        let unnoted = self
+            .wide_unnoted
+            .get_or_init(|| wide_points(&self.tainted, uf, |c| !self.faces.contains(c)).collect());
+        unnoted.contains(c)
     }
+
+    /// Does lowering read the value point the analysis read for the
+    /// `await` of `obj`, through one of `keys`? Answers true for an
+    /// operand the analysis noted nothing for.
+    #[cfg(torajs_checks)]
+    pub(crate) fn await_point_agrees(
+        &self,
+        uf: &UnionFind,
+        obj: crate::ast::ExprId,
+        keys: &[SlotKey],
+    ) -> bool {
+        let Some(want) = self.awaits.get(&obj) else {
+            return true;
+        };
+        keys.iter()
+            .any(|k| canon_key_frozen(uf, &value_point(k)) == *want)
+    }
+}
+
+#[cfg(torajs_checks)]
+fn value_point(holder: &SlotKey) -> SlotKey {
+    SlotKey::Field(Box::new(holder.clone()), "value".into())
+}
+
+/// The classes `keep` admits of the value points one of whose holders
+/// is tainted.
+fn wide_points<'u>(
+    tainted: &'u HashSet<SlotKey>,
+    uf: &'u UnionFind,
+    keep: impl Fn(&SlotKey) -> bool + 'u,
+) -> impl Iterator<Item = SlotKey> + 'u {
+    (uf.keys())
+        .filter_map(|k| match k {
+            SlotKey::Field(h, n) if n.lossy() == "value" => Some((h, canon_key_frozen(uf, k))),
+            _ => None,
+        })
+        .filter(move |(h, c)| keep(c) && holder_untracked(tainted, uf, h))
+        .map(|(_, c)| c)
 }
 
 /// After `canonicalize`: take the frozen classes of the untracked
@@ -121,8 +165,17 @@ impl PromiseTaint {
 /// form. Answers what lowering's own `await` reads ask; nothing in a
 /// program that has no promise to read.
 pub(super) fn seed_untracked_points(a: &mut Analysis) -> PromiseTaint {
+    #[cfg(torajs_checks)]
+    let awaits: crate::ssa::id_hash::HashMap<_, _> = (a.promise_reads.awaits.iter())
+        .map(|(obj, k)| (*obj, canon_key_frozen(&a.uf, &value_point(k))))
+        .collect();
+    let empty = || PromiseTaint {
+        #[cfg(torajs_checks)]
+        awaits: awaits.clone(),
+        ..PromiseTaint::default()
+    };
     if !a.promises {
-        return PromiseTaint::default();
+        return empty();
     }
     // a slot the desugar spelled carries what the compiler routes
     // through it, in the form it was handed (`escape_propagate`)
@@ -132,14 +185,14 @@ pub(super) fn seed_untracked_points(a: &mut Analysis) -> PromiseTaint {
         .filter(|k| !super::escape_propagate::synthetic(k));
     let mut tainted: HashSet<SlotKey> = sources.map(|k| canon_key_frozen(&a.uf, k)).collect();
     if tainted.is_empty() {
-        return PromiseTaint::default();
+        return empty();
     }
     let pairs = a.guarded_unions.iter().chain(&a.nested_unions);
     close_over_pairs(&mut tainted, &a.uf, pairs);
     // only the classes a noted face, or a value point above one, is in
     // can answer a read
     let mut faces: HashSet<SlotKey> = HashSet::default();
-    for f in &a.number_faces {
+    for f in &a.promise_reads.faces {
         let mut k = f;
         faces.insert(canon_key_frozen(&a.uf, k));
         while let SlotKey::Elem(g) | SlotKey::Field(g, _) = k {
@@ -147,22 +200,18 @@ pub(super) fn seed_untracked_points(a: &mut Analysis) -> PromiseTaint {
             k = g;
         }
     }
-    let wide = (a.uf.keys())
-        .filter_map(|k| match k {
-            SlotKey::Field(h, n) if n.lossy() == "value" => Some((h, canon_key_frozen(&a.uf, k))),
-            _ => None,
-        })
-        .filter(|(h, c)| faces.contains(c) && holder_untracked(&tainted, &a.uf, h))
-        .map(|(_, c)| c)
-        .collect();
+    let wide = wide_points(&tainted, &a.uf, |c| faces.contains(c)).collect();
     let taint = PromiseTaint {
         tainted,
         faces,
         wide,
         containerish: a.containerish.iter().cloned().collect(),
         held: OnceLock::new(),
+        wide_unnoted: OnceLock::new(),
+        #[cfg(torajs_checks)]
+        awaits,
     };
-    let points: Vec<SlotKey> = (a.number_faces.iter())
+    let points: Vec<SlotKey> = (a.promise_reads.faces.iter())
         .filter(|f| taint.widens(&a.uf, f))
         .map(|f| canon_key_frozen(&a.uf, f))
         .collect();
@@ -195,5 +244,25 @@ mod tests {
         };
         assert!(taint.widens(&uf, &point(local("a"))));
         assert!(!taint.widens(&uf, &point(local("c"))));
+    }
+
+    /// The check answers by the value point's class: a key in the class
+    /// the analysis read agrees, one in another class does not, and an
+    /// operand the analysis noted nothing for agrees with anything.
+    #[cfg(torajs_checks)]
+    #[test]
+    fn await_point_agrees_by_class() {
+        let mut uf = UnionFind::default();
+        uf.union(&point(local("a")), &point(local("b")));
+        let obj = crate::ast::ExprId(7);
+        let taint = PromiseTaint {
+            awaits: [(obj, canon_key_frozen(&uf, &point(local("a"))))]
+                .into_iter()
+                .collect(),
+            ..PromiseTaint::default()
+        };
+        assert!(taint.await_point_agrees(&uf, obj, &[local("b")]));
+        assert!(!taint.await_point_agrees(&uf, obj, &[local("c")]));
+        assert!(taint.await_point_agrees(&uf, crate::ast::ExprId(8), &[local("c")]));
     }
 }

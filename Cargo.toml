@@ -87,6 +87,7 @@ warnings = "deny"
 unexpected_cfgs = { level = "deny", check-cfg = [
   'cfg(torajs_rc_underflow_detect)',
   'cfg(torajs_census)',
+  'cfg(torajs_checks)',
   'cfg(torajs_alloc_guard)',
 ] }
 

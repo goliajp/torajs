@@ -42,6 +42,16 @@ use crate::ast::{Ast, Expr, ExprId};
 use crate::check::Type;
 use std::collections::HashMap;
 
+/// The number faces noted under a promise's value point, and (with
+/// `torajs_checks`) the key each `await` read its operand's faces
+/// through, by the operand: lowering must read the same value point.
+#[derive(Default)]
+pub(crate) struct PromiseReads {
+    pub(super) faces: crate::ssa::id_hash::HashSet<SlotKey>,
+    #[cfg(torajs_checks)]
+    pub(super) awaits: crate::ssa::id_hash::HashMap<ExprId, SlotKey>,
+}
+
 /// Does a value of type `t` come from, or hold, a value whose type the
 /// program did not fix? A function value does not by itself: its
 /// parameters and its result are expressions of their own.
@@ -152,7 +162,7 @@ impl Analysis<'_> {
         }
         let mut out = Vec::new();
         number_faces(t, k, false, &mut out);
-        self.number_faces.extend(out);
+        self.promise_reads.faces.extend(out);
     }
 
     /// What a member read `obj.name` (`eid`) does besides walking `obj`:
@@ -182,6 +192,8 @@ impl Analysis<'_> {
             && let Some(k) = self.container_key_lookup(obj, scope)
         {
             self.note_number_faces(t, &k);
+            #[cfg(torajs_checks)]
+            self.promise_reads.awaits.insert(obj, k);
         }
     }
 }

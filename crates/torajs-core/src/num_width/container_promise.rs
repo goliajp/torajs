@@ -206,7 +206,8 @@ impl Analysis<'_> {
                         if let Some(Type::Function(ps, _)) = self.expr_types.get(a)
                             && ps.first() == Some(&Type::Number)
                         {
-                            self.number_faces
+                            self.promise_reads
+                                .faces
                                 .insert(SlotKey::Field(Box::new(recv.clone()), "value".into()));
                         }
                     }
