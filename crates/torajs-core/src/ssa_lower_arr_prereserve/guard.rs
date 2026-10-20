@@ -33,12 +33,13 @@
 //! so its first append takes that edge and raises there, after the
 //! effects before it, and a walk that appends nothing raises nothing.
 //! An element held in place has no kernel: its cold edge grows the
-//! buffer when it is full (`inline_push::emit_grow_to_fit`) and the
+//! buffer when it is full (`inline_push::grow::emit_grow_to_fit`) and the
 //! store follows on the fast edge. The appends of one walk share the
 //! block that raises the RangeError (`PreReserve::walk_raise`).
 
 use crate::ast::ExprId;
 use crate::ssa::{BinOp, BlockId, IPred, InstKind, Operand, Terminator, Type, ValueId};
+use crate::ssa_lower::inline_push::APPEND_LOCK_BITS;
 use crate::ssa_lower::{ARR_CAP_HEAD_OFF, ARR_LEN_OFF, LowerCtx, PreReserveState};
 
 /// How a guarded fill loop tests for room in its buffer.
@@ -50,13 +51,6 @@ pub(crate) struct Guard {
     /// receiver with a lock bit
     pub(crate) budget: Operand,
 }
-
-/// The header bits that refuse an append (§10.1.8.1) or the length
-/// write that follows it.
-const APPEND_LOCK_BITS: u16 = torajs_rc::FLAG_FROZEN
-    | torajs_rc::FLAG_SEALED
-    | torajs_rc::FLAG_NON_EXTENSIBLE
-    | torajs_rc::FLAG_ARR_LENGTH_RO;
 
 /// The low half of the packed capacity and head word.
 const CAP_MASK: i64 = 0xffff_ffff;
