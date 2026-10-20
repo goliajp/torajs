@@ -37,6 +37,7 @@
 //!   sees the null half of the pair.
 //! - other → panic.
 
+mod any_walk;
 mod composite;
 mod composite_obj;
 mod composite_obj_jsb;
@@ -45,6 +46,7 @@ mod to_json;
 
 use crate::ssa::{InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::LowerCtx;
+pub(super) use any_walk::{emit_any_walk, emit_any_walk_value};
 
 /// Top-level `JSON.stringify(value)` entry (the `Expr::Call` arm).
 /// Differs from the recursive [`lower`] only on the Str / Substr
@@ -122,61 +124,6 @@ pub(crate) fn lower_keyed(
         return out;
     }
     lower_shape(ctx, val_op, ty, fe, gap, depth)
-}
-
-/// The runtime walk over an any-lane value. Under a gap it takes the
-/// gap entry, which also receives the nesting level so an any-typed
-/// member of a statically unfolded composite keeps indenting from
-/// its parent's level instead of restarting at zero.
-pub(super) fn emit_any_walk(
-    ctx: &mut LowerCtx,
-    val_op: Operand,
-    gap: Option<Operand>,
-    depth: u32,
-) -> Operand {
-    let v = match gap {
-        Some(g) => ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Call(
-                ctx.intrinsics.anyv_json_stringify_gap,
-                vec![val_op, g, Operand::ConstI64(depth as i64)],
-            ),
-            Type::Str,
-            None,
-        ),
-        None => ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.anyv_json_stringify, vec![val_op]),
-            Type::Str,
-            None,
-        ),
-    };
-    Operand::Value(v)
-}
-
-/// [`emit_any_walk`]'s value-only twin — §25.5.2.3 with step 2 already
-/// done. The struct lane's `toJSON` road calls the hook in the
-/// compiler, so its answer is serialized as a value; running the whole
-/// property operation over it again applies the hook a second time.
-/// A gapless call passes a NULL gap rather than taking the other
-/// entry, because the value entry is the one that skips step 2 and
-/// there is no gapless spelling of it.
-pub(super) fn emit_any_walk_value(
-    ctx: &mut LowerCtx,
-    val_op: Operand,
-    gap: Option<Operand>,
-    depth: u32,
-) -> Operand {
-    let g = gap.unwrap_or(Operand::ConstPtrNull);
-    Operand::Value(ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Call(
-            ctx.intrinsics.json_stringify_value,
-            vec![val_op, g, Operand::ConstI64(depth as i64)],
-        ),
-        Type::Str,
-        None,
-    ))
 }
 
 /// Peel the `Nullable` wrapper the checker puts around pointer-shaped
