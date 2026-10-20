@@ -93,12 +93,11 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, fn_name: String, captures: Vec<Strin
             }
         })
         .collect();
-    // The bool is the BYREF flag: the env slot holds a capture-box
-    // pointer (shared live binding) instead of a value snapshot. It is
-    // whatever the binding's own slot is: a captured binding that is
-    // written somewhere (Copy or not, RFC 20260710) was declared as a
-    // box; a never-written one was not, and a snapshot of it is
-    // indistinguishable from sharing it.
+    // The bool is the BYREF flag: the env slot holds a capture-box pointer
+    // (shared live binding) instead of a value snapshot. It is whatever the
+    // binding's own slot is: a captured binding that is written somewhere
+    // (Copy or not, RFC 20260710) was declared as a box; a never-written one
+    // was not, and a snapshot of it is indistinguishable from sharing it.
     let cap_meta: Vec<(String, Type, bool)> = eff_captures
         .iter()
         .map(|(n, t)| (n.clone(), *t, ctx.locals[n].boxed))
@@ -122,6 +121,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, fn_name: String, captures: Vec<Strin
     let facts = crate::ssa_lower_closure_order::CaptureFacts {
         variadic,
         anns: anns.collect(),
+        ns_static: crate::ssa_lower_ns_static_alias::captured(ctx, &eff_captures),
     };
     ctx.closure_capture_facts.insert(fn_name.clone(), facts);
 

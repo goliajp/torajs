@@ -41,6 +41,27 @@ fn note_binding(ctx: &mut LowerCtx<'_>, name: &str, outer: Option<ValueId>, init
     }
 }
 
+/// The captures a closure constructed here takes that hold an alias, for
+/// its body to re-register by the slots its env preamble binds them to.
+pub(crate) fn captured<T>(ctx: &LowerCtx<'_>, caps: &[(String, T)]) -> Vec<(String, (i64, bool))> {
+    (caps.iter())
+        .filter_map(|(n, _)| Some((n.clone(), of_ident(ctx, n)?)))
+        .collect()
+}
+
+/// The closure body half of [`captured`]: `site` is the construction
+/// site's name for this body (an iterator method's is its wrapper's).
+pub(crate) fn seed_captures(ctx: &mut LowerCtx<'_>, site: &str) {
+    let Some(facts) = ctx.closure_capture_facts.get(site) else {
+        return;
+    };
+    for (n, alias) in facts.ns_static.clone() {
+        if let Some(l) = ctx.locals.get(&n) {
+            ctx.ns_static_locals.insert(l.slot, alias);
+        }
+    }
+}
+
 /// The (table id, spelled `Ns.m`) of the binding `name` denotes here.
 /// The flag is the checker's `builtin_mv` face; a bare-global alias
 /// (`const p = parseInt`) is registered but is not that face.

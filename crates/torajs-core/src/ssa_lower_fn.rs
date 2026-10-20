@@ -224,11 +224,10 @@ pub(crate) fn lower_fn(
         if !ctx.try_lower_while_fast(prev, s) {
             ctx.lower_stmt(s);
         }
-        // Terminating statement (throw / return / break / continue)
-        // closed the block — stop lowering siblings, same as the
-        // Block / Multi / try-body / switch-case walks. Without this
-        // guard dead siblings append into the terminated block and
-        // execute before its terminator.
+        // Terminating statement (throw / return / break / continue) closed the
+        // block — stop lowering siblings, same as the Block / Multi / try-body /
+        // switch-case walks. Without this guard dead siblings append into the
+        // terminated block and execute before its terminator.
         if !ctx.cur_open() {
             break;
         }
@@ -263,6 +262,7 @@ fn seed_body_facts(ctx: &mut LowerCtx<'_>, name: &str, params: &[ast::Param], bo
             ctx.let_anns.insert(l.slot, a);
         }
     }
+    crate::ssa_lower_ns_static_alias::seed_captures(ctx, &site);
     undef_params::seed_undef_sentinel_params(ctx, name, params);
     fresh_this::seed_fresh_this(ctx, name, params, body);
     // Mutually recursive closure bindings need each other's boxes open

@@ -1,0 +1,7 @@
+length 2
+no receiver true
+shadowed 5
+arrow call 8
+fn expr apply 2
+nested 11
+captured in fn inner
