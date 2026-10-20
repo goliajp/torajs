@@ -1,6 +1,15 @@
 //! Which per-cell tests of the `__drop_<C>` release fns the finished
 //! module settles (`class_drop_fill::DropHooks`).
 //!
+//! The tag test hands a cell of another layout to the runtime's walk
+//! over its own tag's row. A class sid is *closed* when every cell a
+//! slot of it can hold is one its own factory made: no slot of it is
+//! open to a cell of another layout (`cell_slot_flow`), no other layout
+//! extends or repeats its fields (a subclass, a literal of its shape),
+//! and every allocation typed as it is stamped with one of its tags,
+//! none decoded out of bits or named as a global (the undefined
+//! sentinel aside, which its own test still catches).
+//!
 //! The props test releases an expando bag, the WeakRef test tells the
 //! registry a target died. Only the runtime gives a cell a bag or a
 //! WeakRef, and only a cell that reached it as a value ([`exposed`]).
@@ -24,11 +33,13 @@ mod tests;
 use std::collections::{BTreeSet, HashMap};
 
 use crate::ast::{Ast, Expr};
-use crate::ssa::{Module, StructId};
-use crate::ssa_lower_emit_drop_value::class_drop_fill::DropHooks;
+use crate::ssa::{InstKind, Module, Operand, StructId, Type};
+use crate::ssa_lower::OBJ_CLASS_TAG_OFF;
+use crate::ssa_lower_binop_null_undef::UNDEF_CELL_SYM;
+use crate::ssa_lower_emit_drop_value::class_drop_fill::{DropHooks, Test};
 
 use super::any_holds::dead_adapters;
-use super::cell_slot_flow::{EnvLayouts, open_sids_with};
+use super::cell_slot_flow::{EnvLayouts, is_prefix, open_sids_with};
 
 /// Names that reach a class, a prototype or a scope by a road the
 /// SSA does not show.
@@ -40,6 +51,8 @@ const ROADS: &[&str] = &[
     "globalThis",
     "arguments",
 ];
+
+const OBJ_ALLOC: &str = "__torajs_obj_alloc";
 
 fn stats() -> bool {
     std::env::var_os("TORAJS_DROP_PROOF_STATS").is_some()
@@ -59,24 +72,30 @@ pub(crate) fn settle(module: &mut Module, ast: &Ast, envs: &EnvLayouts, hooks: &
             return;
         }
     };
-    let n = hooks.settle(module, |sid, _| verdicts[&sid]);
+    let n = hooks.settle(module, |sid, test| {
+        let (sealed, closed) = verdicts[&sid];
+        match test {
+            Test::Tag => closed,
+            Test::WeakRef | Test::Props => sealed,
+        }
+    });
     if stats() {
         let mut v: Vec<_> = verdicts.into_iter().collect();
         v.sort_unstable();
-        for (sid, sealed) in v {
-            eprintln!("[drop_proof] sid {sid}: sealed {sealed}");
+        for (sid, (sealed, closed)) in v {
+            eprintln!("[drop_proof] sid {sid}: sealed {sealed} closed {closed}");
         }
         eprintln!("[drop_proof] {n} of {} tests settled", hooks.hooks.len());
     }
 }
 
-/// Per hooked sid, whether it is sealed.
+/// Per hooked sid, whether it is sealed and whether it is closed.
 fn verdicts(
     module: &Module,
     ast: &Ast,
     envs: &EnvLayouts,
     hooks: &DropHooks,
-) -> Result<HashMap<u32, bool>, String> {
+) -> Result<HashMap<u32, (bool, bool)>, String> {
     if let Some(why) = wakes_rows(ast) {
         return Err(why);
     }
@@ -100,7 +119,9 @@ fn verdicts(
                     .iter()
                     .all(|n| !exposed[*n as usize])
             });
-        out.insert(sid, sealed);
+        let tags = hooks.tags.get(&sid).map_or(&[][..], Vec::as_slice);
+        let closed = base && !extended(module, sid) && born_own(module, &skip, sid, tags);
+        out.insert(sid, (sealed, closed));
     }
     Ok(out)
 }
@@ -138,4 +159,45 @@ fn reach(widens: &[(StructId, StructId)], sid: u32, down: bool) -> Vec<u32> {
         i += 1;
     }
     seen
+}
+
+/// Some other layout extends `sid`'s by field name, or repeats it.
+fn extended(module: &Module, sid: u32) -> bool {
+    let layouts = &module.struct_layouts;
+    let base = &layouts[sid as usize];
+    (layouts.iter().enumerate()).any(|(i, l)| i != sid as usize && is_prefix(base, l))
+}
+
+/// Every cell typed `sid` that a running function makes is an
+/// allocation stamped with one of `tags`.
+fn born_own(module: &Module, skip: &[bool], sid: u32, tags: &[u32]) -> bool {
+    let alloc = module.funcs.iter().position(|f| f.name == OBJ_ALLOC);
+    let own = Type::Obj(StructId(sid));
+    for (i, f) in module.funcs.iter().enumerate() {
+        if skip[i] {
+            continue;
+        }
+        let insts = || f.blocks.iter().flat_map(|b| &b.insts);
+        let stamped = |v| {
+            insts().any(|inst| {
+                matches!(&inst.kind, InstKind::Store(Operand::ConstI64(t), Operand::Value(p), OBJ_CLASS_TAG_OFF)
+                    if *p == v && u32::try_from(*t).is_ok_and(|t| tags.contains(&t)))
+            })
+        };
+        for inst in insts() {
+            let Some(v) = inst.result.filter(|v| f.value_type(*v) == own) else {
+                continue;
+            };
+            let fine = match &inst.kind {
+                InstKind::Call(fid, _) if Some(fid.0 as usize) == alloc => stamped(v),
+                InstKind::GlobalRef(name) => name == UNDEF_CELL_SYM,
+                InstKind::IntToPtr(_) => false,
+                _ => true,
+            };
+            if !fine {
+                return false;
+            }
+        }
+    }
+    true
 }

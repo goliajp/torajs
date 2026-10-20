@@ -3,8 +3,8 @@
 //! may settle later ([`DropHooks`]).
 //!
 //! A release fn tests every cell it reaches against what a slot of the
-//! sid could hold: a cell with an expando bag, a cell a WeakRef
-//! observes. Which of those a
+//! sid could hold: a cell of another layout (the tag test), a cell
+//! with an expando bag, a cell a WeakRef observes. Which of those a
 //! slot can hold is a question about the whole finished module, asked
 //! after lowering (`ssa_lower_pass_2_5::drop_proofs`). Each test is
 //! emitted as always and recorded with the block whose branch it
@@ -24,14 +24,23 @@ use crate::ssa_lower_emit_drop_value::class_drop_worklist as worklist;
 /// A per-cell test of a release fn.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Test {
+    /// The class tag is one of the sid's: a cell of the sid's layout.
+    Tag,
     /// Something observes some cell through a WeakRef.
     WeakRef,
     /// The cell carries an expando bag.
     Props,
 }
 
+impl Test {
+    /// The answer a proven test always gives.
+    fn settled(self) -> bool {
+        matches!(self, Test::Tag)
+    }
+}
+
 /// One test: the fn, the sid of the cell tested, and the block whose
-/// conditional branch the test feeds; a proven test always answers no.
+/// conditional branch the test feeds.
 pub(crate) struct Hook {
     pub fid: FuncId,
     pub sid: u32,
@@ -40,9 +49,10 @@ pub(crate) struct Hook {
 }
 
 /// Every test the release fns made, with what the proofs read about
-/// the sids: which sids are class instances.
+/// the sids: each sid's tag set, and which sids are class instances.
 pub(crate) struct DropHooks {
     pub hooks: Vec<Hook>,
+    pub tags: HashMap<u32, Vec<u32>>,
     pub class_sids: HashSet<u32>,
 }
 
@@ -55,7 +65,7 @@ impl DropHooks {
         for h in self.hooks.iter().filter(|h| proven(h.sid, h.test)) {
             let f = &mut module.funcs[h.fid.0 as usize];
             if let Terminator::CondBr { cond, .. } = &mut f.blocks[h.blk.0 as usize].term {
-                *cond = Operand::ConstBool(false);
+                *cond = Operand::ConstBool(h.test.settled());
                 n += 1;
                 fids.push(h.fid);
             }
@@ -187,5 +197,9 @@ pub(crate) fn populate_class_drop_bodies(
             blk,
         }));
     }
-    DropHooks { hooks, class_sids }
+    DropHooks {
+        hooks,
+        tags,
+        class_sids,
+    }
 }

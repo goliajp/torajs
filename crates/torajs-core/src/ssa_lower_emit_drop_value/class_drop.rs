@@ -180,6 +180,7 @@ pub(crate) fn emit_release(
         cx.intr.cycle_buffer,
         cx.intr.obj_buffer_slow,
     );
+    cx.hook(sid, Test::Tag, tag_blk);
     cx.defer(move |f| {
         let foreign_blk = f.add_block();
         branch(f, tag_blk, known, dec_blk, foreign_blk);
