@@ -64,19 +64,18 @@ pub(crate) fn lower_while_inner(
      * counter name (= prev stmt was `let counter = 0`). The detector
      * either returns matched (bound_eid, names) or None; on None we
      * fall through to the plain while-lower below. */
+    let fill = counter_name_opt.and_then(|c| detect_push_loop_arrays_while(ctx.ast, c, cond, body));
     // a loop that is not a bare fill may still size its appends by a
     // string it walks
     if let Some(counter) = counter_name_opt
-        && detect_push_loop_arrays_while(ctx.ast, counter, cond, body).is_none()
+        && fill.is_none()
         && walk::try_lower(ctx, counter, cond, body)
     {
         return;
     }
     let mut reserve_emitted: Vec<String> = Vec::new();
     let mut slow = None;
-    if let Some(counter_name) = counter_name_opt
-        && let Some((bound_eid, names)) =
-            detect_push_loop_arrays_while(ctx.ast, counter_name, cond, body)
+    if let Some((bound_eid, names)) = fill
         // The install gate: the bound is read once here and trusted
         // for the whole loop, and each array is reserved on its own
         // length. See `lower_reserve_bound` for both obligations.
