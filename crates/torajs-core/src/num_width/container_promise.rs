@@ -9,6 +9,7 @@
 
 use super::{Analysis, Scope, SlotKey};
 use crate::ast::{Ast, Expr, ExprId, PropKey};
+use crate::check::Type;
 use std::collections::HashMap;
 
 /// `await p` parses to `p.value`, so this answers the inner type of
@@ -47,6 +48,27 @@ pub(crate) fn awaited_promise_inner_of<'t>(
 }
 
 impl Analysis<'_> {
+    /// The width of the await `eid` (a read the parser marked, or the
+    /// `this.__sent` an async body's await became) when its operand is
+    /// no typed promise: an operand that is no promise is the answer
+    /// itself (§27.7.5.3 over PromiseResolve of a non-thenable), at its
+    /// own width; an `any` one settles with whatever it holds, which a
+    /// number slot takes as an f64.
+    pub(super) fn awaited_width(&self, eid: ExprId, scope: &Scope) -> Option<super::W> {
+        let origin = match self.ast.get_expr(eid) {
+            _ if self.ast.yield_into_await_origins.contains_key(&eid) => {
+                self.ast.yield_into_await_origins[&eid]
+            }
+            Expr::Member { obj, .. } if self.ast.await_value_reads.contains(&eid) => *obj,
+            _ => return None,
+        };
+        match self.expr_types.get(&origin)? {
+            Type::Promise(_) => None,
+            Type::Any => Some(super::W::F64),
+            _ => Some(self.width_of(origin, scope)),
+        }
+    }
+
     /// ②.6b — value-point wiring for the Promise statics. The
     /// single-value statics (`resolve` / `reject`) feed the argument's
     /// width into the result's `value` point; thenable absorption
@@ -195,7 +217,6 @@ impl Analysis<'_> {
     /// handler returned `any`, or a `Promise<any>`) takes whatever the
     /// `any` held, so the source value point `src_pv` widens.
     fn any_number_reader(&mut self, eid: ExprId, cb: ExprId, src_pv: &SlotKey) {
-        use crate::check::Type;
         let Expr::Call { callee, .. } = self.ast.get_expr(eid) else {
             return;
         };
@@ -235,7 +256,6 @@ impl Analysis<'_> {
         fk: &SlotKey,
         fe: ExprId,
     ) {
-        use crate::check::Type;
         if let Some(prop) = fname.lossy().strip_prefix("__getter_")
             && let Some(Type::Function(_, r)) = self.expr_types.get(&fe)
             && matches!(**r, Type::Promise(_))
