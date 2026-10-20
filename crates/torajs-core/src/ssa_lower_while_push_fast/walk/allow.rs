@@ -11,6 +11,9 @@ use crate::ssa_lower_push_loop_detect::is_inert_binop;
 pub(super) struct Names<'n> {
     pub(super) counter: &'n str,
     pub(super) arr: &'n str,
+    /// the string the loop's test reads the length of, which is no
+    /// longer nullish once the body runs
+    pub(super) src: &'n str,
     /// the bindings the body declares, which the lowering has not
     /// met yet
     pub(super) decls: Vec<&'n str>,
@@ -64,14 +67,14 @@ pub(super) fn walk_stmt(
             && type_ann
                 .as_deref()
                 .is_none_or(|t| t == "number" || t == "boolean")
-            && expr_ok(ctx, *init))
+            && expr_ok(ctx, names, *init))
         .then_some(0),
         Stmt::If {
             cond,
             then_branch,
             else_branch,
         } => {
-            if !expr_ok(ctx, *cond) {
+            if !expr_ok(ctx, names, *cond) {
                 return None;
             }
             let t = walk_stmt(ctx, then_branch, names, depth)?;
@@ -84,9 +87,9 @@ pub(super) fn walk_stmt(
         Stmt::Block(v) | Stmt::Multi(v) => v
             .iter()
             .try_fold(0, |n, s| Some(n + walk_stmt(ctx, s, names, depth)?)),
-        Stmt::While { cond, body } => {
-            (expr_ok(ctx, *cond) && walk_stmt(ctx, body, names, depth + 1)? == 0).then_some(0)
-        }
+        Stmt::While { cond, body } => (expr_ok(ctx, names, *cond)
+            && walk_stmt(ctx, body, names, depth + 1)? == 0)
+            .then_some(0),
         Stmt::Break(None) | Stmt::Continue(None) if depth > 0 => Some(0),
         _ => None,
     }
@@ -94,8 +97,9 @@ pub(super) fn walk_stmt(
 
 fn walk_expr_stmt(ctx: &LowerCtx<'_>, e: ExprId, names: &Names<'_>, depth: u32) -> Option<i64> {
     let ast = ctx.ast;
+    // a write before the declaration raises as a read does (§9.1.1.1.5)
     let ident = |t: ExprId| match ast.get_expr(t) {
-        Expr::Ident(n) => Some(n.as_str()),
+        Expr::Ident(n) if !ast.tdz_reads.contains(&t) => Some(n.as_str()),
         _ => None,
     };
     match ast.get_expr(e) {
@@ -107,14 +111,15 @@ fn walk_expr_stmt(ctx: &LowerCtx<'_>, e: ExprId, names: &Names<'_>, depth: u32) 
                 && depth == 0
                 && args.len() == 1
                 && ident(*obj) == Some(names.arr)
-                && push_arg_ok(ctx, args[0]))
+                && push_arg_ok(ctx, names, args[0]))
             .then_some(1)
         }
         // the counter included: the reserve is a forecast, which no
         // step can make unsound (see the parent module)
         Expr::Assign { target, value } => {
             let t = ident(*target)?;
-            (t != names.arr && primitive_slot(ctx, names, t) && expr_ok(ctx, *value)).then_some(0)
+            (t != names.arr && primitive_slot(ctx, names, t) && expr_ok(ctx, names, *value))
+                .then_some(0)
         }
         Expr::PostIncr { target, .. } => {
             let t = ident(*target)?;
@@ -158,17 +163,18 @@ pub(super) fn body_decls<'s>(s: &'s Stmt, out: &mut Vec<&'s str>) {
     }
 }
 
-fn push_arg_ok(ctx: &LowerCtx<'_>, a: ExprId) -> bool {
+fn push_arg_ok(ctx: &LowerCtx<'_>, names: &Names<'_>, a: ExprId) -> bool {
     match crate::ssa_lower::inline_push::construction_args(ctx, a) {
-        Some(args) => args.iter().all(|x| expr_ok(ctx, *x)),
-        None => expr_ok(ctx, a),
+        Some(args) => args.iter().all(|x| expr_ok(ctx, names, *x)),
+        None => expr_ok(ctx, names, a),
     }
 }
 
-/// A number or boolean that cannot call, write, throw or read the
-/// array: literals, locals, arithmetic and comparison over them, and a
-/// string's `length` and `charCodeAt`.
-fn expr_ok(ctx: &LowerCtx<'_>, e: ExprId) -> bool {
+/// A number or boolean that cannot call, write, raise or read the
+/// array: literals, locals past their declaration, arithmetic and
+/// comparison over them, and the `length` and `charCodeAt` of a string
+/// that cannot be nullish.
+fn expr_ok(ctx: &LowerCtx<'_>, names: &Names<'_>, e: ExprId) -> bool {
     if !matches!(
         ctx.expr_types.get(&e),
         Some(CType::Number) | Some(CType::Boolean)
@@ -176,23 +182,34 @@ fn expr_ok(ctx: &LowerCtx<'_>, e: ExprId) -> bool {
         return false;
     }
     match ctx.ast.get_expr(e) {
-        Expr::Number(_) | Expr::Bool(_) | Expr::Ident(_) => true,
+        Expr::Number(_) | Expr::Bool(_) => true,
+        // a read before its declaration raises (§9.1.1.1.6 GetBindingValue)
+        Expr::Ident(_) => !ctx.ast.tdz_reads.contains(&e),
         Expr::BinOp { op, left, right } => {
-            is_inert_binop(*op) && expr_ok(ctx, *left) && expr_ok(ctx, *right)
+            is_inert_binop(*op) && expr_ok(ctx, names, *left) && expr_ok(ctx, names, *right)
         }
-        Expr::Unary { op, expr } => !matches!(op, UnaryOp::Plus) && expr_ok(ctx, *expr),
-        Expr::Member { obj, name } => name == "length" && is_string_ident(ctx, *obj),
+        Expr::Unary { op, expr } => !matches!(op, UnaryOp::Plus) && expr_ok(ctx, names, *expr),
+        Expr::Member { obj, name } => name == "length" && sure_string(ctx, names, *obj),
         Expr::Call { callee, args } => {
             matches!(ctx.ast.get_expr(*callee), Expr::Member { obj, name }
-                if name == "charCodeAt" && is_string_ident(ctx, *obj))
+                if name == "charCodeAt" && sure_string(ctx, names, *obj))
                 && args.len() == 1
-                && expr_ok(ctx, args[0])
+                && expr_ok(ctx, names, args[0])
         }
         _ => false,
     }
 }
 
+/// A string the body reads that cannot be nullish: the one the loop's
+/// test has read, or one the lowering would not test.
+fn sure_string(ctx: &LowerCtx<'_>, names: &Names<'_>, e: ExprId) -> bool {
+    is_string_ident(ctx, e)
+        && (matches!(ctx.ast.get_expr(e), Expr::Ident(n) if n == names.src)
+            || !crate::ssa_lower_nullable_guard::is_nullable_str_source(ctx, e))
+}
+
 pub(super) fn is_string_ident(ctx: &LowerCtx<'_>, e: ExprId) -> bool {
     matches!(ctx.ast.get_expr(e), Expr::Ident(_))
+        && !ctx.ast.tdz_reads.contains(&e)
         && matches!(ctx.expr_types.get(&e), Some(CType::String))
 }

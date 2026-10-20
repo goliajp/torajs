@@ -35,15 +35,20 @@
 //!
 //! The appends hold the array's length word back until the loop ends,
 //! and keep the running length in a register. Both hold only while
-//! the body cannot run code: code could read the array, push to it
-//! behind the running length, shift it, or throw past the settlement.
-//! So every statement and expression in the body is on an allowlist
-//! (the `allow` module): numeric and boolean locals, literals and
-//! arithmetic over them, `s.length` and `s.charCodeAt(e)` on a string,
-//! the array's own pushes of such values (or of an instance built in
-//! place from them), `if`, inner `while` loops with their own `break`
-//! / `continue`, and nothing else. Anything off it takes the plain
-//! loop.
+//! the body cannot run code or raise: code could read the array, push
+//! to it behind the running length or shift it, and a throw would
+//! leave by an edge that never writes the length back, so a `catch`
+//! would read a stale one. So every statement and expression in the
+//! body is on an allowlist (the `allow` module): numeric and boolean
+//! locals past their declaration, literals and arithmetic over them,
+//! `s.length` and `s.charCodeAt(e)` on the string the loop's test
+//! reads (the test raises on a nullish one on its first trip, before
+//! any append) or on one that cannot be nullish, the array's own
+//! pushes of such values (or of an instance built in place from them),
+//! `if`, inner `while` loops with their own `break` / `continue`, and
+//! nothing else. Anything off it takes the plain loop. The cold edges
+//! that can raise (a lock bit, a length past the longest) write the
+//! length back first.
 
 mod allow;
 
@@ -229,10 +234,10 @@ fn plan(ctx: &LowerCtx<'_>, counter: &str, cond: ExprId, body: &Stmt) -> Option<
     if name != "length" || !is_string_ident(ctx, *obj) {
         return None;
     }
-    let src = match ast.get_expr(*obj) {
-        Expr::Ident(n) => ctx.locals.get(n).copied().filter(|l| !l.boxed),
-        _ => None,
+    let Expr::Ident(src_name) = ast.get_expr(*obj) else {
+        unreachable!("is_string_ident answers for an identifier")
     };
+    let src = ctx.locals.get(src_name).copied().filter(|l| !l.boxed);
     let c = ctx.locals.get(counter)?;
     if c.boxed || !matches!(c.ty, Type::I64 | Type::I32 | Type::F64) {
         return None;
@@ -243,6 +248,7 @@ fn plan(ctx: &LowerCtx<'_>, counter: &str, cond: ExprId, body: &Stmt) -> Option<
     let names = Names {
         counter,
         arr: &arr,
+        src: src_name,
         decls,
     };
     let per_trip = walk_stmt(ctx, body, &names, 0)?;
