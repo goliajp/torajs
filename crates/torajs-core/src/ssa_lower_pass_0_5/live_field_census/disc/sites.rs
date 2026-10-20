@@ -142,7 +142,8 @@ impl<'a> Census<'a> {
         let vs = self.assign_values.get(p).map_or(&[][..], Few::as_slice);
         vs.iter().any(|v| {
             self.scopes.reach(self.scopes.owner(*v), p).is_none_or(|r| {
-                (r.params.iter()).any(|b| matches!(b, Binder::Ctor(k, j) if *k == class && *j == i))
+                (r.params.as_slice().iter())
+                    .any(|b| matches!(b, Binder::Ctor(k, j) if *k == class && *j == i))
             })
         })
     }

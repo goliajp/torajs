@@ -147,7 +147,7 @@ impl<'a, 'b> State<'a, 'b> {
         if reach.open {
             return false;
         }
-        let (params, lets) = (&reach.params, &reach.lets);
+        let (params, lets) = (reach.params.as_slice(), reach.lets.as_slice());
         let writes = c.assign_values.get(n).map_or(&[][..], Few::as_slice);
         if params.is_empty() && lets.is_empty() {
             // a function declaration's name is its function object

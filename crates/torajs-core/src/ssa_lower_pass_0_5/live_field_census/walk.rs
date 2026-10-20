@@ -30,6 +30,7 @@ impl NameFilter {
 
 /// A list that holds one element without an allocation: most names have
 /// one binder, one write or one call site.
+#[derive(Clone)]
 pub(super) enum Few<T> {
     One(T),
     Many(Vec<T>),

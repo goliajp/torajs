@@ -8,7 +8,6 @@
 //! name is taken, which over-approximates block scoping.
 
 use std::cell::RefCell;
-use std::rc::Rc;
 
 use super::names::{HashMap, HashSet};
 
@@ -16,7 +15,7 @@ use crate::ast::desugar_async_sm_walk::{visit_expr_children, visit_stmt_exprs};
 use crate::ast::{Ast, Expr, ExprId, Stmt};
 
 use super::bindings::judged_fn;
-use super::walk::{ctor_class, nested_stmts, user_params};
+use super::walk::{Few, ctor_class, nested_stmts, user_params};
 
 /// The function an expression is in: the program's own body, a
 /// declared function by index, or none the walk reached (an arrow
@@ -59,13 +58,13 @@ pub(super) struct Scopes<'a> {
 }
 
 /// A read's reach by the function it is in and the name it reads.
-type ReachMemo<'a> = HashMap<(Owner, &'a str), Option<Rc<Reach<'a>>>>;
+type ReachMemo<'a> = HashMap<(Owner, &'a str), Option<Reach<'a>>>;
 
 /// The binders other than parameters one function declares for a name.
 #[derive(Default)]
 struct Decl {
     /// `let` / `const` initialisers.
-    lets: Vec<ExprId>,
+    lets: Few<ExprId>,
     /// A loop variable, a catch parameter, an arrow's parameter or any
     /// other binder no census judges.
     open: bool,
@@ -74,10 +73,10 @@ struct Decl {
 }
 
 /// The binders a read can reach.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(super) struct Reach<'a> {
-    pub(super) params: Vec<Binder<'a>>,
-    pub(super) lets: Vec<ExprId>,
+    pub(super) params: Few<Binder<'a>>,
+    pub(super) lets: Few<ExprId>,
     pub(super) open: bool,
     pub(super) split: bool,
 }
@@ -189,7 +188,15 @@ impl<'a> Scopes<'a> {
                 self.decl(owner, &p.name).open = true;
             }
         }
-        visit_expr_children(ast, e, &mut |c| self.mark(ast, c, owner));
+        // a leaf has nothing under it to visit
+        visit_expr_children(ast, e, &mut |c| match ast.get_expr(c) {
+            Expr::Ident(_) | Expr::Number(_) | Expr::String(_) | Expr::Bool(_) | Expr::Null => {
+                if let Some(slot) = self.owners.get_mut(c.0 as usize) {
+                    *slot = owner;
+                }
+            }
+            _ => self.mark(ast, c, owner),
+        });
     }
 
     pub(super) fn owner(&self, e: ExprId) -> Owner {
@@ -202,17 +209,17 @@ impl<'a> Scopes<'a> {
     /// The binders of `n` a read in `owner` can reach, the top level's
     /// among them, or `None` when the read is in no function the walk
     /// reached.
-    pub(super) fn reach(&self, owner: Owner, n: &'a str) -> Option<Rc<Reach<'a>>> {
+    pub(super) fn reach(&self, owner: Owner, n: &'a str) -> Option<Reach<'a>> {
         if let Some(r) = self.memo.borrow().get(&(owner, n)) {
             return r.clone();
         }
-        let r = self.walk_reach(owner, n).map(Rc::new);
+        let r = self.walk_reach(owner, n);
         self.memo.borrow_mut().insert((owner, n), r.clone());
         r
     }
 
     fn walk_reach(&self, owner: Owner, n: &'a str) -> Option<Reach<'a>> {
-        let mut seen = Vec::new();
+        let mut seen = Few::default();
         let mut out = Reach::default();
         if !self.chain(owner, n, &mut seen, &mut out) {
             return None;
@@ -223,19 +230,19 @@ impl<'a> Scopes<'a> {
 
     fn take_decl(&self, at: Owner, n: &'a str, out: &mut Reach<'a>) {
         if let Some(d) = self.decls.get(&(n, at)) {
-            out.lets.extend(&d.lets);
+            d.lets.as_slice().iter().for_each(|e| out.lets.push(*e));
             out.open |= d.open;
             out.split |= d.split;
         }
     }
 
-    fn chain(&self, owner: Owner, n: &'a str, seen: &mut Vec<u32>, out: &mut Reach<'a>) -> bool {
+    fn chain(&self, owner: Owner, n: &'a str, seen: &mut Few<u32>, out: &mut Reach<'a>) -> bool {
         let id = match owner {
             Owner::Unknown => return false,
             Owner::Global => return true,
             Owner::Fn(id) => id,
         };
-        if seen.contains(&id) {
+        if seen.as_slice().contains(&id) {
             return true;
         }
         seen.push(id);
