@@ -54,9 +54,23 @@ impl<'a> Census<'a> {
         construct_args: &HashMap<&'a str, Vec<&'a [ExprId]>>,
         fields_open: bool,
     ) {
-        let plans = (discs.reads.iter())
-            .map(|(e, d)| (*e, self.disc_plan(discs, d, construct_args, fields_open)))
-            .collect();
+        // a plan asks only the read's class, field and ruled-out facts
+        let mut asked: Vec<(&Disc<'a>, Option<Vec<ExprId>>)> = Vec::new();
+        let mut plans = HashMap::default();
+        for (e, d) in &discs.reads {
+            let same = |(a, _): &&(&Disc, _)| {
+                a.class == d.class && a.field == d.field && a.ruled_out == d.ruled_out
+            };
+            let plan = match asked.iter().find(same) {
+                Some((_, p)) => p.clone(),
+                None => {
+                    let p = self.disc_plan(discs, d, construct_args, fields_open);
+                    asked.push((d, p.clone()));
+                    p
+                }
+            };
+            plans.insert(*e, plan);
+        }
         discs.plans = plans;
     }
 
@@ -78,20 +92,29 @@ impl<'a> Census<'a> {
         else {
             return None;
         };
+        let ruled: Vec<(&PrefixWrite, &Key)> = (d.ruled_out.iter())
+            .filter_map(|(f, k)| Some((self.sole_write(discs, class, f)?, k)))
+            .collect();
+        // the user parameters a site's argument reaches a field through
+        // unchanged
+        let plain: Vec<(usize, bool)> = (std::iter::once(fw).chain(ruled.iter().map(|(w, _)| *w)))
+            .filter_map(|w| w.param)
+            .map(|i| {
+                let p = ctor.user.get(i);
+                let p = p.is_some_and(|p| !p.is_rest && p.default.is_none());
+                (i, p && !self.ctor_param_written(class, i))
+            })
+            .collect();
         // the value a site stores through a prefix write
         let arg = |w: &PrefixWrite, args: &[ExprId]| -> Option<ExprId> {
             let Some(i) = w.param else {
                 return Some(w.value);
             };
-            let p = ctor.user.get(i)?;
-            let plain = !p.is_rest && p.default.is_none() && !self.ctor_param_written(class, i);
+            let plain = plain.iter().any(|(j, p)| *j == i && *p);
             let spread = (args.iter().take(i + 1))
                 .any(|a| matches!(self.ast.get_expr(*a), Expr::Spread { .. }));
             (plain && !spread).then(|| args.get(i).copied())?
         };
-        let ruled: Vec<(&PrefixWrite, &Key)> = (d.ruled_out.iter())
-            .filter_map(|(f, k)| Some((self.sole_write(discs, class, f)?, k)))
-            .collect();
         let mut out = Vec::new();
         for args in construct_args.get(class).map_or(&[][..], Vec::as_slice) {
             let is_out = ruled.iter().any(|(w, k)| {
@@ -157,7 +180,7 @@ impl<'b> State<'_, 'b> {
     pub(in super::super) fn proven_members(&self) -> ExprMask {
         let mut out = ExprMask::new(self.c.ast);
         for e in self.discs.plans.keys() {
-            if self.disc_live(*e, &mut Visiting::default()) {
+            if self.disc_live(*e, &mut self.scratch.borrow_mut()) {
                 out.insert(*e);
             }
         }

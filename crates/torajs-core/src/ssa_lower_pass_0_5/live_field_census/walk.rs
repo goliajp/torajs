@@ -6,6 +6,35 @@ use crate::check::Type;
 
 use super::{PrefixWrite, THIS};
 
+/// A set of names that tells a name certainly not in it without
+/// hashing it: one bit per bucket of length and end bytes.
+#[derive(Default)]
+pub(super) struct NameFilter([u64; 4]);
+
+impl NameFilter {
+    pub(super) fn of<'n>(names: impl Iterator<Item = &'n str>) -> Self {
+        let mut f = NameFilter::default();
+        for n in names {
+            let b = name_bucket(n);
+            f.0[b >> 6] |= 1 << (b & 63);
+        }
+        f
+    }
+
+    /// `n` may be one of the names.
+    pub(super) fn may_hold(&self, n: &str) -> bool {
+        let b = name_bucket(n);
+        (self.0[b >> 6] >> (b & 63)) & 1 == 1
+    }
+}
+
+fn name_bucket(n: &str) -> usize {
+    let b = n.as_bytes();
+    let first = b.first().map_or(0, |c| usize::from(*c));
+    let last = b.last().map_or(0, |c| usize::from(*c) << 1);
+    (b.len().wrapping_mul(37) ^ first ^ last) & 255
+}
+
 /// `__cm_<C>__ctor` (the one constructor the factory enters; a `$$`
 /// twin is a separate write site the general census sees).
 pub(super) fn ctor_class(name: &str) -> Option<&str> {

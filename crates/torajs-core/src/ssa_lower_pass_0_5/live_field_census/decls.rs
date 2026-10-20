@@ -62,7 +62,10 @@ impl<'a> Census<'a> {
             ctor_params: HashMap::default(),
             fn_params: HashMap::default(),
             calls: bindings::Calls::default(),
-            scopes: scope::Scopes::collect(ast),
+            scopes: scope::Scopes::default(),
+            judged_reads: Vec::new(),
+            direct_calls: Vec::new(),
+            disc_test: false,
             assigned: HashSet::default(),
             assign_values: HashMap::default(),
             member_writes: HashMap::default(),
@@ -81,7 +84,11 @@ impl<'a> Census<'a> {
         for s in &ast.stmts {
             c.collect_stmt(s);
         }
-        c.calls = bindings::Calls::collect(ast, dead, (retargets, &c.fns));
+        let params = (c.fns.values().map(|(p, _)| p.len()))
+            .chain(c.ctors.iter().map(|k| k.params.len()))
+            .sum();
+        let binders = c.let_inits.len() + c.bound.len();
+        c.scopes = scope::Scopes::collect(ast, (c.fns.len() + c.ctors.len(), params, binders));
         c.mark_ctor_exprs();
         c.collect_exprs(dead, twins_open);
         c
@@ -169,8 +176,8 @@ impl<'a> Census<'a> {
 
     /// The constructor prefix writes, recorded and excluded from the
     /// general write census.
-    pub(super) fn prefix_assigns(&mut self) -> HashSet<ExprId> {
-        let mut out = HashSet::default();
+    pub(super) fn prefix_assigns(&mut self) -> ExprMask {
+        let mut out = ExprMask::new(self.ast);
         for ctor in &self.ctors {
             if self.foreign_classes.contains(ctor.class) {
                 continue;

@@ -26,7 +26,10 @@ use crate::check::Type;
 use super::walk::nested_stmts;
 use super::{Census, PrefixWrite};
 
+mod facts;
 mod sites;
+
+use facts::Facts;
 
 /// A constant a discriminant field is compared against.
 #[derive(Clone, PartialEq)]
@@ -65,10 +68,6 @@ pub(super) struct Discs<'a> {
     twins: HashMap<&'a str, Twins<'a>>,
 }
 
-/// By binding: the discriminant fields and the constants they differ
-/// from.
-type Facts<'a> = HashMap<&'a str, Vec<(&'a str, Key<'a>)>>;
-
 /// A test `x.d === K` failing: binding, field, constant.
 type Test<'a> = (&'a str, &'a str, Key<'a>);
 
@@ -79,6 +78,9 @@ impl<'a> Census<'a> {
             let Stmt::LetDecl { name: n, init, .. } = s else {
                 continue;
             };
+            let Some(k) = literal(self.ast.get_expr(*init)) else {
+                continue;
+            };
             // one binder of the name in the whole program, never written
             let n = n.as_str();
             let alone = self.let_inits.get(n).is_some_and(|v| v.len() == 1)
@@ -87,7 +89,7 @@ impl<'a> Census<'a> {
                 && !self.ctor_params.contains_key(n)
                 && !self.scopes.param_names.contains(n)
                 && !self.fns.contains_key(n);
-            if let (true, Some(k)) = (alone, literal(self.ast.get_expr(*init))) {
+            if alone {
                 out.consts.insert(n, k);
             }
         }
@@ -104,23 +106,33 @@ impl<'a> Census<'a> {
     }
 
     /// `st` under `facts` and `extra`, which end with it.
-    fn nested(&self, st: &'a Stmt, facts: &Facts<'a>, extra: &[Test<'a>], out: &mut Discs<'a>) {
-        let mut f = facts.clone();
+    fn nested(&self, st: &'a Stmt, facts: &mut Facts<'a>, extra: &[Test<'a>], out: &mut Discs<'a>) {
+        let at = facts.mark();
         for (x, d, k) in extra {
-            f.entry(x).or_default().push((d, k.clone()));
+            facts.push(x, d, k.clone());
         }
-        self.stmt(st, &mut f, out);
+        self.stmt(st, facts, out);
+        facts.restore(at);
+    }
+
+    /// `f` under the facts less `names`, which a declaration anywhere
+    /// inside the statement shadows from its start.
+    fn inner(
+        &self,
+        facts: &mut Facts<'a>,
+        names: &[&'a str],
+        f: impl FnOnce(&Self, &mut Facts<'a>),
+    ) {
+        let at = facts.mark();
+        names.iter().for_each(|n| facts.remove(n));
+        f(self, facts);
+        facts.restore(at);
     }
 
     fn stmt(&self, s: &'a Stmt, facts: &mut Facts<'a>, out: &mut Discs<'a>) {
         let mut names = Vec::new();
         if !facts.is_empty() {
             declares(s, &mut names);
-        }
-        // a name declared anywhere inside shadows from the start
-        let mut inner = facts.clone();
-        for n in &names {
-            inner.remove(n);
         }
         match s {
             Stmt::If {
@@ -131,14 +143,14 @@ impl<'a> Census<'a> {
                 self.reads(*cond, facts, out);
                 let mut tests = Vec::new();
                 self.tests(*cond, &out.consts, &mut tests);
-                self.nested(then_branch, &inner, &[], out);
-                if let Some(e) = else_branch {
-                    self.nested(e, &inner, &tests, out);
-                }
-                if exits(then_branch) {
-                    for (x, d, k) in tests {
-                        facts.entry(x).or_default().push((d, k));
+                self.inner(facts, &names, |c, f| {
+                    c.nested(then_branch, f, &[], out);
+                    if let Some(e) = else_branch {
+                        c.nested(e, f, &tests, out);
                     }
+                });
+                if exits(then_branch) {
+                    tests.into_iter().for_each(|(x, d, k)| facts.push(x, d, k));
                 }
             }
             Stmt::LetDecl { init: e, .. }
@@ -146,22 +158,24 @@ impl<'a> Census<'a> {
             | Stmt::Throw(e)
             | Stmt::Return(Some(e)) => self.reads(*e, facts, out),
             Stmt::Multi(v) => v.iter().for_each(|st| self.stmt(st, facts, out)),
-            Stmt::Block(v) => v.iter().for_each(|st| self.stmt(st, &mut inner, out)),
+            Stmt::Block(v) => self.inner(facts, &names, |c, f| {
+                v.iter().for_each(|st| c.stmt(st, f, out));
+            }),
             Stmt::While { cond, body } | Stmt::DoWhile { body, cond } => {
                 self.reads(*cond, facts, out);
-                self.nested(body, &inner, &[], out);
+                self.inner(facts, &names, |c, f| c.nested(body, f, &[], out));
             }
             Stmt::For { .. }
             | Stmt::ForOf { .. }
             | Stmt::ForOfSplitIter { .. }
             | Stmt::Labeled { .. }
             | Stmt::Try { .. }
-            | Stmt::Switch { .. } => nested_stmts(s, &mut |st| self.nested(st, &inner, &[], out)),
+            | Stmt::Switch { .. } => self.inner(facts, &names, |c, f| {
+                nested_stmts(s, &mut |st| c.nested(st, f, &[], out));
+            }),
             _ => {}
         }
-        for n in names {
-            facts.remove(n);
-        }
+        names.into_iter().for_each(|n| facts.remove(n));
     }
 
     /// The `x.d === K` tests `cond` failing makes fail, through `||`.

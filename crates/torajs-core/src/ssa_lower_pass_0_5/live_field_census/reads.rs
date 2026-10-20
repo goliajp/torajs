@@ -1,11 +1,10 @@
 //! What the fixed point answers about reads and calls, and the
 //! judgements of the fixed point itself.
 
-use crate::ast::{Expr, ExprId};
+use crate::ast::Expr;
 use crate::check::Type;
 use crate::ssa::id_hash::{HashMap, HashSet};
 
-use super::bindings::holds_nullish_in_band;
 use super::judge::{State, Visit, Visiting};
 use super::scope::{Binder, Owner};
 use super::walk::factory_class;
@@ -37,13 +36,13 @@ impl<'a, 'b> State<'a, 'b> {
             .iter()
             .filter(|w| w.class == class && w.field == field)
             .all(|w| match w.param {
-                Some(i) => self.ctor_param_live(class, i, &mut Visiting::default()),
-                None => self.value_live(w.value, &mut Visiting::default()),
+                Some(i) => self.ctor_param_live(class, i, &mut self.scratch.borrow_mut()),
+                None => self.value_live(w.value, &mut self.scratch.borrow_mut()),
             });
         prefix_ok
             && self.c.member_writes.get(field).is_none_or(|ws| {
                 ws.iter()
-                    .all(|v| self.value_live(*v, &mut Visiting::default()))
+                    .all(|v| self.value_live(*v, &mut self.scratch.borrow_mut()))
             })
     }
 
@@ -54,8 +53,8 @@ impl<'a, 'b> State<'a, 'b> {
         if self.c.widths.returns_undef_on_fallthrough(name) || self.c.assigned.contains(name) {
             return false;
         }
-        let mut visiting = Visiting::default();
-        rets.iter().all(|e| self.value_live(*e, &mut visiting))
+        let visiting = &mut self.scratch.borrow_mut();
+        rets.iter().all(|e| self.value_live(*e, visiting))
     }
 
     /// The reads and calls [`Live::unproven_read`] answers, given the
@@ -71,23 +70,20 @@ impl<'a, 'b> State<'a, 'b> {
         let mut reads: HashMap<(Owner, &str), bool> = HashMap::default();
         let mut methods: HashMap<(&str, &str), bool> = HashMap::default();
         let mut out = ExprMask::new(c.ast);
-        for (i, e) in c.ast.exprs.iter().enumerate() {
-            let id = ExprId(i as u32);
-            if !matches!(e, Expr::Ident(_) | Expr::Call { .. })
-                || !c.ty(id).is_some_and(holds_nullish_in_band)
-            {
-                continue;
-            }
-            let unproven = match e {
+        for &id in &c.judged_reads {
+            let unproven = match c.ast.get_expr(id) {
                 Expr::Ident(n) if matches!(n.as_str(), THIS | "__new_target") => false,
                 Expr::Ident(n) => {
                     let owner = c.scopes.owner(id);
-                    let mut live = || self.read_live(owner, n, &mut Visiting::default());
+                    let mut live = || self.read_live(owner, n, &mut self.scratch.borrow_mut());
                     binder(n) && (open || !*reads.entry((owner, n)).or_insert_with(&mut live))
                 }
                 Expr::Call { callee, .. } => match c.ast.get_expr(*callee) {
                     Expr::Ident(f) if c.fns.contains_key(f.as_str()) => {
-                        let f = c.retargets.get(&id).unwrap_or(f);
+                        let f = match c.retargets.is_empty() {
+                            true => f,
+                            false => c.retargets.get(&id).unwrap_or(f),
+                        };
                         factory_class(f).is_none() && !fns.contains(f.as_str())
                     }
                     Expr::Ident(f) => binder(f),
@@ -129,12 +125,12 @@ impl<'a, 'b> State<'a, 'b> {
         let Some(sites) = self.c.calls.args.get(f) else {
             return false;
         };
-        let mut visiting = Visiting::default();
+        let visiting = &mut self.scratch.borrow_mut();
         sites.iter().all(|args| {
             args.get(i).is_some_and(|a| {
                 (args.iter().take(i + 1))
                     .all(|b| !matches!(self.c.ast.get_expr(*b), Expr::Spread { .. }))
-                    && self.value_live(*a, &mut visiting)
+                    && self.value_live(*a, visiting)
             })
         })
     }
@@ -185,16 +181,15 @@ impl<'a, 'b> State<'a, 'b> {
         if entry.is_empty() {
             return out;
         }
-        for (i, e) in c.ast.exprs.iter().enumerate() {
-            let id = ExprId(i as u32);
-            if let Expr::Call { callee, args } = e
+        for &id in &c.direct_calls {
+            if let Expr::Call { callee, args } = c.ast.get_expr(id)
                 && let Expr::Ident(f) = c.ast.get_expr(*callee)
                 && let Some(at) = entry.get(c.retargets.get(&id).unwrap_or(f).as_str())
             {
                 let test: Vec<usize> = (at.iter().copied())
                     .filter(|i| {
                         (args.get(*i))
-                            .is_some_and(|a| !self.value_live(*a, &mut Visiting::default()))
+                            .is_some_and(|a| !self.value_live(*a, &mut self.scratch.borrow_mut()))
                     })
                     .collect();
                 if !test.is_empty() {

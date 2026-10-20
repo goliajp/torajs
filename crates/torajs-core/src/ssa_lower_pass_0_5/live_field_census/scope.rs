@@ -40,11 +40,12 @@ pub(super) enum Binder<'a> {
     Open,
 }
 
+#[derive(Default)]
 pub(super) struct Scopes<'a> {
     owners: Vec<Owner>,
     ids: HashMap<&'a str, u32>,
-    /// The function a declared function is nested in.
-    parent: HashMap<u32, Owner>,
+    /// The function each declared function is nested in, by id.
+    parent: Vec<Owner>,
     /// Where each lifted closure is built, with the names it captures.
     creators: HashMap<u32, Vec<(Owner, &'a [String])>>,
     /// Each function's parameters, by name.
@@ -82,32 +83,32 @@ pub(super) struct Reach<'a> {
 }
 
 impl<'a> Scopes<'a> {
-    pub(super) fn collect(ast: &'a Ast) -> Self {
+    /// `(functions, parameters, other binders)` size the tables.
+    pub(super) fn collect(ast: &'a Ast, (fns, params, binders): (usize, usize, usize)) -> Self {
         let mut s = Scopes {
             owners: vec![Owner::Unknown; ast.exprs.len()],
-            ids: HashMap::default(),
-            parent: HashMap::default(),
+            ids: HashMap::with_capacity_and_hasher(fns, Default::default()),
+            parent: Vec::with_capacity(fns),
             creators: HashMap::default(),
-            params: HashMap::default(),
-            decls: HashMap::default(),
-            param_names: HashSet::default(),
+            params: HashMap::with_capacity_and_hasher(params, Default::default()),
+            decls: HashMap::with_capacity_and_hasher(binders, Default::default()),
+            param_names: HashSet::with_capacity_and_hasher(params, Default::default()),
             memo: RefCell::default(),
         };
         for st in &ast.stmts {
             s.walk(ast, st, Owner::Global);
         }
-        for (i, e) in ast.exprs.iter().enumerate() {
-            if let Expr::Closure { fn_name, captures } = e
-                && let Some(&id) = s.ids.get(fn_name.as_str())
-            {
-                let at = s.owners[i];
-                s.creators
-                    .entry(id)
-                    .or_default()
-                    .push((at, captures.as_slice()));
-            }
-        }
         s
+    }
+
+    /// A closure of the lifted function `fn_name` built at `at`,
+    /// capturing `captures`; the census's pass over the expressions
+    /// reports every one before the first [`Scopes::reach`].
+    pub(super) fn closure(&mut self, at: ExprId, fn_name: &str, captures: &'a [String]) {
+        if let Some(&id) = self.ids.get(fn_name) {
+            let owner = self.owner(at);
+            self.creators.entry(id).or_default().push((owner, captures));
+        }
     }
 
     fn id(&mut self, name: &'a str) -> u32 {
@@ -121,9 +122,13 @@ impl<'a> Scopes<'a> {
         } = st
         {
             let id = self.id(name);
-            self.parent.insert(id, owner);
+            let at = id as usize;
+            if at == self.parent.len() {
+                self.parent.push(owner);
+            }
+            self.parent[at] = owner;
             let ctor = ctor_class(name);
-            let user = user_params(params);
+            let user = ctor.map(|_| user_params(params)).unwrap_or_default();
             let judged = judged_fn(name, params);
             for (i, p) in params.iter().enumerate() {
                 self.param_names.insert(&p.name);
@@ -243,7 +248,7 @@ impl<'a> Scopes<'a> {
                 return false;
             }
         }
-        match self.parent.get(&id) {
+        match self.parent.get(id as usize) {
             Some(p) => self.chain(*p, n, seen, out),
             None => true,
         }

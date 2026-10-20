@@ -155,6 +155,13 @@ struct Census<'a> {
     fn_params: HashMap<&'a str, Vec<(&'a str, usize)>>,
     calls: bindings::Calls<'a>,
     scopes: scope::Scopes<'a>,
+    /// Every read of a binding and every call whose value slot spells a
+    /// nullish value in band, live or not (`bindings::unproven`).
+    judged_reads: Vec<ExprId>,
+    /// Every call whose callee is a name, live or not.
+    direct_calls: Vec<ExprId>,
+    /// Some `x.f === v` test may rule a discriminant out (`disc`).
+    disc_test: bool,
     /// Names assigned to anywhere, or declared more than once as a
     /// function.
     assigned: HashSet<&'a str>,

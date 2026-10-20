@@ -36,12 +36,18 @@ impl<'a> Census<'a> {
             .flat_map(|(f, at)| at.iter().map(|i| (*f, *i)))
             .collect();
         let mut live_params = judged;
-        // what the rounds read again and again, gathered once
-        let (mut discs, methods, rets) = (self.discs(), self.methods(), self.returns());
-        self.disc_plans(&mut discs, &construct_args, fields_open);
+        // what the rounds read again and again, gathered once; a fact
+        // needs a test, and a plan an instance of a class no road reaches
+        let mut discs = Discs::default();
+        if fields_open && self.disc_test && !self.ctors.is_empty() {
+            discs = self.discs();
+            self.disc_plans(&mut discs, &construct_args, fields_open);
+        }
+        let (methods, rets) = (self.methods(), self.returns());
         let (unproven, members, entry) = loop {
             let st = State {
                 c: self,
+                scratch: Default::default(),
                 live: &live,
                 live_fns: &live_fns,
                 live_params: &live_params,
@@ -175,6 +181,9 @@ impl<'a> Census<'a> {
 
 pub(super) struct State<'a, 'b> {
     pub(super) c: &'b Census<'a>,
+    /// The visiting set the judgements that start a walk lend each
+    /// other: a walk leaves it as it found it.
+    pub(super) scratch: std::cell::RefCell<Visiting<'b>>,
     pub(super) live: &'b HashSet<(&'a str, &'a str)>,
     pub(super) live_fns: &'b HashSet<&'a str>,
     pub(super) live_params: &'b HashSet<(&'a str, usize)>,
