@@ -112,10 +112,13 @@ fn other_width(src: u8, v: i64) -> i64 {
 }
 
 /// `f` read by an i64 reader, which the width analysis gives only a
-/// number it proved integral; a debug build stops on a fraction (NaN
-/// and the infinities are none: their `fract()` is NaN).
+/// number it proved integral; a debug build stops on anything an i64
+/// cannot hold as it is: a fraction, NaN, an infinity, or -0.
 #[inline]
 pub(crate) fn exact_i64(f: f64) -> i64 {
-    debug_assert!(!f.is_finite() || f.fract() == 0.0, "a fraction read at i64");
+    debug_assert!(
+        f.is_finite() && f.fract() == 0.0 && !(f == 0.0 && f.is_sign_negative()),
+        "a number an i64 cannot hold read at i64"
+    );
     f as i64
 }
