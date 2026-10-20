@@ -52,8 +52,9 @@ impl Analysis<'_> {
     /// `this.__sent` an async body's await became) when its operand is
     /// no typed promise: an operand that is no promise is the answer
     /// itself (§27.7.5.3 over PromiseResolve of a non-thenable), at its
-    /// own width; an `any` one settles with whatever it holds, which a
-    /// number slot takes as an f64.
+    /// own width; an `any` one, or one that may or may not be a
+    /// promise, settles with whatever it holds, which a number slot
+    /// takes as an f64.
     pub(super) fn awaited_width(&self, eid: ExprId, scope: &Scope) -> Option<super::W> {
         let origin = match self.ast.get_expr(eid) {
             _ if self.ast.yield_into_await_origins.contains_key(&eid) => {
@@ -65,6 +66,12 @@ impl Analysis<'_> {
         match self.expr_types.get(&origin)? {
             Type::Promise(_) => None,
             Type::Any => Some(super::W::F64),
+            // a promise or not: the operand's own width says nothing
+            // of what it settles with
+            Type::Nullable(t) if matches!(**t, Type::Promise(_)) => Some(super::W::F64),
+            Type::Union(ts) if ts.iter().any(|t| matches!(t, Type::Promise(_))) => {
+                Some(super::W::F64)
+            }
             _ => Some(self.width_of(origin, scope)),
         }
     }
