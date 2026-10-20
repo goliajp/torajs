@@ -124,6 +124,7 @@ mod rtlinked_format_check;
 pub mod runtime_prestrip;
 pub mod sign;
 pub mod stubs;
+mod sym_rows;
 pub mod text_payload;
 pub mod tlv_descriptor_layout;
 pub mod tlv_sym_overrides;

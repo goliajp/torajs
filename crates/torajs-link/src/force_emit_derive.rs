@@ -28,6 +28,7 @@ use std::collections::BTreeSet;
 use crate::archive_link_extra_syms::collect_extra_defined_syms;
 use crate::archives_merge::{MergedArchives, RequiredMembers, compute_required_members_cached};
 use crate::dead_strip_reach_cache::ReachCache;
+use crate::dead_strip_reach_table::ImportRef;
 use crate::exec::LinkConfig;
 use crate::layout_types::ArchiveLayoutError;
 
@@ -58,16 +59,38 @@ pub(crate) fn derive_force_emit<'a>(
     let extra = collect_extra_defined_syms(cfg);
     let required = compute_required_members_cached(&cfg.funcs, merged, &extra, cache)
         .map_err(ArchiveLayoutError::Link)?;
+    // the table symbols the required members import, each looked for
+    // as the member tables name it: by its row in the image's symbol
+    // index when a runtime member defines it, else by name
+    let image = &merged.image;
+    let table_syms: Vec<&str> = [CLASS_LAYOUTS_SYMS, FN_NAME_SYMS, CLASS_NAMES_SYMS].concat();
+    let rows: Vec<(u32, &str)> = table_syms
+        .iter()
+        .filter_map(|&n| Some((image.find_symbol(n)? as u32, n)))
+        .collect();
     let mut undefs: BTreeSet<&str> = BTreeSet::new();
     for &(a, m) in &required.members {
-        let names = cache.member_undefs(merged, (a, m)).map_err(|err| {
+        let imports = cache.member_imports(merged, (a, m)).map_err(|err| {
             ArchiveLayoutError::MemberSymtab {
                 archive_idx: a,
                 member_idx: m,
                 err,
             }
         })?;
-        undefs.extend(names.iter());
+        for import in imports.iter() {
+            match import.to {
+                ImportRef::Foreign(name) => {
+                    if table_syms.contains(&name) {
+                        undefs.insert(name);
+                    }
+                }
+                ImportRef::Sym(i) => {
+                    if let Some(&(_, n)) = rows.iter().find(|r| r.0 == i) {
+                        undefs.insert(n);
+                    }
+                }
+            }
+        }
     }
     let keep = derive_flags(set, &undefs);
     if keep == set {

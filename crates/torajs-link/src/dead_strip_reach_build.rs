@@ -13,7 +13,10 @@ use crate::dead_strip_reach_table::reach_from_table;
 
 /// Parse one member into its reachability tables.
 pub(crate) fn build_member_reach<'a>(member: &ArMember<'a>) -> Result<MemberReach<'a>, String> {
-    Ok(reach_from_table(member, &encode_member_reach(member)?))
+    Ok(reach_from_table(
+        member,
+        &encode_member_reach(member, &|_| None)?,
+    ))
 }
 
 /// Whether the object `bytes` declares `MH_SUBSECTIONS_VIA_SYMBOLS`,

@@ -23,6 +23,14 @@ const N_EXT: u8 = 0x01;
 pub fn member_undef_extern_names<'a>(
     member: &ArMember<'a>,
 ) -> Result<Vec<&'a str>, MemberSymtabError> {
+    let rows = member_undef_extern_rows(member)?;
+    Ok(rows.into_iter().map(|(_, name)| name).collect())
+}
+
+/// [`member_undef_extern_names`] with each name's nlist row.
+pub fn member_undef_extern_rows<'a>(
+    member: &ArMember<'a>,
+) -> Result<Vec<(u32, &'a str)>, MemberSymtabError> {
     let bytes = member.data;
     if bytes.len() < 32 {
         return Err(MemberSymtabError::TruncatedHeader);
@@ -82,7 +90,7 @@ pub fn member_undef_extern_names<'a>(
     }
 
     let strtab = &bytes[stroff..stroff + strsize];
-    let mut out: Vec<&'a str> = Vec::new();
+    let mut out: Vec<(u32, &'a str)> = Vec::new();
     for i in 0..nsyms {
         let off = symoff + i * 16;
         let n_strx = u32::from_le_bytes(bytes[off..off + 4].try_into().unwrap()) as usize;
@@ -110,7 +118,8 @@ pub fn member_undef_extern_names<'a>(
         let name_bytes = &strtab[n_strx..end_off];
         let name = std::str::from_utf8(name_bytes)
             .map_err(|_| MemberSymtabError::NameNotUtf8 { sym_index: i })?;
-        out.push(name);
+        // `nsyms` is read from a u32 field
+        out.push((i as u32, name));
     }
     Ok(out)
 }

@@ -23,7 +23,10 @@ use torajs_rtimage::image::{Image, ImageError};
 
 use crate::archive::{ArMember, MemberSymtabError};
 pub use crate::archive_link_extra_syms::ExtraDefined;
+use crate::archive_link_extra_syms::UserDefined;
 use crate::dead_strip_reach_cache::ReachCache;
+use crate::dead_strip_reach_table::ImportRef;
+use crate::sym_rows::SymSet;
 
 /// One entry in a `MergedArchives` global lookup. Tells the link
 /// driver *which* archive owns the symbol and *which* `.o` member
@@ -163,12 +166,11 @@ pub enum ArchiveLinkError {
 /// `merged.symbol`:
 ///
 ///   - hit  → mark that `(archive_idx, member_idx)` as required,
-///     then parse the member's `LC_SYMTAB` and enqueue
-///     every undefined extern it references in turn.
+///     then enqueue every undefined extern it references in turn.
 ///   - miss → record as unresolved.
 ///
-/// Visited-names set prevents revisiting symbols; visited-members
-/// set prevents re-parsing the same `.o` for its undef list.
+/// Visited-symbols set prevents revisiting symbols; visited-members
+/// set prevents reading the same `.o`'s undef list twice.
 ///
 /// Returns `Err(UnresolvedExterns)` if any externs never landed;
 /// `Err(Member)` if a transitively-pulled member's symtab was
@@ -182,8 +184,10 @@ pub fn compute_required_members(
     compute_required_members_cached(user_funcs, merged, extra_defined_syms, &mut cache)
 }
 
-/// [`compute_required_members`] reading each member's undef names
-/// through the link's `cache`.
+/// [`compute_required_members`] reading each member's imports through
+/// the link's `cache`. Names the image's symbol index holds are walked
+/// as index rows; only the others (dyld imports, link-defined symbols)
+/// are looked at as names.
 pub(crate) fn compute_required_members_cached<'a>(
     user_funcs: &[CompiledFunction],
     merged: &MergedArchives<'a>,
@@ -194,70 +198,70 @@ pub(crate) fn compute_required_members_cached<'a>(
     // (e.g. `__torajs_str_lit_*` from `LinkConfig.strings`) so the
     // worklist doesn't flag them as `UnresolvedExterns` before emit.
     let defined_in_user = extra_defined_syms.with_user_fns(user_funcs);
+    let image = &merged.image;
 
     let mut required: BTreeSet<(usize, usize)> = BTreeSet::new();
-    let mut visited_names: HashSet<&str> = HashSet::default();
-    let mut worklist: Vec<&str> = Vec::new();
-    let mut unresolved: BTreeSet<String> = BTreeSet::new();
-    let mut dyld_imports: BTreeMap<String, u8> = BTreeMap::new();
+    let mut visited = SymSet::new(image.symbol_count());
+    let mut worklist: Vec<u32> = Vec::new();
+    let mut foreign = Foreign {
+        defined_in_user: &defined_in_user,
+        visited: HashSet::default(),
+        unresolved: BTreeSet::new(),
+        dyld_imports: BTreeMap::new(),
+    };
 
     // Seed the worklist with every extern name referenced by a
-    // user function reloc that isn't defined by another user
-    // function. `CallSite::Func(fid)` doesn't name an extern —
-    // it's a SSA-local FuncId resolved by the layout pass — so
-    // skip it.
+    // user function reloc. `CallSite::Func(fid)` doesn't name an
+    // extern — it's a SSA-local FuncId resolved by the layout pass —
+    // so skip it.
+    let mut seeds: HashSet<&str> = HashSet::default();
     for f in user_funcs {
         for r in &f.relocs {
             if let Some(name) = reloc_target_name(&r.kind)
-                && !defined_in_user.contains(name)
+                && seeds.insert(name)
             {
-                worklist.push(name);
+                match image.find_symbol(name) {
+                    Some(i) => worklist.push(i as u32),
+                    None => foreign.visit(name),
+                }
             }
         }
     }
 
-    while let Some(name) = worklist.pop() {
-        if !visited_names.insert(name) {
+    while let Some(row) = worklist.pop() {
+        // a name the user defines never pulls the archive's copy
+        if !visited.insert(row) || defined_in_user.contains(image.symbol(row as usize).name) {
             continue;
         }
-        if defined_in_user.contains(name) {
-            continue;
-        }
-        let Some(sym) = merged.symbol(name) else {
-            // SD-1 / SD-4b: dyld-class externs (libSystem or
-            // libcurl) bind through `LC_LOAD_DYLIB`, not through
-            // any archive's defined-extern set. Classify them out
-            // of `unresolved` so the link can proceed; record the
-            // resolving dylib's `lib_ordinal` so downstream
-            // encoders know which LC_LOAD_DYLIB to bind against.
-            if let Some(lib) = crate::dyld_syms::dyld_lib_for(name) {
-                dyld_imports.insert(name.to_string(), lib.ordinal());
-            } else {
-                unresolved.insert(name.to_string());
-            }
-            continue;
-        };
-        let key = (sym.archive_idx, sym.member_idx);
+        let key = image.symbol_owner(row as usize);
         if !required.insert(key) {
-            // Already pulled in — its undef externs were either
-            // enqueued earlier (and either visited, queued, or
-            // satisfied) or are about to be on this branch.
+            // Already pulled in — its imports were either enqueued
+            // earlier (and either visited, queued, or satisfied) or
+            // are about to be on this branch.
             continue;
         }
-        let undefs = cache
-            .member_undefs(merged, key)
-            .map_err(|err| ArchiveLinkError::Member {
-                archive_idx: sym.archive_idx,
-                member_idx: sym.member_idx,
-                err,
-            })?;
-        for &u in undefs.iter() {
-            if !visited_names.contains(u) {
-                worklist.push(u);
+        let imports =
+            cache
+                .member_imports(merged, key)
+                .map_err(|err| ArchiveLinkError::Member {
+                    archive_idx: key.0,
+                    member_idx: key.1,
+                    err,
+                })?;
+        for import in imports.iter() {
+            match import.to {
+                ImportRef::Sym(i) if !visited.contains(i) => worklist.push(i),
+                ImportRef::Sym(_) => {}
+                ImportRef::Foreign(name) => foreign.visit(name),
             }
         }
     }
 
+    let Foreign {
+        unresolved,
+        dyld_imports,
+        ..
+    } = foreign;
     if !unresolved.is_empty() {
         return Err(ArchiveLinkError::UnresolvedExterns {
             names: unresolved.into_iter().collect(),
@@ -279,6 +283,34 @@ pub(crate) fn compute_required_members_cached<'a>(
         members: required,
         dyld_imports,
     })
+}
+
+/// The names the member closure meets that the image's symbol index
+/// lacks: none of them pulls a member.
+struct Foreign<'u, 'a> {
+    defined_in_user: &'u UserDefined<'u>,
+    visited: HashSet<&'a str>,
+    unresolved: BTreeSet<String>,
+    dyld_imports: BTreeMap<String, u8>,
+}
+
+impl<'a> Foreign<'_, 'a> {
+    fn visit(&mut self, name: &'a str) {
+        if !self.visited.insert(name) || self.defined_in_user.contains(name) {
+            return;
+        }
+        // SD-1 / SD-4b: dyld-class externs (libSystem or libcurl) bind
+        // through `LC_LOAD_DYLIB`, not through any archive's
+        // defined-extern set. Classify them out of `unresolved` so the
+        // link can proceed; record the resolving dylib's `lib_ordinal`
+        // so downstream encoders know which LC_LOAD_DYLIB to bind
+        // against.
+        if let Some(lib) = crate::dyld_syms::dyld_lib_for(name) {
+            self.dyld_imports.insert(name.to_string(), lib.ordinal());
+        } else {
+            self.unresolved.insert(name.to_string());
+        }
+    }
 }
 
 /// Name of the external symbol a `RelocKind` references, or

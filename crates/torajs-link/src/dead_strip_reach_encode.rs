@@ -5,18 +5,23 @@
 //! table for.
 
 use torajs_obj::{N_NO_DEAD_STRIP, N_SECT, N_TYPE, NLIST_64_SIZE};
+use torajs_rtimage::archive_undef::member_undef_extern_rows;
 
 use crate::archive::ArMember;
 use crate::dead_strip_reach_build::{splits_at_symbols, trim16};
-use crate::dead_strip_reach_table::{HEADER_LEN, SECT_LEN};
+use crate::dead_strip_reach_table::{FOREIGN, HEADER_LEN, SECT_LEN};
 use crate::member_sections::{MemberSectionInfo, collect_member_sections};
 use crate::member_symtab::parse_member_symtab;
 
 /// `(name, n_type, n_sect, n_value, n_desc)` of one nlist row.
 type Row<'a> = (&'a str, u8, u8, u64, u16);
 
-/// The member's reachability table.
-pub(crate) fn encode_member_reach(member: &ArMember<'_>) -> Result<Vec<u8>, String> {
+/// The member's reachability table; `sym_row` answers the row of a
+/// name in the runtime image's symbol index.
+pub(crate) fn encode_member_reach(
+    member: &ArMember<'_>,
+    sym_row: &dyn Fn(&str) -> Option<u32>,
+) -> Result<Vec<u8>, String> {
     let sections =
         collect_member_sections(member).map_err(|e| format!("{}: sections: {e:?}", member.name))?;
     let (symoff, stroff, rows) = if member.data.len() >= 32 && !sections.is_empty() {
@@ -33,12 +38,23 @@ pub(crate) fn encode_member_reach(member: &ArMember<'_>) -> Result<Vec<u8>, Stri
         .map(|(i, _)| i as u32)
         .collect();
     let (sect_rows, atoms) = section_rows(member, &sections, &rows)?;
+    let ImportCols {
+        undef,
+        refs: undef_ref,
+        foreign,
+    } = imports(member, sym_row)?;
 
     let n = |v: usize| table_u32(member, v);
     let mut out: Vec<u8> = Vec::with_capacity(
         HEADER_LEN
             + sect_rows.len()
-            + 4 * (rows.len() + defined.len() + dup.len() + no_dead_strip.len() + atoms.len()),
+            + 4 * (rows.len()
+                + defined.len()
+                + dup.len()
+                + no_dead_strip.len()
+                + atoms.len()
+                + 2 * undef.len()
+                + foreign.len()),
     );
     for v in [
         n(symoff)?,
@@ -48,6 +64,8 @@ pub(crate) fn encode_member_reach(member: &ArMember<'_>) -> Result<Vec<u8>, Stri
         n(defined.len())?,
         n(dup.len())?,
         n(no_dead_strip.len())?,
+        n(undef.len())?,
+        n(foreign.len() / 2)?,
     ] {
         out.extend_from_slice(&v.to_le_bytes());
     }
@@ -60,10 +78,60 @@ pub(crate) fn encode_member_reach(member: &ArMember<'_>) -> Result<Vec<u8>, Stri
         .chain(&dup)
         .chain(&no_dead_strip)
         .chain(&atoms)
+        .chain(&undef)
+        .chain(&undef_ref)
+        .chain(&foreign)
     {
         out.extend_from_slice(&v.to_le_bytes());
     }
     Ok(out)
+}
+
+/// The `undef`, `undef_ref` and `foreign` columns of a table.
+#[derive(Default)]
+struct ImportCols {
+    undef: Vec<u32>,
+    refs: Vec<u32>,
+    foreign: Vec<u32>,
+}
+
+/// The member's imports in nlist order, read by the parser the member
+/// closure reads them with: each one's nlist row, its reference (the
+/// row of its name in the image's symbol index, or [`FOREIGN`] | k for
+/// the k-th name the index lacks), and the `(offset, length)` of each
+/// such name in the member's bytes.
+fn imports(
+    member: &ArMember<'_>,
+    sym_row: &dyn Fn(&str) -> Option<u32>,
+) -> Result<ImportCols, String> {
+    // a member too short for a header defines nothing, so nothing
+    // pulls it
+    if member.data.len() < 32 {
+        return Ok(Default::default());
+    }
+    let rows = member_undef_extern_rows(member).map_err(|e| format!("{}: {e:?}", member.name))?;
+    let (mut undef, mut refs, mut foreign) = (Vec::new(), Vec::new(), Vec::new());
+    let base = member.data.as_ptr() as usize;
+    for (row, name) in rows {
+        undef.push(row);
+        let r = match sym_row(name) {
+            Some(r) if r & FOREIGN == 0 => r,
+            Some(_) => return Err(format!("{}: symbol index too large", member.name)),
+            None => {
+                let k = table_u32(member, foreign.len() / 2)?;
+                // the parser hands back a slice of the member's bytes
+                foreign.push(table_u32(member, name.as_ptr() as usize - base)?);
+                foreign.push(table_u32(member, name.len())?);
+                FOREIGN | k
+            }
+        };
+        refs.push(r);
+    }
+    Ok(ImportCols {
+        undef,
+        refs,
+        foreign,
+    })
 }
 
 fn table_u32(member: &ArMember<'_>, v: usize) -> Result<u32, String> {

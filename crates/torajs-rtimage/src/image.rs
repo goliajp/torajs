@@ -82,8 +82,25 @@ pub enum BuildError {
     TooLarge,
 }
 
-/// Builds the table stored beside one member body.
-type TableFn<'f> = dyn FnMut(&ArMember<'_>) -> Result<Vec<u8>, String> + 'f;
+/// Builds the table stored beside one member body; the rows the
+/// image's symbol index will give each name come along, so a table can
+/// name a symbol by its row.
+type TableFn<'f> = dyn FnMut(&ArMember<'_>, &SymbolRows<'_>) -> Result<Vec<u8>, String> + 'f;
+
+/// The image's symbol index while the image is built: the names it
+/// will hold, sorted as [`Image::find_symbol`] searches them.
+pub struct SymbolRows<'s> {
+    names: &'s [&'s str],
+}
+
+impl SymbolRows<'_> {
+    /// The row `name` will have in the image's symbol index.
+    pub fn row(&self, name: &str) -> Option<u32> {
+        let i = self.names.binary_search(&name).ok()?;
+        // `build_members` refuses an index of more than u32::MAX rows
+        Some(i as u32)
+    }
+}
 
 fn u32v(n: usize) -> Result<u32, BuildError> {
     u32::try_from(n).map_err(|_| BuildError::TooLarge)
@@ -92,14 +109,14 @@ fn u32v(n: usize) -> Result<u32, BuildError> {
 /// Preprocess `archives` (in link search order) into an image holding
 /// every member.
 pub fn build(archives: &[&[u8]]) -> Result<Vec<u8>, BuildError> {
-    build_members(&parse_all(archives)?, false, &mut |_| Ok(Vec::new()))
+    build_members(&parse_all(archives)?, false, &mut |_, _| Ok(Vec::new()))
 }
 
 /// [`build`] keeping only the members some program can pull into its
 /// link; the names won by a dropped member leave the index, so a
 /// lookup of one misses instead of pulling a different member.
 pub fn build_reachable(archives: &[&[u8]]) -> Result<Vec<u8>, BuildError> {
-    build_members(&parse_all(archives)?, true, &mut |_| Ok(Vec::new()))
+    build_members(&parse_all(archives)?, true, &mut |_, _| Ok(Vec::new()))
 }
 
 /// [`build_reachable`] over archives already split into members, in
@@ -155,6 +172,14 @@ fn build_members(
     table: &mut TableFn<'_>,
 ) -> Result<Vec<u8>, BuildError> {
     let (winners, live) = winners_and_live(parsed, reachable_only)?;
+    // the names `sym_rows` writes: those whose winner is kept
+    let indexed: Vec<&str> = winners
+        .iter()
+        .filter(|(_, (a, m, _))| live[*a as usize][*m as usize])
+        .map(|(name, _)| *name)
+        .collect();
+    u32v(indexed.len())?;
+    let rows = SymbolRows { names: &indexed };
     let mut names = Names::default();
     let mut blob: Vec<u8> = Vec::new();
     let mut tables: Vec<u8> = Vec::new();
@@ -180,7 +205,7 @@ fn build_members(
                     let (name_off, name_len) = names.intern(m.name)?;
                     let data_off = u32v(blob.len())?;
                     blob.extend_from_slice(m.data);
-                    let t = table(m).map_err(|err| BuildError::Table {
+                    let t = table(m, &rows).map_err(|err| BuildError::Table {
                         archive_idx: a,
                         member: m.name.to_string(),
                         err,
@@ -207,6 +232,7 @@ fn build_members(
     }
 
     let (n_syms, syms) = sym_rows(winners, &renumber, &mut names)?;
+    debug_assert_eq!(n_syms, indexed.len());
 
     let archives_off = HEADER_LEN;
     let slots_off = archives_off + archive_table.len() * 8;
@@ -525,7 +551,7 @@ mod tests {
         let b = archive_of(&[("std.o", &shared), ("b.o", &object_with(&["_b"], &["_a"]))]);
         let parsed = [parse_archive(&a).unwrap(), parse_archive(&b).unwrap()];
         let mut calls: Vec<String> = Vec::new();
-        let img = build_reachable_from_members_with_tables(&parsed, &mut |m| {
+        let img = build_reachable_from_members_with_tables(&parsed, &mut |m, _| {
             calls.push(m.name.to_string());
             Ok(format!("{}:{}", m.name, m.data.len()).into_bytes())
         })
@@ -543,7 +569,7 @@ mod tests {
         let v = Image::parse(&plain).unwrap();
         assert!(v.member_table(1, 0).is_empty());
 
-        let err = build_reachable_from_members_with_tables(&parsed, &mut |m| {
+        let err = build_reachable_from_members_with_tables(&parsed, &mut |m, _| {
             if m.name == "b.o" {
                 Err("no".into())
             } else {
@@ -553,6 +579,35 @@ mod tests {
         .unwrap_err();
         assert!(
             matches!(err, BuildError::Table { archive_idx: 1, ref member, .. } if member == "b.o")
+        );
+    }
+
+    #[test]
+    fn a_table_sees_the_rows_the_index_gives_each_name() {
+        let shared = object_with_syms(&["_core_x"]);
+        let a = archive_of(&[("a.o", &object_with_syms(&["_a"])), ("std.o", &shared)]);
+        let b = archive_of(&[
+            ("std.o", &shared),
+            ("b.o", &object_with(&["_b"], &["_a"])),
+            ("unused.o", &object_with(&["__ZN5gimli3quxE"], &[])),
+        ]);
+        let parsed = [parse_archive(&a).unwrap(), parse_archive(&b).unwrap()];
+        let probe = ["_a", "_b", "_core_x", "__ZN5gimli3quxE", "_none"];
+        let mut seen: Vec<Option<u32>> = Vec::new();
+        let img = build_reachable_from_members_with_tables(&parsed, &mut |_, rows| {
+            seen = probe.iter().map(|n| rows.row(n)).collect();
+            Ok(Vec::new())
+        })
+        .unwrap();
+        let v = Image::parse(&img).unwrap();
+        let want: Vec<Option<u32>> = probe
+            .iter()
+            .map(|n| v.find_symbol(n).map(|i| i as u32))
+            .collect();
+        assert_eq!(seen, want);
+        assert_eq!(
+            want[3], None,
+            "a name only a dropped member wins has no row"
         );
     }
 

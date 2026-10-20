@@ -6,13 +6,16 @@
 //! bytes. Everything a parse would search for is in the table already
 //! (name lengths, the by-name lists, the no-dead-strip roots, each
 //! section's atom starts), so unpacking it is one pass over its rows
-//! with no NUL scan and no sort.
+//! with no NUL scan and no sort. The member's imports come with the row
+//! of each name in the image's symbol index, so the member closure
+//! follows them without reading a name.
 //!
 //! Layout (little-endian u32 unless noted; nlist rows and names are
 //! read from the member's own bytes):
 //!
 //! ```text
 //!   header    symoff stroff n_nlist n_sects n_defined n_dup n_nds
+//!             n_undef n_foreign
 //!   sects     n_sects × { addr(u64) size(u64) file_off flags
 //!                         atom_off atom_count sectname[16] is_text(u8) }
 //!   name_lens n_nlist × length of the row's name (0 = "")
@@ -23,6 +26,12 @@
 //!   nds       n_nds × nlist row, in nlist order, of each N_SECT row
 //!             flagged N_NO_DEAD_STRIP
 //!   atoms     Σ atom_count × atom start − section addr
+//!   undef     n_undef × nlist row of an `N_UNDF | N_EXT` row, in
+//!             nlist order
+//!   undef_ref n_undef × the name's row in the image's symbol index,
+//!             or FOREIGN | k for the k-th name the index lacks
+//!   foreign   n_foreign × { offset, length } of the name in the
+//!             member's bytes
 //! ```
 
 use std::rc::Rc;
@@ -34,7 +43,27 @@ use crate::archives_merge::MergedArchives;
 use crate::dead_strip_reach::{MemberReach, NlEntry, SectAtoms};
 use crate::member_sections::is_no_file_storage;
 
-pub(crate) const HEADER_LEN: usize = 7 * 4;
+pub(crate) const HEADER_LEN: usize = 9 * 4;
+
+/// The bit an `undef_ref` carries when the image's symbol index lacks
+/// the name.
+pub(crate) const FOREIGN: u32 = 1 << 31;
+
+/// What one import of a member names.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ImportRef<'a> {
+    /// The row of the name in the runtime image's symbol index.
+    Sym(u32),
+    /// A name the index lacks: a dyld import or a link-defined symbol.
+    Foreign(&'a str),
+}
+
+/// One `N_UNDF | N_EXT` row of a member.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Import<'a> {
+    pub(crate) row: u32,
+    pub(crate) to: ImportRef<'a>,
+}
 pub(crate) const SECT_LEN: usize = 8 + 8 + 4 * 4 + 16 + 1;
 
 fn u32_at(b: &[u8], off: usize) -> u32 {
@@ -73,6 +102,36 @@ pub(crate) fn image_table<'a>(merged: &MergedArchives<'a>, (a, m): (usize, usize
     } else {
         &[]
     }
+}
+
+/// The member's imports as its table `tab` lists them, in nlist order.
+pub(crate) fn table_imports<'a>(member: &ArMember<'a>, tab: &[u8]) -> Vec<Import<'a>> {
+    let h = |i: usize| u32_at(tab, i * 4) as usize;
+    let (n_nlist, n_sects, n_undef) = (h(2), h(3), h(7));
+    let n_atoms: usize = (0..n_sects)
+        .map(|i| u32_at(tab, HEADER_LEN + i * SECT_LEN + 28) as usize)
+        .sum();
+    let undef_off = HEADER_LEN + n_sects * SECT_LEN + 4 * (n_nlist + h(4) + h(5) + h(6) + n_atoms);
+    let ref_off = undef_off + n_undef * 4;
+    let foreign_off = ref_off + n_undef * 4;
+    (0..n_undef)
+        .map(|k| {
+            let r = u32_at(tab, ref_off + k * 4);
+            let to = if r & FOREIGN == 0 {
+                ImportRef::Sym(r)
+            } else {
+                let f = foreign_off + (r & !FOREIGN) as usize * 8;
+                let (off, len) = (u32_at(tab, f) as usize, u32_at(tab, f + 4) as usize);
+                let name = std::str::from_utf8(&member.data[off..off + len])
+                    .expect("the table names a UTF-8 slice of the member");
+                ImportRef::Foreign(name)
+            };
+            Import {
+                row: u32_at(tab, undef_off + k * 4),
+                to,
+            }
+        })
+        .collect()
 }
 
 /// The member's reachability tables, every atom dead, unpacked from
@@ -229,7 +288,7 @@ pub(crate) mod test_support {
     /// starts)`.
     pub(crate) fn sections_reach(sects: &[(u64, u64, &[u64])]) -> MemberReach<'static> {
         let mut t: Vec<u8> = Vec::new();
-        for v in [0, 0, 0, sects.len() as u32, 0, 0, 0] {
+        for v in [0, 0, 0, sects.len() as u32, 0, 0, 0, 0, 0] {
             t.extend_from_slice(&v.to_le_bytes());
         }
         let mut atoms: Vec<u32> = Vec::new();
@@ -319,10 +378,11 @@ mod tests {
     /// build.
     #[test]
     fn the_image_tables_match_the_member_bytes() {
-        use super::{MemberReach, image_table, reach_from_table};
+        use super::{Import, ImportRef, MemberReach, image_table, reach_from_table, table_imports};
         use crate::archives_merge::merge_archive_indexes;
         use crate::dead_strip_reach_build::build_member_reach;
         use crate::runtime_prestrip::prestrip_image;
+        use torajs_rtimage::archive_undef::member_undef_extern_rows;
         type Sect = (u64, u64, u32, u32, [u8; 16], bool, Vec<(u64, u64)>);
         let sects = |r: &MemberReach<'_>| -> Vec<Sect> {
             r.sects
@@ -337,7 +397,7 @@ mod tests {
         };
         let image = prestrip_image(torajs_core::staticlibs::TORAJS_RUNTIME_IMAGE).unwrap();
         let merged = merge_archive_indexes(&image).unwrap();
-        let mut checked = 0;
+        let (mut checked, mut foreign, mut indexed) = (0, 0, 0);
         for a in 0..merged.archive_count() {
             for m in 0..merged.member_count(a) {
                 let member = merged.member(a, m);
@@ -351,9 +411,31 @@ mod tests {
                 assert_eq!(got.defined, want.defined, "{}: defined", member.name);
                 assert_eq!(got.dup_defined, want.dup_defined, "{}", member.name);
                 assert_eq!(got.no_dead_strip, want.no_dead_strip, "{}", member.name);
+                let rows = member_undef_extern_rows(&member).unwrap();
+                let want: Vec<Import<'_>> = rows
+                    .into_iter()
+                    .map(|(row, name)| Import {
+                        row,
+                        to: match merged.image.find_symbol(name) {
+                            Some(i) => ImportRef::Sym(i as u32),
+                            None => ImportRef::Foreign(name),
+                        },
+                    })
+                    .collect();
+                let got = table_imports(&member, table);
+                foreign += got
+                    .iter()
+                    .filter(|i| matches!(i.to, ImportRef::Foreign(_)))
+                    .count();
+                indexed += got.len();
+                assert_eq!(got, want, "{}: imports", member.name);
                 checked += 1;
             }
         }
         assert!(checked > 100, "{checked} members");
+        assert!(
+            foreign > 0 && indexed > foreign,
+            "{indexed} imports, {foreign} foreign"
+        );
     }
 }

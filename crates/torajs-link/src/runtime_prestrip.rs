@@ -123,8 +123,10 @@ pub fn prestrip_image(image: &[u8]) -> Result<Vec<u8>, PrestripError> {
     for (&(a, m), bytes) in &rewritten {
         members[a][m].data = bytes;
     }
-    build_reachable_from_members_with_tables(&members, &mut encode_member_reach)
-        .map_err(PrestripError::Image)
+    build_reachable_from_members_with_tables(&members, &mut |m, rows| {
+        encode_member_reach(m, &|n| rows.row(n))
+    })
+    .map_err(PrestripError::Image)
 }
 
 /// Turn nlist `rows` into nameless locals: out of the merged index and
