@@ -7,14 +7,14 @@ use crate::archive_link::{ArchiveLayout, ArchiveLayoutError};
 use crate::archives_merge::MergedArchives;
 use crate::member_apply::{MemberRelocApplyError, apply_member_relocs};
 use crate::member_reloc::MemberRelocError;
-use crate::resolve::SymTable;
+use crate::resolve::SymLookup;
 
 /// What writes the laid-out members' bytes into the output: the
 /// members, the effective symbol table their `__text` relocs resolve
 /// against, and the chained-fixup link values of their `__DATA` slots.
 pub(crate) struct MemberText<'m, 'a> {
     pub(crate) merged: &'m MergedArchives<'a>,
-    pub(crate) sym_table: &'m SymTable,
+    pub(crate) sym_table: &'m dyn SymLookup,
     pub(crate) data_link_values: &'m [u64],
 }
 

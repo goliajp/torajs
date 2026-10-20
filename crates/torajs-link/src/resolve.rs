@@ -27,6 +27,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use torajs_codegen::CompiledFunction;
+use torajs_codegen::id_hash::HashMap as IdHashMap;
 use torajs_codegen::reloc::{CallTarget, RelocKind};
 
 use crate::fn_addr_syms::fn_addr_alias_index;
@@ -34,6 +35,29 @@ use crate::patch::{patch_branch26, patch_page21, patch_pageoff12, write_unsigned
 
 /// External-symbol resolution map: name → final virtual address.
 pub type SymTable = BTreeMap<String, u64>;
+
+/// The final symbol table of one link, each name borrowed from where
+/// it is defined (a member, a user fn, the link's own tables) instead
+/// of copied into an owned key.
+pub type SymIndex<'s> = IdHashMap<&'s str, u64>;
+
+/// A name → final virtual address table the reloc passes resolve
+/// against.
+pub trait SymLookup {
+    fn vaddr(&self, name: &str) -> Option<u64>;
+}
+
+impl SymLookup for SymTable {
+    fn vaddr(&self, name: &str) -> Option<u64> {
+        self.get(name).copied()
+    }
+}
+
+impl SymLookup for SymIndex<'_> {
+    fn vaddr(&self, name: &str) -> Option<u64> {
+        self.get(name).copied()
+    }
+}
 
 /// One function's bytes after every reloc has been resolved and
 /// patched against the link context.
@@ -66,7 +90,7 @@ pub struct ResolvedFunction {
 pub fn apply_relocs(
     funcs: &[CompiledFunction],
     fn_vaddrs: &[u64],
-    sym_table: &SymTable,
+    sym_table: &dyn SymLookup,
 ) -> Vec<ResolvedFunction> {
     assert_eq!(
         funcs.len(),
@@ -155,11 +179,15 @@ struct Targets<'a> {
     /// the first fn of each name, the one a front-to-back scan finds
     by_name: HashMap<&'a str, usize>,
     fn_vaddrs: &'a [u64],
-    sym_table: &'a SymTable,
+    sym_table: &'a dyn SymLookup,
 }
 
 impl<'a> Targets<'a> {
-    fn new(funcs: &'a [CompiledFunction], fn_vaddrs: &'a [u64], sym_table: &'a SymTable) -> Self {
+    fn new(
+        funcs: &'a [CompiledFunction],
+        fn_vaddrs: &'a [u64],
+        sym_table: &'a dyn SymLookup,
+    ) -> Self {
         let mut by_name = HashMap::with_capacity(funcs.len());
         for (i, f) in funcs.iter().enumerate() {
             by_name.entry(f.name.as_str()).or_insert(i);
@@ -203,7 +231,7 @@ impl<'a> Targets<'a> {
         if let Some(i) = fn_addr_alias_index(name).filter(|&i| i < self.fn_vaddrs.len()) {
             return self.fn_vaddrs[i];
         }
-        *self.sym_table.get(name).unwrap_or_else(|| {
+        self.sym_table.vaddr(name).unwrap_or_else(|| {
             panic!("unresolved symbol {name:?} (not a defined function, not in sym_table)")
         })
     }

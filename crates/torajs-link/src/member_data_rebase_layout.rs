@@ -41,7 +41,7 @@ use crate::member_reloc::MemberRelocEntry;
 use crate::member_resolve::{MemberSymtab, resolve_local_nsect};
 use crate::member_sections::is_tlv_descriptor;
 use crate::non_text_layout::NonTextSectionLayout;
-use crate::resolve::SymTable;
+use crate::resolve::SymLookup;
 
 /// Walk every integrated member's `__DATA,*` sections and produce one
 /// `RebaseTarget` per UNSIGNED reloc. Skips zerofill sections
@@ -65,7 +65,7 @@ use crate::resolve::SymTable;
 pub(crate) fn compute_member_data_rebase_targets(
     layout: &ArchiveLayout,
     merged: &MergedArchives<'_>,
-    sym_table: &SymTable,
+    sym_table: &dyn SymLookup,
     data_seg_vmaddr: u64,
 ) -> Result<Vec<RebaseTarget>, MemberRelocApplyError> {
     let mut targets = Vec::new();
@@ -107,7 +107,7 @@ fn collect_member_targets(
     obj: &MemberObj<'_>,
     data_sections: &[DataSectionLayout],
     non_text_sections: &[NonTextSectionLayout],
-    sym_table: &SymTable,
+    sym_table: &dyn SymLookup,
     data_seg_vmaddr: u64,
     member_text_vaddr: u64,
     targets: &mut Vec<RebaseTarget>,
@@ -201,12 +201,12 @@ fn resolve_target(
     obj: &MemberObj<'_>,
     symtab: &MemberSymtab,
     sym: u32,
-    sym_table: &SymTable,
+    sym_table: &dyn SymLookup,
     member_text_vaddr: u64,
     (non_text_sections, data_sections): (&[NonTextSectionLayout], &[DataSectionLayout]),
 ) -> Result<u64, MemberRelocApplyError> {
     let name = obj.sym_name(symtab, sym)?;
-    if let Some(&v) = sym_table.get(name) {
+    if let Some(v) = sym_table.vaddr(name) {
         return Ok(v);
     }
     resolve_local_nsect(
@@ -224,6 +224,7 @@ fn resolve_target(
 mod tests {
     use super::*;
     use crate::archive::{AR_HEADER_SIZE, AR_MAGIC, parse_archive};
+    use crate::resolve::SymTable;
     use torajs_codegen::CompiledFunction;
     use torajs_codegen::frame::FrameLayout;
     use torajs_obj::write_object;

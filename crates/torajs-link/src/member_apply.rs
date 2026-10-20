@@ -19,7 +19,7 @@ use crate::member_obj::MemberObj;
 use crate::member_reloc::{MemberRelocEntry, MemberRelocError};
 use crate::member_resolve::{MemberSymtab, resolve_local_nsect};
 use crate::non_text_layout::NonTextSectionLayout;
-use crate::resolve::SymTable;
+use crate::resolve::{SymLookup, SymTable};
 
 /// Reloc target post-classification (SD-4c-prereq-a/b).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -166,7 +166,7 @@ pub fn apply_member_relocs(
     bytes: &mut [u8],
     obj: &MemberObj<'_>,
     member_vaddr: u64,
-    sym_table: &SymTable,
+    sym_table: &dyn SymLookup,
     non_text_sections: &[NonTextSectionLayout],
     data_non_text_sections: &[DataSectionLayout],
 ) -> Result<(), MemberRelocApplyError> {
@@ -191,7 +191,7 @@ pub fn apply_member_relocs_with_got(
     bytes: &mut [u8],
     obj: &MemberObj<'_>,
     member_vaddr: u64,
-    sym_table: &SymTable,
+    sym_table: &dyn SymLookup,
     got_slots: &SymTable,
     non_text_sections: &[NonTextSectionLayout],
     data_non_text_sections: &[DataSectionLayout],
@@ -368,7 +368,7 @@ fn resolve_reloc_target(
     obj: &MemberObj<'_>,
     symtab: &MemberSymtab,
     member_vaddr: u64,
-    sym_table: &SymTable,
+    sym_table: &dyn SymLookup,
     non_text_sections: &[NonTextSectionLayout],
     data_non_text_sections: &[DataSectionLayout],
 ) -> Result<u64, MemberRelocApplyError> {
@@ -399,7 +399,7 @@ fn resolve_reloc_target(
             });
         }
         let name = obj.sym_name(symtab, r.r_symbolnum)?;
-        if let Some(&v) = sym_table.get(name) {
+        if let Some(v) = sym_table.vaddr(name) {
             Ok(v)
         } else if let Some(v) = resolve_local_nsect(
             obj.sym(symtab, r.r_symbolnum),

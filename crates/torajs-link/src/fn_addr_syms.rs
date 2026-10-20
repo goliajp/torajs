@@ -12,7 +12,7 @@
 //! ever written into the sym table (one per user fn per prefix, and
 //! every program carries about a thousand user fns).
 
-use crate::resolve::SymTable;
+use crate::resolve::SymIndex;
 use torajs_codegen::CompiledFunction;
 
 /// The two alias namespaces codegen takes a user fn's address
@@ -53,10 +53,10 @@ pub fn fn_addr_alias_index(sym: &str) -> Option<usize> {
 /// time (archive copy dead) or silently binds the archive copy
 /// (kept alive by an unrelated export). Call AFTER the member
 /// defined-extern sweep so the user definition wins the table.
-pub fn register_user_fn_syms(
-    funcs: &[CompiledFunction],
+pub fn register_user_fn_syms<'s>(
+    funcs: &'s [CompiledFunction],
     fn_vaddrs: &[u64],
-    sym_table: &mut SymTable,
+    sym_table: &mut SymIndex<'s>,
 ) {
     debug_assert_eq!(
         funcs.len(),
@@ -64,13 +64,14 @@ pub fn register_user_fn_syms(
         "funcs and fn_vaddrs must zip 1:1"
     );
     for (f, vaddr) in funcs.iter().zip(fn_vaddrs) {
-        sym_table.insert(f.name.clone(), *vaddr);
+        sym_table.insert(&f.name, *vaddr);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::resolve::SymTable;
     use torajs_codegen::frame::FrameLayout;
 
     // ---- S2-5 blade 2 prereq: user-fn shadow resolution probes ----
