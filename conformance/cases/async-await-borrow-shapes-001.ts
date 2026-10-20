@@ -23,5 +23,14 @@ async function main() {
     const g = await ps?.[0];
     console.log(i, a, b, d, e, f, g, await p, await q, await o.p, await ps[0]);
   }
+  // an operand that hands over the reference a call minted: the
+  // await takes none of its own, and the slot keeps its own
+  const h: { p: Promise<number> } = { p: half(1) };
+  let sum = 0;
+  for (let i = 0; i < 1000; i++) {
+    sum += await (0, half(i));
+    sum += await (h.p = half(i + 1));
+  }
+  console.log(sum, await h.p);
 }
 main();

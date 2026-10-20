@@ -26,7 +26,7 @@
 //! path releases what it holds. What that path releases is also what
 //! the suspension lists as held, for the frame's trace to report.
 
-use crate::ast::ExprId;
+use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, SuspendKind, SuspendLane, Type};
 use crate::ssa_lower::LowerCtx;
 use crate::ssa_lower_member_promise_value as pv;
@@ -39,7 +39,7 @@ use crate::ssa_lower_temp_scratch::ThrowTemp;
 pub(crate) fn lower_await(ctx: &mut LowerCtx<'_>, eid: ExprId, obj: ExprId) -> Operand {
     if pv::detect_obj_is_builtin_promise(ctx, obj) {
         let src = ctx.lower_expr(obj);
-        if !ctx.expr_transfers_ownership(obj) {
+        if !hands_over(ctx, obj) {
             ctx.emit_owned_result_inc(src, Type::Promise);
         }
         let inner = inner_lane(ctx, eid, obj);
@@ -48,14 +48,14 @@ pub(crate) fn lower_await(ctx: &mut LowerCtx<'_>, eid: ExprId, obj: ExprId) -> O
     let op = ctx.lower_expr(obj);
     match ctx.operand_ty(&op) {
         Type::Promise => {
-            if !ctx.expr_transfers_ownership(obj) {
+            if !hands_over(ctx, obj) {
                 ctx.emit_owned_result_inc(op, Type::Promise);
             }
             let inner = inner_lane(ctx, eid, obj);
             await_cell(ctx, op, inner)
         }
         Type::Any => {
-            if !ctx.expr_transfers_ownership(obj) {
+            if !hands_over(ctx, obj) {
                 ctx.emit_owned_result_inc(op, Type::Any);
             }
             await_any(ctx, op)
@@ -63,11 +63,26 @@ pub(crate) fn lower_await(ctx: &mut LowerCtx<'_>, eid: ExprId, obj: ExprId) -> O
         ty if is_primitive(ty) => await_direct(ctx, eid, obj, op, ty),
         // an object: its `then` is looked up when it settles
         _ => {
-            let borrowed = !ctx.expr_transfers_ownership(obj);
+            let borrowed = !hands_over(ctx, obj);
             let boxed = ctx.box_owned_from_expr(obj, op, borrowed);
             await_any(ctx, boxed)
         }
     }
+}
+
+/// Does the operand hand over a reference of its own? A comma or an
+/// assertion answers what its innermost operand lowered to, so a call
+/// there (`await (0, f())`) hands over the reference it minted, which
+/// `expr_transfers_ownership` does not see through a comma.
+fn hands_over(ctx: &LowerCtx<'_>, obj: ExprId) -> bool {
+    let mut e = obj;
+    while let Expr::Sequence { right: inner, .. } | Expr::As { expr: inner, .. } =
+        ctx.ast.get_expr(e)
+    {
+        e = *inner;
+    }
+    ctx.expr_transfers_ownership(obj)
+        || (e != obj && !ctx.pins.operands.contains_key(&obj) && ctx.expr_owned_shape(e))
 }
 
 /// The lanes no thenable comes in.
@@ -167,7 +182,7 @@ fn await_direct(
     ty: Type,
 ) -> Operand {
     let owned = !ty.is_copy();
-    if owned && !ctx.expr_transfers_ownership(obj) {
+    if owned && !hands_over(ctx, obj) {
         ctx.emit_owned_result_inc(op, ty);
     }
     let held = held(ctx, owned.then_some((op, ty)));
