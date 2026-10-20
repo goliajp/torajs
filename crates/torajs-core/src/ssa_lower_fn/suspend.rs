@@ -26,26 +26,20 @@
 //! path releases what it holds. What that path releases is also what
 //! the suspension lists as held, for the frame's trace to report.
 
-use crate::ast::{Expr, ExprId};
+use crate::ast::ExprId;
 use crate::ssa::{InstKind, Operand, SuspendKind, SuspendLane, Type};
 use crate::ssa_lower::LowerCtx;
 use crate::ssa_lower_member_promise_value as pv;
 use crate::ssa_lower_temp_scratch::ThrowTemp;
 
-/// Does `obj` read a promise some binding or container still holds,
-/// so the await takes a reference of its own? An assertion (`h as
-/// Promise<number>`) reads what its operand reads.
-fn borrow_shaped(ctx: &LowerCtx<'_>, obj: ExprId) -> bool {
-    match ctx.ast.get_expr(obj) {
-        Expr::As { expr, .. } => borrow_shaped(ctx, *expr),
-        e => matches!(e, Expr::Ident(_) | Expr::Member { .. } | Expr::Index { .. }),
-    }
-}
-
+/// The suspension releases the cell it awaited, so an operand that does
+/// not hand over a reference of its own (a promise a binding, a field
+/// or an element still holds, under whatever comma, assignment,
+/// conditional, `??` or `?.` reads it) is taken one first.
 pub(crate) fn lower_await(ctx: &mut LowerCtx<'_>, eid: ExprId, obj: ExprId) -> Operand {
     if pv::detect_obj_is_builtin_promise(ctx, obj) {
         let src = ctx.lower_expr(obj);
-        if borrow_shaped(ctx, obj) {
+        if !ctx.expr_transfers_ownership(obj) {
             ctx.emit_owned_result_inc(src, Type::Promise);
         }
         let inner = inner_lane(ctx, eid, obj);
@@ -54,7 +48,7 @@ pub(crate) fn lower_await(ctx: &mut LowerCtx<'_>, eid: ExprId, obj: ExprId) -> O
     let op = ctx.lower_expr(obj);
     match ctx.operand_ty(&op) {
         Type::Promise => {
-            if borrow_shaped(ctx, obj) {
+            if !ctx.expr_transfers_ownership(obj) {
                 ctx.emit_owned_result_inc(op, Type::Promise);
             }
             let inner = inner_lane(ctx, eid, obj);
