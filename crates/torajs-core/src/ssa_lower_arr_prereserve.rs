@@ -165,7 +165,7 @@ impl PreReserve {
     }
 }
 
-use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Terminator, Type, ValueId};
+use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Type, ValueId};
 use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx, PreReserveState};
 use crate::ssa_lower_str_arr_inplace::emit_arr_lock_bits_guard;
 
@@ -182,36 +182,6 @@ const ARRAY_LENGTH_MAX: i64 = u32::MAX as i64;
 mod reserve;
 
 impl LowerCtx<'_> {
-    /// `long` raises "Invalid array length" (the length check of
-    /// `__torajs_arr_set_length_validate`, handed a length one past the
-    /// largest) and leaves by the throw edge.
-    pub(crate) fn emit_too_long_guard(&mut self, long: Operand) {
-        let raise_blk = self.f.add_block();
-        let cont_blk = self.f.add_block();
-        self.f.set_term(
-            self.cur_block,
-            Terminator::CondBr {
-                cond: long,
-                then_blk: raise_blk,
-                else_blk: cont_blk,
-            },
-        );
-        self.cur_block = raise_blk;
-        let check = InstKind::Call(
-            self.intrinsics.arr_set_length_validate,
-            vec![
-                Operand::ConstI64(2),
-                Operand::ConstI64(ARRAY_LENGTH_MAX + 1),
-            ],
-        );
-        self.f.append_void(raise_blk, check);
-        self.emit_throw_check(None);
-        // the validate always raises, so the check never falls through
-        let cb = self.cur_block;
-        self.f.set_term(cb, Terminator::Unreachable);
-        self.cur_block = cont_blk;
-    }
-
     /// The fill loop stores slots inline, so the refusal of a
     /// non-extensible receiver (§10.1.8.1 through Set's TypeError) has
     /// to come from the lowering. The install admits only push

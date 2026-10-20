@@ -1,4 +1,5 @@
-//! The capacity a fill loop reserves before its unchecked appends.
+//! The capacity a fill loop reserves before its unchecked appends, and
+//! the RangeError of an append past the longest array.
 
 use super::ARRAY_LENGTH_MAX;
 use crate::ssa::{BinOp as SsaBinOp, BlockId, IPred, InstKind, Operand, Terminator, Type, ValueId};
@@ -87,5 +88,33 @@ impl LowerCtx<'_> {
             Operand::Value(v) => v,
             _ => unreachable!("an emitted sum is a value"),
         }
+    }
+
+    /// `long` raises "Invalid array length" (the length check of
+    /// `__torajs_arr_set_length_validate`, handed a length one past the
+    /// largest) and leaves by the throw edge.
+    pub(crate) fn emit_too_long_guard(&mut self, long: Operand) {
+        let raise_blk = self.f.add_block();
+        let cont_blk = self.f.add_block();
+        self.f.set_term(
+            self.cur_block,
+            Terminator::CondBr {
+                cond: long,
+                then_blk: raise_blk,
+                else_blk: cont_blk,
+            },
+        );
+        self.cur_block = raise_blk;
+        let check = InstKind::Call(
+            self.intrinsics.arr_set_length_validate,
+            vec![
+                Operand::ConstI64(2),
+                Operand::ConstI64(ARRAY_LENGTH_MAX + 1),
+            ],
+        );
+        self.f.append_void(raise_blk, check);
+        // the validate always raises
+        self.emit_throw_now();
+        self.cur_block = cont_blk;
     }
 }
