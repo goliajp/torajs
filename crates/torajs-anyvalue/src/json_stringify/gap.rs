@@ -24,6 +24,24 @@ pub unsafe extern "C" fn __torajs_anyv_json_stringify_gap(
     unsafe { stringify_with_gap_at(v, gap, depth.max(0) as u32) }
 }
 
+/// [`__torajs_anyv_json_stringify_gap`] for a value that sits under a
+/// property of a statically unfolded composite: §25.5.2.3 step 2
+/// calls its `toJSON` hook with that property's `key`, where the
+/// root entry passes the empty one. `gap` may be NULL (no indent).
+///
+/// # Safety
+/// As [`__torajs_anyv_json_stringify_gap`]; `key` is a live Str cell
+/// the caller keeps.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_json_stringify_keyed(
+    v: AnyValue,
+    gap: *const u8,
+    depth: i64,
+    key: *mut c_void,
+) -> *mut u8 {
+    unsafe { stringify_state(v, &St::plain(gap), depth.max(0) as u32, HookKey::Str(key)) }
+}
+
 /// §25.5.2.3 with step 2 ALREADY DONE — serialize a value that is
 /// itself a `toJSON` hook's answer.
 ///

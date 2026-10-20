@@ -1,0 +1,21 @@
+{"a":"1:string:a","b":1}
+{"x":"1:string:x","y":2}
+{"f":"1:string:f"}
+[{"a":"1:string:a","b":1}]
+{"outer":{"a":"1:string:a","b":1}}
+["1:string:0",1,"1:string:2"]
+{
+  "a": "1:string:a",
+  "b": 1
+}
+{"q":["1:string:0"]}
+{"k":"1:string:k"}
+{
+ "deep": {
+  "list": [
+   {
+    "f": "1:string:f"
+   }
+  ]
+ }
+}

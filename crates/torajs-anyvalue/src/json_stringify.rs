@@ -166,17 +166,17 @@ unsafe fn stringify_with_gap(v: AnyValue, gap: *const u8) -> *mut u8 {
 /// what an any-typed member of a statically unfolded composite needs
 /// so its indentation continues its parent's instead of restarting.
 unsafe fn stringify_with_gap_at(v: AnyValue, gap: *const u8, depth: u32) -> *mut u8 {
-    unsafe { stringify_state(v, &St::plain(gap), depth) }
+    unsafe { stringify_state(v, &St::plain(gap), depth, HookKey::Named(b"".as_ptr(), 0)) }
 }
 
-/// The walk proper — §25.5.2 step 11's root property under the state
-/// record every recursion level threads.
-unsafe fn stringify_state(v: AnyValue, st: &St, depth: u32) -> *mut u8 {
+/// The walk proper — §25.5.2 step 11's root property, or a property
+/// `key` names, under the state record every recursion level threads.
+unsafe fn stringify_state(v: AnyValue, st: &St, depth: u32, key: HookKey) -> *mut u8 {
     unsafe {
         // §25.5.2.3 step 2 — the top-level value consults the user
         // toJSON hook before walking (rotation 205), and step 3 then
         // offers the result to the replacer.
-        let (v, owned) = match apply_tojson(v, HookKey::Named(b"".as_ptr(), 0)) {
+        let (v, owned) = match apply_tojson(v, key) {
             Some(r) => (r, true),
             None => (v, false),
         };

@@ -34,6 +34,32 @@ pub(crate) fn emit_any_walk(
     Operand::Value(v)
 }
 
+/// [`emit_any_walk`] for a value under the property `key` of a
+/// composite the compiler unfolds: the value's `toJSON` hook is
+/// called with `key` (§25.5.2.3 step 2), not the root's empty one.
+/// The nesting level counts only under a gap, as for the root entries.
+pub(crate) fn emit_keyed_walk(
+    ctx: &mut LowerCtx,
+    val_op: Operand,
+    key: Operand,
+    gap: Option<Operand>,
+    depth: u32,
+) -> Operand {
+    let (g, depth) = match gap {
+        Some(g) => (g, depth as i64),
+        None => (Operand::ConstPtrNull, 0),
+    };
+    Operand::Value(ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.json_stringify_keyed,
+            vec![val_op, g, Operand::ConstI64(depth), key],
+        ),
+        Type::Str,
+        None,
+    ))
+}
+
 /// [`emit_any_walk`]'s value-only twin — §25.5.2.3 with step 2 already
 /// done. The struct lane's `toJSON` road calls the hook in the
 /// compiler, so its answer is serialized as a value; running the whole

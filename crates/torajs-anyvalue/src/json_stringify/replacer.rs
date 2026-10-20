@@ -137,7 +137,7 @@ pub unsafe extern "C" fn __torajs_anyv_json_stringify_full(
             },
             replacer: fun,
         };
-        stringify_state(v, &st, depth.max(0) as u32)
+        stringify_state(v, &st, depth.max(0) as u32, HookKey::Named(b"".as_ptr(), 0))
     }
 }
 

@@ -46,7 +46,7 @@ mod to_json;
 
 use crate::ssa::{InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::LowerCtx;
-pub(super) use any_walk::{emit_any_walk, emit_any_walk_value};
+pub(super) use any_walk::{emit_any_walk, emit_any_walk_value, emit_keyed_walk};
 
 /// Top-level `JSON.stringify(value)` entry (the `Expr::Call` arm).
 /// Differs from the recursive [`lower`] only on the Str / Substr
@@ -122,6 +122,11 @@ pub(crate) fn lower_keyed(
         && let Some(out) = to_json::try_lower_hook(ctx, &val_op, sid, key, fe.as_ref(), gap, depth)
     {
         return out;
+    }
+    if let (Type::Any, Some(key)) = (ty, key) {
+        let v = emit_keyed_walk(ctx, val_op, key, gap, depth);
+        ctx.emit_throw_check(None);
+        return v;
     }
     lower_shape(ctx, val_op, ty, fe, gap, depth)
 }

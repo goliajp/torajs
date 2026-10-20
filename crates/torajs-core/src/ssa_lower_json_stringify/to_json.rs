@@ -135,7 +135,10 @@ pub(super) fn try_lower_hook(
 ) -> Option<Operand> {
     if takes_runtime_walk(ctx, &Type::Obj(sid), fe) {
         let boxed = ctx.box_to_any(*val_op);
-        let out = super::emit_any_walk(ctx, boxed, gap, depth);
+        let out = match key {
+            Some(key) => super::emit_keyed_walk(ctx, boxed, key, gap, depth),
+            None => super::emit_any_walk(ctx, boxed, gap, depth),
+        };
         ctx.emit_throw_check(None);
         return Some(out);
     }

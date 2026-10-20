@@ -33,6 +33,10 @@ pub(crate) struct JsonRawIds {
     /// its answer is serialized as a VALUE. The ordinary entry would
     /// run step 2 a second time, on the result.
     pub json_stringify_value: FuncId,
+    /// The walk over a value under a property of a statically unfolded
+    /// composite — value + gap + depth + the key its `toJSON` hook is
+    /// called with (§25.5.2.3 step 2).
+    pub json_stringify_keyed: FuncId,
     /// RFC 20260801-ns-object-value (JSON extension) — the `JSON`
     /// namespace singleton in a value position.
     pub ns_object_json: FuncId,
@@ -80,6 +84,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_anyv_json_stringify_value",
             &[Type::Any, Type::Str, Type::I64],
+            Type::Str,
+        ),
+        json_stringify_keyed: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_anyv_json_stringify_keyed",
+            &[Type::Any, Type::Str, Type::I64, Type::Str],
             Type::Str,
         ),
         json_is_raw_json: declare_intrinsic(
