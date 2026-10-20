@@ -49,7 +49,7 @@ pub use transfer::{AbsVal, NumFact};
 
 use crate::id_hash::{HashMap, HashSet};
 
-use torajs_core::ssa::{BlockId, Function, Module, Operand, Type, ValueId};
+use torajs_core::ssa::{Function, Module, Operand, Type, ValueId};
 
 use def_shapes::def_shapes;
 use live::Live;
@@ -149,17 +149,14 @@ pub fn analyze_function_with(
     let mut memo = Memo::new(
         func,
         &inherited,
+        &merges,
         |v| slot[v.0 as usize] != u32::MAX,
         |v| elems.reads.contains_key(&v),
     );
-    // the blocks a square bound is live in: they add thresholds every round
-    let squares: Vec<bool> = (0..func.blocks.len())
-        .map(|b| {
-            let list = inherited.list(BlockId(b as u32));
-            list.iter().any(|c| matches!(c, Constraint::Square { .. }))
-        })
-        .collect();
+    let squares = inherited.square_blocks();
     let mut stable_since = None;
+    // the merge ranges, indexed like the joins of `merges`
+    let mut merged: Vec<Option<NumFact>> = Vec::new();
     // the roots of the square bounds the previous round read
     let mut roots: Vec<i128> = Vec::new();
     for round in 0.. {
@@ -174,8 +171,7 @@ pub fn analyze_function_with(
             &with_roots
         };
         roots.clear();
-        let merged = merges.ranges(&state);
-        memo.merges_read(&merged, &inherited);
+        memo.read_merges(&merges, &state, &inherited, &mut merged);
         let mut changed = false;
 
         let mut walk = Walk {

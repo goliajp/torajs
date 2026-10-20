@@ -16,6 +16,7 @@ use torajs_core::ssa::dominator::DominatorTree;
 use torajs_core::ssa::{BlockId, Function, Operand, ValueId};
 
 use super::refine::Constraint;
+use super::square::SquareBound;
 use super::transfer::{AbsVal, NumFact};
 use crate::throw_check_fold::successors;
 
@@ -140,23 +141,49 @@ impl Merges {
         Inherited { lists, slots }
     }
 
-    /// Each merge's range under `state`, indexed like the joins: the
-    /// join over its predecessors of the cell's range at their ends.
-    pub(super) fn ranges(&self, state: &super::State) -> Vec<Option<NumFact>> {
-        let mut out = vec![None; self.joins.len()];
-        for (i, j) in self.joins.iter().enumerate() {
-            let mut joined: Option<NumFact> = None;
-            for cs in j.per_pred.iter() {
-                let AbsVal::Fact(f) = super::lookup(&Operand::Value(j.cell), state, cs) else {
-                    joined = None;
-                    break;
-                };
-                joined = Some(joined.map_or(f, |g| g.join(f)));
-            }
-            out[i] = joined;
-        }
-        out
+    /// How many joins there are.
+    pub(super) fn len(&self) -> usize {
+        self.joins.len()
     }
+
+    /// Visit every value whose state join `i`'s range is a function
+    /// of: the cell and each value its constraints name (some more than
+    /// once).
+    pub(super) fn visit_reads(&self, i: usize, mut f: impl FnMut(ValueId)) {
+        let j = &self.joins[i];
+        f(j.cell);
+        for c in j.per_pred.iter().flatten() {
+            names(c).into_iter().flatten().for_each(&mut f);
+        }
+    }
+
+    /// Join `i`'s range under `state`: the join over its predecessors
+    /// of the cell's range at their ends.
+    pub(super) fn range(&self, i: usize, state: &super::State) -> Option<NumFact> {
+        let j = &self.joins[i];
+        let mut joined: Option<NumFact> = None;
+        for cs in j.per_pred.iter() {
+            let AbsVal::Fact(f) = super::lookup(&Operand::Value(j.cell), state, cs) else {
+                return None;
+            };
+            joined = Some(joined.map_or(f, |g| g.join(f)));
+        }
+        joined
+    }
+}
+
+/// The values a lookup through `c` reads the state of: the value it
+/// speaks of and the one it compares against.
+fn names(c: &Constraint) -> [Option<ValueId>; 2] {
+    let bound = match c {
+        Constraint::Rel { bound, .. } => Some(*bound),
+        Constraint::Square {
+            bound: SquareBound::Value(b),
+            ..
+        } => Some(*b),
+        _ => None,
+    };
+    [Some(c.value()), bound]
 }
 
 /// The part of `cs` a lookup of `cell` reads: the constraints that
@@ -236,6 +263,13 @@ impl Inherited {
     /// Block `b`'s constraints as stored, placeholders unresolved.
     pub(super) fn list(&self, b: BlockId) -> &[Constraint] {
         &self.lists[b.0 as usize]
+    }
+
+    /// Per block, whether a square bound is live in it: such a block
+    /// adds thresholds every round.
+    pub(super) fn square_blocks(&self) -> Vec<bool> {
+        let square = |c: &Constraint| matches!(c, Constraint::Square { .. });
+        self.lists.iter().map(|l| l.iter().any(square)).collect()
     }
 
     /// Whether block `b`'s list holds a merge placeholder.
