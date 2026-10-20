@@ -16,6 +16,27 @@ use super::{__torajs_cycle_buffer, __torajs_subclass_drop_entry, __torajs_value_
 /// torajs-rc).
 const CLOSURE_DROP_FN_OFF: usize = 16;
 
+/// Byte offsets of the lazy expando bag and of the synthesized trace
+/// pointer, from the same layout.
+const CLOSURE_PROPS_OFF: usize = 24;
+const CLOSURE_TRACE_FN_OFF: usize = 40;
+
+/// Can a cycle run through this closure? The collector walks a
+/// closure through its trace (0 when no capture slot can sit on a
+/// cycle) and its expando bag, and `__torajs_cycle_buffer` asks the
+/// same two words before it buffers — behind a frame and three gates
+/// of its own. A function value passed along on every call is
+/// released alive once per call, and most such values have neither,
+/// so the two words are read here, before the call.
+#[inline(always)]
+unsafe fn may_close_ring(child: *mut c_void) -> bool {
+    unsafe {
+        let trace = (child.cast::<u8>().add(CLOSURE_TRACE_FN_OFF) as *const usize).read();
+        let props = (child.cast::<u8>().add(CLOSURE_PROPS_OFF) as *const usize).read();
+        trace != 0 || props != 0
+    }
+}
+
 /// Release one reference on the closure env cell. On hit-zero, invoke
 /// the Pass-2.5-synthesized `__env_drop_<closure>` whose address every
 /// construction site stores at +16 (walks the props dynobj + Copy
@@ -58,10 +79,12 @@ pub(crate) unsafe fn release(child: *mut c_void) {
         } else {
             // rc still positive — the exact cyclic-leak condition (RFC
             // 20260717 knife 3): buffer as a PURPLE cycle candidate,
-            // mirroring the Obj and wrapper arms. cycle_buffer's
-            // has_walkable_children gate keeps untraceable envs
-            // (trace_fn 0, no expando) zero-cost.
-            __torajs_cycle_buffer(child);
+            // mirroring the Obj and wrapper arms, unless no cycle can
+            // pass through the env (cycle_buffer's own walkability
+            // gate would turn it away, after the call)
+            if may_close_ring(child) {
+                __torajs_cycle_buffer(child);
+            }
         }
     }
 }
