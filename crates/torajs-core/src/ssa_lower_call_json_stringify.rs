@@ -26,6 +26,9 @@ use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
+mod nullish;
+use nullish::{split_nullish, unfolds_live_only};
+
 pub(crate) fn try_lower(
     ctx: &mut LowerCtx<'_>,
     callee: ExprId,
@@ -181,7 +184,17 @@ pub(crate) fn try_lower(
     // A `toJSON` under the walk can throw at a check inside it: the
     // argument temp is parked across the walk so that edge releases
     // it too.
-    if crate::ssa_lower_nullable_guard::holds_undef_cell(ctx, args[0], arg_ty) {
+    //
+    // A read that holds the cell only because the live-field census
+    // could not prove it live had its static type trusted before the
+    // census judged such reads: the cell and NULL are two compares,
+    // and any other value it holds is one of that type, so it keeps
+    // the unfold (`split_nullish`).
+    let holds_cell = crate::ssa_lower_nullable_guard::holds_undef_cell(ctx, args[0], arg_ty);
+    let split = holds_cell
+        && unfolds_live_only(arg_ty)
+        && crate::ssa_lower_nullable_guard::holds_cell_unproven_only(ctx, args[0], arg_ty);
+    if holds_cell && !split {
         let boxed = ctx.box_to_any_from_expr(args[0], arg_op);
         let parked = ctx.park_owned_temp(args[0], &arg_raw);
         let out = crate::ssa_lower_json_stringify::emit_any_walk(ctx, boxed, gap, 0);
@@ -194,7 +207,13 @@ pub(crate) fn try_lower(
         return Some(out);
     }
     let parked = ctx.park_owned_temp(args[0], &arg_raw);
-    let out = crate::ssa_lower_json_stringify::lower_top(ctx, arg_op, arg_ty, arg_fe, gap);
+    let unfold = |ctx: &mut LowerCtx<'_>| {
+        crate::ssa_lower_json_stringify::lower_top(ctx, arg_op, arg_ty, arg_fe, gap)
+    };
+    let out = match split {
+        true => split_nullish(ctx, arg_op, unfold),
+        false => unfold(ctx),
+    };
     ctx.unpark_owned_temp(parked);
     if let Some(g) = gap {
         ctx.emit_drop_value(g, Type::Str);

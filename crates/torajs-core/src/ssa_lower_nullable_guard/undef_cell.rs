@@ -28,6 +28,18 @@ pub(crate) fn holds_undef_cell(ctx: &LowerCtx<'_>, eid: ExprId, ty: crate::ssa::
     ty.spells_undef_with_generic_cell() && is_undefable_heap_source(ctx, eid)
 }
 
+/// [`holds_undef_cell`] only because the live-field census did not
+/// prove the read live: a binding or a call result whose static type
+/// is all the lowering trusted for it before the census judged such
+/// reads.
+pub(crate) fn holds_cell_unproven_only(
+    ctx: &LowerCtx<'_>,
+    eid: ExprId,
+    ty: crate::ssa::Type,
+) -> bool {
+    holds_undef_cell(ctx, eid, ty) && !super::undefable_heap(ctx, eid, false)
+}
+
 /// The argument of a ToObject surface (`Object.{keys,values,
 /// entries}` and their `Reflect` / `getOwnPropertyNames` aliases),
 /// paired with the type the rest of the lowering should dispatch

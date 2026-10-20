@@ -36,7 +36,9 @@ pub(crate) use crate::ssa_lower_nullable_guard_emit::{
     emit_entry_guards, emit_nullable_arr_guard, emit_nullable_str_guard, emit_slot_guard,
     emit_undef_cell_guard, emit_undefable_heap_guard,
 };
-pub(crate) use undef_cell::{holds_undef_cell, to_object_arg, undefable_read_ty};
+pub(crate) use undef_cell::{
+    holds_cell_unproven_only, holds_undef_cell, to_object_arg, undefable_read_ty,
+};
 
 /// True when `obj`'s value may legally be null per the checker's
 /// Nullable<Array> typing (exec/match result).
@@ -247,6 +249,12 @@ fn ret_upgraded_from_any_binding(ctx: &LowerCtx<'_>, callee: ExprId) -> bool {
 }
 
 pub(crate) fn is_undefable_heap_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
+    undefable_heap(ctx, eid, true)
+}
+
+/// [`is_undefable_heap_source`], asking the live-field census about a
+/// read only when `census` is set.
+fn undefable_heap(ctx: &LowerCtx<'_>, eid: ExprId, census: bool) -> bool {
     use crate::check::Type;
     if ctx.proofs.member_proven(eid) {
         return false;
@@ -258,9 +266,9 @@ pub(crate) fn is_undefable_heap_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool 
     if callee_falls_through(ctx, eid)
         || awaited_promise_inner(ctx, eid).is_some_and(spells_undef_with_generic_cell)
         || matches!(ctx.expr_types.get(&eid), Some(Type::Nullable(_)))
-        || ctx.proofs.unproven_read(eid)
+        || (census && ctx.proofs.unproven_read(eid))
         || (passed_through(ctx.ast, eid).into_iter().flatten())
-            .any(|e| is_undefable_heap_source(ctx, e))
+            .any(|e| undefable_heap(ctx, e, census))
     {
         return true;
     }
@@ -292,7 +300,7 @@ pub(crate) fn is_undefable_heap_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool 
             .expr_types
             .get(&eid)
             .is_some_and(spells_undef_with_generic_cell),
-        Expr::As { expr, .. } => is_undefable_heap_source(ctx, *expr),
+        Expr::As { expr, .. } => undefable_heap(ctx, *expr, census),
         _ => false,
     }
 }

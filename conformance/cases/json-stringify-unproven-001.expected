@@ -1,0 +1,12 @@
+{"p":"hook:p","n":1} 2
+{"v":1,"tag":"a"}
+null null
+undefined undefined
+{"v":3,"tag":"c"}
+undefined
+"1970-01-01T00:00:00.000Z" {} [1,2,"at:2"]
+{
+  "p": "hook:p",
+  "n": 1
+}
+[{"status":"fulfilled","value":1},{"status":"rejected","reason":2}]
