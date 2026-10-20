@@ -130,16 +130,14 @@ impl<'a> LowerCtx<'a> {
     /// alloc, +1 return retain, or the borrow sites' owned-result
     /// inc); BinOp results are fresh too (str concat) except the
     /// short-circuit LAnd/LOr which answer an operand borrow;
-    /// Closure literals mint a fresh env block. An `as` cast is a
-    /// pass-through at the value layer (lower_as_cast answers the
-    /// inner operand for the heap-typed cases), so ownership follows
-    /// the inner expression — without the recursion `f() as K`
-    /// looked like a borrow and every consumer's release turned
-    /// no-op (probe l16d: `(wr.deref() as K).x` churn kept the
-    /// target alive after its only strong ref died). Every other
-    /// expression shape (Ident / Member / Index / literal) answers
-    /// a borrow — except the minted-closure Ident caught by
-    /// [`Self::release_owned_temp`]'s operand-type check.
+    /// Closure literals mint a fresh env block. An `as` cast is a pass-through at the
+    /// value layer (lower_as_cast answers the inner operand for the heap-typed cases),
+    /// so ownership follows the inner expression — without the recursion `f() as K`
+    /// looked like a borrow and every consumer's release turned no-op (probe l16d:
+    /// `(wr.deref() as K).x` churn kept the target alive after its only strong ref
+    /// died); a comma answers its last operand the same way. Every other expression
+    /// shape (Ident / Member / Index / literal) answers a borrow — except the
+    /// minted-closure Ident caught by [`Self::release_owned_temp`]'s operand-type check.
     pub(crate) fn expr_owned_shape(&self, eid: ExprId) -> bool {
         // RFC 20260915 — a pinned shared child is the entry point's
         // to release, so every site inside the expression borrows it
@@ -187,7 +185,7 @@ impl<'a> LowerCtx<'a> {
                 ..
             } => self.owned_member_reads.contains(&eid),
             Expr::BinOp { .. } => true,
-            Expr::As { expr, .. } => self.expr_owned_shape(*expr),
+            Expr::As { expr: e, .. } | Expr::Sequence { right: e, .. } => self.expr_owned_shape(*e),
             // Chunk 640 — array / object literals mint a fresh heap
             // block (every lower_array / ObjectLit lane answers
             // rc=1). Off this predicate, a literal consumed as a

@@ -14,7 +14,7 @@
 //!   let __sthis: any = this;          // every `this` below reads it
 //!   let __sup: any = undefined;
 //!   ( __sup = <parent call>,
-//!     __sthis = __torajs_ctor_ret_value(__sthis, __sup, false, false),
+//!     __sthis = __torajs_ctor_ret_value(__sthis, __sup, false),
 //!     __sthis );                      // the rewritten `super(…)`
 //!   …
 //!   return __sthis;
@@ -129,7 +129,7 @@ fn rewrite_returns(ast: &mut Ast, s: &mut Stmt) {
                 let incumbent = ast.add_expr(Expr::Ident(STHIS.to_string()));
                 let candidate = ast.add_expr(Expr::Ident(SUP.to_string()));
                 let pick = super::super::desugar_classes_ctor_return::pick_call(
-                    ast, incumbent, candidate, true, true,
+                    ast, incumbent, candidate, true,
                 );
                 ast.add_expr(Expr::Sequence {
                     left: store,

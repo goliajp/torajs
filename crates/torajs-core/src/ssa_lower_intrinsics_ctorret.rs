@@ -34,7 +34,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             module,
             fn_table,
             "__torajs_ctor_ret_value",
-            &[Type::Any, Type::Any, Type::I64, Type::I64],
+            &[Type::Any, Type::Any, Type::I64],
             Type::Any,
         ),
         ctor_ret_carry: declare_intrinsic(

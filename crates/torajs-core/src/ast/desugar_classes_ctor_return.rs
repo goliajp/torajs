@@ -175,21 +175,19 @@ pub(super) fn answering_frame(ast: &mut Ast, body: &mut Vec<Stmt>, at: usize) {
 /// it is per spec — and the runtime kind registry
 /// (`__torajs_anyv_class_register`'s `is_derived`) reads the same two
 /// tables, one view of who is derived.
-/// `owned` picks the answer's ownership for its consumer — see the
-/// runtime kernel's module doc (`torajs-anyvalue` `ctor_return.rs`).
+/// The answer is owned, like any call's (the runtime kernel's module
+/// doc, `torajs-anyvalue` `ctor_return.rs`).
 pub(super) fn pick_call(
     ast: &mut Ast,
     incumbent: ExprId,
     candidate: ExprId,
     derived: bool,
-    owned: bool,
 ) -> ExprId {
     let callee = ast.add_expr(Expr::Ident("__torajs_ctor_ret_value".into()));
     let kind = ast.add_expr(Expr::Bool(derived));
-    let owned = ast.add_expr(Expr::Bool(owned));
     ast.add_expr(Expr::Call {
         callee,
-        args: vec![incumbent, candidate, kind, owned],
+        args: vec![incumbent, candidate, kind],
     })
 }
 

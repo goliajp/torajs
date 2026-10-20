@@ -153,7 +153,6 @@ pub(super) fn rewrite_super_ctor_calls(ast: &mut Ast, class_index: &[ClassIndexE
                 incumbent,
                 sup_read,
                 parent_derived,
-                false,
             );
             let target = ast.add_expr(Expr::This);
             let adopt = ast.add_expr(Expr::Assign {

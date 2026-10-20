@@ -221,7 +221,7 @@ pub(super) fn rewrite_super_prop_sites(
 /// runtime-value parent, or another class of this lane through
 /// `.call`): an object the parent handed back becomes `this`. The
 /// `this` nodes here are the ones `return_override::reshape` turns
-/// into the constructor's local; the pick stays borrow-shaped for the
+/// into the constructor's local; the pick's answer is owned, for the
 /// reason `ctor_return.rs` records.
 ///
 /// `derived` names the PARENT whose constructor the call runs: step
@@ -236,9 +236,8 @@ fn adopt_super_answer(ast: &mut Ast, call: Expr, derived: bool) -> Expr {
     });
     let answer = ast.add_expr(Expr::Ident(super::return_override::SUP.to_string()));
     let incumbent = ast.add_expr(Expr::This);
-    let picked = super::super::desugar_classes_ctor_return::pick_call(
-        ast, incumbent, answer, derived, false,
-    );
+    let picked =
+        super::super::desugar_classes_ctor_return::pick_call(ast, incumbent, answer, derived);
     let target = ast.add_expr(Expr::This);
     let adopt = ast.add_expr(Expr::Assign {
         target,

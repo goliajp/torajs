@@ -4,7 +4,7 @@
 //! proof refuses an `as` of an `any`, but an inferred slot that took an
 //! `any` is not cast), so the cell's tag picks the lane at run time.
 
-use super::{await_any_in, await_cell, await_direct, hands_over, suspend_direct};
+use super::{await_any_in, await_cell, await_direct, suspend_direct};
 use crate::ast::ExprId;
 use crate::ssa::{BinOp, BlockId, IPred, InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::LowerCtx;
@@ -49,7 +49,7 @@ pub(super) fn await_object(
         "an await typed as its object needs a closed `then` proof"
     );
     let v = if is_object_cell(ty) {
-        if !hands_over(ctx, obj) {
+        if !ctx.expr_transfers_ownership(obj) {
             ctx.emit_owned_result_inc(op, ty);
         }
         await_cell_or_direct(ctx, eid, op, ty)
@@ -58,7 +58,7 @@ pub(super) fn await_object(
             Type::Inline(sid) => Type::Obj(sid),
             t => t,
         };
-        let borrowed = !hands_over(ctx, obj);
+        let borrowed = !ctx.expr_transfers_ownership(obj);
         let boxed = ctx.box_owned_from_expr(obj, op, borrowed);
         await_any_in(ctx, boxed, lane)
     };

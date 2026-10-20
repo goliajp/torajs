@@ -34,19 +34,19 @@
 //! what `__this` is reassigned to, which is what lets the carry find
 //! the fields the mint already initialized without a second local.
 //!
-//! **Ownership** differs by consumer, and the `owned` argument says
-//! which. The factory relays the pick into `__picked` and returns it:
-//! that consumer needs an OWNED answer — a borrow there let the
-//! factory's exit release the mint to zero and return the freed cell
-//! (rotation 660: over a pooled Obj the residue still read right, so
-//! neither the gate nor Guard Malloc saw it; an Array / Promise
-//! subclass mint lost its subclass registration in the drop and
-//! `instanceof` answered false, and a primitive-returning ctor's
-//! instance read back as a torn object). The `super(…)` site assigns
-//! the pick back into `__this`, which the body goes on owning: an
-//! owned answer there leaks the object once per construction (65 B,
-//! measured). The AOT RSS churn probe catches the leak, and only the
-//! behaviour probe catches the dangle — both are needed.
+//! **Ownership**: the answer is OWNED. The factory relays the pick into
+//! `__picked` and returns it, and a borrow there let the factory's exit
+//! release the mint to zero and return the freed cell (rotation 660:
+//! over a pooled Obj the residue still read right, so neither the gate
+//! nor Guard Malloc saw it; an Array / Promise subclass mint lost its
+//! subclass registration in the drop and `instanceof` answered false,
+//! and a primitive-returning ctor's instance read back as a torn
+//! object). The `super(…)` site assigns the pick into `__this`, an
+//! assignment in a comma that is not the last: the slot takes the
+//! pick's own reference, and the stake the assignment mints for its
+//! value is released when the comma discards it. The AOT RSS churn
+//! probe catches a leak there, and only the behaviour probe catches a
+//! dangle — both are needed.
 //!
 //! For the same reason the parent constructor's answer lands in a
 //! `__sup` LOCAL first. A call result handed straight to another call
@@ -102,14 +102,13 @@ fn is_object(v: AnyValue) -> bool {
 ///
 /// # Safety
 /// Both operands are live AnyValue bit patterns the caller keeps
-/// alive across the call. The answer is OWNED (a +1 stake) when
-/// `owned` is non-zero and a BORROW otherwise (see the module doc).
+/// alive across the call. The answer is OWNED (a +1 stake; see the
+/// module doc).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_ctor_ret_value(
     this_v: AnyValue,
     v: AnyValue,
     derived: i64,
-    owned: i64,
 ) -> AnyValue {
     let picked = if is_object(v) {
         v
@@ -125,8 +124,8 @@ pub unsafe extern "C" fn __torajs_ctor_ret_value(
     };
     // A pending throw (the constructor's, or step 13.c's just above)
     // ends the path at the caller's throw check, which never releases
-    // this answer — so it takes no stake then, owned or not.
-    if owned != 0 && unsafe { __torajs_throw_check() } == 0 {
+    // this answer — so it takes no stake then.
+    if unsafe { __torajs_throw_check() } == 0 {
         // SAFETY: `picked` is one of the two live operands.
         unsafe { crate::nanbox_ffi::__torajs_anyv_rc_inc(picked) };
     }

@@ -10,8 +10,8 @@
 //! - `__torajs_ctor_ret_carry(minted, target, "<name>")` — one of the
 //!   class's own elements moved onto an adopted object.
 //!
-//! The pick is borrow-shaped; the carry borrows all three operands
-//! and answers nothing.
+//! The pick answers an owned reference; the carry borrows all three
+//! operands and answers nothing.
 //!
 //! Every operand rides `any_arg`, which boxes only what is not
 //! already an any. Boxing one that is re-wraps a whole nanbox as if
@@ -52,24 +52,20 @@ fn any_arg(ctx: &mut LowerCtx<'_>, eid: ExprId) -> Operand {
 
 /// See module doc.
 fn try_lower_value(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
-    if args.len() != 4 {
+    if args.len() != 3 {
         return None;
     }
     let Expr::Bool(derived) = ctx.ast.get_expr(args[2]) else {
         return None;
     };
     let derived = Operand::ConstI64(i64::from(*derived));
-    let Expr::Bool(owned) = ctx.ast.get_expr(args[3]) else {
-        return None;
-    };
-    let owned = Operand::ConstI64(i64::from(*owned));
     let a = any_arg(ctx, args[0]);
     let b = any_arg(ctx, args[1]);
     let fid = ctx.intrinsics.ctor_ret_value;
     let cur_block = ctx.cur_block;
     let out = ctx.f.append_inst(
         cur_block,
-        InstKind::Call(fid, vec![a, b, derived, owned]),
+        InstKind::Call(fid, vec![a, b, derived]),
         Type::Any,
         None,
     );
