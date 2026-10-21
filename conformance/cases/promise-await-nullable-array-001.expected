@@ -1,0 +1,7 @@
+nested [ 1, undefined, 3 ] undefined 2
+absent undefined true
+strings [ "p", null ] true p
+unannotated [ "a", null ] true
+resolve [ "x", null ] true x
+executor [ "x", null ] true x
+numbers [ 1, null ] true 2
