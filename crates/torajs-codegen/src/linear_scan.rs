@@ -81,7 +81,8 @@ pub(crate) fn allocate_linear_scan_reserving(
 
     let (param_arg_reg, stack_params) = param_lanes(func);
 
-    let classes = build_copy_classes(func, &intervals, &blocks, &ret_vids, &call_sites);
+    let widened = crate::zext_load::widened_loads(func);
+    let classes = build_copy_classes(func, &intervals, &blocks, &ret_vids, &call_sites, &widened);
     let (mut weights, units) = compute_spill_weights_with(func, inline, &alloca_offsets);
     classes.fold_into(&mut intervals, &mut weights);
     let ranges = LazyRanges::new(func, &blocks, &intervals, &classes);
@@ -227,6 +228,7 @@ pub(crate) fn allocate_linear_scan_reserving(
         total_spill_bytes,
         has_calls,
     );
+    assignment.widened = widened;
     assignment.used_callee_gpr_mask = used_callee_gpr_mask;
     assignment.used_callee_fpr_mask = used_callee_fpr_mask;
     assignment.param_entry_moves = param_entry_moves;

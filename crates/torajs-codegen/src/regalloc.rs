@@ -21,6 +21,9 @@ pub struct Assignment {
     /// byte offset within the frame's alloca region. Slot 0 lives at
     /// `sp+0`, slot 1 at `sp+slot0_size`, etc.
     alloca_offsets: HashMap<u32, u32>,
+    /// Widenings of a 32-bit load (`zext_load`) the coalescer may give
+    /// the load's register; one that shares it emits nothing.
+    pub(crate) widened: HashSet<u32>,
     /// Total raw alloca bytes (sum of per-slot sizes).
     pub raw_alloca_bytes: u32,
     /// Total bytes carved for register spill slots (LS-3). 0 when no
@@ -85,6 +88,7 @@ impl Assignment {
         Assignment {
             by_value,
             alloca_offsets,
+            widened: HashSet::default(),
             raw_alloca_bytes,
             total_spill_bytes,
             has_calls,

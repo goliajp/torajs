@@ -6,7 +6,7 @@
 
 use torajs_core::ssa::id_hash::{HashMap, HashSet};
 
-use torajs_core::ssa::{Block, Function, Inst, InstKind, ValueId};
+use torajs_core::ssa::{Block, Function, Inst, InstKind, Operand, ValueId};
 
 use super::ModuleFacts;
 use super::brfuse::{self, FusedCmp, FusedSelCmp};
@@ -16,6 +16,7 @@ use super::selinc::{self, SelectIncs};
 use super::store_pair::{self, StorePair};
 use super::throw_probe;
 use super::throw_reg::Role;
+use crate::reg::Reg;
 use crate::regalloc::Assignment;
 use crate::reloc::Reloc;
 
@@ -137,6 +138,13 @@ impl Fusions {
         {
             cmp::emit_select_fused(bytes, inst, ty, fc, then_op, else_op, alloc);
             return true;
+        }
+        if let (InstKind::ZExtI32ToI64(Operand::Value(src)), Some(r)) = (&inst.kind, inst.result)
+            && alloc.widened.contains(&r.0)
+            && matches!(alloc.of(r), Reg::Gpr(_))
+            && alloc.of(r) == alloc.of(*src)
+        {
+            return true; // the load's register already holds it widened
         }
         false
     }

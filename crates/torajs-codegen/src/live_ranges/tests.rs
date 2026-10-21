@@ -311,7 +311,8 @@ fn class_ranges_are_the_union_of_their_members() {
     assert_eq!(ranges.of(2), &[(3, 4)]);
     assert_eq!(ranges.of(3), &[(9, 10)]);
     let rets = collect_ret_value_ids(&f);
-    let classes = build_copy_classes(&f, &intervals, &blocks, &rets, &[]);
+    let widened = crate::zext_load::widened_loads(&f);
+    let classes = build_copy_classes(&f, &intervals, &blocks, &rets, &[], &widened);
     let leader = classes.leader(1);
     assert_eq!(classes.leader(2), leader);
     assert_eq!(classes.leader(3), leader);

@@ -117,19 +117,21 @@ impl Classes {
 }
 
 /// Build copy classes. `excluded` holds values pinned to a fixed
-/// lane (params, ret values); allocas never coalesce.
+/// lane (params, ret values); allocas never coalesce. `widened` holds
+/// the widenings of a 32-bit load (`zext_load::widened_loads`).
 pub(crate) fn build_copy_classes(
     func: &Function,
     intervals: &HashMap<u32, Interval>,
     blocks: &BlockLiveness,
     excluded: &HashSet<u32>,
     call_sites: &[u32],
+    widened: &HashSet<u32>,
 ) -> Classes {
     let switches = crate::switches::get();
     if switches.coalesce_off {
         return Classes::default();
     }
-    let copies = collect_copies(func, intervals, excluded);
+    let copies = collect_copies(func, intervals, excluded, widened);
     if copies.is_empty() {
         return Classes::default();
     }
@@ -179,7 +181,8 @@ pub(crate) fn build_copy_classes(
     Classes { leader_of, classes }
 }
 
-/// Every `w = copy v` (or a `ptrtoint` / `inttoptr`, which moves the
+/// Every `w = copy v` (or a `ptrtoint` / `inttoptr`, or a widening of
+/// a 32-bit load in `widened` (`zext_load`), each of which moves the
 /// same bits, or a lane pair, which starts as its low operand's
 /// register) both of whose values may share a register: same register
 /// class, not pinned, not an alloca.
@@ -187,11 +190,17 @@ fn collect_copies(
     func: &Function,
     intervals: &HashMap<u32, Interval>,
     excluded: &HashSet<u32>,
+    widened: &HashSet<u32>,
 ) -> Vec<Copy> {
     let mut allocas: HashSet<u32> = HashSet::default();
     let mut copies: Vec<Copy> = Vec::new();
     for inst in func.blocks.iter().flat_map(|b| &b.insts) {
         let (exact, v) = match &inst.kind {
+            InstKind::ZExtI32ToI64(Operand::Value(v))
+                if inst.result.is_some_and(|r| widened.contains(&r.0)) =>
+            {
+                (true, v.0)
+            }
             InstKind::Alloca(_) | InstKind::AllocaBytes(_) => {
                 allocas.extend(inst.result.map(|r| r.0));
                 continue;

@@ -43,6 +43,7 @@ mod shrink_wrap;
 pub mod spill_weight;
 mod switches;
 mod vec_homes;
+mod zext_load;
 
 pub use compile::{
     CellOps, CompiledFunction, InlineSites, ModuleFacts, StrAppendLit, compile_function,
