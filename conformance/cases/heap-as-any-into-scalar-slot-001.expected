@@ -1,5 +1,5 @@
-arr->str "4"
-arr->num 4
-arr->bool true
-obj->str "[object Object]"
+arr->str [4]
+arr->num [ 4 ]
+arr->bool []
+obj->str {"a":1}
 str->str ok

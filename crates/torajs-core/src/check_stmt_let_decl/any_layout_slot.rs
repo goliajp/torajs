@@ -45,11 +45,14 @@ pub(crate) fn struct_elem_array(ann: &T) -> bool {
     matches!(ann, T::Array(el) if matches!(**el, T::Struct(_) | T::ClassRef(_)))
 }
 
-/// The checker type of a binding declared `ann`: [`checker_face`]'s
-/// answer, or the annotation itself.
+/// The checker type of a binding declared `ann`: the answer of
+/// `any_scalar_slot::checker_face` or [`checker_face`], or the
+/// annotation itself.
 pub(crate) fn declared_face(checker: &crate::check::Checker, ast: &Ast, init: ExprId, ann: T) -> T {
     let widened = checker.cross_type_widened.contains(&init);
-    checker_face(&ann, init, ast, &checker.expr_types, widened).unwrap_or(ann)
+    super::any_scalar_slot::checker_face(&ann, widened)
+        .or_else(|| checker_face(&ann, init, ast, &checker.expr_types, widened))
+        .unwrap_or(ann)
 }
 
 /// The checker type of a binding annotated `ann` — an array of a
@@ -75,7 +78,7 @@ fn any_cast(init: ExprId, ast: &Ast, types: &HashMap<ExprId, T>) -> bool {
 /// an element, a conditional of them — rather than producing one: a
 /// call is left out, since the typed `JSON.parse` / `Object.fromEntries`
 /// lanes decode theirs into the declared layout.
-fn any_read(init: ExprId, ast: &Ast, types: &HashMap<ExprId, T>) -> bool {
+pub(super) fn any_read(init: ExprId, ast: &Ast, types: &HashMap<ExprId, T>) -> bool {
     types.get(&init) == Some(&T::Any)
         && match ast.get_expr(init) {
             Expr::Ident(_) | Expr::Index { .. } | Expr::Ternary { .. } => true,
@@ -118,8 +121,8 @@ fn held_read(ann: Option<&str>, init: ExprId, ast: &Ast, types: &HashMap<ExprId,
     !ast.class_parents.contains_key(base) && any_read(init, ast, types)
 }
 
-/// The lowering mirror of [`checker_face`], [`cast_face`] and
-/// [`holds_any`]: the SSA type a binding annotated `ann`, which parsed
+/// The lowering mirror of [`checker_face`], [`cast_face`],
+/// [`holds_any`] and `any_scalar_slot::checker_face`: the SSA type a binding annotated `ann`, which parsed
 /// to `slot`, takes for `init` — `None` keeps the annotation's layout.
 pub(crate) fn value_repr(
     slot: &Type,
@@ -133,6 +136,9 @@ pub(crate) fn value_repr(
         && (any_cast(init, ast, types) || held_read(ann, init, ast, types))
     {
         return Some(Type::Any);
+    }
+    if let Some(t) = super::any_scalar_slot::value_repr(slot, widened) {
+        return Some(t);
     }
     let Type::Arr(id) = slot else { return None };
     (matches!(arr_layouts[id.0 as usize], Type::Obj(_))

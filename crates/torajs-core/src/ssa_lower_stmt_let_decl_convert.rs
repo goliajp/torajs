@@ -35,12 +35,11 @@ use crate::ssa_lower::LowerCtx;
 /// shapes (Ident / Member / Index) untouched since their source keeps
 /// its own.
 ///
-/// A lying annotation (`const x: number = t`, `t` holding `"hi"`)
-/// answers NaN. That is ToNumber, not type erasure — bun keeps the
-/// string, since TS annotations vanish at runtime. Both sibling
-/// boundaries answer NaN the same way, so these rows join the existing
-/// stance rather than inventing a third one; the erasure gap itself is
-/// one L3b entry against all three.
+/// A read of an `any` value or an `as any` cast never gets here: the
+/// binding holds the box itself (`check_stmt_let_decl::any_scalar_slot`).
+/// What still crosses is a call's result under a lying annotation
+/// (`const x: number = g()`, `g` answering `"hi"`), which answers NaN
+/// — ToNumber, where bun keeps the string.
 pub(crate) fn maybe_any_to_typed_scalar(
     ctx: &mut LowerCtx,
     type_ann: Option<&String>,

@@ -10,9 +10,10 @@
 // is NaN came out as 0, which is worse: NaN and 0 are both numbers,
 // and only one of them is wrong quietly.
 //
-// bun keeps the value instead of converting it at all — the registered
-// erasure gap, not what this file is about. This is about the
-// conversion, once it happens, not losing the fraction.
+// Since then the slot no longer converts at all: an `as any` cast
+// converts nothing and the annotation has no runtime meaning, so the
+// binding holds the value itself from its declaration, as bun does.
+// The lines below keep that answer for each source.
 
 let frac: number = "2.5" as any;
 console.log("str-frac", frac);

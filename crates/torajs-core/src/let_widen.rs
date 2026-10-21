@@ -298,6 +298,13 @@ fn collect_gen_factories(ast: &Ast) -> HashSet<String> {
 
 impl Walker<'_> {
     fn register_let(&mut self, name: &str, mutable: bool, ann: Option<&str>, init: ExprId) {
+        // a scalar annotation over a read of an `any` value holds the
+        // box (`check_stmt_let_decl::any_scalar_slot`)
+        if let (Some(ann), Some(types)) = (ann, self.types)
+            && crate::check_stmt_let_decl::any_scalar_slot::takes_box(ann, init, self.ast, types)
+        {
+            self.out.insert(init);
+        }
         let binding = if mutable && ann.is_some() {
             Binding::LayoutArr { init }
         } else if mutable && ann.is_none() {

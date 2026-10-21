@@ -197,6 +197,7 @@ pub(crate) fn check(
     let value_ty =
         crate::check_assignable::in_declared_order(checker, ast, &target_ty, value, value_ty);
     let decl = (info.ann.as_deref(), info.decl.as_ref());
+    crate::check_stmt_let_decl::any_scalar_slot::declared_store(checker, &name, decl, &value_ty)?;
     admit_store(checker, (ast, &name), decl, &target_ty, (&value_ty, value))?;
     checker.note_store(&name, value, &value_ty)?;
     // See the global arm above — the literal is typed by the slot.

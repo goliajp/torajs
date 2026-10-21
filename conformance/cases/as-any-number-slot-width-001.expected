@@ -1,7 +1,7 @@
 str-frac 2.5
 str-neg -0.125
-map-nan true
-regex-nan true
-str-int 7 true
-date 5
+map-nan false
+regex-nan false
+str-int 7 false
+date 1970-01-01T00:00:00.005Z
 any-var 2.5

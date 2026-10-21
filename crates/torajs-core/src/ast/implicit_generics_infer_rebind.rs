@@ -30,6 +30,7 @@ pub(super) fn drop_rebound(
     for name in captured_mutable {
         binds.remove(&name);
     }
+    drop_held(exprs, body, binds, fn_sigs);
     loop {
         let params = binds_to_params(binds);
         let unsettled: Vec<String> = assigned
@@ -50,6 +51,46 @@ pub(super) fn drop_rebound(
         for name in unsettled {
             binds.remove(&name);
         }
+    }
+}
+
+/// Drop every `number` / `string` / `boolean` binding of `body` whose
+/// initializer reads an `any` value or casts to `any`: the binding holds
+/// that value as is (`check_stmt_let_decl::any_scalar_slot`), so its
+/// annotation says nothing about what a return of it answers.
+fn drop_held(
+    exprs: AstExprsView,
+    body: &[Stmt],
+    binds: &mut HashMap<String, String>,
+    fn_sigs: &HashMap<String, String>,
+) {
+    let params = binds_to_params(binds);
+    let mut held = Vec::new();
+    let mut stmts: Vec<&Stmt> = body.iter().collect();
+    while let Some(s) = stmts.pop() {
+        if let Stmt::LetDecl {
+            name,
+            type_ann: Some(ann),
+            init,
+            ..
+        } = s
+            && matches!(ann.as_str(), "number" | "string" | "boolean")
+            && matches!(
+                &exprs[init.0 as usize],
+                Expr::Ident(_)
+                    | Expr::Index { .. }
+                    | Expr::Member { .. }
+                    | Expr::Ternary { .. }
+                    | Expr::As { .. }
+            )
+            && infer_expr_ann_with(exprs, *init, &params, binds, fn_sigs).as_deref() == Some("any")
+        {
+            held.push(name.clone());
+        }
+        stmts.extend(stmt_children_ref(s));
+    }
+    for name in held {
+        binds.remove(&name);
     }
 }
 
