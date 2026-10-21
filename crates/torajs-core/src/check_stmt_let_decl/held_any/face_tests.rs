@@ -143,3 +143,22 @@ fn an_unannotated_copy_keeps_the_declared_type() {
          console.log(t.toFixed(1), k, v, g(t), typeof t);\n"
     ));
 }
+
+/// A receiver that is not a held binding is typed by the route that
+/// reads the member, exactly as in a program with no held value.
+#[test]
+fn a_builtin_receiver_checks_as_without_a_held_value() {
+    let calls = "try { Error.captureStackTrace({}); } catch (e) {}\n\
+                 console.log(TypeError.name.length, typeof fetch.call, queueMicrotask.length);\n\
+                 console.log(fetch.toString().length, TypeError.toString().length);\n\
+                 queueMicrotask.call(undefined, () => console.log(\"q\"));\n";
+    let to_string = "console.log(Error.prototype.toString.call(new TypeError(\"t\")));\n";
+    for body in [calls, to_string] {
+        let held = check_src(&format!("{HELD_NUMBER}{body}"));
+        let plain = check_src(&format!("const n: number = 1;\n{body}"));
+        assert_eq!(held.is_ok(), plain.is_ok(), "{held:?} / {plain:?}");
+        if let (Err(h), Err(p)) = (&held, &plain) {
+            assert_eq!(h, p);
+        }
+    }
+}

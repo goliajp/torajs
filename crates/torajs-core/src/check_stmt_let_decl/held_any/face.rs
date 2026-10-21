@@ -162,13 +162,28 @@ pub(crate) fn check_method_receiver(
     let Expr::Member { obj, name } = ast.get_expr(callee) else {
         return Ok(());
     };
-    if !c.held_any.scalars || !matches!(ast.get_expr(*obj), Expr::Ident(_)) {
+    let Expr::Ident(n) = ast.get_expr(*obj) else {
+        return Ok(());
+    };
+    if !c.held_any.scalars || !names_held(c, n) {
         return Ok(());
     }
-    if c.type_of(ast, *obj)? != Type::Any {
+    // as the `patched_method` route does, a receiver this cannot type
+    // is left to the route that reads the member
+    if !matches!(c.type_of(ast, *obj), Ok(Type::Any)) {
         return Ok(());
     }
     check_receiver(c, ast, (*obj, name), false)
+}
+
+/// Whether `name` resolves to a binding whose reads have a [`face`]:
+/// any other receiver (a builtin global such as `Error` or `fetch`, a
+/// synthesized name) is not typed here.
+fn names_held(c: &Checker, name: &str) -> bool {
+    match c.scopes.iter().rev().find_map(|s| s.get(name)) {
+        Some(info) => info.held_decl.is_some(),
+        None => c.held_any.scalar_globals.contains_key(name),
+    }
 }
 
 /// A `let` / `const` initializer `init` of a binding `name` declared
