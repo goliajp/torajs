@@ -5,8 +5,8 @@ use crate::fresh_cell::FreshCellStats;
 use crate::mem2reg::Mem2RegStats;
 use crate::slot_forward::SlotForwardStats;
 use crate::{
-    devirt, frame_cell_clean, fresh_cell, gated_pass, heap_to_stack, inliner, mem2reg, pass_timer,
-    slot_forward,
+    devirt, field_pin, frame_cell_clean, fresh_cell, gated_pass, heap_to_stack, inliner, mem2reg,
+    pass_timer, slot_forward,
 };
 
 /// What the egraph pass eats: callees inlined (a second round after
@@ -67,6 +67,13 @@ pub(crate) fn inline_and_forward(module: &mut Module) {
         });
         gated_pass("SLOTFWD", module, slot_forward::forward_slot_loads);
         gated_pass("MEM2REG", module, mem2reg::promote_slots);
+    }
+    // a pinned array field's header words, read once per member call:
+    // after the slot passes (the receiver reaches the loads directly),
+    // before the egraph pass, which keeps a load where it stands.
+    // `TORAJS_FIELD_PIN_OFF=1` skips (bisect gate).
+    if !module.pins.is_empty() {
+        gated_pass("FIELD_PIN", module, field_pin::pin_field_loads);
     }
 }
 
