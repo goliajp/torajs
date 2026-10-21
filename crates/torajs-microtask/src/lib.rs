@@ -84,6 +84,8 @@ unsafe extern "C" {
 // v0.7-A2 step 6b — force-link mmalloc.
 extern crate torajs_mmalloc as _;
 
+pub mod wait;
+
 /// The ring is full: double it, then push `(fn_, arg)`. The pending
 /// tasks keep their order — the run that wrapped to the front of the
 /// old ring moves up behind its end, where the doubled mask finds it,
@@ -362,6 +364,8 @@ mod tests {
         unsafe { __torajs_microtask_run_until_idle() };
         assert_eq!(IDLE_IN_JOB.load(Ordering::Relaxed), 0);
     }
+
+    mod wait;
 
     #[test]
     fn null_fn_is_silent_noop() {

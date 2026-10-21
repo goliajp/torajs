@@ -47,6 +47,11 @@ pub(crate) struct ModuleScans {
     /// The functions whose return type the program wrote
     /// (`Ast::ret_written_at`), by name.
     pub(crate) written_ret_fns: std::collections::HashSet<String>,
+    /// The value form each async function that suspends over a frame
+    /// stamps its result with (`SuspendFn::ret_repr`), by the id its
+    /// callers call; known to the module body only, which lowers after
+    /// them (`ssa_lower_fn::suspend::in_place`).
+    pub(crate) frame_result_reprs: HashMap<crate::ssa::FuncId, i64>,
 }
 
 impl ModuleScans {
@@ -66,6 +71,7 @@ impl ModuleScans {
                     _ => None,
                 })
                 .collect(),
+            frame_result_reprs: HashMap::new(),
         }
     }
 }

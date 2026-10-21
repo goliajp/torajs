@@ -33,6 +33,7 @@
 //! 6. Walk body statements; emit drops + implicit ret on fall-
 //!    through.
 
+pub(crate) mod async_main;
 pub(crate) mod async_setup;
 pub(crate) mod async_wrapper;
 mod fresh_this;
@@ -40,10 +41,9 @@ pub(crate) mod suspend;
 pub(crate) mod suspend_ret;
 mod undef_params;
 
-use crate::ast::{GenericStructDecls, PropKey};
 use std::collections::HashMap;
 
-use crate::ast::{self, Ast, ExprId, Stmt};
+use crate::ast::{self, Ast, ExprId, GenericStructDecls, PropKey, Stmt};
 use crate::ssa::{self, BakedRegexEntry, FuncId, Operand, Terminator, Type, ValueId};
 use crate::ssa_lower::{CallRetargets, Intrinsics, LowerCtx};
 use crate::ssa_lower_parse_type::parse_type;

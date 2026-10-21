@@ -10,6 +10,7 @@
 //!   +24  direct    the resumption value of an await on a value that
 //!                  is not a thenable
 //!   +32  result    the async function's promise; the frame holds +1
+//!                  (NULL for the module body's waiter, `module_await`)
 //!   +40  next      this frame's link in its source's callback list
 //!   +48  awaiting  the promise it waits on (see Ownership)
 //!   +56  params and the values live across a suspension point
@@ -247,7 +248,10 @@ pub(crate) unsafe fn source_died(frame: *mut AsyncFrame) {
 
 mod body;
 mod desc;
-pub use body::{__torajs_frame_unwind, FRAME_CANCELLED, FRAME_COLLECTED, TRACE_STATE_WORD};
+pub use body::{
+    __torajs_frame_trace_links, __torajs_frame_unwind, FRAME_CANCELLED, FRAME_COLLECTED,
+    TRACE_STATE_WORD,
+};
 pub use desc::{FrameDesc, FrameTrace, desc_drop, desc_resume, desc_trace};
 
 #[cfg(test)]

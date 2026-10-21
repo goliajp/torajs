@@ -200,4 +200,8 @@ pub(crate) const COMPILER_SOURCE_FILES: &[&str] = &[
     "src/ssa_lower_call_promise_resolve.rs",
     "src/ssa_lower_promise_repr_mark.rs",
     "src/builtin_proto_shadow/promise_pinned.rs",
+    // the module body that awaits in place and the wrapper main
+    "src/ssa_lower_synthesize_main.rs",
+    "src/ssa_lower_fn/async_main.rs",
+    "src/ssa_lower_fn/suspend/in_place.rs",
 ];

@@ -60,6 +60,7 @@ pub(crate) fn preregister(
     fn_table: &mut HashMap<String, FuncId>,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
 ) -> SuspendSetup {
+    super::async_main::declare(ast, module, fn_table);
     let mut names: Vec<&String> = (ast.async_ssa.fns.iter())
         .filter(|n| fn_table.contains_key(n.as_str()))
         .collect();

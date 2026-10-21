@@ -453,7 +453,7 @@ pub unsafe fn has_walkable_children(p: *mut c_void) -> bool {
     // time it is not walkable, and walked the whole chain before.
     match unsafe { (*(p as *const HeapHeader)).type_tag } {
         TAG_CLOSURE => unsafe { is_visitable_closure(p) },
-        // a frame's trace reports its result, which every frame has
+        // a frame's trace reports its result; the module body's waiter has none, walkable too
         crate::frame::TAG_ASYNC_FRAME => {
             let trace = unsafe { crate::frame::frame_trace_fn(p) };
             debug_assert!(trace.is_some(), "an async frame's desc has no trace");

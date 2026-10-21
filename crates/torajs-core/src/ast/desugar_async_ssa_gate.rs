@@ -39,6 +39,11 @@ pub struct AsyncSsa {
     /// returns in: the lowering returns `e` itself and the frame
     /// settles the result with it.
     pub return_calls: HashSet<ExprId>,
+    /// The module body awaits at its top level and moves the same
+    /// way: it is lowered into a function of its own that awaits in
+    /// place, behind a `main` that calls it and drains the queue
+    /// (§16.2.1.5.3 Evaluate of a module with top-level await).
+    pub main: bool,
 }
 
 pub fn mark_async_ssa_fns(ast: &mut Ast) {
@@ -88,6 +93,11 @@ pub fn mark_async_ssa_fns(ast: &mut Ast) {
             ast.async_ssa.value_exprs.insert(eid);
         }
     }
+    // the walks stop at declarations' bodies, so these are the
+    // module's own awaits; a script's `await` is an identifier
+    ast.async_ssa.main = !ast.sloppy_script_goal
+        && ast.stmts.iter().any(|s| stmt_awaits(ast, s))
+        && !ast.stmts.iter().any(|s| stmt_blocks(ast, s));
 }
 
 fn method_moves(ast: &Ast, m: &ClassMethod) -> bool {

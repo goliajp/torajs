@@ -2,7 +2,9 @@
 //! non-`FnDecl` statements. Skipped when the module has no top-level
 //! statements. Both the synthesized fn and its newly-interned string
 //! literals are appended to `module` in lockstep so the StringId
-//! counter stays consistent.
+//! counter stays consistent. A module that awaits at its top level
+//! gets its body as a function of its own behind the wrapper `main`
+//! (`ssa_lower_fn::async_main`).
 //!
 //! Extracted from `lower_inner` (chunk-334 of the lower_inner RFC
 //! decomp, after the Pass 0.5 / Pass 1 / Intrinsics-table /
@@ -16,6 +18,7 @@ use crate::ast::{Ast, ExprId, Stmt};
 use crate::num_width::WidthTable;
 use crate::ssa::{self, BakedRegexEntry, FuncId, Module, Type};
 use crate::ssa_lower::{Intrinsics, synthesize_main};
+use crate::ssa_lower_synthesize_main::main_ctx::MainEnv;
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn run(
@@ -64,8 +67,13 @@ pub(crate) fn run(
         .filter(|s| !matches!(s, Stmt::FnDecl { .. }))
         .collect();
     let string_id_base = module.strings.len();
-    let (main_fn, new_strings) = synthesize_main(
-        &top_level,
+    // the module body goes right after the functions there are now,
+    // and the wrapper `main` after it
+    let body = (ast.async_ssa.main).then_some(FuncId(module.funcs.len() as u32));
+    let frame_result_reprs = (module.suspend_fns.iter())
+        .map(|s| (s.wrapper, s.ret_repr))
+        .collect();
+    let env = MainEnv {
         ast,
         fn_table,
         signatures,
@@ -79,11 +87,10 @@ pub(crate) fn run(
         struct_layouts,
         inst_memo,
         generic_struct_decls,
-        string_id_base,
         closure_captures,
         closure_capture_facts,
         call_retargets,
-        may_throw,
+        may_throw_fns: may_throw,
         facts,
         class_name_to_tag,
         anon_stamp_pool,
@@ -95,9 +102,14 @@ pub(crate) fn run(
         promise_thunks,
         class_drop_fids,
         boxed_entries,
-    );
+    };
+    let (main_fn, wrapper, new_strings) =
+        synthesize_main(&top_level, env, string_id_base, body, frame_result_reprs);
     for s in new_strings {
         module.strings.push(s);
     }
     module.funcs.push(main_fn);
+    if let Some(wrapper) = wrapper {
+        module.funcs.push(wrapper);
+    }
 }

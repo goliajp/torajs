@@ -1,7 +1,8 @@
 //! `await` in the body of an async function that suspends over a
 //! frame (`ast::desugar_async_ssa_gate` chose it): each await becomes
 //! an `InstKind::Suspend` the split pass (torajs-egraph
-//! `suspend_split`) turns into a park and a landing.
+//! `suspend_split`) turns into a park and a landing. The module body
+//! awaits in place instead (`in_place`).
 //!
 //! ECMA-262 §27.7.5.3 Await, by the operand's static type:
 //!
@@ -39,6 +40,7 @@ use crate::ssa_lower::LowerCtx;
 use crate::ssa_lower_member_promise_value as pv;
 
 mod held;
+mod in_place;
 mod object;
 mod read;
 
@@ -58,7 +60,7 @@ pub(crate) fn lower_await(ctx: &mut LowerCtx<'_>, eid: ExprId, obj: ExprId) -> O
         }
         let inner = inner_lane(ctx, eid, obj);
         let undef = pv::undef_cell_slot(ctx, obj, inner.as_ref());
-        return await_cell(ctx, src, inner, undef);
+        return await_cell(ctx, src, Some(obj), inner, undef);
     }
     let op = ctx.lower_expr(obj);
     match ctx.operand_ty(&op) {
@@ -68,7 +70,7 @@ pub(crate) fn lower_await(ctx: &mut LowerCtx<'_>, eid: ExprId, obj: ExprId) -> O
             }
             let inner = inner_lane(ctx, eid, obj);
             let undef = pv::undef_cell_slot(ctx, obj, inner.as_ref());
-            await_cell(ctx, op, inner, undef)
+            await_cell(ctx, op, Some(obj), inner, undef)
         }
         Type::Any => {
             if !ctx.expr_transfers_ownership(obj) {
@@ -133,21 +135,29 @@ fn await_any_in(ctx: &mut LowerCtx<'_>, op: Operand, lane: Type) -> Operand {
     let cell = ctx.f.append_inst(cb, call, Type::Promise, None);
     // the thenable's `then` read may raise
     ctx.emit_throw_check(None);
-    await_cell(ctx, Operand::Value(cell), Some(lane), None)
+    await_cell(ctx, Operand::Value(cell), None, Some(lane), None)
 }
 
-/// Await the owned cell `src`, then read its settled value in the
-/// `inner` lane (the read releases nothing; `src` is dropped after);
-/// `undef` names the slot whose undefined cell an undefined result is
-/// answered as (`pv::undef_cell_slot`).
+/// Await the owned cell `src`, the value of the operand `obj` when
+/// there is one, then read its settled value in the `inner` lane (the
+/// read releases nothing; `src` is dropped after); `undef` names the
+/// slot whose undefined cell an undefined result is answered as
+/// (`pv::undef_cell_slot`).
 fn await_cell(
     ctx: &mut LowerCtx<'_>,
     src: Operand,
+    obj: Option<ExprId>,
     inner: Option<Type>,
     undef: Option<Type>,
 ) -> Operand {
-    let settled = suspend_on(ctx, src, inner.unwrap_or(Type::Any));
-    let raw = read_settled(ctx, settled, pv::awaited_lane_repr(inner.as_ref()));
+    let want = pv::awaited_lane_repr(inner.as_ref());
+    let (settled, raw) = if in_place::in_module_body(ctx) {
+        // the module body awaits in place; the cell it holds settles
+        (src, in_place::await_read(ctx, src, obj, want))
+    } else {
+        let settled = suspend_on(ctx, src, inner.unwrap_or(Type::Any));
+        (settled, read_settled(ctx, settled, want))
+    };
     let raw = match undef {
         Some(slot) => pv::keep_undefined(ctx, settled, raw, slot),
         None => raw,
@@ -186,9 +196,17 @@ fn await_direct(
 }
 
 /// The direct suspension over the operand `op`, owned when its type
-/// holds a reference; the await answers it.
+/// holds a reference; the await answers it. The module body awaits in
+/// place (`in_place`).
 fn suspend_direct(ctx: &mut LowerCtx<'_>, eid: ExprId, op: Operand, ty: Type) -> Operand {
     let owned = !ty.is_copy();
+    if in_place::in_module_body(ctx) {
+        in_place::yield_direct(ctx);
+        if owned {
+            ctx.owned_member_reads.insert(eid);
+        }
+        return op;
+    }
     let held = held(ctx, owned.then_some((op, ty)));
     let cb = ctx.cur_block;
     let kind = InstKind::Suspend(SuspendKind::Await, SuspendLane::Direct, op, held);

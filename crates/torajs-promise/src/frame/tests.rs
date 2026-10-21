@@ -475,5 +475,6 @@ fn the_trace_reports_the_result_and_only_an_owned_awaiting() {
     }
 }
 
+mod module_await;
 mod returns;
 mod runframe;

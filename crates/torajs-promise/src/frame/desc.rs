@@ -43,7 +43,9 @@ pub struct FrameDesc {
     /// frame leaves it buffered and this branch is not taken today; it
     /// stays because the drop shares the env's ending.
     pub drop: i64,
-    /// Every frame has one, never 0: its `result` is always an edge.
+    /// Every frame has one, never 0. `result` is an edge of every
+    /// frame but the module body's waiter (`module_await`), which has
+    /// none (NULL, and the collector's visit skips a NULL child).
     pub trace: i64,
 }
 

@@ -198,7 +198,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) {
         ctx.emit_drops_for_scopes_from(handler.scope_depth);
         let cb = ctx.cur_block;
         ctx.f.set_term(cb, Terminator::Br(handler.blk));
-    } else if ctx.is_main_fn {
+    } else if ctx.is_main_fn && !ctx.suspend_body {
         ctx.emit_drops_for_owned_locals();
         let uncaught_fid = *ctx
             .fn_table

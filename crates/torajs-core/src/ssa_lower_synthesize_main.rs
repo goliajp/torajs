@@ -6,14 +6,20 @@
 //! - `synthesize_main` — top-level driver that constructs a `LowerCtx`
 //!   over the program's top-level stmts, primes escape-capture / deque /
 //!   escape-obj sets, walks each top-level stmt, and drains microtasks +
-//!   cycle-collector before returning.
+//!   cycle-collector before returning. A module that awaits at its top
+//!   level is lowered as a body function instead, and `main` is a
+//!   wrapper that calls it and then drains and exits the same way
+//!   (`ssa_lower_fn::async_main`).
 
-use crate::ast::{GenericStructDecls, PropKey};
 use std::collections::HashMap;
 
-use crate::ast::{Ast, ExprId, Stmt};
-use crate::ssa::{self, BakedRegexEntry, FuncId, InstKind, Module, Type};
-use crate::ssa_lower::{CallRetargets, Intrinsics, LowerCtx};
+use crate::ast::Stmt;
+use crate::ssa::{self, FuncId, InstKind, Module, Terminator, Type};
+use crate::ssa_lower::LowerCtx;
+use crate::ssa_lower_fn::async_main::{BODY_NAME, ModuleCalls, emit_body_call};
+use main_ctx::{MainEnv, MainTarget};
+
+pub(crate) mod main_ctx;
 
 pub(crate) fn declare_intrinsic(
     module: &mut Module,
@@ -33,203 +39,156 @@ pub(crate) fn declare_intrinsic(
     id
 }
 
-#[allow(clippy::too_many_arguments)]
+/// The top level as `main`, or, given the id the module body will
+/// have, as that body plus the wrapper `main` around it. Answers the
+/// function lowered from the statements, the wrapper, and the strings
+/// both interned (numbered from `string_id_base`). `frame_result_reprs`
+/// is `ModuleScans::frame_result_reprs`.
 pub(crate) fn synthesize_main(
     stmts: &[&Stmt],
-    ast: &Ast,
-    fn_table: &HashMap<String, FuncId>,
-    signatures: &HashMap<FuncId, Type>,
-    fn_sig_ids: &HashMap<FuncId, ssa::SigId>,
-    fn_dflt_lits: &crate::ssa_lower_boxed_entry::FnDfltLits,
-    intrinsics: &Intrinsics,
-    aliases: &HashMap<String, Type>,
-    arr_layouts: &mut crate::ssa::ArrLayouts,
-    baked_regex_buf: &mut Vec<BakedRegexEntry>,
-    fn_sigs: &mut Vec<(Vec<Type>, Type)>,
-    struct_layouts: &mut Vec<Vec<(PropKey, Type)>>,
-    inst_memo: &mut HashMap<String, ssa::StructId>,
-    generic_struct_decls: &GenericStructDecls,
+    mut env: MainEnv<'_>,
     string_id_base: usize,
-    closure_captures: &mut HashMap<String, Vec<(String, Type, bool)>>,
-    closure_capture_facts: &mut HashMap<String, crate::ssa_lower_closure_order::CaptureFacts>,
-    call_retargets: &CallRetargets,
-    may_throw_fns: &std::collections::HashSet<String>,
-    facts: &crate::ssa_lower::proofs::ProgramFactsRc,
-    class_name_to_tag: &HashMap<String, u32>,
-    anon_stamp_pool: &crate::ssa_lower_anon_stamp::AnonStampPoolCell,
-    globals: &HashMap<String, Type>,
-    expr_types: &HashMap<ExprId, crate::check::Type>,
-    arity_pad_count: &HashMap<ExprId, usize>,
-    contextual_any: &std::collections::HashSet<ExprId>,
-    num_f64_slots: &crate::num_width::WidthTable,
-    promise_thunks: &crate::ssa_lower_promise_thunk::PromiseThunks,
-    class_drop_fids: &std::collections::HashMap<u32, crate::ssa::FuncId>,
-    boxed_entries: &HashMap<FuncId, (FuncId, ssa::SigId)>,
-) -> (ssa::Function, Vec<ssa::StringLiteral>) {
-    let mut f = ssa::Function::new("main", Type::I32);
+    body: Option<FuncId>,
+    frame_result_reprs: HashMap<FuncId, i64>,
+) -> (
+    ssa::Function,
+    Option<ssa::Function>,
+    Vec<ssa::StringLiteral>,
+) {
+    let (name, ret) = match body {
+        Some(_) => (BODY_NAME, Type::Void),
+        None => ("main", Type::I32),
+    };
+    let mut f = ssa::Function::new(name, ret);
     let entry = f.add_block();
     let mut new_strings: Vec<ssa::StringLiteral> = Vec::new();
-    let scans = crate::ssa_lower_ctx_state::ModuleScans::of(ast, expr_types);
+    let mut scans = crate::ssa_lower_ctx_state::ModuleScans::of(env.ast, env.expr_types);
+    scans.frame_result_reprs = frame_result_reprs;
     {
-        let mut ctx = LowerCtx {
+        let target = MainTarget {
             f: &mut f,
-            ast,
-            fn_table,
-            signatures,
-            fn_sig_ids,
-            fn_dflt_lits,
-            intrinsics: *intrinsics,
-            aliases,
-            expr_types,
-            arity_pad_count,
-            contextual_any,
-            num_f64_slots,
-            promise_thunks,
-            class_drop_fids,
-            boxed_entries,
-            arr_layouts,
-            baked_regex_buf,
-            fn_sigs,
-            struct_layouts,
-            inst_memo,
-            generic_struct_decls,
-            class_name_to_tag,
-            anon_stamp_pool,
-            try_stack: Vec::new(),
-            try_finally_stack: Vec::new(),
-            for_of_teardown_stack: Vec::new(),
-            split_views: Vec::new(),
-            pending: Default::default(),
-            discarded_stmt_call: None,
-            discarded_stmt_expr: None,
-            self_name_slot: None,
-            try_finally_loop_depth: Vec::new(),
-            locals: HashMap::new(),
-            variadic_locals: std::collections::HashSet::new(),
-            ns_static_locals: HashMap::new(),
-            builtin_mv_locals: HashMap::new(),
-            scope_stack: vec![Vec::new()],
-            shadow_stack: vec![Vec::new()],
-            loop_stack: Vec::new(),
-            case_block_depth: 0,
-            label_stack: Vec::new(),
-            cur_block: entry,
+            entry,
             new_strings: &mut new_strings,
             string_id_base,
-            closure_captures,
-            closure_capture_facts,
-            call_retargets,
-            may_throw_fns,
-            escape_captured_lets: std::collections::HashSet::new(),
-            mutated_captured_lets: std::collections::HashSet::new(),
-            boxed_noncopy_lets: std::collections::HashSet::new(),
-            hoisted_closure_lets: std::collections::HashSet::new(),
-            forward_capture_boxes: std::collections::HashMap::new(),
-            prereserve: crate::ssa_lower_arr_prereserve::PreReserve::new(&[]),
-            regex_lit_cache: std::collections::HashMap::new(),
-            binop: Default::default(),
-            scans: &scans,
-            bigint_op_may_throw: false,
-            globals,
-            is_main_fn: true,
-            suspend_body: false,
-            drop_inline_stack: std::collections::HashSet::new(),
-            deque_arrs: std::collections::HashSet::new(),
-            escape_obj_lets: std::collections::HashSet::new(),
-            nullable_arr_lets: std::collections::HashSet::new(),
-            exec_records: HashMap::new(),
-            nullable_str_lets: std::collections::HashSet::new(),
-            // Main has no return annotation.
-            ret_ann: None,
-            let_anns: HashMap::new(),
-            undefable_f64_lets: std::collections::HashSet::new(),
-            undefable_f64_fields: std::collections::HashSet::new(),
-            nullable_str_fields: std::collections::HashSet::new(),
-            undefable_substr_lets: std::collections::HashSet::new(),
-            undefable_heap_lets: std::collections::HashSet::new(),
-            num_map_slots: std::collections::HashSet::new(),
-            stack_alloced_locals: std::collections::HashSet::new(),
-            let_stack_alloc_hint: None,
-            let_declared_obj_layout: None,
-            redispatch_lowered: None,
-            temps: Default::default(),
-            owned_member_reads: std::collections::HashSet::new(),
-            pins: Default::default(),
-            proofs: crate::ssa_lower::proofs::Proofs::new(facts),
-            proto_keys: Default::default(),
+            suspend_body: body.is_some(),
         };
-        crate::undef_f64_fields::prime(&mut ctx);
-        // T-15.g.5 — prime the binding sets BEFORE lowering any
-        // top-level let-decl (an unprimed escape-captured `let`
-        // stack-allocs and SIGABRTs at env_drop; see the helper doc).
-        let _ = ctx.prime_body_binding_sets(stmts.iter().copied());
-        crate::ssa_lower::alias_hazard::prime(&mut ctx, stmts.iter().copied());
-        crate::ssa_lower_stmt_let_decl_recursive::hoist_forward_boxes(
-            &mut ctx,
-            stmts.iter().copied(),
-        );
-        let mut prev: Option<&Stmt> = None;
-        for s in stmts {
-            if !ctx.try_lower_while_fast(prev, s) {
-                ctx.lower_top_stmt(s);
-            }
-            // Terminating statement (top-level throw in particular)
-            // closed the block — stop lowering siblings, same as the
-            // Block / Multi / try-body / switch-case walks. Without
-            // this guard dead siblings append into the terminated
-            // block and execute before its terminator.
-            if !ctx.cur_open() {
-                break;
-            }
-            prev = Some(*s);
-        }
+        let mut ctx = env.ctx(target, &scans);
+        lower_top_level(&mut ctx, stmts);
         if ctx.cur_open() {
-            // v0.5 T-15.e — drain pending Promise callbacks FIRST,
-            // before any top-level teardown: a deferred settle / user
-            // `.then` callback runs user code, which must observe the
-            // top-level locals, globals and class registry alive.
-            // (Draining after the drops ran callbacks against a
-            // partially-torn-down world — rotation 348.) The same
-            // checkpoint runs FinalizationRegistry cleanup jobs, whose
-            // throw is uncaught like any top-level one.
-            ctx.f.append_void(
-                ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.host_jobs_drain, vec![]),
-            );
-            ctx.emit_throw_check(None);
-            // P10.5-A3-b — sweep unhandled rejections + capture the
-            // exit code while the heap is still fully alive. The
-            // reporter resolves a rejected reason's `name` through
-            // its class prototype chain, and instance→proto edges
-            // are borrowed from the class registry, so the sweep
-            // must precede the registry-stake drops below (the
-            // rotation-348 promise-pool UAF / rc-underflow family).
-            let exit_code = crate::ssa_lower_main_exit::emit_exit_code(&mut ctx);
-            ctx.emit_drops_for_owned_locals();
-            ctx.emit_drops_for_globals();
-            // r505 (A12) — the class cells the prologue fn handed to
-            // the registry.
-            crate::ssa_lower_main_exit::emit_class_cell_registry_release(&mut ctx);
-            // V3-10.b — drain the cycle collector buffer one last
-            // time before returning from main. Cheap when the
-            // buffer is empty; sweeps any orphaned cycles
-            // accumulated during program lifetime so they don't
-            // leak past process exit.
-            ctx.f.append_void(
-                ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.cycle_at_exit_drain, vec![]),
-            );
-            // Census lines on fd 2, from a `--cfg torajs_census` build
-            // only; the names are declared under the same cfg.
-            if cfg!(torajs_census) {
-                for name in crate::ssa_lower_intrinsics_runtime_misc::CENSUS_DUMPS {
-                    let dump = ctx.fn_table[name];
-                    ctx.f
-                        .append_void(ctx.cur_block, InstKind::Call(dump, vec![]));
-                }
+            if body.is_some() {
+                // the wrapper drains and exits once the body is done
+                ctx.emit_drops_for_owned_locals();
+                let cb = ctx.cur_block;
+                ctx.f.set_term(cb, Terminator::Ret(None));
+            } else {
+                drain_and_exit(&mut ctx, None);
             }
-            crate::ssa_lower_main_exit::emit_ret(&mut ctx, exit_code);
         }
     }
-    (f, new_strings)
+    let Some(body) = body else {
+        return (f, None, new_strings);
+    };
+    let mut wrapper = ssa::Function::new("main", Type::I32);
+    let entry = wrapper.add_block();
+    let mut wrapper_strings: Vec<ssa::StringLiteral> = Vec::new();
+    {
+        let target = MainTarget {
+            f: &mut wrapper,
+            entry,
+            new_strings: &mut wrapper_strings,
+            string_id_base: string_id_base + new_strings.len(),
+            suspend_body: false,
+        };
+        let mut ctx = env.ctx(target, &scans);
+        emit_body_call(&mut ctx, body);
+        let exit_code = ModuleCalls::of(&ctx).exit_code;
+        drain_and_exit(&mut ctx, Some(exit_code));
+    }
+    new_strings.extend(wrapper_strings);
+    (f, Some(wrapper), new_strings)
+}
+
+/// Prime the binding sets and lower each top-level statement, up to
+/// the first that closes the block.
+fn lower_top_level(ctx: &mut LowerCtx<'_>, stmts: &[&Stmt]) {
+    crate::undef_f64_fields::prime(ctx);
+    // T-15.g.5 — prime the binding sets BEFORE lowering any
+    // top-level let-decl (an unprimed escape-captured `let`
+    // stack-allocs and SIGABRTs at env_drop; see the helper doc).
+    let _ = ctx.prime_body_binding_sets(stmts.iter().copied());
+    crate::ssa_lower::alias_hazard::prime(ctx, stmts.iter().copied());
+    crate::ssa_lower_stmt_let_decl_recursive::hoist_forward_boxes(ctx, stmts.iter().copied());
+    let mut prev: Option<&Stmt> = None;
+    for s in stmts {
+        if !ctx.try_lower_while_fast(prev, s) {
+            ctx.lower_top_stmt(s);
+        }
+        // Terminating statement (top-level throw in particular)
+        // closed the block — stop lowering siblings, same as the
+        // Block / Multi / try-body / switch-case walks. Without
+        // this guard dead siblings append into the terminated
+        // block and execute before its terminator.
+        if !ctx.cur_open() {
+            break;
+        }
+        prev = Some(*s);
+    }
+}
+
+/// The program's end: run the queued jobs, take the exit code, tear
+/// the top level down, return the code. `exit_code` is the module
+/// body's exit-code call (`__torajs_module_exit_code`), which runs
+/// the unhandled-rejection sweep itself.
+fn drain_and_exit(ctx: &mut LowerCtx<'_>, exit_code: Option<FuncId>) {
+    // v0.5 T-15.e — drain pending Promise callbacks FIRST,
+    // before any top-level teardown: a deferred settle / user
+    // `.then` callback runs user code, which must observe the
+    // top-level locals, globals and class registry alive.
+    // (Draining after the drops ran callbacks against a
+    // partially-torn-down world — rotation 348.) The same
+    // checkpoint runs FinalizationRegistry cleanup jobs, whose
+    // throw is uncaught like any top-level one.
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Call(ctx.intrinsics.host_jobs_drain, vec![]),
+    );
+    ctx.emit_throw_check(None);
+    // P10.5-A3-b — sweep unhandled rejections + capture the
+    // exit code while the heap is still fully alive. The
+    // reporter resolves a rejected reason's `name` through
+    // its class prototype chain, and instance→proto edges
+    // are borrowed from the class registry, so the sweep
+    // must precede the registry-stake drops below (the
+    // rotation-348 promise-pool UAF / rc-underflow family).
+    let exit_code = match exit_code {
+        Some(fid) => {
+            let call = InstKind::Call(fid, vec![]);
+            ctx.f.append_inst(ctx.cur_block, call, Type::I32, None)
+        }
+        None => crate::ssa_lower_main_exit::emit_exit_code(ctx),
+    };
+    ctx.emit_drops_for_owned_locals();
+    ctx.emit_drops_for_globals();
+    // r505 (A12) — the class cells the prologue fn handed to
+    // the registry.
+    crate::ssa_lower_main_exit::emit_class_cell_registry_release(ctx);
+    // V3-10.b — drain the cycle collector buffer one last
+    // time before returning from main. Cheap when the
+    // buffer is empty; sweeps any orphaned cycles
+    // accumulated during program lifetime so they don't
+    // leak past process exit.
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Call(ctx.intrinsics.cycle_at_exit_drain, vec![]),
+    );
+    // Census lines on fd 2, from a `--cfg torajs_census` build
+    // only; the names are declared under the same cfg.
+    if cfg!(torajs_census) {
+        for name in crate::ssa_lower_intrinsics_runtime_misc::CENSUS_DUMPS {
+            let dump = ctx.fn_table[name];
+            ctx.f
+                .append_void(ctx.cur_block, InstKind::Call(dump, vec![]));
+        }
+    }
+    crate::ssa_lower_main_exit::emit_ret(ctx, exit_code);
 }

@@ -6,12 +6,26 @@ use crate::ssa_lower::LowerCtx;
 /// `torajs-promise` `Promise`: the word at +8 holds `state`,
 /// `value_is_heap`, `has_handler` and `value_repr`, one byte each from
 /// the low end; `value` is at +16 (its layout test pins both).
-const PROMISE_STATE_WORD_OFF: u64 = 8;
-const PROMISE_VALUE_OFF: u64 = 16;
+pub(super) const PROMISE_STATE_WORD_OFF: u64 = 8;
+pub(super) const PROMISE_VALUE_OFF: u64 = 16;
 /// `state` and `value_repr` out of that word.
 const STATE_AND_REPR_MASK: u32 = 0xFF00_00FF;
 /// `torajs-promise` `STATE_FULFILLED`.
 const STATE_FULFILLED: i32 = 1;
+
+/// The state word of a cell fulfilled in the form `want_repr` names,
+/// and the bytes of it that tell (`torajs-promise`
+/// `module_await::state_word_wanted` builds the same two).
+pub(super) fn state_word_wanted(want_repr: i64) -> (u32, u32) {
+    if want_repr == 0 {
+        (0xFF, STATE_FULFILLED as u32)
+    } else {
+        (
+            STATE_AND_REPR_MASK,
+            ((want_repr as u32) << 24) | STATE_FULFILLED as u32,
+        )
+    }
+}
 
 /// The settled cell's value word as `want_repr` asks for it; a
 /// rejected source raises its reason here. A cell fulfilled in that

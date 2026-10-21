@@ -14,9 +14,12 @@
 //! consumers.
 
 use crate::{ANY_TAG_HEAP, STR_HDR_SIZE, STR_LEN_OFF, THROW_ACTIVE, THROW_TAG, THROW_VALUE};
-use core::sync::atomic::Ordering;
+use core::ffi::c_void;
+use core::sync::atomic::{AtomicI32, Ordering};
 
 unsafe extern "C" {
+    /// torajs-value-drop — release one reference on a heap cell.
+    fn __torajs_value_drop_heap(p: *mut c_void);
     /// Raw fd write — Layer-0 syscall shim (torajs-syscall).
     fn __torajs_syscall_write(fd: i32, buf: *const u8, n: usize) -> isize;
     /// torajs-anyvalue — an error instance's `name` resolved through
@@ -145,6 +148,60 @@ pub unsafe extern "C" fn __torajs_uncaught_exit_code() -> i32 {
     if THROW_ACTIVE.load(Ordering::Relaxed) == 0 {
         return 0;
     }
+    unsafe { render_pending() };
+    1
+}
+
+/// Set once [`__torajs_uncaught_report`] reported a throw.
+static UNCAUGHT_SEEN: AtomicI32 = AtomicI32::new(0);
+
+/// Report the pending throw as uncaught, then clear it and release
+/// its value: the exit of a module body that awaits at its top level,
+/// after which the job queue keeps running (§16.2.1.5.3 rejects only
+/// the module's capability), so the slot must not be left for the
+/// next job's throw check to take as its own. No throw pending: no-op.
+///
+/// # Safety
+/// As [`__torajs_uncaught_exit_code`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_uncaught_report() {
+    if THROW_ACTIVE.load(Ordering::Relaxed) == 0 {
+        return;
+    }
+    unsafe { render_pending() };
+    let tag = THROW_TAG.load(Ordering::Relaxed);
+    let value = THROW_VALUE.load(Ordering::Relaxed);
+    THROW_ACTIVE.store(0, Ordering::Relaxed);
+    unsafe { release_thrown(tag, value) };
+    UNCAUGHT_SEEN.store(1, Ordering::Relaxed);
+}
+
+/// Release the reference the throw slot holds on its value, by the
+/// slot's tag (`torajs_rc::AnySlotTag`, 0 to 5): `Heap` is the one tag
+/// whose payload is a counted reference (every refcounted throw, typed
+/// or `any`, is set under it). `Undef` carries at most the immortal
+/// undefined cell; null, booleans and numbers are inline.
+///
+/// # Safety
+/// `(tag, value)` is what the throw slot held.
+unsafe fn release_thrown(tag: i64, value: i64) {
+    match tag {
+        ANY_TAG_HEAP if value != 0 => unsafe { __torajs_value_drop_heap(value as *mut c_void) },
+        _ => {}
+    }
+}
+
+/// 1 once [`__torajs_uncaught_report`] reported a throw, else 0.
+#[unsafe(no_mangle)]
+pub extern "C" fn __torajs_uncaught_seen() -> i32 {
+    UNCAUGHT_SEEN.load(Ordering::Relaxed)
+}
+
+/// The uncaught banner of the pending throw, on stderr.
+///
+/// # Safety
+/// A throw is pending.
+unsafe fn render_pending() {
     const PREFIX: &[u8] = b"error: uncaught ";
     unsafe { __torajs_syscall_write(2, PREFIX.as_ptr(), PREFIX.len()) };
     let tag = THROW_TAG.load(Ordering::Relaxed);
@@ -176,5 +233,4 @@ pub unsafe extern "C" fn __torajs_uncaught_exit_code() -> i32 {
         unsafe { __torajs_syscall_write(2, PLACEHOLDER.as_ptr(), PLACEHOLDER.len()) };
     }
     unsafe { __torajs_syscall_write(2, b"\n".as_ptr(), 1) };
-    1
 }

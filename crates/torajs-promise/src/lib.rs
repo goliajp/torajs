@@ -50,6 +50,7 @@ pub(crate) mod combinator_then_override;
 pub mod frame;
 pub mod layout;
 pub mod micro;
+pub mod module_await;
 pub mod pool;
 pub mod print;
 pub mod reaction;

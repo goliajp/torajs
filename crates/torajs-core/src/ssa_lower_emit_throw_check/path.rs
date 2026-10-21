@@ -52,7 +52,7 @@ impl LowerCtx<'_> {
             } else {
                 self.f.set_term(throw_blk, Terminator::Br(catch.blk));
             }
-        } else if self.is_main_fn {
+        } else if self.is_main_fn && !self.suspend_body {
             // the throw escaped every user frame: an uncaught exception
             // reports the pending throw to stderr and exits 1
             // (__torajs_uncaught_exit_code), where returning the
