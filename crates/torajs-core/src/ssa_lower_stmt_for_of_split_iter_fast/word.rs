@@ -244,13 +244,14 @@ pub(super) fn emit(ctx: &mut LowerCtx, from: BlockId, sc: &Scan, y: &Yield) {
     ctx.f.set_term(skip, Terminator::Br(step));
     cut(ctx, found, m, k, true);
 
-    // the last word, read whole: only the lanes inside the parent count
+    // the last word, read whole: only the lanes inside the parent count,
+    // so the `k8 - plen` lanes past its end (1 to 7 here) are shifted
+    // out at the top and the rest shifted back
     let raw = marks_of(ctx, part, k);
-    let left = bin(ctx, part, BinOp::Sub, v(plen), v(k));
-    let bits = bin(ctx, part, BinOp::Shl, v(left), Operand::ConstI64(3));
-    let over = bin(ctx, part, BinOp::Shl, Operand::ConstI64(1), v(bits));
-    let keep = bin(ctx, part, BinOp::Sub, v(over), Operand::ConstI64(1));
-    let mp = bin(ctx, part, BinOp::And, v(raw), v(keep));
+    let beyond = bin(ctx, part, BinOp::Sub, v(k8), v(plen));
+    let bits = bin(ctx, part, BinOp::Shl, v(beyond), Operand::ConstI64(3));
+    let up = bin(ctx, part, BinOp::Shl, v(raw), v(bits));
+    let mp = bin(ctx, part, BinOp::LShr, v(up), v(bits));
     let any_part = non_zero(ctx, part, mp);
     cond_br(ctx, part, any_part, found_part, end);
     cut(ctx, found_part, mp, k, true);
