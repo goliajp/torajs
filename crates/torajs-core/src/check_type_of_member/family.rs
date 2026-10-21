@@ -37,7 +37,7 @@ pub(crate) fn member_resolves(obj_ty: &Type, name: &str) -> bool {
     matches!(try_family_dispatch(obj_ty, name), Some(Ok(_)))
 }
 
-pub(super) fn try_family_dispatch(obj_ty: &Type, name: &str) -> Option<Result<Type, String>> {
+pub(crate) fn try_family_dispatch(obj_ty: &Type, name: &str) -> Option<Result<Type, String>> {
     // Date instance methods — see
     // [`crate::check_type_of_member_date`] (chunk 191 —
     // first sub-batch of check_type_of_member per-type-

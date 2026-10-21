@@ -8,6 +8,7 @@
 
 use crate::ast::{Ast, ExprId};
 use crate::check::{Checker, Type};
+use crate::check_stmt_let_decl::held_any::face as held_face;
 
 mod arg_admitted;
 mod defaulted_param;
@@ -161,6 +162,7 @@ pub(crate) fn general_call(
             crate::check_assignable::in_declared_order(checker, ast, param_ty, *arg_id, arg_ty);
         let arg_ty = super::source_array_param::face_view(checker, ast, *callee, param_ty, &arg_ty)
             .unwrap_or(arg_ty);
+        held_face::check_arg(checker, ast, (i, *arg_id), param_ty)?;
         let Some(boxed) = arg_route(
             checker,
             ast,

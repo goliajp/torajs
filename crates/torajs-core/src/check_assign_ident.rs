@@ -27,9 +27,11 @@
 use crate::ast::{Ast, ExprId};
 use crate::check::{Checker, DiagPush, Type};
 use crate::check_assignable::is_assignable_to_resolved;
+use crate::check_stmt_let_decl::any_scalar_slot::held_decl;
 use crate::check_stmt_let_decl::fn_face_slot::{
     record_census_store, record_global_store_face, record_store_face,
 };
+use crate::check_stmt_let_decl::held_any::face::check_store;
 
 pub(crate) fn check(
     checker: &mut Checker,
@@ -66,6 +68,8 @@ pub(crate) fn check(
         let value_ty = checker.type_of(ast, value)?;
         let value_ty =
             crate::check_assignable::in_declared_order(checker, ast, &global_ty, value, value_ty);
+        let held = checker.held_any.scalar_globals.get(&name).cloned();
+        check_store(checker, ast, &name, (&global_ty, held), (value, &value_ty))?;
         if !is_assignable_to_resolved(
             &global_ty,
             &value_ty,
@@ -197,7 +201,8 @@ pub(crate) fn check(
     let value_ty =
         crate::check_assignable::in_declared_order(checker, ast, &target_ty, value, value_ty);
     let decl = (info.ann.as_deref(), info.decl.as_ref());
-    crate::check_stmt_let_decl::any_scalar_slot::declared_store(checker, &name, decl, &value_ty)?;
+    let slots = (&target_ty, held_decl(checker, decl));
+    check_store(checker, ast, &name, slots, (value, &value_ty))?;
     admit_store(checker, (ast, &name), decl, &target_ty, (&value_ty, value))?;
     checker.note_store(&name, value, &value_ty)?;
     // See the global arm above — the literal is typed by the slot.

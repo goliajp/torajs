@@ -30,8 +30,7 @@ use crate::check_type_of_member_accessor::{class_name_of, enforce_visibility};
 use crate::check_type_of_member_nullable_recv as nullable_recv;
 
 mod family;
-use family::try_family_dispatch;
-pub(crate) use family::{member_is_modeled, member_resolves};
+pub(crate) use family::{member_is_modeled, member_resolves, try_family_dispatch};
 
 /// `lenient_missing` — S2.24 刀 4: true for a desugar-minted
 /// pattern field load (`Ast::dstr_default_member_loads`, every slot
@@ -70,6 +69,15 @@ pub(crate) fn check(
         return Ok(narrowed);
     }
     let obj_ty = checker.type_of(ast, *obj)?;
+    if obj_ty == Type::Any {
+        let read = (*obj, name);
+        crate::check_stmt_let_decl::held_any::face::check_receiver(
+            checker,
+            ast,
+            read,
+            lenient_missing,
+        )?;
+    }
     checker.check_union_member(ast, *obj, name)?;
     if let Some(t) = checker.union_field_type(ast, *obj, name) {
         return Ok(t);

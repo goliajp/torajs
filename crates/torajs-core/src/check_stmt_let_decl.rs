@@ -109,6 +109,9 @@ pub(crate) fn check(
             };
             let init_ty =
                 crate::check_assignable::in_declared_order(checker, ast, &ann_ty, init, init_ty);
+            if held_any::face::refuses_init(checker, ast, name, init, &ann_ty) {
+                return;
+            }
             // 423-03 ④ — a fn-typed LET takes the same S2 call-face
             // admit a fn-typed call ARG takes (`const slot: () =>
             // void = gb` where gb declares a defaulted param): the
@@ -188,6 +191,7 @@ pub(crate) fn check(
     if held_any && checker.scopes.len() == 1 {
         checker.held_any.globals.insert(name.to_string());
     }
+    any_scalar_slot::note_held(checker, name, type_ann.as_deref(), init);
     let is_alias_init = checker.classify_init_alias(ast, init);
     let declared_class: Option<String> = type_ann.as_ref().and_then(|s| {
         let base = crate::check_type_ann::strip_nullable(s);

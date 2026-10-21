@@ -88,6 +88,7 @@ pub(crate) fn check(
         false
     };
     checker.check_union_method_call(ast, *callee)?;
+    crate::check_stmt_let_decl::held_any::face::check_method_receiver(checker, ast, *callee)?;
     if patched_static || patched_method {
         // Type the arguments before standing down. Returning straight
         // from here skips the walk every other route performs, and

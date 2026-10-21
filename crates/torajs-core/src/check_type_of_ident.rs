@@ -21,6 +21,7 @@
 //! 6. **Unknown** — `Err("unknown identifier ...")`.
 
 use crate::check::{Checker, Type};
+use crate::check_stmt_let_decl::any_scalar_slot::held_decl;
 
 /// The builtin namespace-object idents — every arm was the identical
 /// `"X" => Ok(Type::Object("X"))` shape, collapsed to this table
@@ -98,12 +99,18 @@ pub(crate) fn check(
         if let Some(lit) = info.union.literal {
             return Ok(lit);
         }
+        if info.ty == Type::Any {
+            let decl = (info.ann.as_deref(), info.decl.as_ref());
+            note_scalar(checker, eid, held_decl(checker, decl));
+        }
         return Ok(held_face(checker, ast, eid, info.held_any, info.ty));
     }
     if let Some(ty) = checker.globals.get(name) {
         let ty = ty.clone();
         checker.undeclared_reads.remove(&eid);
         let held = checker.held_any.globals.contains(name);
+        let scalar = checker.held_any.scalar_globals.get(name).cloned();
+        note_scalar(checker, eid, scalar);
         return Ok(held_face(checker, ast, eid, held, ty));
     }
     // §8.1.1.1 — a read ahead of its top-level declaration reaches that
@@ -255,5 +262,14 @@ fn held_face(
         Type::Any
     } else {
         ty
+    }
+}
+
+/// A read of a `number` / `string` / `boolean` binding that holds an
+/// `any` value (`crate::check_stmt_let_decl::any_scalar_slot`): typed
+/// `any`, its declared type kept for the TypeScript rules.
+fn note_scalar(checker: &mut Checker, eid: crate::ast::ExprId, declared: Option<Type>) {
+    if let Some(t) = declared {
+        checker.held_any.reads.insert(eid, t);
     }
 }

@@ -23,6 +23,7 @@
 use crate::ast::{Ast, ExprId};
 use crate::check::{Checker, DiagPush, Type};
 use crate::check_assignable::is_assignable_to_resolved;
+use crate::check_stmt_let_decl::held_any::face;
 
 pub(crate) fn check(checker: &mut Checker, ast: &Ast, maybe_expr: Option<ExprId>) {
     let Some(expected) = checker.expected_return.clone() else {
@@ -47,6 +48,8 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, maybe_expr: Option<ExprId>
         }
         None => actual,
     };
+    let held = maybe_expr.and_then(|eid| face::refused(checker, ast, eid, &expected));
+    let actual = held.unwrap_or(actual);
     let nullable_ok = if let Type::Nullable(inner) = &expected {
         actual == Type::Null || actual == **inner
     } else {
