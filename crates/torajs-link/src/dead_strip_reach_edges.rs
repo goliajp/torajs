@@ -95,7 +95,11 @@ pub(crate) fn decode_edges<'a>(
 /// The edges a member's image table stores, with its foreign imports
 /// once an edge names one.
 struct Stored<'a> {
-    edges: TableEdges<'a>,
+    /// The member's out-edge table, not empty.
+    tab: &'a [u8],
+    /// `tab` read, from the first atom the closure expands on (until
+    /// then the closure does not touch the table's pages).
+    edges: Option<TableEdges<'a>>,
     /// Each foreign import's name and name id ([`NO_ID`] until an edge
     /// names it), in import order; empty until an edge names one.
     foreign: Vec<(&'a str, u32)>,
@@ -139,12 +143,11 @@ impl<'a> EdgeIndex<'a> {
             let decode_all = *self.decode_all.get_or_insert_with(|| {
                 std::env::var_os("TORAJS_LINK_REACH_FALLBACK_DIAG").is_some()
             });
-            let stored = TableEdges::of(edges)
-                .filter(|_| !decode_all)
-                .map(|edges| Stored {
-                    edges,
-                    foreign: Vec::new(),
-                });
+            let stored = (!edges.is_empty() && !decode_all).then(|| Stored {
+                tab: edges,
+                edges: None,
+                foreign: Vec::new(),
+            });
             self.stored.push(stored);
         }
         slot
@@ -186,7 +189,11 @@ impl<'a> EdgeIndex<'a> {
         match (atom, self.stored[slot as usize].as_mut()) {
             (Some(a), Some(st)) => {
                 let (arena, ids, names) = (&mut self.arena, &mut self.ids, &mut self.names);
-                for e in st.edges.atom(sect, a) {
+                let tab = st.tab;
+                let edges = *st.edges.get_or_insert_with(|| {
+                    TableEdges::of(tab).expect("a stored edge table is not empty")
+                });
+                for e in edges.atom(sect, a) {
                     arena.push(match e {
                         TableEdge::Local { sect, atom } => Edge::Local { sect, atom },
                         TableEdge::Sym(row) => Edge::Sym(row),
