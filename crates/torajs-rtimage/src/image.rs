@@ -55,8 +55,10 @@ use crate::archive::{
 };
 use crate::prune::{Winners, live_members};
 
+mod assemble;
 mod rows;
 mod view;
+use assemble::{Sections, assemble};
 pub use rows::SymbolRows;
 use rows::{Names, sym_rows};
 pub use view::{Image, ImageError, ImageSymbol};
@@ -235,52 +237,18 @@ fn build_members(
     let (n_syms, syms) = sym_rows(winners, &renumber, &mut names)?;
     debug_assert_eq!(n_syms, indexed.len());
 
-    let archives_off = HEADER_LEN;
-    let slots_off = archives_off + archive_table.len() * 8;
-    let members_off = slots_off + slots.len() * 4;
-    let syms_off = members_off + members.len() * MEMBER_LEN;
-    let names_off = syms_off + syms.len();
-    let names = names.bytes;
-    let blob_off = align8(names_off + names.len());
-    let tables_off = blob_off + blob.len();
-    let colds_off = tables_off + tables.len();
-    let total = colds_off + colds.len();
-
-    let mut out: Vec<u8> = Vec::with_capacity(total);
-    out.extend_from_slice(MAGIC);
-    out.extend_from_slice(&VERSION.to_le_bytes());
-    for n in [
-        parsed.len(),
-        slots.len(),
-        members.len(),
+    assemble(Sections {
+        n_archives: parsed.len(),
+        archive_table: &archive_table,
+        slots: &slots,
+        members: &members,
         n_syms,
-        archives_off,
-        slots_off,
-        members_off,
-        syms_off,
-        names_off,
-        names.len(),
-        blob_off,
-        blob.len(),
-        tables_off,
-        tables.len(),
-        colds_off,
-        colds.len(),
-    ] {
-        out.extend_from_slice(&u32v(n)?.to_le_bytes());
-    }
-    debug_assert_eq!(out.len(), HEADER_LEN);
-    let rows = archive_table.iter().flatten().chain(&slots);
-    for v in rows.chain(members.iter().flatten()) {
-        out.extend_from_slice(&v.to_le_bytes());
-    }
-    out.extend_from_slice(&syms);
-    out.extend_from_slice(&names);
-    out.resize(blob_off, 0);
-    out.extend_from_slice(&blob);
-    out.extend_from_slice(&tables);
-    out.extend_from_slice(&colds);
-    Ok(out)
+        syms: &syms,
+        names: &names.bytes,
+        blob: &blob,
+        tables: &tables,
+        colds: &colds,
+    })
 }
 
 fn align8(n: usize) -> usize {
