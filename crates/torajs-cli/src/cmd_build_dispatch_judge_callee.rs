@@ -8,12 +8,11 @@ use torajs_core::ssa::{FuncId, Module};
 
 use crate::cmd_build_dispatch_judge::{
     ANY_WRITERS, FALLBACK_PREFIXES, MID_CARRIERS, NS_WORLD_PREFIXES, PREFIX_FAMILIES, PRINT_WORLD,
-    is_synth_error_fn,
 };
+use crate::cmd_build_dispatch_judge_match_symbol::MatchSymbolSource;
 use crate::cmd_build_dispatch_judge_obj_world::COERCION_PREFIXES;
-use crate::cmd_build_dispatch_judge_regexp_world::{
-    CtorHandout, MatchSymbolSource, STR_SYMBOL_GATE, mints_regexp,
-};
+use crate::cmd_build_dispatch_judge_regexp_world::{CtorHandout, STR_SYMBOL_GATE, mints_regexp};
+use crate::cmd_build_dispatch_judge_synth_error::is_synth_error_fn;
 use crate::cmd_build_dispatch_stubs::{is_arm_sym, is_printer_sym};
 
 pub(crate) struct CalleeFacts {

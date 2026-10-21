@@ -16,11 +16,13 @@ mod cmd_build_dispatch_judge_ctor_reach_tests;
 mod cmd_build_dispatch_judge_ctor_uses;
 #[cfg(test)]
 mod cmd_build_dispatch_judge_ctor_uses_tests;
+mod cmd_build_dispatch_judge_match_symbol;
 mod cmd_build_dispatch_judge_obj_world;
 mod cmd_build_dispatch_judge_regexp_unseen;
 #[cfg(test)]
 mod cmd_build_dispatch_judge_regexp_unseen_tests;
 mod cmd_build_dispatch_judge_regexp_world;
+mod cmd_build_dispatch_judge_synth_error;
 mod cmd_build_dispatch_stubs;
 mod cmd_build_elide;
 mod cmd_build_elide_class;
