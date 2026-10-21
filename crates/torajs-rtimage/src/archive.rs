@@ -68,7 +68,7 @@ pub struct ArMember<'a> {
     /// Member name without the BSD long-name prefix bytes. For
     /// names short enough to fit in the 16-byte `ar_name` slot,
     /// this trims trailing spaces.
-    pub name: MemberName<'a>,
+    pub name: crate::member_name::MemberName<'a>,
     /// Member payload (the `.o` Mach-O bytes for code archives).
     pub data: &'a [u8],
 }
@@ -158,7 +158,7 @@ pub fn parse_archive(bytes: &[u8]) -> Result<Vec<ArMember<'_>>, ArParseError> {
             name == "__.SYMDEF" || name == "__.SYMDEF SORTED" || name.starts_with("__.SYMDEF");
         if !is_symdef {
             members.push(ArMember {
-                name: MemberName::new(name),
+                name: crate::member_name::MemberName::new(name),
                 data: member_data,
             });
         }
@@ -177,8 +177,6 @@ pub fn parse_archive(bytes: &[u8]) -> Result<Vec<ArMember<'_>>, ArParseError> {
 // ---- S7-B: Mach-O member symbol extraction ----
 
 use std::collections::BTreeMap;
-
-use crate::member_name::MemberName;
 
 // `mach-o/loader.h` / `mach-o/nlist.h` values this leaf crate reads;
 // `torajs-obj` carries the same names but sits above `torajs-core`
@@ -458,6 +456,7 @@ fn ascii_to_owned(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::member_name::MemberName;
 
     /// Build a minimal valid `.a` containing a single member with
     /// a short name (no BSD long-name encoding).

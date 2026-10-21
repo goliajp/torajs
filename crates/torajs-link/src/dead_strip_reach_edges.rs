@@ -188,20 +188,8 @@ impl<'a> EdgeIndex<'a> {
         let start = self.arena.len();
         match (atom, self.stored[slot as usize].as_mut()) {
             (Some(a), Some(st)) => {
-                let (arena, ids, names) = (&mut self.arena, &mut self.ids, &mut self.names);
-                let tab = st.tab;
-                let edges = *st.edges.get_or_insert_with(|| {
-                    TableEdges::of(tab).expect("a stored edge table is not empty")
-                });
-                for e in edges.atom(sect, a) {
-                    arena.push(match e {
-                        TableEdge::Local { sect, atom } => Edge::Local { sect, atom },
-                        TableEdge::Sym(row) => Edge::Sym(row),
-                        TableEdge::Foreign(k) => {
-                            Edge::Name(foreign_id(&mut st.foreign, k, imports, ids, names))
-                        }
-                    });
-                }
+                let lists = (&mut self.arena, &mut self.ids, &mut self.names);
+                push_stored_edges(st, (sect, a), imports, lists);
             }
             _ => {
                 let (arena, ids, names) = (&mut self.arena, &mut self.ids, &mut self.names);
@@ -241,6 +229,33 @@ impl<'a> EdgeIndex<'a> {
 
 /// The name id of the `k`-th of `imports` the image's symbol index
 /// lacks, entered the first time an edge names it.
+/// Pushes the stored out-edges of atom `a` of section `sect`, reading
+/// the member's table on its first use.
+fn push_stored_edges<'a>(
+    st: &mut Stored<'a>,
+    (sect, a): (u8, u32),
+    imports: &[Import<'a>],
+    (arena, ids, names): (
+        &mut Vec<Edge>,
+        &mut HashMap<&'a str, u32>,
+        &mut Vec<&'a str>,
+    ),
+) {
+    let tab = st.tab;
+    let edges = *st
+        .edges
+        .get_or_insert_with(|| TableEdges::of(tab).expect("a stored edge table is not empty"));
+    for e in edges.atom(sect, a) {
+        arena.push(match e {
+            TableEdge::Local { sect, atom } => Edge::Local { sect, atom },
+            TableEdge::Sym(row) => Edge::Sym(row),
+            TableEdge::Foreign(k) => {
+                Edge::Name(foreign_id(&mut st.foreign, k, imports, ids, names))
+            }
+        });
+    }
+}
+
 fn foreign_id<'a>(
     foreign: &mut Vec<(&'a str, u32)>,
     k: u32,

@@ -25,6 +25,11 @@ impl<'a> MemberName<'a> {
         self.0
     }
 
+    /// Whether `part` occurs anywhere in the name.
+    pub fn contains(self, part: &str) -> bool {
+        self.0.windows(part.len()).any(|w| w == part.as_bytes())
+    }
+
     pub fn starts_with(self, prefix: &str) -> bool {
         self.0.starts_with(prefix.as_bytes())
     }
@@ -39,12 +44,6 @@ impl fmt::Display for MemberName<'_> {
 impl fmt::Debug for MemberName<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Debug::fmt(&*String::from_utf8_lossy(self.0), f)
-    }
-}
-
-impl PartialEq<str> for MemberName<'_> {
-    fn eq(&self, other: &str) -> bool {
-        self.0 == other.as_bytes()
     }
 }
 

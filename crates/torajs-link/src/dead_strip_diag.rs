@@ -5,7 +5,6 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::archive::MemberName;
 use crate::archives_merge::{ExtraDefined, MergedArchives, RequiredMembers};
 use crate::dead_strip_reach::{
     MemberReach, Node, Pred, ReachProbes, ReachResult, compute_reachability, trim16,
@@ -103,10 +102,7 @@ pub(crate) fn render_live_dump(r: &ReachResult<'_>, pats: &[String]) -> String {
     use std::fmt::Write;
     let mut out = String::new();
     for m in r.members.values() {
-        if !pats
-            .iter()
-            .any(|p| m.member_name.to_string().contains(p.as_str()))
-        {
+        if !pats.iter().any(|p| m.member_name.contains(p)) {
             continue;
         }
         for (si, sa) in m.sects.iter().enumerate() {
@@ -237,8 +233,8 @@ fn render_report(
     use std::fmt::Write;
     let (mut t_tot, mut t_live, mut d_tot, mut d_live) = (0u64, 0u64, 0u64, 0u64);
     let mut fallbacks = 0usize;
-    let mut rows: Vec<(u64, u64, MemberName<'_>)> = Vec::new();
-    let mut live_rows: Vec<(u64, u64, MemberName<'_>)> = Vec::new();
+    let mut rows: Vec<(u64, u64, crate::archive::MemberName<'_>)> = Vec::new();
+    let mut live_rows: Vec<(u64, u64, crate::archive::MemberName<'_>)> = Vec::new();
     let mut by_sect: BTreeMap<String, (u64, u64)> = BTreeMap::new();
     for r in reach.values() {
         let (mut mt_tot, mut mt_live) = (0u64, 0u64);
