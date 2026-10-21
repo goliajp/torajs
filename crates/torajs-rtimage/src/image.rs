@@ -19,24 +19,27 @@
 //!   header    MAGIC(8) version n_archives n_slots n_members n_syms
 //!             archives_off slots_off members_off syms_off
 //!             names_off names_len blob_off blob_len
-//!             tables_off tables_len
+//!             tables_off tables_len colds_off colds_len
 //!   archives  n_archives × { slot_start, slot_count }       (u32 ×2)
 //!   slots     n_slots × member_id                           (u32)
 //!   members   n_members × { name_off, name_len, data_off,
-//!                            data_len, table_off,
-//!                            table_len }                    (u32 ×6)
+//!                            data_len, table_off, table_len,
+//!                            cold_off, cold_len }           (u32 ×8)
 //!   syms      n_syms × { name_off, name_len, archive_idx,
 //!                        member_idx, n_value(u64) }         (24 B)
 //!   names     member and symbol names, no terminators
 //!   blob      distinct kept member bodies
 //!   tables    one table per distinct member, opaque here
+//!   colds     one cold table per distinct member, opaque here
 //! ```
 //!
-//! A member's table is whatever the image's consumer derived from the
-//! member's bytes when the image was built
-//! ([`build_reachable_from_members_with_tables`]), so a link reads it
+//! A member's tables are whatever the image's consumer derived from
+//! the member's bytes when the image was built
+//! ([`build_reachable_from_members_with_tables`]), so a link reads them
 //! instead of parsing the bytes again; an empty table means none was
-//! built.
+//! built. The cold tables sit apart from the tables, for what a reader
+//! needs of only some of the members it reads tables of: the tables it
+//! reads of every member stay packed together.
 //!
 //! A slot is one kept `(archive, member)` position, in the original
 //! walk's order, so the linker's member ordering and first-wins
@@ -59,9 +62,9 @@ use rows::{Names, sym_rows};
 pub use view::{Image, ImageError, ImageSymbol};
 
 const MAGIC: &[u8; 8] = b"TRIMG\0\0\0";
-const VERSION: u32 = 2;
-const HEADER_LEN: usize = 8 + 4 * 15;
-const MEMBER_LEN: usize = 24;
+const VERSION: u32 = 3;
+const HEADER_LEN: usize = 8 + 4 * 17;
+const MEMBER_LEN: usize = 32;
 const SYM_LEN: usize = 24;
 
 /// Failures of [`build`], blamed on one archive.
@@ -85,10 +88,17 @@ pub enum BuildError {
     TooLarge,
 }
 
-/// Builds the table stored beside one member body; the rows the
-/// image's symbol index will give each name come along, so a table can
-/// name a symbol by its row.
-type TableFn<'f> = dyn FnMut(&ArMember<'_>, &SymbolRows<'_>) -> Result<Vec<u8>, String> + 'f;
+/// The two tables stored for one member body.
+#[derive(Debug, Default)]
+pub struct MemberTables {
+    pub table: Vec<u8>,
+    pub cold: Vec<u8>,
+}
+
+/// Builds the tables stored for one member body; the rows the image's
+/// symbol index will give each name come along, so a table can name a
+/// symbol by its row.
+type TableFn<'f> = dyn FnMut(&ArMember<'_>, &SymbolRows<'_>) -> Result<MemberTables, String> + 'f;
 
 fn u32v(n: usize) -> Result<u32, BuildError> {
     u32::try_from(n).map_err(|_| BuildError::TooLarge)
@@ -97,19 +107,23 @@ fn u32v(n: usize) -> Result<u32, BuildError> {
 /// Preprocess `archives` (in link search order) into an image holding
 /// every member.
 pub fn build(archives: &[&[u8]]) -> Result<Vec<u8>, BuildError> {
-    build_members(&parse_all(archives)?, false, &mut |_, _| Ok(Vec::new()))
+    build_members(&parse_all(archives)?, false, &mut |_, _| {
+        Ok(MemberTables::default())
+    })
 }
 
 /// [`build`] keeping only the members some program can pull into its
 /// link; the names won by a dropped member leave the index, so a
 /// lookup of one misses instead of pulling a different member.
 pub fn build_reachable(archives: &[&[u8]]) -> Result<Vec<u8>, BuildError> {
-    build_members(&parse_all(archives)?, true, &mut |_, _| Ok(Vec::new()))
+    build_members(&parse_all(archives)?, true, &mut |_, _| {
+        Ok(MemberTables::default())
+    })
 }
 
 /// [`build_reachable`] over archives already split into members, in
 /// link search order (members a caller rewrote included), storing
-/// `table(member)` beside each distinct kept member body.
+/// `table(member)`'s tables for each distinct kept member body.
 pub fn build_reachable_from_members_with_tables(
     archives: &[Vec<ArMember<'_>>],
     table: &mut TableFn<'_>,
@@ -165,9 +179,11 @@ fn build_members(
     let mut names = Names::default();
     let mut blob: Vec<u8> = Vec::new();
     let mut tables: Vec<u8> = Vec::new();
+    let mut colds: Vec<u8> = Vec::new();
     let mut member_ids: HashMap<(&str, &[u8]), u32> = HashMap::new();
-    // (name_off, name_len, data_off, data_len, table_off, table_len)
-    let mut members: Vec<[u32; 6]> = Vec::new();
+    // (name_off, name_len, data_off, data_len, table_off, table_len,
+    //  cold_off, cold_len)
+    let mut members: Vec<[u32; 8]> = Vec::new();
     let mut archive_table: Vec<[u32; 2]> = Vec::new();
     let mut slots: Vec<u32> = Vec::new();
     // original member index -> index among the archive's kept members
@@ -192,15 +208,18 @@ fn build_members(
                         member: m.name.to_string(),
                         err,
                     })?;
-                    let table_off = u32v(tables.len())?;
-                    tables.extend_from_slice(&t);
+                    let (table_off, cold_off) = (u32v(tables.len())?, u32v(colds.len())?);
+                    tables.extend_from_slice(&t.table);
+                    colds.extend_from_slice(&t.cold);
                     members.push([
                         name_off,
                         name_len,
                         data_off,
                         u32v(m.data.len())?,
                         table_off,
-                        u32v(t.len())?,
+                        u32v(t.table.len())?,
+                        cold_off,
+                        u32v(t.cold.len())?,
                     ]);
                     let id = u32v(members.len() - 1)?;
                     member_ids.insert((m.name, m.data), id);
@@ -224,7 +243,8 @@ fn build_members(
     let names = names.bytes;
     let blob_off = align8(names_off + names.len());
     let tables_off = blob_off + blob.len();
-    let total = tables_off + tables.len();
+    let colds_off = tables_off + tables.len();
+    let total = colds_off + colds.len();
 
     let mut out: Vec<u8> = Vec::with_capacity(total);
     out.extend_from_slice(MAGIC);
@@ -244,6 +264,8 @@ fn build_members(
         blob.len(),
         tables_off,
         tables.len(),
+        colds_off,
+        colds.len(),
     ] {
         out.extend_from_slice(&u32v(n)?.to_le_bytes());
     }
@@ -257,6 +279,7 @@ fn build_members(
     out.resize(blob_off, 0);
     out.extend_from_slice(&blob);
     out.extend_from_slice(&tables);
+    out.extend_from_slice(&colds);
     Ok(out)
 }
 
@@ -494,7 +517,10 @@ mod tests {
         let mut calls: Vec<String> = Vec::new();
         let img = build_reachable_from_members_with_tables(&parsed, &mut |m, _| {
             calls.push(m.name.to_string());
-            Ok(format!("{}:{}", m.name, m.data.len()).into_bytes())
+            Ok(MemberTables {
+                table: format!("{}:{}", m.name, m.data.len()).into_bytes(),
+                cold: format!("cold {}", m.name).into_bytes(),
+            })
         })
         .unwrap();
         // the copy of std.o in b wins no name and is left out
@@ -504,17 +530,20 @@ mod tests {
             for (i, m) in v.members(a).enumerate() {
                 let want = format!("{}:{}", m.name, m.data.len());
                 assert_eq!(v.member_table(a, i), want.as_bytes());
+                let cold = format!("cold {}", m.name);
+                assert_eq!(v.member_cold_table(a, i), cold.as_bytes());
             }
         }
         let plain = build(&[&a, &b]).unwrap();
         let v = Image::parse(&plain).unwrap();
         assert!(v.member_table(1, 0).is_empty());
+        assert!(v.member_cold_table(1, 0).is_empty());
 
         let err = build_reachable_from_members_with_tables(&parsed, &mut |m, _| {
             if m.name == "b.o" {
                 Err("no".into())
             } else {
-                Ok(Vec::new())
+                Ok(MemberTables::default())
             }
         })
         .unwrap_err();
@@ -537,7 +566,7 @@ mod tests {
         let mut seen: Vec<Option<u32>> = Vec::new();
         let img = build_reachable_from_members_with_tables(&parsed, &mut |_, rows| {
             seen = probe.iter().map(|n| rows.row(n)).collect();
-            Ok(Vec::new())
+            Ok(MemberTables::default())
         })
         .unwrap();
         let v = Image::parse(&img).unwrap();

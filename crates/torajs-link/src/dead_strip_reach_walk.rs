@@ -18,6 +18,7 @@ use crate::dead_strip_reach_edges::{Edge, EdgeIndex};
 use crate::dead_strip_reach_resolve::{atom_at, local_node};
 use crate::dead_strip_reach_seen::{Seen, UndefMemo};
 use crate::dead_strip_reach_table::{Import, image_table};
+use crate::dead_strip_reach_table_edges::image_edges;
 use crate::sym_rows::SymSet;
 
 mod roots;
@@ -54,7 +55,8 @@ impl<'a> Walk<'a> {
             let imports = cache
                 .bytes_imports(merged, (a, m))
                 .map_err(|e| format!("{}: imports: {e:?}", member.name))?;
-            w.slots.push(cache.edges.slot(&member, &r));
+            let edges = image_edges(merged, (a, m));
+            w.slots.push(cache.edges.slot(&member, &r, edges, &imports));
             if w.pos.len() <= a {
                 w.pos.resize(a + 1, Vec::new());
             }

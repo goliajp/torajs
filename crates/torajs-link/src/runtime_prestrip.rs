@@ -22,7 +22,7 @@ use std::collections::BTreeMap;
 
 use torajs_obj::{N_EXT, N_SECT, N_TYPE, NLIST_64_SIZE, RELOCATION_INFO_SIZE};
 use torajs_rtimage::image::{
-    BuildError, build_reachable, build_reachable_from_members_with_tables,
+    BuildError, MemberTables, build_reachable, build_reachable_from_members_with_tables,
 };
 use torajs_rtimage::prune::nameable_by_program;
 
@@ -34,6 +34,7 @@ use crate::dead_strip_reach::compute_reachability;
 use crate::dead_strip_reach_build::splits_at_symbols;
 use crate::dead_strip_reach_cache::ReachCache;
 use crate::dead_strip_reach_encode::encode_member_reach;
+use crate::dead_strip_reach_encode_edges::encode_member_edges;
 use crate::dead_strip_repack::strip_member;
 use crate::dead_strip_rewrite::{DeadRowPlacement, SectHdr, scan_load_commands};
 use crate::exec_user_entries::UserDataGlobalEntry;
@@ -124,7 +125,9 @@ pub fn prestrip_image(image: &[u8]) -> Result<Vec<u8>, PrestripError> {
         members[a][m].data = bytes;
     }
     build_reachable_from_members_with_tables(&members, &mut |m, rows| {
-        encode_member_reach(m, &|n| rows.row(n))
+        let table = encode_member_reach(m, &|n| rows.row(n))?;
+        let cold = encode_member_edges(m, &table);
+        Ok(MemberTables { table, cold })
     })
     .map_err(PrestripError::Image)
 }

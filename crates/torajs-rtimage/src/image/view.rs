@@ -36,6 +36,7 @@ pub struct Image<'a> {
     names: &'a [u8],
     blob: &'a [u8],
     tables: &'a [u8],
+    colds: &'a [u8],
 }
 
 impl<'a> Image<'a> {
@@ -56,7 +57,7 @@ impl<'a> Image<'a> {
         let (n_archives, n_slots, n_members, n_syms) = (f(1), f(2), f(3), f(4));
         let (archives_off, slots_off, members_off, syms_off) = (f(5), f(6), f(7), f(8));
         let (names_off, names_len, blob_off, blob_len) = (f(9), f(10), f(11), f(12));
-        let (tables_off, tables_len) = (f(13), f(14));
+        let (tables_off, tables_len, colds_off, colds_len) = (f(13), f(14), f(15), f(16));
         let ends = [
             archives_off + n_archives * 8,
             slots_off + n_slots * 4,
@@ -65,6 +66,7 @@ impl<'a> Image<'a> {
             names_off + names_len,
             blob_off + blob_len,
             tables_off + tables_len,
+            colds_off + colds_len,
         ];
         if ends.iter().any(|&e| e > bytes.len()) {
             return Err(ImageError::Truncated);
@@ -80,6 +82,7 @@ impl<'a> Image<'a> {
             names: &bytes[names_off..names_off + names_len],
             blob: &bytes[blob_off..blob_off + blob_len],
             tables: &bytes[tables_off..tables_off + tables_len],
+            colds: &bytes[colds_off..colds_off + colds_len],
         })
     }
 
@@ -119,6 +122,15 @@ impl<'a> Image<'a> {
         let off = self.u32_at(m + 16);
         let tables: &'a [u8] = self.tables;
         &tables[off..off + self.u32_at(m + 20)]
+    }
+
+    /// The cold table stored for member `member_idx` of archive
+    /// `archive_idx`; empty when the image was built without one.
+    pub fn member_cold_table(&self, archive_idx: usize, member_idx: usize) -> &'a [u8] {
+        let m = self.slot_row(archive_idx, member_idx);
+        let off = self.u32_at(m + 24);
+        let colds: &'a [u8] = self.colds;
+        &colds[off..off + self.u32_at(m + 28)]
     }
 
     /// The `members` row of a slot.
