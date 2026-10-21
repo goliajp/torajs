@@ -20,9 +20,9 @@ use super::{
 };
 use crate::enc::{
     ldr_d_imm12, ldr_d_reg, ldr_d_reg_lsl3, ldr_w_imm12, ldr_w_reg, ldr_x_imm12, ldr_x_reg,
-    ldr_x_reg_lsl3, ldrb_w_reg, ldrh_w_reg_lsl1, ldur_w_imm9, ldur_x_imm9, str_d_imm12, str_d_reg,
-    str_d_reg_lsl3, str_w_imm12, str_w_reg, str_x_imm12, str_x_reg, str_x_reg_lsl3, stur_w_imm9,
-    stur_x_imm9,
+    ldr_x_reg_lsl3, ldrb_w_imm12, ldrb_w_reg, ldrh_w_imm12, ldrh_w_reg_lsl1, ldur_w_imm9,
+    ldur_x_imm9, str_d_imm12, str_d_reg, str_d_reg_lsl3, str_w_imm12, str_w_reg, str_x_imm12,
+    str_x_reg, str_x_reg_lsl3, stur_w_imm9, stur_x_imm9,
 };
 use crate::reg::{Gpr, Reg};
 use crate::regalloc::Assignment;
@@ -242,6 +242,7 @@ pub fn emit_load_dyn_scaled8(
 /// Emit `LDRB Wd, [Xn, Xm]` — byte load, zero-extended to the full
 /// Xd (Wd write zeroes bits 32..64; LDRB itself zeroes bits 8..32).
 /// One instruction per byte probe — the S7-r2 SplitIter inline scan.
+/// A constant index takes the immediate form `LDRB Wd, [Xn, #k]`.
 pub fn emit_load_u8_dyn(
     bytes: &mut Vec<u8>,
     inst: &Inst,
@@ -251,14 +252,31 @@ pub fn emit_load_u8_dyn(
 ) {
     let result_vid = inst.result.expect("LoadU8Dyn must have result");
     let rn = materialize_operand_gpr(bytes, base, OP_SCRATCH_LHS, alloc);
-    let rm = materialize_operand_gpr(bytes, idx, OP_SCRATCH_RHS, alloc);
     let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
-    write_u32(bytes, ldrb_w_reg(dst, rn, rm));
+    let word = match const_index(idx, 1) {
+        Some(off) => ldrb_w_imm12(dst, rn, off),
+        None => ldrb_w_reg(
+            dst,
+            rn,
+            materialize_operand_gpr(bytes, idx, OP_SCRATCH_RHS, alloc),
+        ),
+    };
+    write_u32(bytes, word);
     write_def_spill_gpr(bytes, spill_off, dst);
 }
 
+/// The byte offset of a constant index `idx` of `size`-byte units when
+/// the unsigned immediate form encodes it (twelve bits of units).
+fn const_index(idx: &Operand, size: u32) -> Option<u32> {
+    match idx {
+        Operand::ConstI64(k) if (0..4096).contains(k) => Some(*k as u32 * size),
+        _ => None,
+    }
+}
+
 /// Emit `LDRH Wd, [Xn, Xm, LSL #1]` — one UTF-16 code unit at
-/// `base + idx*2`, zero-extended to the full Xd.
+/// `base + idx*2`, zero-extended to the full Xd; `LDRH Wd, [Xn, #2k]`
+/// for a constant index.
 pub fn emit_load_u16_dyn(
     bytes: &mut Vec<u8>,
     inst: &Inst,
@@ -268,9 +286,16 @@ pub fn emit_load_u16_dyn(
 ) {
     let result_vid = inst.result.expect("LoadU16Dyn must have result");
     let rn = materialize_operand_gpr(bytes, base, OP_SCRATCH_LHS, alloc);
-    let rm = materialize_operand_gpr(bytes, idx, OP_SCRATCH_RHS, alloc);
     let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
-    write_u32(bytes, ldrh_w_reg_lsl1(dst, rn, rm));
+    let word = match const_index(idx, 2) {
+        Some(off) => ldrh_w_imm12(dst, rn, off),
+        None => ldrh_w_reg_lsl1(
+            dst,
+            rn,
+            materialize_operand_gpr(bytes, idx, OP_SCRATCH_RHS, alloc),
+        ),
+    };
+    write_u32(bytes, word);
     write_def_spill_gpr(bytes, spill_off, dst);
 }
 
@@ -662,6 +687,56 @@ mod tests {
         assert!(
             w.contains(&enc::add_imm(OP_SCRATCH_LHS, Gpr::SP, 0)),
             "{w:08X?}"
+        );
+    }
+
+    fn words(f: &torajs_core::ssa::Function) -> Vec<u32> {
+        compile_function(f)
+            .bytes
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|c| u32::from_le_bytes(*c))
+            .collect()
+    }
+
+    /// `ret load_u<8|16>(p, idx)` for a pointer parameter `p`.
+    fn code_unit_load(wide: bool, idx: torajs_core::ssa::Operand) -> Vec<u32> {
+        use torajs_core::ssa::{Function, InstKind, Operand, Terminator, Type};
+        let mut f = Function::new("t", Type::I64);
+        let p = f.add_param(Type::Ptr, "p");
+        let b = f.add_block();
+        let kind = if wide {
+            InstKind::LoadU16Dyn(Operand::Value(p), idx)
+        } else {
+            InstKind::LoadU8Dyn(Operand::Value(p), idx)
+        };
+        let v = f.append_inst(b, kind, Type::I64, None);
+        f.set_term(b, Terminator::Ret(Some(Operand::Value(v))));
+        words(&f)
+    }
+
+    #[test]
+    fn a_constant_code_unit_index_takes_the_immediate_form() {
+        use torajs_core::ssa::Operand;
+        // any destination register: the low five bits
+        let has = |w: &[u32], want: u32| w.iter().any(|&x| x & !0x1F == want & !0x1F);
+        let k = Operand::ConstI64(16);
+        let narrow = code_unit_load(false, k);
+        assert!(
+            has(&narrow, enc::ldrb_w_imm12(Gpr::X0, Gpr::X0, 16)),
+            "{narrow:08X?}"
+        );
+        let wide = code_unit_load(true, k);
+        assert!(
+            has(&wide, enc::ldrh_w_imm12(Gpr::X0, Gpr::X0, 32)),
+            "{wide:08X?}"
+        );
+        // past the twelve bits of units: the register form again
+        let far = code_unit_load(false, Operand::ConstI64(4096));
+        assert!(
+            has(&far, enc::ldrb_w_reg(Gpr::X0, Gpr::X0, Gpr::X10)),
+            "{far:08X?}"
         );
     }
 }

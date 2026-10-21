@@ -138,6 +138,17 @@ pub fn ldrh_w_reg_lsl1(rt: Gpr, rn: Gpr, rm: Gpr) -> u32 {
     0x7860_7800 | (rm.idx() << 16) | (rn.idx() << 5) | rt.idx()
 }
 
+/// LDRH Wt, [Xn, #imm12 * 2] — load one halfword, unsigned offset
+/// scaled by 2, zero-extended into Wt. clang: `ldrh w0, [x1, #16]` =
+/// 0x7940_2020.
+pub fn ldrh_w_imm12(rt: Gpr, rn: Gpr, byte_offset: u32) -> u32 {
+    debug_assert!(
+        byte_offset.is_multiple_of(2) && byte_offset < 8192,
+        "offset must be an even byte count below 8 KiB"
+    );
+    0x7940_0000 | ((byte_offset / 2) << 10) | (rn.idx() << 5) | rt.idx()
+}
+
 /// LDR Xt, [Xn, Xm, LSL #3] — load 64-bit, register-indexed with
 /// the scale folded into the AGU (S = 1). clang: `ldr x0, [x1, x2,
 /// lsl #3]` = 0xF862_7820.
@@ -294,6 +305,11 @@ mod tests {
         assert_eq!(strb_w_imm12(Gpr::X10, Gpr::X9, 1153), 0x3912_052A);
         assert_eq!(ldrb_w_imm12(Gpr::X0, Gpr::X1, 0), 0x3940_0020);
         assert_eq!(strb_w_imm12(Gpr::X0, Gpr::X1, 0), 0x3900_0020);
+    }
+
+    #[test]
+    fn ldrh_w_imm12_w0_x1_16_matches_clang() {
+        assert_eq!(ldrh_w_imm12(Gpr::X0, Gpr::X1, 16), 0x7940_2020);
     }
 
     #[test]
