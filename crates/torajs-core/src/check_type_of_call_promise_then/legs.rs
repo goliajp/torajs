@@ -13,7 +13,10 @@ use crate::check::Type;
 /// The seed for the next handler's parameter joins the same way
 /// (`join_legs` in `ast::infer_closure_params_promise`); the two must
 /// answer alike or the handler reads a value through a lane the checker
-/// did not type.
+/// did not type. One case is left out on purpose there: a join that may
+/// settle undefined into a pointer slot gives no seed, so the next
+/// handler takes its parameter on the any lane until the settle path
+/// can hand a pointer slot undefined.
 pub(super) fn two_leg_result([ok, err]: [Type; 2]) -> Type {
     let value = |t: Type| match t {
         Type::Never => None,

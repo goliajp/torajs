@@ -181,6 +181,8 @@ fn join_legs(a: &str, b: &str) -> Option<String> {
         (Some(v), None) | (None, Some(v)) => v.clone(),
         (None, None) => "undefined".to_string(),
     };
+    // `__nullable(` also stands for `T | null`: union_combine folds null
+    // and undefined into one spelling, so a null-only leg is held back too
     let settles_undefined = [a, b]
         .iter()
         .flatten()
