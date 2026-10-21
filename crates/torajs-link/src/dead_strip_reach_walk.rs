@@ -14,8 +14,9 @@ use crate::archive_link_extra_syms::UserDefined;
 use crate::archives_merge::{MergedArchives, RequiredMembers};
 use crate::dead_strip_reach::{MemberReach, Node, Pred, ReachProbes, ReachResult, atom_is_cut};
 use crate::dead_strip_reach_cache::ReachCache;
-use crate::dead_strip_reach_edges::{Edge, EdgeIndex, Seen, UndefMemo};
+use crate::dead_strip_reach_edges::{Edge, EdgeIndex};
 use crate::dead_strip_reach_resolve::{atom_at, local_node};
+use crate::dead_strip_reach_seen::{Seen, UndefMemo};
 use crate::dead_strip_reach_table::{Import, image_table};
 use crate::sym_rows::SymSet;
 

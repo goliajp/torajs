@@ -81,6 +81,7 @@ mod dead_strip_reach_edges;
 mod dead_strip_reach_encode;
 mod dead_strip_reach_relocs;
 mod dead_strip_reach_resolve;
+mod dead_strip_reach_seen;
 mod dead_strip_reach_table;
 mod dead_strip_reach_walk;
 mod dead_strip_repack;
