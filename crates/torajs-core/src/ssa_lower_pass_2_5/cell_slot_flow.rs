@@ -92,6 +92,8 @@ struct Scan<'a> {
     bits_of: HashMap<ValueId, ValueId>,
     open: &'a mut Vec<bool>,
     paths: &'a RefCell<Paths>,
+    /// The field writes and method calls `pin_facts` reads.
+    pins: Option<&'a mut super::pin_facts::Watch>,
 }
 
 impl Scan<'_> {
@@ -145,6 +147,9 @@ impl Scan<'_> {
 
     fn inst(&mut self, result: Option<ValueId>, kind: &InstKind) {
         let module = self.module;
+        if let Some(w) = self.pins.as_deref_mut() {
+            w.note(self.fid, self.f, kind);
+        }
         if let Some(v) = result {
             match self.f.value_type(v) {
                 Type::Obj(sid) => self.defined(sid, kind),

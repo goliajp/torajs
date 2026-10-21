@@ -90,43 +90,66 @@ pub(crate) fn asleep(module: &Module, ast: &Ast, hooks: &DropHooks) -> Option<Ve
 /// the functions ruled out (`cell_slot_flow::open_sids_both`).
 pub(crate) type Flow = (Vec<bool>, Vec<(StructId, StructId)>, Vec<bool>);
 
-/// Settle every test of `hooks` the module proves.
-pub(crate) fn settle(module: &mut Module, envs: &EnvLayouts, hooks: &DropHooks, flow: Flow) {
-    let verdicts = match verdicts(module, envs, hooks, flow) {
+/// Settle every test of `hooks` the module proves. Answers what it
+/// proves of the class sids in `asked` as well (`pin_facts`); nothing
+/// when an instance of some class reaches the runtime.
+pub(crate) fn settle(
+    module: &mut Module,
+    envs: &EnvLayouts,
+    hooks: &DropHooks,
+    flow: Flow,
+    asked: &[u32],
+) -> HashMap<u32, Seal> {
+    let verdicts = match verdicts(module, envs, hooks, flow, asked) {
         Ok(v) => v,
         Err(why) => {
             if stats() {
                 eprintln!("[drop_proof] none: {why}");
             }
-            return;
+            return HashMap::new();
         }
     };
     let n = hooks.settle(module, |sid, test| {
-        let v = &verdicts[&sid];
+        let v = &verdicts[&sid].0;
         match test {
-            Test::Tag => v.closed,
-            Test::WeakRef | Test::Props => v.sealed,
+            Test::Tag => v.seal.closed,
+            Test::WeakRef | Test::Props => v.seal.sealed,
             Test::Undef | Test::UndefRoot => v.defined,
             Test::Buffered | Test::BufferLeg(_) => v.unbuffered,
         }
     });
     if stats() {
-        let mut v: Vec<_> = verdicts.into_iter().collect();
-        v.sort_unstable_by_key(|(sid, _)| *sid);
-        for (sid, v) in v {
+        let mut v: Vec<_> = (verdicts.iter())
+            .filter(|(_, (_, hooked))| *hooked)
+            .collect();
+        v.sort_unstable_by_key(|(sid, _)| **sid);
+        for (sid, (v, _)) in v {
             eprintln!(
                 "[drop_proof] sid {sid}: sealed {} closed {} defined {} unbuffered {}",
-                v.sealed, v.closed, v.defined, v.unbuffered
+                v.seal.sealed, v.seal.closed, v.defined, v.unbuffered
             );
         }
         eprintln!("[drop_proof] {n} of {} tests settled", hooks.hooks.len());
     }
+    (verdicts.into_iter())
+        .map(|(sid, (v, _))| (sid, v.seal))
+        .collect()
 }
 
-/// What the module proves of one hooked sid.
+/// What the module proves of a class sid's cells, for a census that
+/// reads its fields across calls.
+#[derive(Clone, Copy)]
+pub(crate) struct Seal {
+    pub(crate) sealed: bool,
+    pub(crate) closed: bool,
+    /// no slot of another layout reads its cells
+    pub(crate) unwidened: bool,
+}
+
+/// What the module proves of one sid (`defined` and `unbuffered`
+/// only of a hooked one).
 struct Verdict {
-    sealed: bool,
-    closed: bool,
+    seal: Seal,
     /// its own-sid fields never hold the undefined sentinel
     defined: bool,
     /// nothing can buffer one of its cells as a cycle root
@@ -138,7 +161,8 @@ fn verdicts(
     envs: &EnvLayouts,
     hooks: &DropHooks,
     (open, widens, skip): Flow,
-) -> Result<HashMap<u32, Verdict>, String> {
+    asked: &[u32],
+) -> Result<HashMap<u32, (Verdict, bool)>, String> {
     let exposed = exposed::exposed_sids(module, &skip);
     let mut classes: Vec<u32> = hooks.class_sids.iter().copied().collect();
     classes.sort_unstable();
@@ -149,7 +173,11 @@ fn verdicts(
     let shared = || shared.get_or_init(|| undef::Shared::new(module, &skip));
     let sids: BTreeSet<u32> = hooks.hooks.iter().map(|h| h.sid).collect();
     let mut out = HashMap::new();
-    for sid in sids {
+    for sid in sids.iter().copied().chain(asked.iter().copied()) {
+        if out.contains_key(&sid) {
+            continue;
+        }
+        let hooked = sids.contains(&sid);
         let base = hooks.class_sids.contains(&sid) && !open[sid as usize];
         let sealed = base
             && reach(&widens, sid, false).iter().all(|w| {
@@ -159,20 +187,24 @@ fn verdicts(
             });
         let tags = hooks.tags.get(&sid).map_or(&[][..], Vec::as_slice);
         let closed = base && !extended(module, sid) && born_own(module, shared(), sid, tags);
-        let quiet = sealed && closed && widens.iter().all(|(w, n)| w.0 != sid && n.0 != sid);
+        let unwidened = widens.iter().all(|(w, _)| w.0 != sid);
+        let quiet =
+            hooked && sealed && closed && unwidened && widens.iter().all(|(_, n)| n.0 != sid);
         let defined = quiet
             && !undef::held_elsewhere(module, envs, sid)
             && undef::own_fields_defined(module, shared(), sid);
         let unbuffered = quiet && acyclic::unbuffered(module, shared(), envs, sid);
-        out.insert(
-            sid,
-            Verdict {
-                sealed,
-                closed,
-                defined,
-                unbuffered,
-            },
-        );
+        let seal = Seal {
+            sealed,
+            closed,
+            unwidened,
+        };
+        let v = Verdict {
+            seal,
+            defined,
+            unbuffered,
+        };
+        out.insert(sid, (v, hooked));
     }
     Ok(out)
 }

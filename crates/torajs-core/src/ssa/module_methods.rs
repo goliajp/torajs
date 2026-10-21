@@ -108,6 +108,27 @@ pub struct Module {
     /// The runtime calls their frame code makes; `None` when
     /// `suspend_fns` is empty.
     pub suspend_runtime: Option<super::SuspendRuntime>,
+    /// The array fields whose cell, length and data pointer hold still
+    /// for as long as a group of methods runs on one receiver
+    /// (`ssa_lower_pass_2_5::pin_facts`).
+    pub pins: Vec<PinFact>,
+}
+
+/// An array field of class `sid` at `field_off` that only its
+/// constructor writes, read by the methods of `cluster`: each passes
+/// its own receiver on to the others it calls, and nothing that runs
+/// while one of them is on the stack grows or shrinks an array of
+/// layout `arr`. `entries` are the members something outside the
+/// cluster calls; `direct_only` holds when nothing reaches a member
+/// but a direct call (no address taken, no vtable row).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PinFact {
+    pub sid: StructId,
+    pub field_off: u64,
+    pub arr: ArrId,
+    pub cluster: Vec<FuncId>,
+    pub entries: Vec<FuncId>,
+    pub direct_only: bool,
 }
 
 #[derive(Debug, Clone)]

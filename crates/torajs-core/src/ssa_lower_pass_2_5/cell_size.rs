@@ -65,6 +65,7 @@ pub(crate) fn settle(
 ) -> Vec<crate::ssa::StructId> {
     let envs = env_layouts(module, captures, &ast.widen_clone_origin);
     let unsettled = settle_alloc_sizes_to_rows(module);
+    let watch = super::pin_facts::Watch::of(module, &drop_hooks.class_sids);
     let (open, flow) = match super::drop_proofs::asleep(module, ast, drop_hooks) {
         Some(asleep) => {
             let Both {
@@ -72,16 +73,26 @@ pub(crate) fn settle(
                 open,
                 widens,
                 skip,
-            } = open_sids_both(module, &envs, &asleep);
-            (all, Some((open, widens, skip)))
+                pins,
+            } = open_sids_both(module, &envs, &asleep, watch);
+            (all, Some(((open, widens, skip), pins)))
         }
         None => (open_sids(module, &envs), None),
     };
     let disagree = settle_typed_frees(module, &unsettled, ast, facts, &open);
     if disagree.is_empty()
-        && let Some(flow) = flow
+        && let Some((flow, pins)) = flow
     {
-        super::drop_proofs::settle(module, &envs, drop_hooks, flow);
+        let asked = pins.as_ref().map_or(Vec::new(), |w| w.sids());
+        let skip = pins.as_ref().map(|_| flow.2.clone());
+        let seals = super::drop_proofs::settle(module, &envs, drop_hooks, flow, &asked);
+        // the census reads the release fns once their settled tests'
+        // dead legs are gone, so it runs after them; the store bases
+        // the scan recorded before still hold, since settling only
+        // drops instructions and adds values, never renumbers one
+        if let (Some(w), Some(skip)) = (pins, skip) {
+            super::pin_facts::settle(module, w, &seals, drop_hooks, facts, &skip);
+        }
     }
     disagree
 }

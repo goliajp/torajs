@@ -69,6 +69,12 @@ pub(crate) struct DropHooks {
     pub hooks: Vec<Hook>,
     pub tags: HashMap<u32, Vec<u32>>,
     pub class_sids: HashSet<u32>,
+    /// For a sid whose layout holds an array (what `pin_facts` asks
+    /// about), the class it is the instances of when exactly one class
+    /// is: by the class's own name (the one its methods are lowered
+    /// under), never by the name it prints as, which two classes may
+    /// share.
+    pub names: HashMap<u32, String>,
 }
 
 impl DropHooks {
@@ -208,18 +214,13 @@ pub(crate) fn populate_class_drop_bodies(
         }
     }
     let drop_fids: HashMap<u32, FuncId> = class_drops.iter().map(|d| (d.sid.0, d.fid)).collect();
-    let mut tags: HashMap<u32, Vec<u32>> = HashMap::new();
-    for (cn, tag) in class_name_to_tag {
-        if let Some(sid) = sid_of(cn) {
-            tags.entry(sid).or_default().push(*tag);
-        }
-    }
-    for (sid, tag) in anon_stamp_pool.borrow().sid_to_tag_iter() {
-        if !class_sids.contains(&sid.0) {
-            tags.entry(sid.0).or_insert_with(|| vec![0]).push(tag);
-        }
-    }
-    tags.values_mut().for_each(|t| t.sort_unstable());
+    let (tags, named) = tags_and_named(
+        class_name_to_tag,
+        &sid_of,
+        struct_layouts,
+        anon_stamp_pool,
+        &class_sids,
+    );
     let mut hooks = Vec::new();
     for d in class_drops {
         let mut f = ssa::Function::new(&d.name, Type::Void);
@@ -265,9 +266,42 @@ pub(crate) fn populate_class_drop_bodies(
             blk,
         }));
     }
+    let names = crate::ssa_lower_pass_2_5::pin_facts::sole_names(named);
     DropHooks {
         hooks,
         tags,
         class_sids,
+        names,
     }
+}
+
+/// The class tags of every sid (sorted), and the classes whose layout
+/// holds an array field by their internal name, gathered in one pass over
+/// `class_name_to_tag`.
+fn tags_and_named<'a>(
+    class_name_to_tag: &'a HashMap<String, u32>,
+    sid_of: &impl Fn(&String) -> Option<u32>,
+    struct_layouts: &[Vec<(PropKey, Type)>],
+    anon_stamp_pool: &crate::ssa_lower_anon_stamp::AnonStampPoolCell,
+    class_sids: &HashSet<u32>,
+) -> (HashMap<u32, Vec<u32>>, Vec<(&'a str, u32)>) {
+    let mut tags: HashMap<u32, Vec<u32>> = HashMap::new();
+    let holds_arr =
+        |sid: u32| (struct_layouts[sid as usize].iter()).any(|(_, t)| matches!(t, Type::Arr(_)));
+    let mut named: Vec<(&str, u32)> = Vec::new();
+    for (cn, tag) in class_name_to_tag {
+        if let Some(sid) = sid_of(cn) {
+            tags.entry(sid).or_default().push(*tag);
+            if holds_arr(sid) {
+                named.push((cn.as_str(), sid));
+            }
+        }
+    }
+    for (sid, tag) in anon_stamp_pool.borrow().sid_to_tag_iter() {
+        if !class_sids.contains(&sid.0) {
+            tags.entry(sid.0).or_insert_with(|| vec![0]).push(tag);
+        }
+    }
+    tags.values_mut().for_each(|t| t.sort_unstable());
+    (tags, named)
 }

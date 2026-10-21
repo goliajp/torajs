@@ -9,6 +9,7 @@ use crate::ssa::id_hash::{HashMap, HashSet};
 use crate::ssa::{FuncId, Module, StructId, Type};
 
 use super::super::any_holds::AnyHolds;
+use super::super::pin_facts::Watch;
 use super::{BOX_ALLOC, EnvLayouts, FITS, OBJ_ALLOC, Paths, Scan};
 
 /// Per sid, whether a slot of that sid can hold a cell of another
@@ -42,15 +43,24 @@ pub(crate) struct Both {
     pub open: Vec<bool>,
     pub widens: Vec<(StructId, StructId)>,
     pub skip: Vec<bool>,
+    /// `watch` with what the functions that run showed it.
+    pub pins: Option<Watch>,
 }
 
-pub(crate) fn open_sids_both(module: &Module, envs: &EnvLayouts, asleep: &[bool]) -> Both {
+pub(crate) fn open_sids_both(
+    module: &Module,
+    envs: &EnvLayouts,
+    asleep: &[bool],
+    watch: Option<Watch>,
+) -> Both {
     let holds = AnyHolds::of(module);
     let skip: Vec<bool> = (asleep.iter().enumerate())
         .map(|(i, a)| *a || holds.is_dead(FuncId(i as u32)))
         .collect();
     let mut flow = Flow::new(module, envs, &holds);
+    flow.pins = watch;
     flow.scan(|i| !skip[i]);
+    let pins = flow.pins.take();
     let (mut open, paths) = (flow.open.clone(), flow.paths.borrow().clone());
     flow.scan(|i| skip[i]);
     let all = flow.settle().0;
@@ -61,6 +71,7 @@ pub(crate) fn open_sids_both(module: &Module, envs: &EnvLayouts, asleep: &[bool]
         open,
         widens,
         skip,
+        pins,
     }
 }
 
@@ -76,6 +87,7 @@ pub(super) struct Flow<'a> {
     fits: Vec<FuncId>,
     open: Vec<bool>,
     paths: RefCell<Paths>,
+    pins: Option<Watch>,
 }
 
 impl<'a> Flow<'a> {
@@ -97,6 +109,7 @@ impl<'a> Flow<'a> {
             fits,
             open: vec![false; module.struct_layouts.len()],
             paths: RefCell::new(Paths::default()),
+            pins: None,
         }
     }
 
@@ -136,6 +149,7 @@ impl<'a> Flow<'a> {
                 bits_of: HashMap::default(),
                 open: &mut self.open,
                 paths: &self.paths,
+                pins: self.pins.as_mut(),
             };
             scan.run();
         }

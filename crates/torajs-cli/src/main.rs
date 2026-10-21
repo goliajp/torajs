@@ -41,6 +41,8 @@ mod lsp;
 mod lsp_bench;
 #[cfg(test)]
 mod objlit_argv_accessor_tests;
+#[cfg(test)]
+mod pin_facts_lower_tests;
 mod repl;
 #[cfg(all(target_arch = "aarch64", target_vendor = "apple"))]
 mod rtlinked;
