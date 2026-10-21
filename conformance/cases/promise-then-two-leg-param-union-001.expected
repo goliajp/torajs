@@ -1,0 +1,20 @@
+void leg ran: boom
+num leg: 2 number
+str leg: rejected string
+undefined leg: undefined undefined 0
+value leg: 2 3
+void leg: undefined
+same type: 3
+throw leg: 4
+catch pass: 1 number
+catch run: caught string
+catch same: 43
+body then: true 6 number
+body await: true 10
+chain: 10
+promise leg: 0.25 number
+body catch: true 6
+body then: false body no string
+body await: false awaited no
+body catch: false 0
+top: top boom

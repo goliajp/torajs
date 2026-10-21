@@ -42,23 +42,89 @@ pub(super) fn resolve_promise_inner_ann(
                 .and_then(|a| resolve_arg_ann(ast, *a, all_anns))
         }
         "then" | "catch" => {
-            let cb = *args.first()?;
-            let fn_name = match ast.get_expr(cb) {
-                Expr::Closure { fn_name, .. } => fn_name.clone(),
-                Expr::Ident(n) if n.starts_with("__closure_") => n.clone(),
-                _ => return None,
-            };
-            if let Some(Some(r)) = fn_ret_anns.get(&fn_name) {
-                return Some(r.clone());
+            let src = || resolve_promise_inner_ann(ast, *obj, all_anns, fn_ret_anns);
+            match (name.as_str(), &args[..]) {
+                // §27.2.5.4: the derived promise settles from whichever
+                // handler runs, so its value is either handler's return;
+                // `.catch(onErr)` passes a fulfilled source's value through
+                ("then", [on_ok, on_err, ..]) => {
+                    let ok = handler_ret_ann(ast, *on_ok, src, fn_ret_anns)?;
+                    let err = handler_ret_ann(ast, *on_err, any_seed, fn_ret_anns)?;
+                    Some(join_legs(&ok, &err))
+                }
+                ("catch", [on_err, ..]) => {
+                    let pass = src()?;
+                    let err = handler_ret_ann(ast, *on_err, any_seed, fn_ret_anns)?;
+                    Some(join_legs(&pass, &err))
+                }
+                (_, [on_ok, ..]) => handler_ret_ann(ast, *on_ok, src, fn_ret_anns),
+                _ => None,
             }
-            // prev_cb's un-annotated user param blocked the up-front
-            // sniff — seed it from the receiver's inner and try
-            // again. Identity chains (`n => n`) propagate through
-            // here without needing a mid-pass rebuild.
-            let prev_inner = resolve_promise_inner_ann(ast, *obj, all_anns, fn_ret_anns)?;
-            sniff_body_with_param_seed(ast, &fn_name, &prev_inner)
         }
         _ => None,
+    }
+}
+
+/// Is `eid` a `.then(onOk, onErr)` / `.catch(onErr)` call, whose value
+/// [`join_legs`] answers?
+fn settles_from_two_legs(ast: &Ast, eid: ExprId) -> bool {
+    let Expr::Call { callee, args } = ast.get_expr(eid) else {
+        return false;
+    };
+    matches!(
+        ast.get_expr(*callee),
+        Expr::Member { name, .. } if (name == "then" && args.len() >= 2) || (name == "catch" && !args.is_empty())
+    )
+}
+
+fn any_seed() -> Option<String> {
+    Some("any".to_string())
+}
+
+/// The return annotation of the handler `cb`: its own (explicit or
+/// sniffed up front), else the sniff rerun with its parameter seeded
+/// from `seed` (an un-annotated parameter blocked the up-front one).
+/// Identity chains (`n => n`) propagate through here without needing a
+/// mid-pass rebuild.
+fn handler_ret_ann(
+    ast: &Ast,
+    cb: ExprId,
+    seed: impl FnOnce() -> Option<String>,
+    fn_ret_anns: &std::collections::HashMap<String, Option<String>>,
+) -> Option<String> {
+    let fn_name = match ast.get_expr(cb) {
+        Expr::Closure { fn_name, .. } => fn_name.clone(),
+        Expr::Ident(n) if n.starts_with("__closure_") => n.clone(),
+        _ => return None,
+    };
+    if let Some(Some(r)) = fn_ret_anns.get(&fn_name) {
+        return Some(r.clone());
+    }
+    sniff_body_with_param_seed(ast, &fn_name, &seed()?)
+}
+
+/// The value annotation of a promise settled from one of two legs: each
+/// leg's value is its return adopted (a returned promise's own value)
+/// with a void return answering undefined, and a throw-only leg settles
+/// nothing. Legs that agree keep their one type.
+fn join_legs(a: &str, b: &str) -> String {
+    let value = |t: &str| -> Option<String> {
+        match t {
+            "never" => None,
+            "void" => Some("undefined".to_string()),
+            t => Some(
+                match t.strip_prefix("Promise<").and_then(|r| r.strip_suffix('>')) {
+                    Some(inner) => inner.to_string(),
+                    None => t.to_string(),
+                },
+            ),
+        }
+    };
+    match (value(a), value(b)) {
+        (Some(a), Some(b)) if a == b => a,
+        (Some(a), Some(b)) => crate::parser::union_combine(&[&a, &b]),
+        (Some(v), None) | (None, Some(v)) => v,
+        (None, None) => "undefined".to_string(),
     }
 }
 
@@ -157,7 +223,9 @@ pub(super) fn seed_then_catch_params(
     let Some(inner_ann) = resolve_promise_inner_ann(ast, obj, all_anns, fn_ret_anns) else {
         return;
     };
-    let seed = if inner_ann.starts_with("__nullable(") {
+    // a union of two handlers' returns is no declaration a narrow could
+    // have refined, so it seeds as written
+    let seed = if inner_ann.starts_with("__nullable(") && !settles_from_two_legs(ast, obj) {
         "any".to_string()
     } else {
         inner_ann
