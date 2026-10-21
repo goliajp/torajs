@@ -375,9 +375,11 @@ fn emit_widened_spec(
     );
     (owned_ast.any_widen_clones).extend(closure_rename.into_values().chain([mono_name.into()]));
     if lifted {
-        check_lifted_spec(c, owned_ast, fn_name, &spec_decl);
+        owned_ast.stmts.push(spec_decl.clone());
+        let check = |c: &mut Checker, a: &Ast| check_lifted_spec(c, a, fn_name, &spec_decl);
+        crate::let_widen::check_spec(c, owned_ast, &spec_decl, check);
     } else {
-        c.check_stmt(owned_ast, &spec_decl);
+        crate::let_widen::check_spec_stmt(c, owned_ast, &spec_decl);
     }
     c.errors.truncate(saved_error_count);
     let inner_sites = std::mem::replace(&mut c.generic_call_sites, saved_sites);
@@ -410,12 +412,11 @@ fn emit_widened_spec(
 /// params unbound. The clone joins `stmts` first (`closure_sig`
 /// resolves the body by name there); the captures are the original
 /// site's, which the admit gate proved resolve at this level.
-fn check_lifted_spec(c: &mut Checker, owned_ast: &mut Ast, fn_name: &str, spec_decl: &Stmt) {
+fn check_lifted_spec(c: &mut Checker, owned_ast: &Ast, fn_name: &str, spec_decl: &Stmt) {
     let mono_name = match spec_decl {
         Stmt::FnDecl { name, .. } => name.clone(),
         _ => unreachable!("widened spec is a FnDecl"),
     };
-    owned_ast.stmts.push(spec_decl.clone());
     let (site, captures) = owned_ast
         .exprs
         .iter()

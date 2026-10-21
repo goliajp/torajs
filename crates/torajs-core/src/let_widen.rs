@@ -53,7 +53,10 @@
 //! the lowerer asks with the checker's final table.
 
 mod push;
+mod spec;
 mod walk;
+
+pub(crate) use spec::{check_spec, check_spec_stmt};
 
 use std::collections::{HashMap, HashSet};
 
@@ -165,51 +168,71 @@ pub(crate) fn collect_cross_type_widen_inits(
     ast: &Ast,
     types: Option<&HashMap<ExprId, Type>>,
 ) -> HashSet<ExprId> {
-    let mut w = Walker {
-        ast,
-        types,
-        gen_factories: collect_gen_factories(ast),
-        non_nullish_rebinds: collect_non_nullish_rebinds(ast),
-        lifted: ast
-            .stmts
-            .iter()
-            .filter_map(|s| match s {
-                crate::ast::Stmt::FnDecl {
-                    name, params, body, ..
-                } => Some((name.as_str(), (params.as_slice(), body.as_slice()))),
-                _ => None,
-            })
-            .collect(),
-        closure_bodies: (ast.exprs.iter())
-            .filter_map(|e| match e {
-                Expr::Closure { fn_name, .. } => Some(fn_name.as_str()),
-                _ => None,
-            })
-            .collect(),
-        module: HashMap::new(),
-        entered: HashSet::new(),
-        scopes: vec![HashMap::new()],
-        out: HashSet::new(),
-    };
-    // a named function reads and writes the module's bindings wherever
-    // it is declared, before or after them
-    for s in &ast.stmts {
-        if let crate::ast::Stmt::LetDecl {
-            name,
-            mutable,
-            type_ann,
-            init,
-            ..
-        } = s
-        {
-            w.register_let(name, *mutable, type_ann.as_deref(), *init);
-        }
-    }
-    w.module = w.scopes[0].clone();
+    let mut w = Walker::new(ast, types);
     for s in &ast.stmts {
         w.walk_stmt(s);
     }
     w.out
+}
+
+/// The type half over one declaration `decl` the program does not hold
+/// yet: a specialization the monomorphizer checks with its own types
+/// (a parameter widened to `any` can widen the bindings it reaches).
+pub(crate) fn collect_cross_type_widen_inits_in(
+    ast: &Ast,
+    decl: &crate::ast::Stmt,
+    types: &HashMap<ExprId, Type>,
+) -> HashSet<ExprId> {
+    let mut w = Walker::new(ast, Some(types));
+    w.walk_stmt(decl);
+    w.out
+}
+
+impl<'a> Walker<'a> {
+    fn new(ast: &'a Ast, types: Option<&'a HashMap<ExprId, Type>>) -> Self {
+        let mut w = Walker {
+            ast,
+            types,
+            gen_factories: collect_gen_factories(ast),
+            non_nullish_rebinds: collect_non_nullish_rebinds(ast),
+            lifted: ast
+                .stmts
+                .iter()
+                .filter_map(|s| match s {
+                    crate::ast::Stmt::FnDecl {
+                        name, params, body, ..
+                    } => Some((name.as_str(), (params.as_slice(), body.as_slice()))),
+                    _ => None,
+                })
+                .collect(),
+            closure_bodies: (ast.exprs.iter())
+                .filter_map(|e| match e {
+                    Expr::Closure { fn_name, .. } => Some(fn_name.as_str()),
+                    _ => None,
+                })
+                .collect(),
+            module: HashMap::new(),
+            entered: HashSet::new(),
+            scopes: vec![HashMap::new()],
+            out: HashSet::new(),
+        };
+        // a named function reads and writes the module's bindings
+        // wherever it is declared, before or after them
+        for s in &ast.stmts {
+            if let crate::ast::Stmt::LetDecl {
+                name,
+                mutable,
+                type_ann,
+                init,
+                ..
+            } = s
+            {
+                w.register_let(name, *mutable, type_ann.as_deref(), *init);
+            }
+        }
+        w.module = w.scopes[0].clone();
+        w
+    }
 }
 
 struct Walker<'a> {
