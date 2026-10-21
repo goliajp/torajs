@@ -11,7 +11,13 @@ const v = x & 3
 const w = y | 0
 const s = y << 2
 const t = x > 3
+const m: any = -1
+const big = m >>> 0
 function read(): string {
   return [u, v, w, s, t, typeof u, typeof w].join(' ')
 }
+function readBig(): string {
+  return [big, typeof big, big === 4294967295].join(' ')
+}
 console.log(read())
+console.log(readBig())
