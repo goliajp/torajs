@@ -57,7 +57,7 @@ impl<'a> Walk<'a> {
                 .bytes_imports(merged, (a, m))
                 .map_err(|e| format!("{}: imports: {e:?}", member.name))?;
             let edges = image_edges(merged, (a, m));
-            w.slots.push(cache.edges.slot(&member, &r, edges, &imports));
+            w.slots.push(cache.edges.slot(&member, &r, edges));
             if w.pos.len() <= a {
                 w.pos.resize(a + 1, Vec::new());
             }

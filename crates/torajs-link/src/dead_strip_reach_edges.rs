@@ -92,12 +92,17 @@ pub(crate) fn decode_edges<'a>(
     Ok(())
 }
 
-/// The edges a member's image table stores, with the name id of each
-/// of its foreign imports.
+/// The edges a member's image table stores, with its foreign imports
+/// once an edge names one.
 struct Stored<'a> {
     edges: TableEdges<'a>,
-    foreign: Vec<u32>,
+    /// Each foreign import's name and name id ([`NO_ID`] until an edge
+    /// names it), in import order; empty until an edge names one.
+    foreign: Vec<(&'a str, u32)>,
 }
+
+/// A foreign import's name id not entered yet.
+const NO_ID: u32 = u32::MAX;
 
 #[derive(Default)]
 pub(crate) struct EdgeIndex<'a> {
@@ -118,15 +123,13 @@ pub(crate) struct EdgeIndex<'a> {
 }
 
 impl<'a> EdgeIndex<'a> {
-    /// The slot of the edges of `member`, whose tables are `r`, whose
-    /// image out-edge table is `edges` (empty: none) and whose imports
-    /// are `imports`.
+    /// The slot of the edges of `member`, whose tables are `r` and whose
+    /// image out-edge table is `edges` (empty: none).
     pub(crate) fn slot(
         &mut self,
         member: &ArMember<'a>,
         r: &MemberReach<'a>,
         edges: &'a [u8],
-        imports: &[Import<'a>],
     ) -> u32 {
         let next = self.members.len() as u32;
         let slot = *self.slots.entry(BytesKey(member.data)).or_insert(next);
@@ -136,18 +139,12 @@ impl<'a> EdgeIndex<'a> {
             let decode_all = *self.decode_all.get_or_insert_with(|| {
                 std::env::var_os("TORAJS_LINK_REACH_FALLBACK_DIAG").is_some()
             });
-            let stored = TableEdges::of(edges).filter(|_| !decode_all).map(|edges| {
-                let foreign = imports
-                    .iter()
-                    .filter_map(|i| match i.to {
-                        ImportRef::Foreign(name) => {
-                            Some(name_id(&mut self.ids, &mut self.names, name))
-                        }
-                        ImportRef::Sym(_) => None,
-                    })
-                    .collect();
-                Stored { edges, foreign }
-            });
+            let stored = TableEdges::of(edges)
+                .filter(|_| !decode_all)
+                .map(|edges| Stored {
+                    edges,
+                    foreign: Vec::new(),
+                });
             self.stored.push(stored);
         }
         slot
@@ -186,13 +183,18 @@ impl<'a> EdgeIndex<'a> {
             None => (0, sa.size),
         };
         let start = self.arena.len();
-        match (atom, &self.stored[slot as usize]) {
+        match (atom, self.stored[slot as usize].as_mut()) {
             (Some(a), Some(st)) => {
-                self.arena.extend(st.edges.atom(sect, a).map(|e| match e {
-                    TableEdge::Local { sect, atom } => Edge::Local { sect, atom },
-                    TableEdge::Sym(row) => Edge::Sym(row),
-                    TableEdge::Foreign(k) => Edge::Name(st.foreign[k as usize]),
-                }));
+                let (arena, ids, names) = (&mut self.arena, &mut self.ids, &mut self.names);
+                for e in st.edges.atom(sect, a) {
+                    arena.push(match e {
+                        TableEdge::Local { sect, atom } => Edge::Local { sect, atom },
+                        TableEdge::Sym(row) => Edge::Sym(row),
+                        TableEdge::Foreign(k) => {
+                            Edge::Name(foreign_id(&mut st.foreign, k, imports, ids, names))
+                        }
+                    });
+                }
             }
             _ => {
                 let (arena, ids, names) = (&mut self.arena, &mut self.ids, &mut self.names);
@@ -228,6 +230,30 @@ impl<'a> EdgeIndex<'a> {
     pub(crate) fn name(&self, id: u32) -> &'a str {
         self.names[id as usize]
     }
+}
+
+/// The name id of the `k`-th of `imports` the image's symbol index
+/// lacks, entered the first time an edge names it.
+fn foreign_id<'a>(
+    foreign: &mut Vec<(&'a str, u32)>,
+    k: u32,
+    imports: &[Import<'a>],
+    ids: &mut HashMap<&'a str, u32>,
+    names: &mut Vec<&'a str>,
+) -> u32 {
+    if foreign.is_empty() {
+        foreign.extend(imports.iter().filter_map(|i| match i.to {
+            ImportRef::Foreign(name) => Some((name, NO_ID)),
+            ImportRef::Sym(_) => None,
+        }));
+    }
+    let (name, id) = foreign[k as usize];
+    if id != NO_ID {
+        return id;
+    }
+    let id = name_id(ids, names, name);
+    foreign[k as usize].1 = id;
+    id
 }
 
 /// The id of undefined name `name`, `names` reading it back.
