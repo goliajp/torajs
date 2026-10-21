@@ -215,10 +215,9 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) -> Operand {
         // its per-call fresh-alloc semantics — dynamic args
         // can't be deduped by literal key.
         Expr::Regex { pattern, flags } => {
-            // V0.2 #1 — regex literal `/pat/flags`. Per-fn
-            // dedup cache + entry-block hoist + V0.2 P14 AOT
-            // bake gate (capture-free + DFA-eligible → 3-arg
-            // compile_from_static_dfa). See
+            // regex literal `/pat/flags`: per-fn dedup cache +
+            // entry-block hoist; compiled at build time into an
+            // image `__torajs_regex_compile_baked` decodes. See
             // [`crate::ssa_lower_lit::lower_regex`].
             crate::ssa_lower_lit::lower_regex(ctx, pattern, flags)
         }

@@ -12,7 +12,7 @@
 //!    after the ASLR slide).
 //! 2. An outer `BakedDfaMeta` 32-byte struct (`__torajs_baked_regex_<index>` —
 //!    public, the user-binary call to
-//!    `__torajs_regex_compile_from_static_dfa(meta, pat, flag)` lands
+//!    `__torajs_regex_compile_baked(image, matchers, meta, pat)` lands
 //!    here). Inline `states_ptr` field at offset 0 is the rebase slot;
 //!    `states_len + start*4` fill the remaining 24 bytes per the
 //!    `BakedDfaMeta` doc comment on `torajs_regex::dfa::BakedDfaMeta`.

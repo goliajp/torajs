@@ -101,7 +101,7 @@ pub struct DfaProgram {
     /// states, so every consumer (eager `dfa_runtime`, `resolve_dfa`
     /// local build, AOT bake) discards it and the cp-aware Pike VM
     /// serves the program. Never baked — `baked_dfa_view` hardcodes
-    /// `false` because `try_bake_regex_dfa` refuses poisoned builds.
+    /// `false` because `bake_literal` refuses poisoned builds.
     pub poisoned: bool,
 }
 

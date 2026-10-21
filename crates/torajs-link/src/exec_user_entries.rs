@@ -183,7 +183,7 @@ pub struct UserFieldMetaEntry {
 /// `__DATA_CONST` next to the vtable + class_layouts blobs; the
 /// `__torajs_baked_regex_<index>` outer symbol points at the
 /// `BakedDfaMeta` struct so the ssa_lower-emitted
-/// `__torajs_regex_compile_from_static_dfa(meta_ptr, pat, flag)`
+/// `__torajs_regex_compile_baked(image, matchers, meta_ptr, pat)`
 /// call has a vaddr to land on. Mirrors `ssa::BakedRegexEntry` minus
 /// the SSA-side wiring — fields are byte-for-byte the same. Phase
 /// C-5a defines the type + extends `LinkConfig` only; Phase C-5b

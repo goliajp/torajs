@@ -281,7 +281,7 @@ pub(super) fn finish_dfa(
     // word, AFTER `compute_monotone_accept` (which reads transitions
     // as plain indices). The executor's per-byte step then reads one
     // cache line instead of two. Applies identically to the AOT bake
-    // path (`try_bake_regex_dfa` serialises this function's output
+    // path (`bake_literal` serialises this function's output
     // byte-for-byte), so baked `.rodata` tables and the runtime
     // executor always agree on the encoding.
     fold_accept_bits(&mut states);

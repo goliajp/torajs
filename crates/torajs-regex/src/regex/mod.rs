@@ -438,10 +438,10 @@ impl RegExp {
             start_mid_nonword: meta.start_mid_nonword,
             all_starts_equal,
             // Round 3 Phase B attack #R-E — baked at host build time
-            // by ssa_lower (see `try_bake_regex_dfa`); reading the
+            // by ssa_lower (see `bake_literal`); reading the
             // `.rodata` byte is free.
             any_accept_before_byte: meta.any_accept_before_byte,
-            // Poisoned DFAs are never baked (`try_bake_regex_dfa`
+            // Poisoned DFAs are never baked (`bake_literal`
             // refuses them), so a baked view is always sound.
             poisoned: false,
         })

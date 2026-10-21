@@ -138,11 +138,8 @@ pub struct LinkConfig {
     /// `user_regex_baked_layout` materialises each as a
     /// `BakedDfaMeta` 32-byte struct + `[DfaState; N]` payload in
     /// `__DATA_CONST`. The user binary calls
-    /// `__torajs_regex_compile_from_static_dfa(meta_ptr, pat, flag)`
-    /// against each `__torajs_baked_regex_<index>` symbol instead of
-    /// the runtime `__torajs_regex_compile` for the corresponding
-    /// literal. Empty default keeps every pre-C-5 byte stream
-    /// byte-identical until the upstream emit lands.
+    /// `__torajs_regex_compile_baked(image, matchers, meta_ptr, pat)`
+    /// with each `__torajs_baked_regex_<index>` symbol as its meta.
     pub baked_regex_entries: Vec<UserBakedRegexEntry>,
 }
 

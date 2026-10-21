@@ -92,7 +92,7 @@ pub struct DfaState {
     /// deterministically at offset 1028, mirroring
     /// [`PendingClass::_pad`]. The AOT bake path serialises a
     /// `DfaState` by reading its bytes through `*const u8`
-    /// (`ssa_lower_regex_bake::try_bake_regex_dfa`), and a compiler-
+    /// (`ssa_lower_regex_bake::bake_literal`), and a compiler-
     /// inserted padding hole would be read there as uninitialised
     /// memory — whatever the allocator last left in that byte lands
     /// verbatim in `__DATA_CONST`, so the same source built twice
