@@ -59,6 +59,7 @@ mod walk;
 
 pub(crate) use spec::{check_spec, check_spec_stmt};
 
+use std::cell::OnceCell;
 use std::collections::{HashMap, HashSet};
 
 use crate::ast::{Ast, Expr, ExprId};
@@ -182,15 +183,15 @@ struct Walker<'a> {
     /// iterator-helper self-transform (`it = it.filter(cb)`) then
     /// assigns a helper cell into the same slot; without the widen
     /// the checker rejects the reassign (Obj slot, Any value).
-    gen_factories: HashSet<String>,
+    gen_factories: OnceCell<HashSet<String>>,
     /// Names rebound somewhere to a non-nullish rhs — the nullish
     /// rule's name-keyed evidence (module doc).
-    non_nullish_rebinds: HashSet<String>,
+    non_nullish_rebinds: OnceCell<HashSet<String>>,
     /// Top-level FnDecls by name — where a closure's lifted body lives.
-    lifted: HashMap<&'a str, (&'a [crate::ast::Param], &'a [crate::ast::Stmt])>,
+    lifted: OnceCell<facts::Lifted<'a>>,
     /// The lifted bodies of closures, which are walked where each
     /// closure is made, with the bindings it captures there.
-    closure_bodies: HashSet<&'a str>,
+    closure_bodies: OnceCell<HashSet<&'a str>>,
     /// The module's top-level bindings, which a named function body
     /// starts from.
     module: HashMap<String, Binding>,
@@ -225,7 +226,7 @@ impl Walker<'_> {
                 // object — classifiable through the factory table.
                 match self.ast.get_expr(strip_as(self.ast, init)) {
                     Expr::Call { callee, .. } => match self.ast.get_expr(*callee) {
-                        Expr::Ident(n) if self.gen_factories.contains(n) => {
+                        Expr::Ident(n) if self.gen_factories().contains(n) => {
                             Some(Family::New(format!("__Gen_{n}")))
                         }
                         _ => None,
@@ -237,7 +238,7 @@ impl Walker<'_> {
             // (module doc): the scope walk below still sees the
             // classifiable in-scope rebinds, this catches the rest.
             if matches!(family, Some(Family::Null | Family::Undef))
-                && self.non_nullish_rebinds.contains(name)
+                && self.non_nullish_rebinds().contains(name)
             {
                 self.out.insert(init);
             }

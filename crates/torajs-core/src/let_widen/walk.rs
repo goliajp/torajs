@@ -368,7 +368,7 @@ impl Walker<'_> {
     /// closure's lifted body starts from nothing here, since it is
     /// walked where the closure is made ([`Self::walk_closure_body`]).
     fn walk_named_fn(&mut self, name: &str, params: &[Param], body: &[Stmt]) {
-        let base = if self.closure_bodies.contains(name) {
+        let base = if self.is_closure_body(name) {
             HashMap::new()
         } else {
             self.module.clone()
@@ -380,7 +380,7 @@ impl Walker<'_> {
     /// captured name resolves to the binding it has here, so an
     /// assign to it inside the body reaches the outer declaration.
     fn walk_closure_body(&mut self, fn_name: &str, captures: &[String]) {
-        let Some((&name, &(params, body))) = self.lifted.get_key_value(fn_name) else {
+        let Some((&name, &(params, body))) = self.lifted().get_key_value(fn_name) else {
             return;
         };
         if !self.entered.insert(name) {
