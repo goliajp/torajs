@@ -19,7 +19,7 @@ use torajs_core::ssa::id_hash::HashMap;
 
 use torajs_core::ssa::{Function, InstKind, Operand, Type};
 
-use super::operand::{materialize_const_i64, materialize_operand_gpr, operand_is_f64};
+use super::operand::{access_base, materialize_const_i64, materialize_operand_gpr, operand_is_f64};
 use super::{OP_SCRATCH_LHS, OP_SCRATCH_RHS, OP_SCRATCH_TMP, write_u32};
 use crate::enc::{stp_w_off, stp_x_off};
 use crate::reg::Gpr;
@@ -150,8 +150,12 @@ pub(super) fn emit(bytes: &mut Vec<u8>, p: &StorePair, alloc: &Assignment) {
     } else {
         word_in_gpr(bytes, &p.hi, OP_SCRATCH_TMP, alloc)
     };
-    let rn = materialize_operand_gpr(bytes, &p.base, OP_SCRATCH_RHS, alloc);
-    let off = p.offset as i32;
+    let size: u64 = if p.w32 { 4 } else { 8 };
+    // a spilled alloca folds into `[SP, #slot + offset]` while the
+    // seven scaled bits reach it
+    let reach = (63 * size).saturating_sub(p.offset) as u32;
+    let (rn, at) = access_base(bytes, &p.base, OP_SCRATCH_RHS, alloc, reach);
+    let off = (p.offset + at) as i32;
     if p.w32 {
         write_u32(bytes, stp_w_off(rt, rt2, rn, off));
     } else {
@@ -233,6 +237,51 @@ mod tests {
         assert!(
             !w.iter().any(|x| (*x & 0xFFC0_0000) == 0xFD00_0000),
             "no STR d"
+        );
+    }
+
+    /// A spilled alloca folds into the pair while slot plus offset is
+    /// within the seven scaled bits; one word further the address
+    /// takes an ADD and the pair keeps its own offset.
+    #[test]
+    fn a_spilled_alloca_folds_into_the_pair_within_its_reach() {
+        use super::{StorePair, emit};
+        use crate::reg::Reg;
+        use crate::regalloc::Assignment;
+        use torajs_core::ssa::ValueId;
+        use torajs_core::ssa::id_hash::HashMap;
+
+        let pair = StorePair {
+            lo: Operand::ConstI64(0),
+            hi: Operand::ConstI64(0),
+            base: Operand::Value(ValueId(0)),
+            offset: 8,
+            w32: false,
+        };
+        let at = |slot: u32| {
+            let a = Assignment::from_parts(
+                HashMap::from_iter([(0, Reg::SpillGpr(slot))]),
+                HashMap::from_iter([(0, slot)]),
+                slot + 16,
+                0,
+                false,
+            );
+            let mut bytes = Vec::new();
+            emit(&mut bytes, &pair, &a);
+            bytes
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|c| u32::from_le_bytes(*c))
+                .collect::<Vec<u32>>()
+        };
+        assert_eq!(at(496), [enc::stp_x_off(Gpr::XZR, Gpr::XZR, Gpr::SP, 504)]);
+        assert_eq!(
+            at(504),
+            [
+                enc::add_imm(Gpr::X10, Gpr::SP, 504),
+                enc::stp_x_off(Gpr::XZR, Gpr::XZR, Gpr::X10, 8),
+            ]
         );
     }
 

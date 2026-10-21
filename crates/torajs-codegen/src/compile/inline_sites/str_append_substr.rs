@@ -21,7 +21,9 @@ use torajs_str::layout::{
 };
 use torajs_str::substr::{SUBSTR_LEN_OFF, SUBSTR_OFFSET_OFF, SUBSTR_PARENT_OFF};
 
+use crate::compile::operand::access_base;
 use crate::compile::rc_dec::{Fix, patch, place, store};
+use crate::compile::slot::X_IMM12_MAX;
 use crate::compile::{
     OP_SCRATCH_LHS, OP_SCRATCH_RESULT_GPR, OP_SCRATCH_RHS, OP_SCRATCH_TMP, materialize_operand_gpr,
     write_def_spill_gpr, write_u32,
@@ -48,6 +50,17 @@ const FLAGS_SHIFT: u32 = FLAGS_OFF as u32 * 8;
 const _: () = assert!(STR_FLAG_HAS_CAPACITY < 4096 && STR_FLAG_IS_LATIN1 < 4096);
 // the copy addresses the payload with unscaled offsets past the base
 const _: () = assert!(STR_DATA_OFF == 16);
+
+/// The largest frame offset at which a spilled view folds into the
+/// field loads `[sp, #slot + field]`: past it the furthest field leaves
+/// the scaled imm12's reach and the view's address takes an ADD.
+pub(crate) const VIEW_REACH: u32 = X_IMM12_MAX - max_field_off();
+
+const fn max_field_off() -> u32 {
+    let (a, b, c) = (SUBSTR_PARENT_OFF, SUBSTR_LEN_OFF, SUBSTR_OFFSET_OFF);
+    let ab = if a > b { a } else { b };
+    (if ab > c { ab } else { c }) as u32
+}
 
 /// The module's consuming substring append.
 #[derive(Debug, Clone, Copy)]
@@ -134,13 +147,18 @@ pub(crate) fn try_emit(
     let (flags, parent, n) = (OP_SCRATCH_RHS, OP_SCRATCH_TMP, OP_SCRATCH_RESULT_GPR);
     let (t0, t1) = (Gpr::X16, Gpr::X17);
     let acc = materialize_operand_gpr(bytes, &args[0], OP_SCRATCH_LHS, alloc);
-    let view = materialize_operand_gpr(bytes, &args[1], t1, alloc);
+    // a view in a spilled frame slot is read off SP
+    let (view, at) = access_base(bytes, &args[1], t1, alloc, VIEW_REACH);
+    let at = at as u32;
     let mut slow = Vec::new();
 
     slow.push(place(bytes, Fix::Cbz(acc)));
-    write_u32(bytes, ldr_x_imm12(parent, view, SUBSTR_PARENT_OFF as u32));
-    write_u32(bytes, ldr_x_imm12(n, view, SUBSTR_LEN_OFF as u32));
-    write_u32(bytes, ldr_x_imm12(t0, view, SUBSTR_OFFSET_OFF as u32));
+    write_u32(
+        bytes,
+        ldr_x_imm12(parent, view, at + SUBSTR_PARENT_OFF as u32),
+    );
+    write_u32(bytes, ldr_x_imm12(n, view, at + SUBSTR_LEN_OFF as u32));
+    write_u32(bytes, ldr_x_imm12(t0, view, at + SUBSTR_OFFSET_OFF as u32));
     write_u32(bytes, ldr_x_imm12(flags, acc, 0));
     write_u32(bytes, cmp_w_imm(flags, 1));
     slow.push(place(bytes, Fix::Cond(cond::NE)));
@@ -356,6 +374,58 @@ mod tests {
                 mov_x_reg(Gpr::X1, Gpr::X17),
                 bl_imm26(0),
                 mov_x_reg(Gpr::X20, Gpr::X0),
+            ]
+        );
+    }
+
+    /// The inline arm's words for a view spilled at frame offset `slot`.
+    fn spilled_view_words(slot: u32) -> Vec<u32> {
+        let a = Assignment::from_parts(
+            HashMap::from_iter([
+                (0, Reg::Gpr(Gpr::X19)),
+                (1, Reg::SpillGpr(slot)),
+                (2, Reg::Gpr(Gpr::X20)),
+            ]),
+            HashMap::from_iter([(1, slot)]),
+            slot + 32,
+            0,
+            true,
+        );
+        let inst = call(OP.func, vec![v(0), v(1)]);
+        let (mut bytes, mut relocs) = (Vec::new(), Vec::new());
+        assert!(try_emit(&mut bytes, &mut relocs, &inst, &a, &[], OP));
+        words(&bytes)
+    }
+
+    /// A spilled view at the edge of the reach is read off SP; one
+    /// word past it, its address is added into x17 first, and no field
+    /// load carries an offset the scaled imm12 cannot encode.
+    #[test]
+    fn a_spilled_view_folds_only_within_the_scaled_reach() {
+        let w = spilled_view_words(VIEW_REACH);
+        assert_eq!(
+            &w[1..4],
+            &[
+                ldr_x_imm12(Gpr::X11, Gpr::SP, VIEW_REACH + 16),
+                ldr_x_imm12(Gpr::X12, Gpr::SP, VIEW_REACH + 8),
+                ldr_x_imm12(Gpr::X16, Gpr::SP, VIEW_REACH + 24),
+            ]
+        );
+        assert_eq!(VIEW_REACH + 24, X_IMM12_MAX);
+
+        let far = VIEW_REACH + 8;
+        let w = spilled_view_words(far);
+        let mut add = Vec::new();
+        slot::sp_add(&mut add, Gpr::X17, far);
+        let add = words(&add);
+        assert_eq!(&w[..add.len()], &add[..]);
+        let at = add.len() + 1;
+        assert_eq!(
+            &w[at..at + 3],
+            &[
+                ldr_x_imm12(Gpr::X11, Gpr::X17, 16),
+                ldr_x_imm12(Gpr::X12, Gpr::X17, 8),
+                ldr_x_imm12(Gpr::X16, Gpr::X17, 24),
             ]
         );
     }

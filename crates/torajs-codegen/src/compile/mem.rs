@@ -10,7 +10,8 @@
 use torajs_core::ssa::{Inst, Operand, Type};
 
 use super::operand::{
-    materialize_const_i64, materialize_operand_fpr, materialize_operand_gpr, operand_is_f64,
+    access_base, materialize_const_i64, materialize_operand_fpr, materialize_operand_gpr,
+    operand_is_f64,
 };
 use super::store_pair::{word_in_gpr, zero_word};
 use super::{
@@ -125,7 +126,8 @@ pub fn emit_load(
     alloc: &Assignment,
 ) {
     let result_vid = inst.result.expect("Load must have result");
-    let rn = materialize_operand_gpr(bytes, ptr, OP_SCRATCH_LHS, alloc);
+    let (rn, at) = access_base(bytes, ptr, OP_SCRATCH_LHS, alloc, u32::MAX);
+    let offset = offset + at;
     if *ty == Type::F64 {
         let wide = wide_offset(bytes, offset, 8);
         let (dst, spill_off) = alloc.def_fpr(result_vid, FP_SCRATCH_RESULT);
@@ -157,21 +159,22 @@ pub fn emit_store(
 ) {
     let forms = if w32 { &W_STORE } else { &X_STORE };
     if zero_word(val) {
-        let rn = materialize_operand_gpr(bytes, ptr, OP_SCRATCH_RHS, alloc);
-        emit_gpr_access(bytes, forms, Gpr::XZR, rn, offset);
+        let (rn, at) = access_base(bytes, ptr, OP_SCRATCH_RHS, alloc, u32::MAX);
+        emit_gpr_access(bytes, forms, Gpr::XZR, rn, offset + at);
         return;
     }
     if let Operand::ConstF64(_) = val {
         // the bit pattern goes to memory from a GPR: no FMOV into a D
         // register first
         let rs = word_in_gpr(bytes, val, OP_SCRATCH_LHS, alloc);
-        let rn = materialize_operand_gpr(bytes, ptr, OP_SCRATCH_RHS, alloc);
-        emit_gpr_access(bytes, &X_STORE, rs, rn, offset);
+        let (rn, at) = access_base(bytes, ptr, OP_SCRATCH_RHS, alloc, u32::MAX);
+        emit_gpr_access(bytes, &X_STORE, rs, rn, offset + at);
         return;
     }
     if operand_is_f64(val, alloc) {
         let rs = materialize_operand_fpr(bytes, val, FP_SCRATCH_LHS, OP_SCRATCH_LHS, alloc);
-        let rn = materialize_operand_gpr(bytes, ptr, OP_SCRATCH_RHS, alloc);
+        let (rn, at) = access_base(bytes, ptr, OP_SCRATCH_RHS, alloc, u32::MAX);
+        let offset = offset + at;
         // D-form scaled store: not yet ssa_lower-emitted at non-
         // aligned offsets; keep the aligned-only form until a real
         // need surfaces (mirror the LDR path's safety strategy).
@@ -181,8 +184,8 @@ pub fn emit_store(
         }
     } else {
         let rs = materialize_operand_gpr(bytes, val, OP_SCRATCH_LHS, alloc);
-        let rn = materialize_operand_gpr(bytes, ptr, OP_SCRATCH_RHS, alloc);
-        emit_gpr_access(bytes, forms, rs, rn, offset);
+        let (rn, at) = access_base(bytes, ptr, OP_SCRATCH_RHS, alloc, u32::MAX);
+        emit_gpr_access(bytes, forms, rs, rn, offset + at);
     }
 }
 
@@ -340,13 +343,13 @@ mod tests {
     ///
     /// ```text
     /// fn alloca_store_load_42() -> i64 {
-    ///     let p = alloca 8;      // v0 (Ptr), allocated x13 (first scratch)
+    ///     let p = alloca 8;      // v0 (Ptr), no register: every read folds
     ///     *p = 42;
     ///     ret *p                 // v1 (I64), allocated x0 (ret slot)
     /// }
     /// ```
     ///
-    /// Expected 10-instruction sequence:
+    /// Expected 9-instruction sequence:
     ///
     /// ```text
     ///   prologue:
@@ -354,10 +357,9 @@ mod tests {
     ///     MOV x29, sp                   0x910003FD
     ///     SUB sp, sp, #16               0xD10043FF
     ///   body:
-    ///     ADD x13, sp, #0               (alloca v0 → x13 = sp+0)
     ///     MOVZ x9, #42                  (materialize ConstI64(42))
-    ///     STR x9, [x13, #0]             (Store)
-    ///     LDR x0, [x13, #0]             (Load v1 → x0)
+    ///     STR x9, [sp, #0]              (Store through v0's slot)
+    ///     LDR x0, [sp, #0]              (Load v1 → x0)
     ///   epilogue:
     ///     ADD sp, sp, #16               0x910043FF
     ///     LDP x29, x30, [SP], #16       0xA8C17BFD
@@ -425,11 +427,11 @@ mod tests {
         let movz = enc::movz_imm(Gpr::X11, (off & 0xFFFF) as u16, 0);
         assert!(words.contains(&movz), "offset materializes into X11");
         assert!(
-            words.contains(&enc::str_x_reg(Gpr::X9, Gpr::X13, Gpr::X11)),
+            words.contains(&enc::str_x_reg(Gpr::X9, Gpr::SP, Gpr::X11)),
             "STR rides [Xn, X11]"
         );
-        // LDR Xt, [X13, X11] for whatever Rt the allocator picked.
-        let ldr_shape = enc::ldr_x_reg(Gpr::X0, Gpr::X13, Gpr::X11) & !0x1F;
+        // LDR Xt, [SP, X11] for whatever Rt the allocator picked.
+        let ldr_shape = enc::ldr_x_reg(Gpr::X0, Gpr::SP, Gpr::X11) & !0x1F;
         assert!(
             words.iter().any(|w| (w & !0x1F) == ldr_shape),
             "LDR rides [Xn, X11]"
@@ -439,8 +441,56 @@ mod tests {
         assert!(
             !words
                 .iter()
-                .any(|w| (w & 0xFF80_0000) == 0xF900_0000 && (w >> 5) & 0x1F == Gpr::X13 as u32),
-            "no scaled-immediate access off X13"
+                .any(|w| (w & 0xFF80_0000) == 0xF900_0000 && (w >> 5) & 0x1F == Gpr::SP as u32),
+            "no scaled-immediate access off SP"
+        );
+    }
+
+    /// A spilled alloca past the scaled reach still folds: slot plus
+    /// field offset materializes into X11 and the access rides
+    /// `[SP, X11]`, for a load and for a store alike.
+    #[test]
+    fn a_far_spilled_alloca_rides_the_register_index_off_sp() {
+        use super::{emit_load, emit_store};
+        use crate::reg::Reg;
+        use crate::regalloc::Assignment;
+        use torajs_core::ssa::id_hash::HashMap;
+        use torajs_core::ssa::{Inst, InstKind, Operand, Type, ValueId};
+
+        let slot = 40000;
+        let a = Assignment::from_parts(
+            HashMap::from_iter([(0, Reg::SpillGpr(slot)), (1, Reg::Gpr(Gpr::X0))]),
+            HashMap::from_iter([(0, slot)]),
+            slot + 8,
+            0,
+            false,
+        );
+        let ptr = Operand::Value(ValueId(0));
+        let words = |bytes: Vec<u8>| -> Vec<u32> {
+            bytes
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|c| u32::from_le_bytes(*c))
+                .collect()
+        };
+        let index = enc::movz_imm(Gpr::X11, 40008, 0);
+        let load = Inst {
+            result: Some(ValueId(1)),
+            kind: InstKind::Load(Type::I64, ptr, 8),
+            origin: None,
+        };
+        let mut bytes = Vec::new();
+        emit_load(&mut bytes, &load, &Type::I64, &ptr, 8, &a);
+        assert_eq!(
+            words(bytes),
+            [index, enc::ldr_x_reg(Gpr::X0, Gpr::SP, Gpr::X11)]
+        );
+        let mut bytes = Vec::new();
+        emit_store(&mut bytes, &Operand::Value(ValueId(1)), &ptr, 8, false, &a);
+        assert_eq!(
+            words(bytes),
+            [index, enc::str_x_reg(Gpr::X0, Gpr::SP, Gpr::X11)]
         );
     }
 
@@ -490,7 +540,8 @@ mod tests {
                 current_origin: None,
             };
             let compiled = compile_function(&func);
-            let zero_store = enc::str_x_imm12(Gpr::XZR, Gpr::X13, 0).to_le_bytes();
+            // the alloca's address folds into the access: `[SP, #0]`
+            let zero_store = enc::str_x_imm12(Gpr::XZR, Gpr::SP, 0).to_le_bytes();
             assert!(
                 compiled.bytes.windows(4).any(|w| w == zero_store),
                 "expected STR XZR store word for {zero:?}"
@@ -513,10 +564,9 @@ mod tests {
             enc::stp_pre_index(Gpr::X29, Gpr::X30, Gpr::SP, -16),
             enc::add_imm(Gpr::X29, Gpr::SP, 0),
             enc::sub_imm(Gpr::SP, Gpr::SP, 16),
-            enc::add_imm(Gpr::X13, Gpr::SP, 0),
             enc::movz_imm(Gpr::X9, 42, 0),
-            enc::str_x_imm12(Gpr::X9, Gpr::X13, 0),
-            enc::ldr_x_imm12(Gpr::X0, Gpr::X13, 0),
+            enc::str_x_imm12(Gpr::X9, Gpr::SP, 0),
+            enc::ldr_x_imm12(Gpr::X0, Gpr::SP, 0),
             enc::ldp_x_off(Gpr::X29, Gpr::X30, Gpr::SP, 16),
             enc::add_imm(Gpr::SP, Gpr::SP, 32),
             enc::ret(Gpr::X30),
@@ -526,7 +576,7 @@ mod tests {
             "alloca_store_load: expected {expected:02X?}, got {:02X?}",
             compiled.bytes
         );
-        assert_eq!(compiled.bytes.len(), 40, "10 inst × 4 bytes");
+        assert_eq!(compiled.bytes.len(), 36, "9 inst × 4 bytes");
         assert_eq!(compiled.frame.alloca_bytes, 16);
         assert!(!compiled.frame.is_trivial());
     }

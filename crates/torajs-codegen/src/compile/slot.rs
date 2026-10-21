@@ -32,6 +32,10 @@ const SLOT_BASE: Gpr = Gpr::X16;
 /// (`#hi, LSL #12` with hi < 4096): 16 MiB.
 pub(crate) const FRAME_BYTES_MAX: u32 = 1 << 24;
 
+/// The largest byte offset the scaled X-form imm12 encodes past its
+/// base: 4095 eight-byte units.
+pub(crate) const X_IMM12_MAX: u32 = 4095 * 8;
+
 /// `(base, imm)` for a slot at `off` below SP: SP itself while the
 /// scaled imm12 reaches, else IP0 loaded with the shifted high part
 /// and the low part as the immediate. Slots are 8-aligned, so the low

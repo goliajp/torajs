@@ -73,6 +73,9 @@ pub(crate) struct Sweep<'a> {
     /// always takes one, and is saved whole around the calls it
     /// crosses.
     pub(crate) unspillable: HashSet<u32>,
+    /// Frame offset of each alloca result. A spilled alloca lives in
+    /// its own slot: its address is recomputed from SP, never stored.
+    pub(crate) alloca_slots: HashMap<u32, u32>,
     /// Whether a value may take a register another holds where the
     /// two are never both live; `TORAJS_SHARE_OFF=1` turns it off
     /// (bisect gate).
@@ -139,6 +142,7 @@ impl<'a> Sweep<'a> {
             saved: HashSet::default(),
             call_costs,
             unspillable: HashSet::default(),
+            alloca_slots: HashMap::default(),
             share: !switches.share_off,
             save_calls: !switches.call_save_off,
             log: false,
@@ -247,5 +251,13 @@ impl<'a> Sweep<'a> {
         let off = self.next_spill_offset;
         self.next_spill_offset += 8;
         off
+    }
+
+    /// The slot spilled `vid` lives in: an alloca's own, or a new one.
+    pub(crate) fn spill_home(&mut self, vid: u32) -> u32 {
+        match self.alloca_slots.get(&vid) {
+            Some(&slot) => slot,
+            None => self.alloc_spill_slot(),
+        }
     }
 }

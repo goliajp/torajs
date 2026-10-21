@@ -81,6 +81,28 @@ pub fn materialize_operand_gpr(
     }
 }
 
+/// The base register and the offset it adds for an access at `ptr`: a
+/// spilled alloca address folds into `[SP, #slot]` when `slot` is at
+/// most `reach`, the largest offset the access's own encoding takes
+/// (`u32::MAX` for one with a register-indexed fallback); anything
+/// else is materialized into `scratch` with nothing added.
+pub(super) fn access_base(
+    bytes: &mut Vec<u8>,
+    ptr: &Operand,
+    scratch: Gpr,
+    alloc: &Assignment,
+    reach: u32,
+) -> (Gpr, u64) {
+    if let Operand::Value(v) = ptr
+        && let Reg::SpillGpr(_) = alloc.of(*v)
+        && let Some(slot) = alloc.alloca_slot(*v)
+        && slot <= reach
+    {
+        return (Gpr::SP, u64::from(slot));
+    }
+    (materialize_operand_gpr(bytes, ptr, scratch, alloc), 0)
+}
+
 /// Set NZCV from `lhs` vs `rhs`, both f64. A zero on the right takes
 /// `fcmp dn, #0.0`: nothing to carry into an FP scratch, and a -0.0
 /// there compares exactly as +0.0 does.

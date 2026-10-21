@@ -30,9 +30,10 @@
 
 use torajs_core::ssa::id_hash::HashMap;
 
-use torajs_core::ssa::Function;
 use torajs_core::ssa::block_freq::block_freqs;
+use torajs_core::ssa::{Function, InstKind, Operand, ValueId};
 
+use crate::compile::InlineSites;
 use crate::liveness::{visit_inst_operands, visit_terminator_operands};
 
 /// `ValueId.0 → spill weight` for `func`, and the per-slot frequencies
@@ -40,7 +41,20 @@ use crate::liveness::{visit_inst_operands, visit_terminator_operands};
 /// `liveness::compute_intervals` (insts then one terminator slot per
 /// block).
 pub fn compute_spill_weights(func: &Function) -> (HashMap<u32, u64>, Vec<u64>) {
+    compute_spill_weights_with(func, InlineSites::default(), &HashMap::default())
+}
+
+/// [`compute_spill_weights`] knowing which calls `compile` opens inline
+/// (`inline`), whose arguments an alloca read may not fold into, and
+/// the frame offset of each alloca (`alloca_offsets`), which bounds
+/// the folds that ride an immediate.
+pub(crate) fn compute_spill_weights_with(
+    func: &Function,
+    inline: InlineSites,
+    alloca_offsets: &HashMap<u32, u32>,
+) -> (HashMap<u32, u64>, Vec<u64>) {
     let units = slot_units(func);
+    let alloca = alloca_results(func);
     // accumulate the slot's unit per static use (operand reads AND the
     // defining slot itself, so a value defined in a loop counts its
     // def-site store too), per value index, then key the values seen:
@@ -54,9 +68,13 @@ pub fn compute_spill_weights(func: &Function) -> (HashMap<u32, u64>, Vec<u64>) {
     for b in &func.blocks {
         for inst in &b.insts {
             let unit = units[idx];
-            visit_inst_operands(&inst.kind, |v| add(v.0, unit));
+            visit_inst_operands(&inst.kind, |v| {
+                let free =
+                    alloca[v.0 as usize] && folds_alloca(&inst.kind, v, inline, alloca_offsets);
+                add(v.0, if free { 0 } else { unit });
+            });
             if let Some(r) = inst.result {
-                add(r.0, unit);
+                add(r.0, if alloca[r.0 as usize] { 0 } else { unit });
             }
             idx += 1;
         }
@@ -72,6 +90,48 @@ pub fn compute_spill_weights(func: &Function) -> (HashMap<u32, u64>, Vec<u64>) {
         }
     }
     (weights, units)
+}
+
+/// Per value index, whether it is an alloca result. A spilled one is
+/// never stored and costs an ADD only where a read cannot fold it
+/// (`compile::operand::access_base`), so its def weighs nothing and so
+/// do the reads in [`folds_alloca`].
+fn alloca_results(func: &Function) -> Vec<bool> {
+    let mut out = vec![false; func.values.len()];
+    for inst in func.blocks.iter().flat_map(|b| &b.insts) {
+        if let (InstKind::Alloca(_) | InstKind::AllocaBytes(_), Some(r)) = (&inst.kind, inst.result)
+        {
+            out[r.0 as usize] = true;
+        }
+    }
+    out
+}
+
+/// Whether reading alloca `v` in `kind` costs nothing once `v` is
+/// spilled: the base of a load or store, which addresses off SP, or a
+/// call argument, where the ADD into the argument register stands for
+/// the move from a home register. A call `compile` opens inline reads
+/// its arguments as registers, except the view of a substring append,
+/// whose fields it loads off SP too while its slot is near enough.
+fn folds_alloca(
+    kind: &InstKind,
+    v: ValueId,
+    inline: InlineSites,
+    alloca_offsets: &HashMap<u32, u32>,
+) -> bool {
+    let is_v = |op: &Operand| matches!(op, Operand::Value(x) if *x == v);
+    match kind {
+        InstKind::Load(_, p, _) => is_v(p),
+        InstKind::Store(val, p, _) => is_v(p) && !is_v(val),
+        InstKind::Call(_, args) if inline.opens_inline(kind) => {
+            args.iter().position(is_v) == Some(1)
+                && alloca_offsets
+                    .get(&v.0)
+                    .is_some_and(|&slot| inline.folds_substr_view(kind, slot))
+        }
+        InstKind::Call(_, args) => args.iter().any(is_v),
+        _ => false,
+    }
 }
 
 /// Per global slot, the estimated execution frequency of its block.

@@ -38,6 +38,14 @@ impl InlineSites {
         }
     }
 
+    /// Whether the call `kind` is a substring append opened inline
+    /// whose field loads take a spilled view at frame offset `slot`
+    /// straight off SP.
+    pub(crate) fn folds_substr_view(self, kind: &InstKind, slot: u32) -> bool {
+        self.str_append_substr.is_some_and(|s| s.matches(kind))
+            && slot <= str_append_substr::VIEW_REACH
+    }
+
     /// Whether the call `kind` reaches its `bl` only on a slow arm.
     pub(crate) fn opens_inline(self, kind: &InstKind) -> bool {
         self.cells.is_some_and(|c| c.inline_class(kind).is_some())

@@ -47,7 +47,7 @@ use crate::live_ranges::LazyRanges;
 use crate::liveness::compute_liveness;
 use crate::reg::{Gpr, Reg, aapcs64};
 use crate::regalloc::{Assignment, collect_ret_value_ids};
-use crate::spill_weight::compute_spill_weights;
+use crate::spill_weight::compute_spill_weights_with;
 
 /// Linear-Scan register allocator with call-crossing awareness and
 /// stack spill (see module docs).
@@ -82,13 +82,14 @@ pub(crate) fn allocate_linear_scan_reserving(
     let (param_arg_reg, stack_params) = param_lanes(func);
 
     let classes = build_copy_classes(func, &intervals, &blocks, &ret_vids, &call_sites);
-    let (mut weights, units) = compute_spill_weights(func);
+    let (mut weights, units) = compute_spill_weights_with(func, inline, &alloca_offsets);
     classes.fold_into(&mut intervals, &mut weights);
     let ranges = LazyRanges::new(func, &blocks, &intervals, &classes);
     let call_costs = CallCosts::new(&call_sites, &call_rarity, &units);
     let mut sweep = Sweep::new(next_alloca_offset, weights, call_costs, ranges, reserved);
     sweep.unspillable = crate::vec_homes::vector_values(func, &classes);
     sweep.log = crate::linear_scan_dump::wanted(func);
+    sweep.alloca_slots = alloca_offsets;
 
     // Sweep every interval (params + inst/alloca results) by start;
     // ties broken by ValueId to keep the sweep deterministic.
@@ -192,6 +193,15 @@ pub(crate) fn allocate_linear_scan_reserving(
             }
         }
 
+        // an alloca no read of which costs anything once spilled
+        // (`spill_weight::folds_alloca`) takes no register at all
+        if sweep.weights.get(&vid) == Some(&0)
+            && let Some(&slot) = sweep.alloca_slots.get(&vid)
+        {
+            sweep.by_value.insert(vid, Reg::SpillGpr(slot));
+            continue;
+        }
+
         sweep.alloc_value(vid, interval, is_fp, crossing, &call_sites);
     }
 
@@ -202,6 +212,7 @@ pub(crate) fn allocate_linear_scan_reserving(
     }
     let (call_saves, vec_call_saves) = collect_call_saves(&mut sweep, &intervals, &call_sites);
 
+    let alloca_offsets = std::mem::take(&mut sweep.alloca_slots);
     let total_spill_bytes = sweep.next_spill_offset - next_alloca_offset;
     let used_callee_gpr_mask = sweep.used_callee_gpr_mask;
     let used_callee_fpr_mask = sweep.used_callee_fpr_mask;
@@ -668,7 +679,8 @@ mod tests {
     }
 
     /// Alloca offsets + has_calls share trivial's policy — `fn f() {
-    /// alloca 8; call f0(); }`.
+    /// alloca 8; call f0(); }`. The alloca, never read, spills into its
+    /// own slot and takes no spill slot of its own.
     #[test]
     fn ls_preserves_alloca_offsets_and_has_calls() {
         let v0 = ValueId(0); // alloca ptr
@@ -710,6 +722,8 @@ mod tests {
         assert_eq!(alloc.alloca_offset_of(v0), 0);
         assert_eq!(alloc.raw_alloca_bytes, 16);
         assert!(alloc.has_calls);
+        assert_eq!(alloc.of(v0), Reg::SpillGpr(0));
+        assert_eq!(alloc.total_spill_bytes, 0);
     }
 
     /// LS-3 — GPR-pool pressure beyond `CALLER_SAVED_SCRATCH.len()`

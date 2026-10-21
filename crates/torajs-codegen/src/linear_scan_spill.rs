@@ -127,7 +127,7 @@ impl Sweep<'_> {
                     if self.log {
                         eprintln!("  evict %{vid} {reg:?} for %{new_vid}");
                     }
-                    let off = self.alloc_spill_slot();
+                    let off = self.spill_home(vid);
                     self.by_value.insert(vid, spill(off));
                     self.deactivate(i);
                 }
@@ -139,7 +139,7 @@ impl Sweep<'_> {
                 if self.log {
                     eprintln!("  spill %{new_vid} (best {best:?})");
                 }
-                spill(self.alloc_spill_slot())
+                spill(self.spill_home(new_vid))
             }
         }
     }
