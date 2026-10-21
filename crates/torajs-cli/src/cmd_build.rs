@@ -24,7 +24,7 @@ use torajs_codegen::reloc::{CallTarget, RelocKind};
 use torajs_codegen::{ModuleFacts, compile_function_at};
 use torajs_core::ssa::{FuncId, Module};
 use torajs_link::archive_emit::link_to_exec_for_exit;
-use torajs_link::exec::LinkConfig;
+use torajs_link::exec::{LinkConfig, UserStringEntry, UserStringKind};
 use torajs_link::phase_timer::PhaseTimer;
 use torajs_link::resolve::SymTable;
 
@@ -199,28 +199,45 @@ fn compile_module_funcs(ssa_module: &Module) -> Vec<CompiledFunction> {
     funcs
 }
 
-/// V0.2 P14 chunk 7.7 v2 step 12 C2 Phase C-5a — per-literal baked
-/// DFA entries. ssa_lower's Phase C-6 `Expr::Regex` arm pushes
-/// entries into `ssa_module.baked_regex_entries` when the literal is
-/// DFA-eligible; forwarded to the link layer's `UserBakedRegexEntry`
-/// schema (empty Vec = link layer skips emit).
+/// The DFA tables of the baked regex literals that have one, in the
+/// link layer's `UserBakedRegexEntry` schema (empty Vec = link layer
+/// skips emit). An entry keeps its literal's index, which names its
+/// `___torajs_baked_regex_<index>` meta symbol.
 fn build_baked_regex_entries(ssa_module: &Module) -> Vec<torajs_link::exec::UserBakedRegexEntry> {
     ssa_module
         .baked_regex_entries
         .iter()
-        .map(|e| torajs_link::exec::UserBakedRegexEntry {
-            index: e.index,
-            states_payload: e.states_payload.clone(),
-            states_len: e.states_len,
-            start: e.start,
-            start_mid: e.start_mid,
-            start_mid_word: e.start_mid_word,
-            start_mid_nonword: e.start_mid_nonword,
-            // Round 3 Phase B attack #R-E — propagate host-baked
-            // flag through the SSA → link bridge.
-            any_accept_before_byte: e.any_accept_before_byte,
+        .filter_map(|e| {
+            let d = e.dfa.as_ref()?;
+            Some(torajs_link::exec::UserBakedRegexEntry {
+                index: e.index,
+                states_payload: d.states_payload.clone(),
+                states_len: d.states_len,
+                start: d.start,
+                start_mid: d.start_mid,
+                start_mid_word: d.start_mid_word,
+                start_mid_nonword: d.start_mid_nonword,
+                any_accept_before_byte: d.any_accept_before_byte,
+            })
         })
         .collect()
+}
+
+/// Every baked regex literal's compiled image, as a raw-byte literal at
+/// `__torajs_regex_image_<index>` (8-aligned, which the image's
+/// in-place property tables rely on).
+fn build_regex_images(ssa_module: &Module) -> impl Iterator<Item = UserStringEntry> + '_ {
+    ssa_module
+        .baked_regex_entries
+        .iter()
+        .map(|e| UserStringEntry {
+            sym: torajs_core::ssa::BakedRegexEntry::image_sym(e.index),
+            bytes: e.image.clone(),
+            is_latin1: true,
+            length: e.image.len() as u32,
+            kind: UserStringKind::RawBytes,
+            payload_alias: None,
+        })
 }
 
 pub(crate) fn build_link_config(
@@ -261,6 +278,7 @@ pub(crate) fn build_link_config(
     t.tick("dispatch_stubs");
     let mut strings = build_user_strings(ssa_module);
     let class_names = build_class_names(ssa_module, &mut strings);
+    strings.extend(build_regex_images(ssa_module));
     let data_globals = build_data_globals(ssa_module);
     let fn_name_globals = build_fn_name_globals(ssa_module);
 

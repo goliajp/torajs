@@ -34,16 +34,13 @@
 //!   2. **Entry-block hoist** — switch `cur_block` to `BlockId(0)`
 //!      before emitting the `regex_compile*` call so the value
 //!      dominates every later use, then restore.
-//!   3. **AOT bake gate** (V0.2 P14 chunk 7.7 v2 step 12 C2 Phase
-//!      C-6) — capture-free + DFA-eligible literal regex gets a
-//!      baked-DFA payload pushed into `module.baked_regex_entries`
-//!      via [`crate::ssa_lower_regex_bake::try_bake_regex_dfa`].
-//!      The lowered call switches to
-//!      `__torajs_regex_compile_from_static_dfa` (3-arg:
-//!      meta_ptr/pat/flag) so the runtime surface match path reads
-//!      `RegExp::baked_dfa_view` directly and skips `build_dfa`.
-//!      Ineligible patterns + capture-using literals + `new
-//!      RegExp(...)` keep using the 2-arg `regex_compile`.
+//!   3. **Build-time compile** — the literal is compiled and baked
+//!      into the binary by
+//!      [`crate::ssa_lower_regex_bake::bake_literal`] (image, plus the
+//!      DFA table of a capture-free eligible literal); the call is
+//!      `__torajs_regex_compile_baked`, which decodes the image
+//!      instead of parsing the pattern. `new RegExp(...)` with a
+//!      run-time pattern keeps the parsing `regex_compile`.
 
 use crate::ssa::{self, InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
@@ -118,9 +115,8 @@ pub(crate) fn lower_regex(ctx: &mut LowerCtx<'_>, pattern: &str, flags: &str) ->
     let saved_block = ctx.cur_block;
     ctx.cur_block = ssa::BlockId(0);
     let pat_v = ctx.intern_string_literal(pattern);
-    let flag_v = ctx.intern_string_literal(flags);
-    let baked_idx =
-        crate::ssa_lower_regex_bake::try_bake_regex_dfa(ctx.baked_regex_buf, pattern, flags);
+    let idx = crate::ssa_lower_regex_bake::bake_literal(ctx.baked_regex_buf, pattern, flags);
+    let has_dfa = ctx.baked_regex_buf[idx as usize].dfa.is_some();
     let matcher = |wide: bool| {
         ctx.fn_table
             .get(&crate::ssa_lower_regex_bake::matcher::matcher_key(
@@ -128,30 +124,38 @@ pub(crate) fn lower_regex(ctx: &mut LowerCtx<'_>, pattern: &str, flags: &str) ->
             ))
             .copied()
     };
-    let matchers = (matcher(false), matcher(true));
-    let v = match (matchers, baked_idx) {
-        ((None, None), Some(idx)) => emit_baked_dfa_compile(ctx, idx, pat_v, flag_v),
-        ((None, None), None) => emit_regex_compile(ctx, pat_v, flag_v),
-        ((narrow, wide), _) => emit_matcher_compile(ctx, narrow, wide, baked_idx, pat_v, flag_v),
-    };
+    let (narrow, wide) = (matcher(false), matcher(true));
+    let v = emit_baked_compile(ctx, idx, has_dfa, narrow, wide, pat_v);
     ctx.cur_block = saved_block;
     ctx.regex_lit_cache.insert(key, v);
     Operand::Value(v)
 }
 
-/// A literal with a synthesized one-pass matcher: the address of its
-/// Latin-1 walk and of its UTF-16 walk (null where the lane declined
-/// one encoding), and the baked DFA table when the literal has one
-/// too.
-fn emit_matcher_compile(
+/// The literal's construction from its image `idx`: the address of
+/// its Latin-1 and its UTF-16 one-pass matcher (null where the lane
+/// declined an encoding) and of its baked DFA table (null without
+/// one), then the source Str `source` reads back.
+fn emit_baked_compile(
     ctx: &mut LowerCtx<'_>,
+    idx: u32,
+    has_dfa: bool,
     narrow: Option<ssa::FuncId>,
     wide: Option<ssa::FuncId>,
-    baked_idx: Option<u32>,
     pat_v: ssa::ValueId,
-    flag_v: ssa::ValueId,
 ) -> ssa::ValueId {
     let cur_block = ctx.cur_block;
+    let mut global = |sym: String| {
+        Operand::Value(
+            ctx.f
+                .append_inst(cur_block, InstKind::GlobalRef(sym), Type::Ptr, None),
+        )
+    };
+    let image = global(ssa::BakedRegexEntry::image_sym(idx));
+    let meta = if has_dfa {
+        global(format!("___torajs_baked_regex_{idx}"))
+    } else {
+        Operand::ConstPtrNull
+    };
     let mut addr = |fid: Option<ssa::FuncId>| match fid {
         Some(fid) => {
             let sig = ctx.fn_sig_ids[&fid];
@@ -164,69 +168,11 @@ fn emit_matcher_compile(
     };
     let latin1 = addr(narrow);
     let utf16 = addr(wide);
-    let meta = match baked_idx {
-        Some(idx) => Operand::Value(baked_meta_ref(ctx, idx)),
-        None => Operand::ConstPtrNull,
-    };
-    let entry = ctx.fn_table[crate::ssa_lower_regex_bake::matcher::COMPILE_ENTRY];
     ctx.f.append_inst(
         cur_block,
         InstKind::Call(
-            entry,
-            vec![
-                latin1,
-                utf16,
-                meta,
-                Operand::Value(pat_v),
-                Operand::Value(flag_v),
-            ],
-        ),
-        Type::RegExp,
-        None,
-    )
-}
-
-fn baked_meta_ref(ctx: &mut LowerCtx<'_>, idx: u32) -> ssa::ValueId {
-    let meta_sym = format!("___torajs_baked_regex_{idx}");
-    let cur_block = ctx.cur_block;
-    ctx.f
-        .append_inst(cur_block, InstKind::GlobalRef(meta_sym), Type::Ptr, None)
-}
-
-fn emit_baked_dfa_compile(
-    ctx: &mut LowerCtx<'_>,
-    idx: u32,
-    pat_v: ssa::ValueId,
-    flag_v: ssa::ValueId,
-) -> ssa::ValueId {
-    let meta_ptr = baked_meta_ref(ctx, idx);
-    let cur_block = ctx.cur_block;
-    ctx.f.append_inst(
-        cur_block,
-        InstKind::Call(
-            ctx.intrinsics.regex_compile_from_static_dfa,
-            vec![
-                Operand::Value(meta_ptr),
-                Operand::Value(pat_v),
-                Operand::Value(flag_v),
-            ],
-        ),
-        Type::RegExp,
-        None,
-    )
-}
-
-fn emit_regex_compile(
-    ctx: &mut LowerCtx<'_>,
-    pat_v: ssa::ValueId,
-    flag_v: ssa::ValueId,
-) -> ssa::ValueId {
-    let cur_block = ctx.cur_block;
-    ctx.f.append_inst(
-        cur_block,
-        InstKind::Call(
-            ctx.intrinsics.regex_compile,
-            vec![Operand::Value(pat_v), Operand::Value(flag_v)],
+            ctx.intrinsics.regex_compile_baked,
+            vec![image, latin1, utf16, meta, Operand::Value(pat_v)],
         ),
         Type::RegExp,
         None,

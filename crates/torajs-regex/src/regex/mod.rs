@@ -26,8 +26,7 @@
 
 mod compile;
 pub mod compile_any;
-pub mod compile_aot;
-pub mod compile_matcher;
+pub mod compile_baked;
 pub mod escape;
 pub mod exec_find;
 pub mod exec_span;
@@ -145,7 +144,7 @@ pub struct RegExp {
     /// The literal's synthesized one-pass matcher over a Latin-1
     /// payload (`matcher_utf16`: over a UTF-16 one); `None` on every
     /// RegExp the runtime compiled and wherever the lane declined the
-    /// pattern. Set by [`compile_matcher`]; the exec kernels take them
+    /// pattern. Set by [`compile_baked`]; the exec kernels take them
     /// before the transcoding search. Placed ahead of `prog` so its
     /// offset is a C one ([`REGEX_MATCHER_LATIN1_OFF`]): a compiled
     /// call site compares it against its own literal's matcher.
@@ -216,7 +215,7 @@ pub struct RegExp {
     /// Optional AOT-baked DFA metadata pointer. `None` when this
     /// `RegExp` came from `__torajs_regex_compile` (runtime literal /
     /// `new RegExp(...)` path); `Some(meta)` when it came from
-    /// `__torajs_regex_compile_from_static_dfa`, in which case
+    /// `__torajs_regex_compile_baked`, in which case
     /// `meta.states_ptr` points at a `.rodata`-baked `[DfaState; N]`
     /// owned by the user binary and the four start indices are
     /// pre-computed too. The pointee lives in `.rodata` for the
@@ -243,8 +242,8 @@ pub struct RegExp {
     /// `vm::search_from_with_ws::dfa_built_local` per-call build path
     /// (deleted in sub-batch 7.3).
     ///
-    /// Always `None` for the AOT path (`compile_aot.rs`) — those
-    /// regexes have a `.rodata`-baked DFA reachable through
+    /// `None` when a literal bound its build-time table
+    /// (`compile_baked.rs`) — those regexes have a `.rodata`-baked DFA reachable through
     /// [`RegExp::baked_dfa_view`] which is preferred over the runtime
     /// build in every surface caller (`baked_dfa_view().as_ref().or(re.dfa_runtime.as_ref())`).
     ///
@@ -414,7 +413,7 @@ impl RegExp {
     pub fn baked_dfa_view(&self) -> Option<crate::dfa::DfaProgram> {
         let meta_ptr = self.baked_dfa?;
         // SAFETY: `meta_ptr` was stored by
-        // `__torajs_regex_compile_from_static_dfa` from the
+        // `__torajs_regex_compile_baked` from the
         // `.rodata`-resident `BakedDfaMeta` the AOT pipeline
         // emitted; the pointee + the slice it indirects to live for
         // the program's lifetime, so the resulting `&'static`

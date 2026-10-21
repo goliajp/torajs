@@ -78,15 +78,11 @@ pub(crate) struct LowerCtx<'a> {
     /// introduce new `T[]` instantiations; they intern lazily here.
     /// Written into `module.arr_layouts` at the end of `lower()`.
     pub(crate) arr_layouts: &'a mut crate::ssa::ArrLayouts,
-    /// V0.2 P14 chunk 7.7 v2 step 12 C2 Phase C-6 — host-built baked
-    /// DFA buffer. `try_bake_regex_dfa` pushes one entry per AOT-
-    /// eligible literal regex; written into
-    /// `module.baked_regex_entries` at the end of `lower()`, then
-    /// `cmd_build` forwards them into `LinkConfig::baked_regex_entries`
-    /// for the user_regex_baked_layout pipeline (C-5b/c) to lay out
-    /// the `BakedDfaMeta` + `[DfaState; N]` payload in __DATA_CONST.
-    /// Ineligible literals + `new RegExp(...)` keep routing through
-    /// `__torajs_regex_compile`.
+    /// Build-time baked regex literals: `bake_literal` pushes one entry
+    /// (compiled image, DFA table when eligible) per literal; written
+    /// into `module.baked_regex_entries` at the end of `lower()`, then
+    /// `cmd_build` hands the images to the link as raw-byte literals
+    /// and the tables as `LinkConfig::baked_regex_entries`.
     pub(crate) baked_regex_buf: &'a mut Vec<BakedRegexEntry>,
     /// Mutable view of the lowering-phase fn-pointer signature interner.
     /// `__fn(P1|P2)->(R)` annotations intern lazily; written into

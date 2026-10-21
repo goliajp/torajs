@@ -1,0 +1,15 @@
+(?<w>[a-z]+)\d i false
+(?<w>[a-z]+)\d gi
+<Ab> <cd> <EF>
+Q9 Q
+héllo|wörld|ελληνικά
+αβγ
+", 12 "
+true false
+ÄÖ12
+Bc
+жзи
+a,1,ß
+a,B,c
+true false
+gu 2

@@ -203,7 +203,7 @@ pub(crate) fn build(
         str_replace_any_pattern: init_b.regex.str_replace_any_pattern,
         str_replace_any_repl: init_b.regex.str_replace_any_repl,
         str_replace_any_pattern_fn: init_b.regex.str_replace_any_pattern_fn,
-        regex_compile_from_static_dfa: init_b.regex.regex_compile_from_static_dfa,
+        regex_compile_baked: init_b.regex.regex_compile_baked,
         regex_test: init_b.regex.regex_test,
         regex_get_source: init_b.regex.regex_get_source,
         regex_get_flags: init_b.regex.regex_get_flags,

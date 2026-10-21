@@ -84,23 +84,13 @@ pub struct Module {
     /// via the same chain-fixup pipeline `user_vtables_layout`
     /// uses, so ASLR slide is honoured on macOS PIE binaries.
     pub fn_name_globals: Vec<FnNameEntry>,
-    /// V0.2 P14 chunk 7.7 v2 step 12 C2 Phase C-4 — per-literal-RegExp
-    /// AOT-baked DFA blob. ssa_lower's `Expr::Regex` arm pushes one
-    /// entry per DFA-eligible literal regex (`/abc/`, `/foo\d+/g`,
-    /// ...); torajs-link's `user_regex_baked_layout` (Phase C-5)
-    /// materialises each as a `.rodata` `BakedDfaMeta` + `[DfaState; N]`
-    /// pair in `__DATA_CONST` next to the vtable + class_layouts
-    /// blobs (chain-LC rebased for the inner `states_ptr`). The user
-    /// binary calls `__torajs_regex_compile_from_static_dfa(meta_ptr,
-    /// pat, flag)` instead of `__torajs_regex_compile` for these
-    /// literals, so the runtime path skips `build_dfa` AND
-    /// sidesteps the `UnsafeCell<Option<DfaProgram>>` borrow shape
-    /// that produced the chunk-7.6 / chunk-7.7 SIGBUS — see
-    /// `RegExp::baked_dfa_view` for the surface-side reader.
-    ///
-    /// Empty when no DFA-eligible literal regex appears in the
-    /// program; ineligible regex literals + `new RegExp(...)`
-    /// dynamic constructs continue routing through `regex_compile`.
+    /// One entry per distinct regex literal: its build-time compiled
+    /// image, and its DFA table when the literal is capture-free and
+    /// DFA-eligible. The literal's construction
+    /// (`__torajs_regex_compile_baked`) decodes the image instead of
+    /// parsing the pattern; the link lays each table out as a
+    /// `BakedDfaMeta` + `[DfaState; N]` pair in `__DATA_CONST`
+    /// (chain-LC rebased for the inner `states_ptr`).
     pub baked_regex_entries: Vec<BakedRegexEntry>,
     /// The functions lowered over an async frame (`suspend`); each
     /// names a descriptor the link lays out like a vtable.
@@ -261,54 +251,41 @@ mod string_literal_tests {
     }
 }
 
-/// V0.2 P14 chunk 7.7 v2 step 12 C2 Phase C-4 — one AOT-baked DFA
-/// per literal RegExp. ssa_lower allocates one entry per
-/// DFA-eligible literal in [`Module::baked_regex_entries`];
-/// torajs-link's `user_regex_baked_layout` (Phase C-5) reads these to
-/// emit the `.rodata` `BakedDfaMeta` struct + the `[DfaState; N]`
-/// payload as a chain-LC-rebase-aware pair.
-///
-/// `index` is the position in `Module::baked_regex_entries` —
-/// torajs-link uses it to compose the per-entry symbol name
-/// (e.g. `__torajs_baked_regex_<index>`). `states_payload` is the
-/// raw byte image of the `[DfaState; N]` table that ssa_lower
-/// host-built via `torajs_regex::dfa::build_dfa`, **already serialised
-/// to the `#[repr(C)]` DfaState byte layout** (1060 bytes per state;
-/// see `BakedDfaMeta`'s sibling doc on `DfaState`). The four start
-/// indices match `DfaProgram::{start, start_mid, start_mid_word,
-/// start_mid_nonword}` so the runtime view's lookup arms see the
-/// same anchored entries.
+/// One regex literal baked at build time. `index` is the position in
+/// [`Module::baked_regex_entries`]; the link composes the symbol names
+/// from it (`__torajs_regex_image_<index>`, and
+/// `___torajs_baked_regex_<index>` for the DFA meta).
 #[derive(Debug, Clone)]
 pub struct BakedRegexEntry {
-    /// Position in [`Module::baked_regex_entries`]; surfaces in the
-    /// emitted symbol name. Stable across this build's lifetime;
-    /// changing entry count invalidates downstream link state, so the
-    /// emit pipeline always re-runs after a `baked_regex_entries`
-    /// edit.
     pub index: u32,
-    /// Raw byte image of `[DfaState; states_len]` laid out per the
-    /// `#[repr(C)] struct DfaState` ABI documented at
-    /// `torajs_regex::dfa::DfaState`. ssa_lower must populate this
-    /// by host-building the DFA + serialising each `DfaState`
-    /// `#[repr(C)]`-byte-by-byte; the runtime side reads it via
-    /// `from_raw_parts(states_ptr, states_len)`.
+    /// `torajs_regex::image::encode` of the literal's compiled form.
+    pub image: Vec<u8>,
+    pub dfa: Option<BakedDfa>,
+}
+
+impl BakedRegexEntry {
+    /// The symbol the link places entry `index`'s image at.
+    pub fn image_sym(index: u32) -> String {
+        format!("__torajs_regex_image_{index}")
+    }
+}
+
+/// A literal's host-built DFA table. `states_payload` is the raw byte
+/// image of `[DfaState; states_len]` in the `#[repr(C)] DfaState`
+/// layout (`torajs_regex::dfa::DfaState`), which the runtime view
+/// reads back with `from_raw_parts(states_ptr, states_len)`. The four
+/// start indices match `DfaProgram::{start, start_mid,
+/// start_mid_word, start_mid_nonword}`.
+#[derive(Debug, Clone)]
+pub struct BakedDfa {
     pub states_payload: Vec<u8>,
-    /// Number of `DfaState` entries `states_payload` encodes.
-    /// `states_payload.len() == states_len * 1060` on aarch64
-    /// (sized check belongs in the emit pipeline, not on this
-    /// struct).
     pub states_len: u32,
-    /// Four anchored start state indices — match
-    /// `DfaProgram::{start, start_mid, start_mid_word,
-    /// start_mid_nonword}`.
     pub start: u32,
     pub start_mid: u32,
     pub start_mid_word: u32,
     pub start_mid_nonword: u32,
-    /// Round 3 Phase B attack #R-E — host-pre-computed mirror of
-    /// `DfaProgram::any_accept_before_byte`. Lands at offset 28 in
-    /// the emitted `BakedDfaMeta` 32-byte struct (existing tail pad);
-    /// `OUTER_META_SIZE` stays at 32 bytes.
+    /// Mirror of `DfaProgram::any_accept_before_byte`, at offset 28
+    /// of the emitted `BakedDfaMeta`.
     pub any_accept_before_byte: bool,
 }
 

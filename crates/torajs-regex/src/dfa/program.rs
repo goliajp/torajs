@@ -108,7 +108,7 @@ pub struct DfaProgram {
 /// V0.2 P14 chunk 7.7 v2 step 12 C2 Phase C-1 (2026-06-24) — C-ABI
 /// metadata struct emitted by the AOT pipeline (ssa_lower) alongside a
 /// `[DfaState; N]` static into the user binary's `.rodata`. The
-/// runtime constructor `__torajs_regex_compile_from_static_dfa`
+/// runtime constructor `__torajs_regex_compile_baked`
 /// (Phase C-2) reads one of these to build a `DfaProgram` whose
 /// `states` is `DfaStates::Static(...)` over the baked slice, then
 /// pre-fills `RegExp::dfa_cache` so the surface match path never

@@ -9,11 +9,11 @@
 //! - `regex_compile(pattern, flags) -> RegExp` — backtracking-NFA
 //!   compiler. Defined in `runtime_regex.c`; rc_dec routes RegExp
 //!   drops through the universal heap-header type-tag dispatch.
-//! - `regex_compile_from_static_dfa(meta_ptr, pattern, flags) -> RegExp`
-//!   — V0.2 P14 chunk 7.7 Phase C-4. Takes the `BakedDfaMeta` pointer
-//!   (`.rodata`-resident, chain-LC rebased) as a 3rd arg and stamps
-//!   it onto `RegExp::baked_dfa` so the surface match path
-//!   short-circuits the runtime `build_dfa`.
+//! - `regex_compile_baked(image, matcher_latin1, matcher_utf16,
+//!   dfa_meta, pattern) -> RegExp` — a regex literal's construction:
+//!   decodes the build-time compiled image (no run-time parse), binds
+//!   the synthesized one-pass matchers and the baked DFA table (each
+//!   null when the literal has none).
 //! - `regex_test` / `regex_drop` — predicate + lifecycle.
 //! - `regex_match` / `_replace` / `_replace_all` / `_split` /
 //!   `_match_all` — Phase 1b/1c surface methods on Str receivers.
@@ -75,7 +75,7 @@ pub(crate) struct RegexIds {
     /// declares, since a pattern known only as `any` cannot be
     /// counted at compile time.
     pub str_replace_any_pattern_fn: FuncId,
-    pub regex_compile_from_static_dfa: FuncId,
+    pub regex_compile_baked: FuncId,
     pub regex_test: FuncId,
     pub regex_drop: FuncId,
     pub regex_match: FuncId,
@@ -204,11 +204,11 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             ],
             Type::Str,
         ),
-        regex_compile_from_static_dfa: declare_intrinsic(
+        regex_compile_baked: declare_intrinsic(
             module,
             fn_table,
-            "__torajs_regex_compile_from_static_dfa",
-            &[Type::Ptr, Type::Str, Type::Str],
+            "__torajs_regex_compile_baked",
+            &[Type::Ptr, Type::Ptr, Type::Ptr, Type::Ptr, Type::Str],
             Type::RegExp,
         ),
         regex_test: declare_intrinsic(

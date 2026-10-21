@@ -239,9 +239,9 @@ pub(crate) struct Intrinsics {
     pub(crate) str_replace_any_pattern: FuncId,
     pub(crate) str_replace_any_repl: FuncId,
     pub(crate) str_replace_any_pattern_fn: FuncId,
-    /// V0.2 P14 chunk 7.7 v2 step 12 C2 Phase C-4 — AOT-baked DFA
-    /// variant. See the declare site for the contract.
-    pub(crate) regex_compile_from_static_dfa: FuncId,
+    /// A regex literal's construction from its build-time image; see
+    /// the declare site for the arguments.
+    pub(crate) regex_compile_baked: FuncId,
     pub(crate) regex_test: FuncId,
     pub(crate) regex_get_source: FuncId,
     pub(crate) regex_get_flags: FuncId,

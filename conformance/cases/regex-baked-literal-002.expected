@@ -1,0 +1,49 @@
+a g true false false
+false false false false false
+/a/g
+a i false true false
+false false false false false
+/a/i
+^a$ m false false true
+false false false false false
+/^a$/m
+a.b s false false false
+true false false false false
+/a.b/s
+a u false false false
+false true false false false
+/a/u
+[\p{L}--[a-z]] v false false false
+false false true false false
+/[\p{L}--[a-z]]/v
+a y false false false
+false false false true false
+/a/y
+a d false false false
+false false false false true
+/a/d
+a dgimsuy true true true
+true true false true true
+/a/dgimsuy
+\/  false false false
+false false false false false
+/\//
+[/]x  false false false
+false false false false false
+/[/]x/
+(?:)  false false false
+false false false false false
+/(?:)/
+\u{1F600} u false false false
+false true false false false
+/\u{1F600}/u
+0 true 2 true 3
+false 0
+2 3
+false 0
+true 2 true 3 false 0
+true true false
+false true
+false true 2
+3 4
+false 3 0

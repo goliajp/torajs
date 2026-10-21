@@ -54,10 +54,12 @@ pub(crate) fn write_stderr(bytes: &[u8]) {
 }
 
 pub mod charclass;
+pub mod compiled;
 pub mod compiler;
 pub mod cpset;
 pub mod dfa;
 pub mod flags;
+pub mod image;
 pub mod node;
 pub mod onepass;
 pub mod parser;

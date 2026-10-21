@@ -12,7 +12,7 @@
 //!   (the kernel's own view would scan a Latin-1 payload without the
 //!   ASCII bit; that scan stays the kernel's);
 //! - the RegExp's `matcher_latin1` is this literal's matcher. Only
-//!   `__torajs_regex_compile_from_static_matcher` stores it, and only
+//!   `__torajs_regex_compile_baked` stores it, and only
 //!   for this pattern and these flags, so the RegExp is unrejected,
 //!   non-global, non-sticky and searches exactly as the matcher does.
 //!   A RegExp re-initialized by `compile()` carries the runtime's

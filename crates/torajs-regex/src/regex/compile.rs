@@ -1,16 +1,11 @@
 //! `__torajs_regex_compile` — port of `runtime_regex.c` L1445-1512.
 //!
-//! Drives the full compile pipeline:
-//! 1. Decode pattern + flag-string bytes (Str payloads).
-//! 2. Parse with [`crate::parser::Parser`] to an AST.
-//! 3. Resolve `\k<name>` + validate `\N` via
-//!    [`crate::resolve::resolve_backrefs`].
-//! 4. Build named-capture name table for `.groups` construction at
-//!    match time.
-//! 5. Compile to bytecode via [`crate::compiler::compile`].
-//! 6. On parse failure: emit a never-match stub program + mark
-//!    `rejected = 1` so the surface methods abort with
-//!    "not yet supported:" rather than producing wrong matches.
+//! Compiles a pattern met at run time through
+//! [`crate::compiled::compile_pattern`] (flags, parse, backreference
+//! resolution, capture names, bytecode; a rejected pattern becomes a
+//! never-match stub with `rejected = 1` so the surface methods report
+//! it rather than match wrongly), then builds the RegExp cell around
+//! the result with [`new_cell`], which every construction path shares.
 //!
 //! The resulting `RegExp` is heap-allocated via
 //! `Box::into_raw(Box::new(...))` so the universal header sits at
@@ -20,15 +15,15 @@
 
 use alloc::{boxed::Box, vec::Vec};
 use core::ffi::c_void;
+use core::ptr::NonNull;
 
-use super::{__torajs_throw_syntax_error, HeapHeader, RegExp, TAG_REGEX, str_units};
-use crate::compiler::compile;
-use crate::flags::parse_flags;
+use super::{__torajs_throw_syntax_error, HeapHeader, MatcherFn, RegExp, TAG_REGEX, str_units};
+use crate::compiled::{Compiled, compile_pattern};
+use crate::dfa::BakedDfaMeta;
 use crate::parser::{
-    Parser, RE_FLAG_D, RE_FLAG_G, RE_FLAG_I, RE_FLAG_M, RE_FLAG_S, RE_FLAG_U, RE_FLAG_V, RE_FLAG_Y,
+    RE_FLAG_D, RE_FLAG_G, RE_FLAG_I, RE_FLAG_M, RE_FLAG_S, RE_FLAG_U, RE_FLAG_V, RE_FLAG_Y,
 };
-use crate::program::{Inst, Program};
-use crate::resolve::resolve_backrefs;
+use crate::program::Program;
 
 /// # Safety
 ///
@@ -50,131 +45,49 @@ pub unsafe extern "C" fn __torajs_regex_compile(
 /// Str cells first; the subclass `super(pattern)` kernel (RFC
 /// 20260730 blade 2) enters here with bytes it already owns.
 pub(crate) fn compile_bytes(pat: Vec<u8>, fl: Vec<u8>) -> *mut c_void {
-    let flag_bits_opt = parse_flags(&fl);
-    let flag_bits = flag_bits_opt.unwrap_or(0);
-    // ES §22.2.3.1 — `u` and `v` are mutually exclusive, and
-    // duplicate / unknown flag letters are also Early Errors
-    // (`parse_flags` returns `None` on either). Both funnel through
-    // the never-match rejected-stub path so `__torajs_regex_compile_or_throw`
-    // sees `rejected == 1` and records a SyntaxError.
-    let flag_conflict = flag_bits_opt.is_none()
-        || (flag_bits & crate::parser::RE_FLAG_U != 0 && flag_bits & crate::parser::RE_FLAG_V != 0);
+    let compiled = compile_pattern(&pat, &fl);
     // `src_bytes` keeps the code-unit form (flag-independent — a
-    // `new RegExp(re, "u")` re-derives from it); the parser reads the
-    // form the flags name (§22.2.2.1).
-    let src_bytes = pat.clone();
-    let pat = if crate::flags::unicode_mode(flag_bits) {
-        crate::utf8::merge_surrogate_pairs(&pat)
-    } else {
-        pat
+    // `new RegExp(re, "u")` re-derives from it)
+    new_cell(compiled, pat, None, Matchers::NONE)
+}
+
+/// The one-pass matchers the compiler synthesized for a literal, one
+/// per payload encoding (`None` where it declined an encoding).
+pub(crate) struct Matchers {
+    pub latin1: Option<MatcherFn>,
+    pub utf16: Option<MatcherFn>,
+}
+
+impl Matchers {
+    pub const NONE: Matchers = Matchers {
+        latin1: None,
+        utf16: None,
     };
+}
 
-    let mut parser = Parser::new(&pat, flag_bits);
-    let parse_result = parser.parse();
-    let n_captures = parser.n_captures;
-
-    // Build a Vec<Vec<u8>> snapshot of the name table for later
-    // attach_groups; the parser's names are still valid here.
-    let names_snapshot = parser.names.clone();
-
-    // Resolve backrefs against the now-known capture count + name
-    // table. Failure here promotes the regex to `rejected`.
-    let mut root_ok = match parse_result {
-        Some(_) if flag_conflict => None,
-        Some(mut root) => {
-            if resolve_backrefs(&mut root, &names_snapshot, n_captures, flag_bits) {
-                Some(root)
-            } else {
-                None
-            }
-        }
-        None => None,
-    };
-
-    // Persist named-capture table for `.groups` construction at
-    // match time. Owned `Vec<Vec<u8>>` survives the parser drop —
-    // matches the C port's malloc+memcpy.
-    let mut capture_names: Vec<Vec<u8>> = Vec::with_capacity(n_captures + 1);
-    let mut n_named_captures: i32 = 0;
-    if root_ok.is_some() && n_captures > 0 {
-        // Index 0 reserved.
-        capture_names.push(Vec::new());
-        for i in 1..=n_captures {
-            let name = names_snapshot.get(i).cloned().unwrap_or_default();
-            if !name.is_empty() {
-                n_named_captures += 1;
-            }
-            capture_names.push(name);
-        }
-    }
-
-    // Compile + emit terminator. On parse failure, emit a
-    // never-match stub (OP_CHAR 0xff + OP_MATCH) so the `.test()`
-    // path returns false silently.
-    let mut prog = Program::new();
-    let rejected = if let Some(root) = root_ok.take() {
-        // DFA eligibility — runs post-resolve so named backrefs are
-        // correctly identified as blockers. RC-4: a multiline `$`
-        // (per-inst m-bit, regexp-modifiers) is VM-only (the DFA
-        // closure can't see the right byte, so `$` before `\n`
-        // silently missed).
-        prog.can_dfa = crate::dfa::analyze(&root).is_eligible()
-            && !crate::dfa::tree_contains_ml_anchor_end(&root);
-        compile(&mut prog, &root, flag_bits);
-        prog.emit(Inst::match_accept());
-        prog.has_save = prog.any_save();
-        prog.finalize_backref_caps();
-        // regexp-modifiers — classify the emitted `^` anchors' m-bits.
-        // Uniform multiline drives the wire's line-start entry
-        // selection (`has_ml_anchor_b`); MIXED m-bits gate the DFA
-        // off entirely: the four-entry scheme folds every line-start
-        // position onto the text-start entry, which advances ALL
-        // AnchorB pcs — wrong for a plain `^` sharing the program
-        // with a `(?m:^)`, nor a `^` after a consumed U+2028. The VM does.
-        let (mut any_ml, mut any_plain) = (false, false);
-        for inst in &prog.insts {
-            if inst.op == crate::program::Op::AnchorB as u8 {
-                if inst.pad as u8 & crate::parser::RE_FLAG_M != 0 {
-                    any_ml = true;
-                } else {
-                    any_plain = true;
-                }
-            }
-        }
-        prog.has_ml_anchor_b = any_ml;
-        if any_ml && (any_plain || crate::vm::line_terminator::ml_line_start_after_consume(&prog)) {
-            prog.can_dfa = false;
-        }
-        0u8
-    } else {
-        prog.emit(Inst::char_lit(0xffu8));
-        prog.emit(Inst::match_accept());
-        1u8
-    };
-
-    // V0.2 P14-S2 perf — detect a literal-byte prefix anchor.
-    // Walk the emitted bytecode forward, skipping zero-width
-    // bookkeeping ops (`Save` for `(...)` capture brackets,
-    // `AnchorB` for `^`, `WBound` etc), until we either hit an
-    // `OP_CHAR(b)` (set anchor) or a byte-consuming op of a
-    // different shape (`AnyChar` / `Class` / `Split` / ... → no
-    // anchor). The leading char's baked i-bit (per-inst
-    // ignoreCase, regexp-modifiers) invalidates the byte comparison
-    // (memchr can't match both cases without a lookup table) so
-    // skip the anchor there. The u flag is fine — leading
-    // `Char` ops only emit ASCII bytes; non-ASCII literals decode
-    // to `Class` at parse time which lands in the "different
-    // shape" branch.
-    if rejected == 0 {
-        prog.derive_search_anchors();
-    }
-
-    let dfa_runtime = if rejected == 0 {
-        runtime_dfa(&mut prog, flag_bits)
+/// The RegExp cell around `c`: refcount 1, no own property, `lastIndex`
+/// +0. A `baked` DFA table binds only when the program it runs is
+/// DFA-serveable (the searches trust a bound table without asking
+/// again, `vm::search::resolve_dfa`); otherwise the DFA is decided
+/// here once, by [`runtime_dfa`].
+pub(crate) fn new_cell(
+    mut c: Compiled,
+    src_bytes: Vec<u8>,
+    baked: Option<NonNull<BakedDfaMeta>>,
+    matchers: Matchers,
+) -> *mut c_void {
+    let serveable = c.rejected == 0 && c.prog.can_dfa && crate::dfa::prog_ops_dfa_safe(&c.prog);
+    let baked_dfa = baked.filter(|_| serveable);
+    let dfa_runtime = if c.rejected == 0 && baked_dfa.is_none() {
+        runtime_dfa(&mut c.prog, c.flags)
     } else {
         None
     };
-
+    let matcher_stride = if matchers.latin1.is_some() || matchers.utf16.is_some() {
+        crate::vm::saves_arena::detect_stride(&c.prog) as u32
+    } else {
+        0
+    };
     let re = Box::new(RegExp {
         header: HeapHeader {
             refcount: 1,
@@ -184,29 +97,24 @@ pub(crate) fn compile_bytes(pat: Vec<u8>, fl: Vec<u8>) -> *mut c_void {
         // No own property has been written yet — the bag is
         // minted by the first `re.zz = 1`, never here.
         props: core::ptr::null_mut(),
-        flags: flag_bits,
-        rejected,
+        flags: c.flags,
+        rejected: c.rejected,
         last_index_frozen: 0,
         _pad: [0; 1],
-        n_captures: n_captures as i32,
-        prog,
+        n_captures: c.n_captures,
+        prog: c.prog,
         src_bytes,
-        capture_names,
-        n_named_captures,
+        capture_names: c.capture_names,
+        n_named_captures: c.n_named_captures,
         last_index: 0.0,
         last_index_boxed: 0,
         // V0.2 P14-S8 — lazy-init Pike VM workspace cache.
         workspace_cache: core::cell::UnsafeCell::new(None),
         replace_out_cache: core::cell::UnsafeCell::new(alloc::vec::Vec::new()),
-        // V0.2 P14 chunk 7.7 v2 step 12 C2 Phase C-2 — runtime
-        // compile path: no AOT-baked DFA. Set non-`None` only by
-        // [`super::compile_aot::__torajs_regex_compile_from_static_dfa`]
-        // when the user binary's AOT pipeline emitted a
-        // `BakedDfaMeta` for this literal regex.
-        baked_dfa: None,
-        matcher_latin1: None,
-        matcher_utf16: None,
-        matcher_stride: 0,
+        baked_dfa,
+        matcher_latin1: matchers.latin1,
+        matcher_utf16: matchers.utf16,
+        matcher_stride,
         dfa_runtime,
     });
     Box::into_raw(re) as *mut c_void

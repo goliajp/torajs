@@ -25,6 +25,7 @@ use crate::ucd_tables::{
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(C)]
 pub struct UPropRange {
     pub lo: i32,
     pub hi: i32,

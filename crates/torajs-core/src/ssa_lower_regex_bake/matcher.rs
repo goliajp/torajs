@@ -10,7 +10,7 @@
 //! has checked that pointer. The literal's lowering finds its matchers
 //! through `fn_table` under
 //! [`matcher_key`]; the runtime binds the pointers through
-//! [`COMPILE_ENTRY`].
+//! `__torajs_regex_compile_baked`.
 
 mod emit;
 
@@ -20,13 +20,9 @@ use std::rc::Rc;
 
 use crate::ast::{Ast, Expr};
 use crate::ssa::{FuncId, Module, Type};
-use crate::ssa_lower::{declare_intrinsic, intern_fn_sig};
+use crate::ssa_lower::intern_fn_sig;
 use torajs_regex::onepass::MatcherIr;
 use torajs_regex::program::{Inst, Program};
-
-/// `(matcher_latin1, matcher_utf16, baked_dfa_meta, pattern, flags) ->
-/// RegExp` — declared the first time a matcher is minted.
-pub(crate) const COMPILE_ENTRY: &str = "__torajs_regex_compile_from_static_matcher";
 
 /// `fn_table` key of a literal's matcher over one payload encoding.
 pub(crate) fn matcher_key(pattern: &str, flags: &str, wide: bool) -> String {
@@ -59,15 +55,6 @@ pub(crate) fn synthesize(
             let Some(ir) = matcher_ir(pattern, flags, wide) else {
                 continue;
             };
-            if !fn_table.contains_key(COMPILE_ENTRY) {
-                declare_intrinsic(
-                    module,
-                    fn_table,
-                    COMPILE_ENTRY,
-                    &[Type::Ptr, Type::Ptr, Type::Ptr, Type::Str, Type::Str],
-                    Type::RegExp,
-                );
-            }
             let fid = FuncId(module.funcs.len() as u32);
             let enc = if wide { "u16" } else { "l1" };
             let name = format!("__regex_matcher_{enc}_{}", fid.0);
