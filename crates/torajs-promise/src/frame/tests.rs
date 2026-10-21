@@ -474,3 +474,5 @@ fn the_trace_reports_the_result_and_only_an_owned_awaiting() {
         __torajs_frame_release_links(raw(&mut t));
     }
 }
+
+mod returns;

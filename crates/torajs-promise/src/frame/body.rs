@@ -22,8 +22,12 @@ use core::ffi::c_void;
 use core::ptr;
 
 use super::{AsyncFrame, FRAME_STATE_DONE, awaiting_owned, desc_resume, desc_trace, release};
-use crate::layout::{REPR_ANY, THROW_TAG_I64, as_promise};
+use crate::layout::{
+    CB_FRAME_TAG, CB_INLINE_TAG, MicrotaskFn, Promise, PromiseCb, REPR_ANY, REPR_HEAP, REPR_STR,
+    STATE_FULFILLED, STATE_PENDING, THROW_TAG_I64, as_promise, frame_cell, inline_cell,
+};
 use crate::reaction::record::TraceVisit;
+use crate::then_box::reject_on_pending_throw;
 
 unsafe extern "C" {
     fn __torajs_microtask_enqueue(fn_: crate::layout::MicrotaskFn, arg: i64);
@@ -82,6 +86,11 @@ pub unsafe extern "C" fn __torajs_frame_await_direct(frame: *mut c_void) {
 /// fulfils), then let go of the frame. The value's reference goes to
 /// the result.
 ///
+/// A form that can be neither adopted nor a thenable fulfils the
+/// result here, and a result whose list is one waiter gets that
+/// waiter queued with the frame's own reference on the result
+/// ([`wake_sole_waiter`]).
+///
 /// # Safety
 /// `frame` is a live frame its caller owns; `value` is owned.
 #[unsafe(no_mangle)]
@@ -90,17 +99,64 @@ pub unsafe extern "C" fn __torajs_frame_return(frame: *mut c_void, repr: i64, va
     running(f);
     unsafe {
         let result = (*f).result;
-        if repr as u8 == REPR_ANY && !box_is_cell(value) {
+        let pp = as_promise(result);
+        let repr = repr as u8;
+        if !matches!(repr, REPR_HEAP | REPR_ANY) && (*pp).state == STATE_PENDING {
+            if !reject_on_pending_throw(result) {
+                (*pp).value_repr = repr;
+                (*pp).value_is_heap = (repr == REPR_STR) as u8;
+                (*pp).state = STATE_FULFILLED;
+                (*pp).value = value;
+                let link = (*pp).callbacks;
+                if !link.is_null() {
+                    wake_sole_waiter(f, pp, link);
+                }
+            }
+        } else if repr == REPR_ANY && !box_is_cell(value) {
             // a boxed number or other immediate: nothing to adopt
-            let pp = as_promise(result);
             (*pp).value_repr = REPR_ANY;
             (*pp).value_is_heap = 1;
             crate::state::__torajs_promise_resolve(result, value);
         } else {
-            crate::then_box::settle_handler_return(result, repr as u8, value);
+            crate::then_box::settle_handler_return(result, repr, value);
         }
         (*f).state = FRAME_STATE_DONE;
         release(f);
+    }
+}
+
+/// The result `pp` of the returning frame `f` has just fulfilled with
+/// `link` heading its list. A list of one parked frame or one inline
+/// reaction is §27.2.1.8 TriggerPromiseReactions of a single job: that
+/// job is queued holding the frame's reference on the result (the
+/// frame lets go of the result anyway, right after), so the result
+/// takes no reference here and loses none at the frame's drop. Any
+/// other list goes through the general drain.
+#[inline(never)]
+unsafe fn wake_sole_waiter(f: *mut AsyncFrame, pp: *mut Promise, link: *mut PromiseCb) {
+    unsafe {
+        let job: (MicrotaskFn, i64) = if link as usize & CB_FRAME_TAG != 0 {
+            let w = frame_cell(link);
+            if !(*w).next.is_null() {
+                return crate::state::drain_callbacks(pp);
+            }
+            // queued, the awaiting word is a reference (`frame.rs`)
+            (*w).awaiting = pp as *mut c_void;
+            (desc_resume((*w).desc), w as i64)
+        } else if link as usize & CB_INLINE_TAG != 0 {
+            let d = inline_cell(link);
+            if !(*d).rx_next.is_null() {
+                return crate::state::drain_callbacks(pp);
+            }
+            // `rx_source` already names the result; queued, it is a
+            // reference (`reaction.rs`)
+            (crate::reaction::inline_reaction_dispatch, d as i64)
+        } else {
+            return crate::state::drain_callbacks(pp);
+        };
+        (*pp).callbacks = ptr::null_mut();
+        (*f).result = ptr::null_mut();
+        __torajs_microtask_enqueue(job.0, job.1);
     }
 }
 
