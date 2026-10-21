@@ -145,6 +145,13 @@ impl Assignment {
             .unwrap_or_else(|| panic!("ValueId({}) is not an Alloca result", vid.0))
     }
 
+    /// The frame offset of `vid`'s slot when `vid` is an alloca result,
+    /// else `None`. A spilled alloca address is never stored: it is a
+    /// constant offset from sp, so each read recomputes it.
+    pub(crate) fn alloca_slot(&self, vid: ValueId) -> Option<u32> {
+        self.alloca_offsets.get(&vid.0).copied()
+    }
+
     /// Resolve a GPR-shaped def site. Returns `(reg, spill_off)`:
     ///
     ///   - `(g, None)` when the value lives in a real GPR; emitters

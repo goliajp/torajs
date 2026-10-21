@@ -31,7 +31,9 @@ pub(super) fn operand_is_f64(op: &Operand, alloc: &Assignment) -> bool {
 ///
 /// LS-3 spill path: when `Operand::Value(v)` resolves to
 /// `Reg::SpillGpr(off)`, emits `LDR scratch, [SP, #off]` and returns
-/// `scratch`. The caller's previously-materialized scratches are
+/// `scratch` — or, for an alloca result, recomputes its slot address
+/// (`ADD scratch, SP, #slot`), which [`super::mem::emit_alloca`]
+/// never stored. The caller's previously-materialized scratches are
 /// expected to be disjoint (e.g. binop calls
 /// `materialize_operand_gpr(lhs, OP_SCRATCH_LHS, ...)` then
 /// `materialize_operand_gpr(rhs, OP_SCRATCH_RHS, ...)` so an LDR
@@ -46,7 +48,10 @@ pub fn materialize_operand_gpr(
         Operand::Value(v) => match alloc.of(*v) {
             Reg::Gpr(g) => g,
             Reg::SpillGpr(off) => {
-                super::slot::sp_ldr_x(bytes, scratch, off);
+                match alloc.alloca_slot(*v) {
+                    Some(slot) => super::slot::sp_add(bytes, scratch, slot),
+                    None => super::slot::sp_ldr_x(bytes, scratch, off),
+                }
                 scratch
             }
             other => panic!(

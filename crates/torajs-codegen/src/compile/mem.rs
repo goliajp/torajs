@@ -23,18 +23,20 @@ use crate::enc::{
     str_d_reg_lsl3, str_w_imm12, str_w_reg, str_x_imm12, str_x_reg, str_x_reg_lsl3, stur_w_imm9,
     stur_x_imm9,
 };
-use crate::reg::Gpr;
+use crate::reg::{Gpr, Reg};
 use crate::regalloc::Assignment;
 
 /// Emit `ADD Xrd, SP, #slot_offset` — materialize the alloca's stack
 /// slot address into the GPR the allocator assigned to the result
-/// (two ADDs past the immediate's 4 KiB, see `slot::sp_add`).
+/// (two ADDs past the immediate's 4 KiB, see `slot::sp_add`). A
+/// spilled result emits nothing: every read recomputes the address
+/// (`operand::materialize_operand_gpr`), one ADD against a store
+/// here and a load there.
 pub fn emit_alloca(bytes: &mut Vec<u8>, inst: &Inst, alloc: &Assignment) {
     let result_vid = inst.result.expect("Alloca must have result");
-    let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
-    let slot_offset = alloc.alloca_offset_of(result_vid);
-    super::slot::sp_add(bytes, dst, slot_offset);
-    write_def_spill_gpr(bytes, spill_off, dst);
+    if let Reg::Gpr(dst) = alloc.of(result_vid) {
+        super::slot::sp_add(bytes, dst, alloc.alloca_offset_of(result_vid));
+    }
 }
 
 /// An offset past every immediate form — scaled imm12 (aligned,
@@ -576,5 +578,40 @@ mod tests {
             compiled.bytes
         );
         assert_eq!(compiled.bytes.len(), 48, "12 inst × 4 bytes");
+    }
+
+    /// LDR / STR Xt, [SP, #imm12] at any register: the spill traffic
+    /// of a value whose slot is at `off`.
+    fn is_sp_slot_access(w: u32, off: u32) -> bool {
+        let at = ((off / 8) << 10) | (31 << 5);
+        w & !0x1F == 0xF940_0000 | at || w & !0x1F == 0xF900_0000 | at
+    }
+
+    #[test]
+    fn a_spilled_alloca_address_is_recomputed_not_stored() {
+        use super::super::{ModuleFacts, OP_SCRATCH_LHS, compile_function_with};
+        use crate::linear_scan::allocate_linear_scan;
+        use crate::reg::Reg;
+        use torajs_core::ssa::{Function, InstKind, Operand, Terminator, Type};
+        // `ret ptrtoint(alloca 8)`: a read no access can fold, with the
+        // alloca forced into a spill slot
+        let mut func = Function::new("t", Type::I64);
+        let b = func.add_block();
+        let a = func.append_inst(b, InstKind::AllocaBytes(8), Type::Ptr, None);
+        let p = func.append_inst(b, InstKind::PtrToInt(Operand::Value(a)), Type::I64, None);
+        func.set_term(b, Terminator::Ret(Some(Operand::Value(p))));
+        let alloc = allocate_linear_scan(&func).with_homes(&[(a.0, Reg::SpillGpr(4096))]);
+        let w: Vec<u32> = compile_function_with(&func, alloc, &ModuleFacts::default())
+            .bytes
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|c| u32::from_le_bytes(*c))
+            .collect();
+        assert!(!w.iter().any(|&x| is_sp_slot_access(x, 4096)), "{w:08X?}");
+        assert!(
+            w.contains(&enc::add_imm(OP_SCRATCH_LHS, Gpr::SP, 0)),
+            "{w:08X?}"
+        );
     }
 }
