@@ -34,6 +34,8 @@ use crate::layout::{STR_DATA_OFF, STR_FLAG_IS_ASCII, STR_FLAG_IS_LATIN1, STR_POO
 pub use crate::lit_meta::{LIT_META_LEN_MASK, LIT_META_LEN_SHIFT};
 pub(crate) use crate::lit_meta::{lit_flags, lit_len, write_low_bytes, write_widened};
 use crate::max_len::{raise_too_long, str_len_of};
+use crate::substr_methods::{substr_len, substr_offset, substr_parent};
+use torajs_rc::HeapHeader;
 
 /// Fresh cell holding `side` and the literal, in the order `lit_first`
 /// says. `shared` says `side` is a whole Str heap block
@@ -218,6 +220,9 @@ pub unsafe extern "C" fn __torajs_substr_concat_lit_into(
     meta: u64,
     buf: *mut u8,
 ) -> *mut u8 {
+    if let Some(r) = unsafe { one_unit_into(v, bits, meta, buf) } {
+        return r;
+    }
     let side = unsafe { Side::of_view(v) };
     let lit_flags = lit_flags(meta);
     // a length within the payload first, so the byte sum cannot wrap
@@ -239,6 +244,47 @@ pub unsafe extern "C" fn __torajs_substr_concat_lit_into(
         }
     }
     unsafe { join_lit(side, bits, meta, false, false) }
+}
+
+/// The low byte of `meta` for a literal of one Latin-1 code unit. That
+/// byte holds the length field and the width flag and nothing else, so
+/// one compare of it picks the shape out.
+const ONE_LATIN1: u8 = (1 << LIT_META_LEN_SHIFT | STR_FLAG_IS_LATIN1 as u32) as u8;
+const _: () = assert!(
+    (LIT_META_LEN_MASK << LIT_META_LEN_SHIFT | STR_FLAG_IS_LATIN1 as u32) >> 8 == 0
+        && STR_FLAG_IS_ASCII > 0xFF
+);
+
+/// [`__torajs_substr_concat_lit_into`] for its commonest shape, one
+/// Latin-1 code unit after a Latin-1 view shorter than the payload
+/// bound (a field and its separator): both widths are known, so the
+/// view's offset needs no scaling, the header no width select, and
+/// the literal lands with one byte store. `None` for anything else.
+///
+/// # Safety
+///
+/// Same contract as [`__torajs_substr_concat_lit_into`].
+#[inline(always)]
+unsafe fn one_unit_into(v: *const u8, bits: u64, meta: u64, buf: *mut u8) -> Option<*mut u8> {
+    unsafe {
+        let parent = substr_parent(v);
+        let flags = (*(parent as *const HeapHeader)).flags;
+        let len = substr_len(v);
+        if meta as u8 != ONE_LATIN1
+            || flags & STR_FLAG_IS_LATIN1 == 0
+            || len >= u64::from(STR_POOL_PAYLOAD)
+        {
+            return None;
+        }
+        let len = len as usize;
+        let src = parent.add(STR_DATA_OFF + substr_offset(v) as usize);
+        let ascii = flags & lit_flags(meta) & STR_FLAG_IS_ASCII;
+        stack_cell(buf, len as u32 + 1, true, ascii);
+        let dst = buf.add(STR_DATA_OFF);
+        copy_short(dst, src, len);
+        dst.add(len).write(bits as u8);
+        Some(buf)
+    }
 }
 
 #[cfg(test)]
@@ -603,6 +649,74 @@ mod tests {
         );
         assert_eq!(read(w), (vec![0x42, 0x30, 0x2D, 0x4E, b'|', 0], false, 3));
         for p in [long, wide, r, w] {
+            unsafe { __torajs_str_free(p) };
+        }
+    }
+
+    #[test]
+    fn a_one_unit_literal_lands_after_every_view_length() {
+        let text: Vec<u8> = (0..80u8).map(|i| b'a' + i % 26).collect();
+        let mut frame = Frame([0; STR_DATA_OFF + STR_POOL_PAYLOAD as usize]);
+        let buf = frame.0.as_mut_ptr();
+        let (bits, meta) = lit1(b"|");
+        let (hbits, hmeta) = lit1(&[0xE9]);
+        for marked in [false, true] {
+            let parent = latin1(&text);
+            if marked {
+                mark_ascii(parent);
+            }
+            for len in 0..=66u64 {
+                let v = view(parent, 3, len);
+                let vp = v.as_ptr() as *const u8;
+                let r = unsafe { __torajs_substr_concat_lit_into(vp, bits, meta, buf) };
+                let mut want = text[3..3 + len as usize].to_vec();
+                want.push(b'|');
+                assert_eq!(read(r), (want, true, len as u32 + 1), "len = {len}");
+                assert_eq!(r == buf, len < 64, "len = {len}");
+                assert_eq!(is_marked_ascii(r), marked, "len = {len}");
+                if r != buf {
+                    unsafe { __torajs_str_free(r) };
+                }
+                let h = unsafe { __torajs_substr_concat_lit_into(vp, hbits, hmeta, buf) };
+                let mut want = text[3..3 + len as usize].to_vec();
+                want.push(0xE9);
+                assert_eq!(read(h), (want, true, len as u32 + 1), "len = {len}");
+                assert!(!is_marked_ascii(h), "len = {len}");
+                if h != buf {
+                    unsafe { __torajs_str_free(h) };
+                }
+            }
+            unsafe { __torajs_str_free(parent) };
+        }
+    }
+
+    #[test]
+    fn a_two_unit_or_utf16_literal_keeps_the_general_frame_path() {
+        let mut frame = Frame([0; STR_DATA_OFF + STR_POOL_PAYLOAD as usize]);
+        let buf = frame.0.as_mut_ptr();
+        let parent = latin1(b"alpha,beta");
+        let v = view(parent, 6, 4);
+        let (bits, meta) = lit1(b"||");
+        let r =
+            unsafe { __torajs_substr_concat_lit_into(v.as_ptr() as *const u8, bits, meta, buf) };
+        assert_eq!(r, buf);
+        assert_eq!(read(r), (b"beta||".to_vec(), true, 6));
+        let (wbits, wmeta) = lit2(&[0x4E2D]);
+        let w =
+            unsafe { __torajs_substr_concat_lit_into(v.as_ptr() as *const u8, wbits, wmeta, buf) };
+        assert_ne!(
+            w, buf,
+            "a UTF-16 literal widens the Latin-1 view on the heap"
+        );
+        assert_eq!(
+            read(w),
+            (
+                vec![b'b', 0, b'e', 0, b't', 0, b'a', 0, 0x2D, 0x4E],
+                false,
+                5
+            )
+        );
+        for p in [parent, w] {
             unsafe { __torajs_str_free(p) };
         }
     }
