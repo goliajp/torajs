@@ -113,8 +113,19 @@ pub(crate) fn run(
         let saved_errors = c.errors.len();
         let saved_sites = std::mem::take(&mut c.generic_call_sites);
         let saved_pads = std::mem::take(&mut c.arity_pad_count);
-        let checked =
-            crate::check_type_of_fn::check_closure_body(c, owned_ast, site, &face, cap_tys);
+        // checked again while that grows the widen set, as a
+        // specialization is (`let_widen::check_spec`)
+        let face_decl = owned_ast
+            .stmts
+            .last()
+            .cloned()
+            .expect("the face was just pushed");
+        let mut checked = Ok(crate::check::Type::Any);
+        let check = |c: &mut Checker, a: &Ast| {
+            let caps = cap_tys.clone();
+            checked = crate::check_type_of_fn::check_closure_body(c, a, site, &face, caps);
+        };
+        crate::let_widen::check_spec(c, owned_ast, &face_decl, check);
         let inner_sites = std::mem::replace(&mut c.generic_call_sites, saved_sites);
         let inner_pads = std::mem::replace(&mut c.arity_pad_count, saved_pads);
         // The clone's calls to generic functions are fresh ExprIds: seed
