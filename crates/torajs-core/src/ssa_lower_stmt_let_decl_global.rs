@@ -15,7 +15,7 @@ use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::{LocalInfo, LowerCtx};
 
-use crate::ssa_lower_stmt_let_decl::{maybe_any_to_typed_scalar, maybe_arr_any_to_typed};
+use crate::ssa_lower_stmt_let_decl::maybe_arr_any_to_typed;
 
 mod settle;
 
@@ -89,7 +89,7 @@ pub(crate) fn try_lower_global_let(
     let (init_val, converted) = if converted {
         (init_val, converted)
     } else {
-        maybe_any_to_typed_scalar(ctx, type_ann, slot_ty, init, init_val)
+        settle::any_into_scalar(ctx, type_ann, slot_ty, init, init_val)
     };
     // Chunk 809 — an Any slot boxes a concrete init value: a
     // borrowed source rc_incs first (`box_to_any` TRANSFERS the

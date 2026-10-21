@@ -144,3 +144,30 @@ fn substr_into_str(ctx: &mut LowerCtx, init: ExprId, view: Operand) -> Operand {
     }
     Operand::Value(owned)
 }
+
+/// An `any` init reaching a scalar slot. An annotated binding decodes
+/// as the fn-scope lane does (`maybe_any_to_typed_scalar`). An
+/// un-annotated one took its slot from the init's shape
+/// (`ast_refs::infer_toplevel_slot_shape`), which answers a number for
+/// `x >>> 0` or `x & 1` whatever `x` holds, while the operator's
+/// kernel over an `any` operand answers a box: §7.1.4 ToNumber reads
+/// the number back out of it rather than storing the box's bits.
+pub(super) fn any_into_scalar(
+    ctx: &mut LowerCtx,
+    type_ann: Option<&String>,
+    slot_ty: Type,
+    init: ExprId,
+    init_val: Operand,
+) -> (Operand, bool) {
+    if type_ann.is_some()
+        || !matches!(slot_ty, Type::I64 | Type::F64)
+        || ctx.operand_ty(&init_val) != Type::Any
+    {
+        return crate::ssa_lower_stmt_let_decl::maybe_any_to_typed_scalar(
+            ctx, type_ann, slot_ty, init, init_val,
+        );
+    }
+    let decoded = ctx.coerce_any_to_number(init_val, slot_ty);
+    ctx.release_owned_temp(init, &init_val);
+    (decoded, true)
+}
