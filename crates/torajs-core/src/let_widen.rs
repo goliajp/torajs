@@ -52,6 +52,7 @@
 //! until this set stops growing (`check_entry::check_to_fixpoint`);
 //! the lowerer asks with the checker's final table.
 
+mod facts;
 mod push;
 mod spec;
 mod walk;
@@ -146,22 +147,6 @@ enum Binding {
 /// Collect the init ExprIds of every unannotated mutable `let`
 /// whose binding is later reassigned a value of a DIFFERENT
 /// syntactic family — such bindings type (and lower) as `any`.
-/// Names assigned, anywhere in the program, an rhs that is not the
-/// `null` / `undefined` literal — the name-keyed half of the nullish
-/// rule (module doc). Scope-blind on purpose.
-fn collect_non_nullish_rebinds(ast: &Ast) -> HashSet<String> {
-    let mut out = HashSet::new();
-    for e in &ast.exprs {
-        if let Expr::Assign { target, value } = e
-            && let Expr::Ident(name) = ast.get_expr(*target)
-            && !matches!(classify(ast, *value), Some(Family::Null | Family::Undef))
-        {
-            out.insert(name.clone());
-        }
-    }
-    out
-}
-
 /// `types`: the checker's expression types, which add the type half
 /// (module doc); `None` is the syntactic judgment alone.
 pub(crate) fn collect_cross_type_widen_inits(
@@ -186,53 +171,6 @@ pub(crate) fn collect_cross_type_widen_inits_in(
     let mut w = Walker::new(ast, Some(types));
     w.walk_stmt(decl);
     w.out
-}
-
-impl<'a> Walker<'a> {
-    fn new(ast: &'a Ast, types: Option<&'a HashMap<ExprId, Type>>) -> Self {
-        let mut w = Walker {
-            ast,
-            types,
-            gen_factories: collect_gen_factories(ast),
-            non_nullish_rebinds: collect_non_nullish_rebinds(ast),
-            lifted: ast
-                .stmts
-                .iter()
-                .filter_map(|s| match s {
-                    crate::ast::Stmt::FnDecl {
-                        name, params, body, ..
-                    } => Some((name.as_str(), (params.as_slice(), body.as_slice()))),
-                    _ => None,
-                })
-                .collect(),
-            closure_bodies: (ast.exprs.iter())
-                .filter_map(|e| match e {
-                    Expr::Closure { fn_name, .. } => Some(fn_name.as_str()),
-                    _ => None,
-                })
-                .collect(),
-            module: HashMap::new(),
-            entered: HashSet::new(),
-            scopes: vec![HashMap::new()],
-            out: HashSet::new(),
-        };
-        // a named function reads and writes the module's bindings
-        // wherever it is declared, before or after them
-        for s in &ast.stmts {
-            if let crate::ast::Stmt::LetDecl {
-                name,
-                mutable,
-                type_ann,
-                init,
-                ..
-            } = s
-            {
-                w.register_let(name, *mutable, type_ann.as_deref(), *init);
-            }
-        }
-        w.module = w.scopes[0].clone();
-        w
-    }
 }
 
 struct Walker<'a> {
@@ -268,32 +206,6 @@ struct Walker<'a> {
 /// consumers answer scalars, which classify on their own).
 fn is_iter_transform(name: &str) -> bool {
     matches!(name, "filter" | "map" | "flatMap" | "take" | "drop")
-}
-
-fn collect_gen_factories(ast: &Ast) -> HashSet<String> {
-    fn walk(stmts: &[crate::ast::Stmt], out: &mut HashSet<String>) {
-        for s in stmts {
-            match s {
-                crate::ast::Stmt::FnDecl {
-                    name,
-                    return_type: Some(rt),
-                    body,
-                    ..
-                } => {
-                    if rt.starts_with("__Gen_") {
-                        out.insert(name.clone());
-                    }
-                    walk(body, out);
-                }
-                crate::ast::Stmt::FnDecl { body, .. } => walk(body, out),
-                crate::ast::Stmt::Block(inner) | crate::ast::Stmt::Multi(inner) => walk(inner, out),
-                _ => {}
-            }
-        }
-    }
-    let mut out = HashSet::new();
-    walk(&ast.stmts, &mut out);
-    out
 }
 
 impl Walker<'_> {

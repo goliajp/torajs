@@ -33,6 +33,7 @@ pub(crate) mod any_layout_slot;
 pub(crate) mod any_scalar_slot;
 pub(crate) mod contextual_array;
 pub(crate) mod fn_face_slot;
+mod fresh_map;
 pub(crate) mod held_any;
 pub(crate) use contextual_array::{apply_contextual_array_ann, apply_contextual_array_ann_store};
 
@@ -43,6 +44,7 @@ use crate::check_stmt_let_decl_destr_lane::pick_ary_destr_lane;
 use crate::check_stmt_let_decl_selfref::{SelfRef, predeclare_self_ref_closure};
 use crate::check_type_ann::{resolve_type_ann_decl, resolve_type_ann_full, unknown_type};
 use fn_face_slot::record_let_face;
+use fresh_map::{map_ty_from_type_args, record_fresh_map_ty};
 
 pub(crate) fn check(
     checker: &mut Checker,
@@ -396,37 +398,6 @@ fn is_builtin_mv_init(checker: &mut Checker, ast: &Ast, init: ExprId) -> bool {
 /// is left untouched until a probe motivates it.
 fn struct_has_undef_field(t: &Type) -> bool {
     matches!(t, Type::Struct(fs) if fs.iter().any(|(_, ft)| matches!(ft, Type::Undefined)))
-}
-
-/// A `new Map()` initializer is the Map its binding declares (TS
-/// contextual typing). The type is recorded on the `new`: lowering
-/// reads it there to give a fresh `Map<K, number>` its typed value
-/// lane (`ssa_lower_map_num_lane`).
-fn record_fresh_map_ty(checker: &mut Checker, ast: &Ast, init: ExprId, ty: &Type) {
-    if matches!(ast.get_expr(init), Expr::New { class_name, .. } if class_name == "Map")
-        && matches!(ty, Type::Map(..))
-    {
-        checker.expr_types.insert(init, ty.clone());
-    }
-}
-
-/// An unannotated `new Map<K, V>()` is the Map its type arguments
-/// spell — `check_map` never sees them and answers `Map<any, any>`.
-fn map_ty_from_type_args(checker: &Checker, ast: &Ast, init: ExprId, ty: Type) -> Type {
-    match ast.get_expr(init) {
-        Expr::New {
-            class_name,
-            type_args,
-            ..
-        } if class_name == "Map" && !type_args.is_empty() && ty == Type::map_any() => {
-            crate::ast_refs::collection_new_ann(ast, init)
-                .and_then(|ann| {
-                    resolve_type_ann_full(&ann, &checker.aliases, &[], &checker.generic_alias_decls)
-                })
-                .unwrap_or(ty)
-        }
-        _ => ty,
-    }
 }
 
 fn check_empty_array_ann(
