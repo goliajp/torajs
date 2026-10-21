@@ -56,6 +56,10 @@ unsafe extern "C" {
     fn __torajs_value_drop_heap(p: *mut c_void);
     fn __torajs_rc_inc(p: *mut c_void);
     fn __torajs_microtask_enqueue(fn_: crate::layout::MicrotaskFn, arg: i64);
+    fn __torajs_microtask_enqueue_cell(
+        fn_: crate::layout::MicrotaskFn,
+        cell: *mut c_void,
+    ) -> *mut c_void;
     /// torajs-microtask — the queue's pop and push counts and its
     /// job-boundary hook, read in place ([`queue_idle`])
     static __torajs_microtask_head: AtomicUsize;
@@ -129,6 +133,33 @@ pub(crate) unsafe fn attach_plain_pending(
         (*sp).has_handler = 1;
         (*dp).rx_next = (*sp).callbacks;
         (*sp).callbacks = inline_link(dp);
+    }
+}
+
+/// [`attach_inline`] of a plain handler to a source that has already
+/// settled, into a cell fresh from the allocator: the reaction is
+/// queued at once and `dp` is answered out of the queue's push, so an
+/// entry point that returns it keeps no frame.
+#[inline(always)]
+pub(crate) unsafe fn attach_plain_settled(
+    sp: *mut Promise,
+    dp: *mut Promise,
+    kind: u8,
+    cb: *mut c_void,
+    ret_repr: u8,
+    param_repr: u8,
+) -> *mut c_void {
+    unsafe {
+        (*dp).rx_kind = kind;
+        (*dp).rx_ret_repr = ret_repr;
+        (*dp).rx_param_repr = param_repr;
+        (*dp).rx_source = sp as *mut c_void;
+        (*dp).rx_cb = cb;
+        // the job's stakes on both cells
+        rc_inc_cell(dp as *mut c_void);
+        (*sp).has_handler = 1;
+        rc_inc_cell(sp as *mut c_void);
+        __torajs_microtask_enqueue_cell(inline_reaction_dispatch, dp as *mut c_void)
     }
 }
 

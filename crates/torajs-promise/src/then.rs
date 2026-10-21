@@ -27,7 +27,7 @@ use core::ptr;
 
 use crate::layout::{RX_CATCH, RX_CLOSURE, RX_PARAM_ANY, RX_THEN, STATE_PENDING, as_promise};
 use crate::pool::{alloc_pending, pop_pending};
-use crate::reaction::{attach_inline, attach_plain_pending};
+use crate::reaction::{attach_inline, attach_plain_pending, attach_plain_settled};
 use crate::then_box::{PARAM_ANY_FLAG, PARAM_REPR_SHIFT, refuse_unstamped};
 
 /// RFC 20260720-anylane-promise-methods knife 3 — the settle path
@@ -97,10 +97,11 @@ pub type FinallyRecvClosureFn = unsafe extern "C" fn(*mut c_void, i64, i64) -> i
 /// then park the reaction inline. `cb` is a fn pointer or a closure
 /// env per `kind`'s [`RX_CLOSURE`] bit.
 ///
-/// A plain handler on a pending source, with a block on the row —
-/// every link while a `then` chain is built — makes no call at all,
-/// so it is inlined into the entry points without a frame; the rest
-/// goes to [`then_kernel_full`].
+/// A plain handler with a block on the row is inlined into the entry
+/// points without a frame: on a pending source — every link while a
+/// `then` chain is built — it makes no call at all, and on a settled
+/// one its only call, the queue push, is a tail call. The rest goes to
+/// [`then_kernel_full`].
 #[inline(always)]
 unsafe fn then_kernel(
     source: *mut c_void,
@@ -110,15 +111,25 @@ unsafe fn then_kernel(
 ) -> *mut c_void {
     unsafe {
         let sp = as_promise(source);
-        if ret_repr & PARAM_ANY_FLAG == 0 && kind & RX_CLOSURE == 0 && (*sp).state == STATE_PENDING
-        {
-            let result = pop_pending();
-            if !result.is_null() {
-                let param_repr = ((ret_repr >> PARAM_REPR_SHIFT) & 0xff) as u8;
-                let ret_repr = (ret_repr & 0xff) as u8;
-                stamp_result_repr(result, ret_repr);
-                attach_plain_pending(sp, as_promise(result), kind, cb, ret_repr, param_repr);
-                return result;
+        if ret_repr & PARAM_ANY_FLAG == 0 && kind & RX_CLOSURE == 0 {
+            let param_repr = ((ret_repr >> PARAM_REPR_SHIFT) & 0xff) as u8;
+            let ret = (ret_repr & 0xff) as u8;
+            // one pop per arm: the state is read before the new cell is
+            // written, so each arm's fresh fields and reaction fold into
+            // one set of stores
+            if (*sp).state == STATE_PENDING {
+                let result = pop_pending();
+                if !result.is_null() {
+                    stamp_result_repr(result, ret);
+                    attach_plain_pending(sp, as_promise(result), kind, cb, ret, param_repr);
+                    return result;
+                }
+            } else {
+                let result = pop_pending();
+                if !result.is_null() {
+                    stamp_result_repr(result, ret);
+                    return attach_plain_settled(sp, as_promise(result), kind, cb, ret, param_repr);
+                }
             }
         }
         then_kernel_full(source, cb, kind, ret_repr)

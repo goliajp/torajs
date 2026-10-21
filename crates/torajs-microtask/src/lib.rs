@@ -126,6 +126,22 @@ pub unsafe extern "C" fn __torajs_microtask_enqueue(fn_: Option<MicrotaskFn>, ar
     MT_TAIL.store(tail + 1, Ordering::Relaxed);
 }
 
+/// [`__torajs_microtask_enqueue`] of a job whose argument is a cell,
+/// answering the cell: a caller that returns it right after queueing
+/// the job reaches this with a tail call and keeps no frame.
+///
+/// # Safety
+/// `fn_` must be a valid C function pointer with the
+/// `extern "C" fn(arg: i64)` signature.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_microtask_enqueue_cell(
+    fn_: MicrotaskFn,
+    cell: *mut c_void,
+) -> *mut c_void {
+    unsafe { __torajs_microtask_enqueue(Some(fn_), cell as i64) };
+    cell
+}
+
 /// Drain the microtask queue to empty. Pops one task, runs it,
 /// repeats — new tasks enqueued during the callback land at the
 /// tail and get processed in this same drain (JS spec microtask
