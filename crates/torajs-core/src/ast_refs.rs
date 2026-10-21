@@ -34,7 +34,7 @@ pub use init_ann::{
     objlit_literal_inlobj_ann, unique_toplevel_binding,
 };
 pub use ns_live::ns_live_exports;
-pub use shape::{GlobalSlotShape, infer_toplevel_slot_shape};
+pub use shape::{GlobalSlotShape, infer_toplevel_slot_shape, infer_toplevel_slot_shape_held};
 
 pub struct ToplevelBindingRefs {
     /// Names referenced anywhere inside a named (non-lifted) fn body.

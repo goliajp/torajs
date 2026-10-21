@@ -14,15 +14,20 @@
 //! the depth cap and the "uncertain answers None" contract are the
 //! same ones documented on `GlobalSlotShape`.
 
-use super::shape::{GlobalSlotShape, infer_slot_shape};
+use super::shape::{GlobalSlotShape, HeldUpstream, infer_slot_shape};
 use crate::ast::{Ast, BinOp, Expr, ExprId, UnaryOp};
 
-pub(super) fn infer_operator_shape(ast: &Ast, init: ExprId, depth: u32) -> Option<GlobalSlotShape> {
+pub(super) fn infer_operator_shape(
+    ast: &Ast,
+    init: ExprId,
+    depth: u32,
+    held: HeldUpstream<'_>,
+) -> Option<GlobalSlotShape> {
     match ast.get_expr(init) {
         Expr::Unary {
             op: UnaryOp::Neg,
             expr,
-        } => infer_slot_shape(ast, *expr, depth + 1),
+        } => infer_slot_shape(ast, *expr, depth + 1, held),
         // A concatenation of two strings is a string, and string has
         // no width question — so the slot's runtime type is as
         // certain here as it is for a literal. Registered as 468-01:
@@ -41,8 +46,8 @@ pub(super) fn infer_operator_shape(ast: &Ast, init: ExprId, depth: u32) -> Optio
             op: BinOp::Add,
             left,
             right,
-        } if infer_slot_shape(ast, *left, depth + 1) == Some(GlobalSlotShape::Str)
-            || infer_slot_shape(ast, *right, depth + 1) == Some(GlobalSlotShape::Str) =>
+        } if infer_slot_shape(ast, *left, depth + 1, held) == Some(GlobalSlotShape::Str)
+            || infer_slot_shape(ast, *right, depth + 1, held) == Some(GlobalSlotShape::Str) =>
         {
             Some(GlobalSlotShape::Str)
         }
@@ -85,8 +90,8 @@ pub(super) fn infer_operator_shape(ast: &Ast, init: ExprId, depth: u32) -> Optio
             if matches!(
                 op,
                 BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor | BinOp::Shl | BinOp::Shr
-            ) && is_known_bigint(ast, *left, depth)
-                && is_known_bigint(ast, *right, depth) =>
+            ) && is_known_bigint(ast, *left, depth, held)
+                && is_known_bigint(ast, *right, depth, held) =>
         {
             Some(GlobalSlotShape::BigInt)
         }
@@ -102,8 +107,8 @@ pub(super) fn infer_operator_shape(ast: &Ast, init: ExprId, depth: u32) -> Optio
             if matches!(
                 op,
                 BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor | BinOp::Shl | BinOp::Shr
-            ) && (is_known_non_bigint(ast, *left, depth)
-                || is_known_non_bigint(ast, *right, depth)) =>
+            ) && (is_known_non_bigint(ast, *left, depth, held)
+                || is_known_non_bigint(ast, *right, depth, held)) =>
         {
             Some(GlobalSlotShape::I64)
         }
@@ -117,8 +122,8 @@ pub(super) fn infer_operator_shape(ast: &Ast, init: ExprId, depth: u32) -> Optio
             if matches!(
                 op,
                 BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod | BinOp::Pow
-            ) && is_known_bigint(ast, *left, depth)
-                && is_known_bigint(ast, *right, depth) =>
+            ) && is_known_bigint(ast, *left, depth, held)
+                && is_known_bigint(ast, *right, depth, held) =>
         {
             Some(GlobalSlotShape::BigInt)
         }
@@ -139,8 +144,8 @@ pub(super) fn infer_operator_shape(ast: &Ast, init: ExprId, depth: u32) -> Optio
             if matches!(
                 op,
                 BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod | BinOp::Pow
-            ) && is_known_non_bigint(ast, *left, depth)
-                && is_known_non_bigint(ast, *right, depth) =>
+            ) && is_known_non_bigint(ast, *left, depth, held)
+                && is_known_non_bigint(ast, *right, depth, held) =>
         {
             Some(GlobalSlotShape::I64)
         }
@@ -148,7 +153,9 @@ pub(super) fn infer_operator_shape(ast: &Ast, init: ExprId, depth: u32) -> Optio
             op: BinOp::Add,
             left,
             right,
-        } if is_known_number_ish(ast, *left, depth) && is_known_number_ish(ast, *right, depth) => {
+        } if is_known_number_ish(ast, *left, depth, held)
+            && is_known_number_ish(ast, *right, depth, held) =>
+        {
             Some(GlobalSlotShape::I64)
         }
         _ => None,
@@ -158,9 +165,9 @@ pub(super) fn infer_operator_shape(ast: &Ast, init: ExprId, depth: u32) -> Optio
 /// A shape that is certainly not a BigInt cell — every arithmetic
 /// operator ToNumbers such an operand rather than staying in the
 /// BigInt world.
-fn is_known_non_bigint(ast: &Ast, e: ExprId, depth: u32) -> bool {
+fn is_known_non_bigint(ast: &Ast, e: ExprId, depth: u32, held: HeldUpstream<'_>) -> bool {
     matches!(
-        infer_slot_shape(ast, e, depth + 1),
+        infer_slot_shape(ast, e, depth + 1, held),
         Some(
             GlobalSlotShape::I64
                 | GlobalSlotShape::F64
@@ -172,15 +179,15 @@ fn is_known_non_bigint(ast: &Ast, e: ExprId, depth: u32) -> bool {
 
 /// A shape that is certainly a BigInt cell — the operand side of the
 /// arms that stay in the BigInt world rather than coercing out of it.
-fn is_known_bigint(ast: &Ast, e: ExprId, depth: u32) -> bool {
-    infer_slot_shape(ast, e, depth + 1) == Some(GlobalSlotShape::BigInt)
+fn is_known_bigint(ast: &Ast, e: ExprId, depth: u32, held: HeldUpstream<'_>) -> bool {
+    infer_slot_shape(ast, e, depth + 1, held) == Some(GlobalSlotShape::BigInt)
 }
 
 /// The same, minus `Str` — `+` concatenates rather than adds when
 /// either side is one, which the string arm answers first.
-fn is_known_number_ish(ast: &Ast, e: ExprId, depth: u32) -> bool {
+fn is_known_number_ish(ast: &Ast, e: ExprId, depth: u32, held: HeldUpstream<'_>) -> bool {
     matches!(
-        infer_slot_shape(ast, e, depth + 1),
+        infer_slot_shape(ast, e, depth + 1, held),
         Some(GlobalSlotShape::I64 | GlobalSlotShape::F64 | GlobalSlotShape::Bool)
     )
 }

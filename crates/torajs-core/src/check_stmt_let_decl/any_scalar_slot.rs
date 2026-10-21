@@ -26,7 +26,7 @@ use crate::check::{Checker, Type as T};
 use crate::ssa::Type;
 
 /// Whether `ann` spells one of the scalar types this applies to.
-fn scalar_ann(ann: &str) -> bool {
+pub(crate) fn scalar_ann(ann: &str) -> bool {
     matches!(ann, "number" | "string" | "boolean")
 }
 

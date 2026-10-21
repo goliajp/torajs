@@ -284,7 +284,7 @@ pub fn objlit_literal_inlobj_ann(ast: &Ast, init: ExprId) -> Option<String> {
 /// fall-back every non-callable field takes. `None` keeps the whole
 /// literal off this lane, which is what the callers read.
 fn shape_field_ann(ast: &Ast, val: ExprId) -> Option<String> {
-    Some(match infer_slot_shape(ast, val, 0)? {
+    Some(match infer_slot_shape(ast, val, 0, None)? {
         GlobalSlotShape::Str => "string".to_string(),
         GlobalSlotShape::Bool => "boolean".to_string(),
         GlobalSlotShape::I64 => "number".to_string(),

@@ -46,7 +46,23 @@ pub enum GlobalSlotShape {
 }
 
 pub fn infer_toplevel_slot_shape(ast: &Ast, init: ExprId) -> Option<GlobalSlotShape> {
-    infer_slot_shape(ast, init, 0)
+    infer_slot_shape(ast, init, 0, None)
+}
+
+/// An annotated top-level binding whose annotation does not say what it
+/// holds, asked as `(annotation, initializer)`. The walk answers None
+/// through such a binding, as for any other uncertain hop; only the
+/// checker knows which bindings these are.
+pub type HeldUpstream<'a> = Option<&'a dyn Fn(&str, ExprId) -> bool>;
+
+/// [`infer_toplevel_slot_shape`], with the bindings `held` names
+/// counted as uncertain.
+pub fn infer_toplevel_slot_shape_held(
+    ast: &Ast,
+    init: ExprId,
+    held: HeldUpstream<'_>,
+) -> Option<GlobalSlotShape> {
+    infer_slot_shape(ast, init, 0, held)
 }
 
 /// Alias resolution is depth-capped: each hop is one top-level `let`
@@ -70,7 +86,12 @@ fn shape_of_simple_ann(ann: &str) -> Option<GlobalSlotShape> {
     }
 }
 
-pub(super) fn infer_slot_shape(ast: &Ast, init: ExprId, depth: u32) -> Option<GlobalSlotShape> {
+pub(super) fn infer_slot_shape(
+    ast: &Ast,
+    init: ExprId,
+    depth: u32,
+    held: HeldUpstream<'_>,
+) -> Option<GlobalSlotShape> {
     if depth > MAX_ALIAS_DEPTH {
         return None;
     }
@@ -89,7 +110,8 @@ pub(super) fn infer_slot_shape(ast: &Ast, init: ExprId, depth: u32) -> Option<Gl
         Expr::Ident(n) if n == "NaN" || n == "Infinity" => Some(GlobalSlotShape::F64),
         // Alias of another top-level binding: same shape as the
         // binding it copies. An annotated upstream maps through the
-        // simple-ann table; an un-annotated one recurses into its
+        // simple-ann table, unless it holds a value its annotation
+        // does not describe; an un-annotated one recurses into its
         // init. Anything unresolved (fn names, missing decls, deep
         // chains) keeps the main-fn-local behavior.
         Expr::Ident(n) => ast
@@ -102,20 +124,21 @@ pub(super) fn infer_slot_shape(ast: &Ast, init: ExprId, depth: u32) -> Option<Gl
                     init,
                     ..
                 } if name == n => Some(match type_ann.as_deref() {
+                    Some(ann) if held.is_some_and(|h| h(ann, *init)) => None,
                     Some(ann) => shape_of_simple_ann(ann),
-                    None => infer_slot_shape(ast, *init, depth + 1),
+                    None => infer_slot_shape(ast, *init, depth + 1, held),
                 }),
                 _ => None,
             })
             .flatten(),
         // §13.16 — the comma operator's value is its right operand;
         // the left is evaluated for effect at the declaration
-        Expr::Sequence { right, .. } => infer_slot_shape(ast, *right, depth),
+        Expr::Sequence { right, .. } => infer_slot_shape(ast, *right, depth, held),
         // Every operator arm — the ones whose answer comes from the
         // operator rather than from the value — lives in the sibling
         // module. See [`crate::ast_refs::shape_operator`].
         Expr::BinOp { .. } | Expr::Unary { .. } => {
-            super::shape_operator::infer_operator_shape(ast, init, depth)
+            super::shape_operator::infer_operator_shape(ast, init, depth, held)
         }
         // Call to a top-level named fn: the return annotation is the
         // same ground truth lowering uses for the callee's ret slot.
