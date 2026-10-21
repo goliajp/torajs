@@ -25,7 +25,8 @@
 //!   returned promise before the job fires, and the dispatcher would
 //!   otherwise settle a recycled cell. Released by the dispatcher
 //!   after settling — or, when settling queued the derived cell's own
-//!   sole reaction, kept as that job's reference on its source.
+//!   sole reaction, kept as that job's reference on its source (for a
+//!   sole parked async frame, as the frame's `awaiting`).
 //! - `rx_cb` with [`RX_CLOSURE`] holds one reference on the env,
 //!   released after the call.
 //!
@@ -37,9 +38,10 @@
 use core::ffi::c_void;
 use core::ptr;
 
+use crate::frame::AsyncFrame;
 use crate::layout::{
-    CB_INLINE_TAG, Promise, REPR_ANY, REPR_HEAP, REPR_STR, REPR_VOID, RX_CATCH, RX_CLOSURE,
-    RX_INTEREST_MASK, RX_NONE, RX_PARAM_ANY, RX_THEN, STATE_FULFILLED, STATE_PENDING,
+    CB_FRAME_TAG, CB_INLINE_TAG, Promise, REPR_ANY, REPR_HEAP, REPR_STR, REPR_VOID, RX_CATCH,
+    RX_CLOSURE, RX_INTEREST_MASK, RX_NONE, RX_PARAM_ANY, RX_THEN, STATE_FULFILLED, STATE_PENDING,
     STATE_REJECTED, as_promise, inline_link,
 };
 use crate::pool::__torajs_promise_drop;
@@ -50,6 +52,7 @@ use queue::queue_idle;
 use torajs_rc::rc_inc_cell;
 
 pub(crate) mod candidate;
+mod frame;
 mod queue;
 pub mod record;
 
@@ -180,6 +183,7 @@ pub(crate) unsafe extern "C" fn inline_reaction_dispatch(arg: i64) {
         Stake::Kept => unsafe { __torajs_promise_drop(dp as *mut c_void) },
         Stake::Queued => {}
         Stake::RunNext(next) => unsafe { run_chain(next) },
+        Stake::RunFrame(f) => unsafe { frame::resume(f) },
     }
 }
 
@@ -192,6 +196,7 @@ unsafe fn run_chain(mut dp: *mut Promise) {
             Stake::Kept => return unsafe { __torajs_promise_drop(dp as *mut c_void) },
             Stake::Queued => return,
             Stake::RunNext(next) => dp = next,
+            Stake::RunFrame(f) => return unsafe { frame::resume(f) },
         }
     }
 }
@@ -208,6 +213,9 @@ enum Stake {
     Queued,
     /// Handed to the cell's sole reaction, which runs next, here.
     RunNext(*mut Promise),
+    /// Handed to the async frame that was the cell's sole waiter, as
+    /// its `awaiting`; the frame resumes next, here.
+    RunFrame(*mut AsyncFrame),
 }
 
 /// Run the reaction parked in `dp` and answer what became of the
@@ -282,8 +290,10 @@ unsafe fn run_inline_reaction(dp: *mut Promise) -> Stake {
 /// is one inline reaction — a link of a `then` chain — this fulfills
 /// `dp` and hands the dispatcher's stake on `dp` to that reaction,
 /// which needs one on its source anyway: queued, or, when it would be
-/// the only job pending, left to run next in this job. Anything else
-/// goes through [`settle_handler_return`] and keeps the stake.
+/// the only job pending, left to run next in this job. A list that is
+/// one parked async frame is settled the same way ([`frame::settle`]).
+/// Anything else goes through [`settle_handler_return`] and keeps the
+/// stake.
 #[inline(always)]
 unsafe fn settle_into_chain(dp: *mut Promise, ret_repr: u8, value: i64) -> Stake {
     unsafe {
@@ -291,6 +301,9 @@ unsafe fn settle_into_chain(dp: *mut Promise, ret_repr: u8, value: i64) -> Stake
         // an empty list or a heap record is one bit test, before any
         // work on the link
         if link & CB_INLINE_TAG == 0 {
+            if link & CB_FRAME_TAG != 0 {
+                return frame::settle(dp, link as *mut _, ret_repr, value);
+            }
             settle_handler_return(dp as *mut c_void, ret_repr, value);
             return Stake::Kept;
         }

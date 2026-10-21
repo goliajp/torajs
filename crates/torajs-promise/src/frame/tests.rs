@@ -349,11 +349,11 @@ fn a_dying_source_releases_frames_inline_cells_and_records_alike() {
 }
 
 /// A derived cell whose list starts with a parked frame is settled by
-/// its handler's return through the general path (the frame is
-/// queued like any reaction), not run in place as the next link of a
-/// `then` chain.
+/// its handler's return in place: the frame is its sole waiter and
+/// nothing else is queued, so it resumes in the same job, holding the
+/// dispatcher's stake on `d` (`tests::runframe` has the other cases).
 #[test]
-fn a_frame_heading_a_derived_list_is_queued_by_the_general_settle() {
+fn a_frame_heading_a_derived_list_takes_the_dispatcher_stake() {
     let _s = serial();
     let before = offers();
     let mut log = Vec::new();
@@ -372,9 +372,9 @@ fn a_frame_heading_a_derived_list_is_queued_by_the_general_settle() {
         assert!(t.dropped);
         __torajs_promise_drop(src);
     }
-    // the park, then the job's release of `src` and the dispatcher's
-    // of `d`, both marked by the park
-    assert_eq!(offers() - before, 3);
+    // the park, then the job's release of `src`, marked by the park;
+    // the landing's release of `d` is its last
+    assert_eq!(offers() - before, 2);
 }
 
 #[test]
@@ -476,3 +476,4 @@ fn the_trace_reports_the_result_and_only_an_owned_awaiting() {
 }
 
 mod returns;
+mod runframe;
