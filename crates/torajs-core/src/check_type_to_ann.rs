@@ -138,3 +138,19 @@ pub fn type_to_ann(ty: &Type) -> String {
         Type::Rest(elem) => format!("__rest({}[])", type_to_ann(elem)),
     }
 }
+
+/// [`type_to_ann`] for the slot a settled promise value is read into.
+/// A `T | null` / `T | undefined` keeps its `__nullable(…)` spelling,
+/// at the top and as an array element, so `parse_type` answers the
+/// slot a binding annotated with that union gets: the any box for a
+/// scalar `T` (a raw number has no spelling for undefined), and the any
+/// lane for every element (`(T | null)[]`, which is also the lane a
+/// `Promise.all` of such promises builds its result in). Collapsed to
+/// `T`, an undefined settled value read back as `NaN`.
+pub fn type_to_value_ann(ty: &Type) -> String {
+    match ty {
+        Type::Nullable(inner) => format!("__nullable({})", type_to_ann(inner)),
+        Type::Array(elem) => format!("{}[]", type_to_value_ann(elem)),
+        other => type_to_ann(other),
+    }
+}

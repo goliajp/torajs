@@ -54,7 +54,8 @@ pub(crate) fn lower_await(ctx: &mut LowerCtx<'_>, eid: ExprId, obj: ExprId) -> O
             ctx.emit_owned_result_inc(src, Type::Promise);
         }
         let inner = inner_lane(ctx, eid, obj);
-        return await_cell(ctx, src, inner);
+        let undef = pv::undef_cell_slot(ctx, obj, inner.as_ref());
+        return await_cell(ctx, src, inner, undef);
     }
     let op = ctx.lower_expr(obj);
     match ctx.operand_ty(&op) {
@@ -63,7 +64,8 @@ pub(crate) fn lower_await(ctx: &mut LowerCtx<'_>, eid: ExprId, obj: ExprId) -> O
                 ctx.emit_owned_result_inc(op, Type::Promise);
             }
             let inner = inner_lane(ctx, eid, obj);
-            await_cell(ctx, op, inner)
+            let undef = pv::undef_cell_slot(ctx, obj, inner.as_ref());
+            await_cell(ctx, op, inner, undef)
         }
         Type::Any => {
             if !ctx.expr_transfers_ownership(obj) {
@@ -128,14 +130,25 @@ fn await_any_in(ctx: &mut LowerCtx<'_>, op: Operand, lane: Type) -> Operand {
     let cell = ctx.f.append_inst(cb, call, Type::Promise, None);
     // the thenable's `then` read may raise
     ctx.emit_throw_check(None);
-    await_cell(ctx, Operand::Value(cell), Some(lane))
+    await_cell(ctx, Operand::Value(cell), Some(lane), None)
 }
 
 /// Await the owned cell `src`, then read its settled value in the
-/// `inner` lane (the read releases nothing; `src` is dropped after).
-fn await_cell(ctx: &mut LowerCtx<'_>, src: Operand, inner: Option<Type>) -> Operand {
+/// `inner` lane (the read releases nothing; `src` is dropped after);
+/// `undef` names the slot whose undefined cell an undefined result is
+/// answered as (`pv::undef_cell_slot`).
+fn await_cell(
+    ctx: &mut LowerCtx<'_>,
+    src: Operand,
+    inner: Option<Type>,
+    undef: Option<Type>,
+) -> Operand {
     let settled = suspend_on(ctx, src, inner.unwrap_or(Type::Any));
     let raw = read_settled(ctx, settled, pv::awaited_lane_repr(inner.as_ref()));
+    let raw = match undef {
+        Some(slot) => pv::keep_undefined(ctx, settled, raw, slot),
+        None => raw,
+    };
     let v = pv::cast_promise_value(ctx, raw, inner);
     ctx.emit_drop_value(settled, Type::Promise);
     Operand::Value(v)

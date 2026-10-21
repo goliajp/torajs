@@ -1,0 +1,18 @@
+maybe: 2 undefined true undefined
+numOrU: 4.5 undefined true 9
+numOrNull: 1.25 null true 2.25
+boolOrU: true false undefined
+annotated: undefined
+nested: undefined
+loop: 6 3
+strOrU: s1 undefined true undefined
+strOrU length: 2
+strOrNull: null t2
+ptOrU: undefined true 4
+arrOrU: undefined true 2
+all: undefined 4 3 undefined 4
+all str: undefined s7
+then: undefined
+then numOrU: undefined
+top: undefined true
+top2: 3

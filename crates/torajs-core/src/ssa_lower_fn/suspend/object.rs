@@ -75,7 +75,7 @@ fn await_cell_or_direct(ctx: &mut LowerCtx<'_>, eid: ExprId, op: Operand, ty: Ty
     for (blk, cell) in [(cell_blk, true), (direct_blk, false)] {
         ctx.cur_block = blk;
         let v = if cell {
-            let settled = await_cell(ctx, op, Some(Type::Any));
+            let settled = await_cell(ctx, op, Some(Type::Any), None);
             cell_of(ctx, settled, ty)
         } else {
             suspend_direct(ctx, eid, op, ty)

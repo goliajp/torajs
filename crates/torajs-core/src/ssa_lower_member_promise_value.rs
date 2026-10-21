@@ -65,9 +65,11 @@ use crate::ssa_lower_parse_type::parse_type;
 
 mod detect;
 mod object_await;
+mod undef_slot;
 
 pub(crate) use detect::detect_obj_is_builtin_promise;
 use object_await::{lower_object_await, lower_typed_await, try_p10_4_primitive_identity};
+pub(crate) use undef_slot::{keep_undefined, undef_cell_slot};
 
 pub(crate) fn try_lower(
     ctx: &mut LowerCtx<'_>,
@@ -199,6 +201,10 @@ fn lower_promise_value_read(ctx: &mut LowerCtx<'_>, obj: ExprId, any_lane: bool)
     // A rejected cell leaves through the throw path, which never
     // reaches the drop below, so the stake goes with it there.
     ctx.emit_throw_check_owned(None, obj_op, Type::Promise);
+    let raw_v = match undef_cell_slot(ctx, obj, inner_ssa_ty.as_ref()) {
+        Some(slot) => keep_undefined(ctx, obj_op, raw_v, slot),
+        None => raw_v,
+    };
     let v = cast_promise_value(ctx, raw_v, inner_ssa_ty);
     ctx.emit_drop_value(obj_op, Type::Promise);
     Operand::Value(v)
@@ -229,7 +235,7 @@ pub(crate) fn awaited_lane_repr(inner_ssa_ty: Option<&Type>) -> i64 {
 /// READS it name the same element lane (`ssa_lower_call_promise_static`).
 pub(crate) fn recover_inner_ssa_ty(ctx: &mut LowerCtx<'_>, obj: ExprId) -> Option<Type> {
     let ann = if let Some(check_mod::Type::Promise(inner)) = ctx.expr_types.get(&obj) {
-        check_mod::type_to_ann(inner)
+        crate::check_type_to_ann::type_to_value_ann(inner)
     } else {
         return None;
     };
