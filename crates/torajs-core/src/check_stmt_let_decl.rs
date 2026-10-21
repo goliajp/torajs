@@ -29,6 +29,7 @@
 //! CPython incref / Swift strong-assignment semantics); `s` stays
 //! fully usable afterwards.
 
+mod annotated;
 pub(crate) mod any_layout_slot;
 pub(crate) mod any_scalar_slot;
 pub(crate) mod contextual_array;
@@ -39,11 +40,9 @@ pub(crate) use contextual_array::{apply_contextual_array_ann, apply_contextual_a
 
 use crate::ast::{Ast, Expr, ExprId};
 use crate::check::{Checker, DiagPush, LocalInfo, Type, face_slots};
-use crate::check_assignable::is_assignable_to_resolved;
 use crate::check_stmt_let_decl_destr_lane::pick_ary_destr_lane;
 use crate::check_stmt_let_decl_selfref::{SelfRef, predeclare_self_ref_closure};
-use crate::check_type_ann::{resolve_type_ann_decl, resolve_type_ann_full, unknown_type};
-use fn_face_slot::record_let_face;
+use crate::check_type_ann::{resolve_type_ann_full, unknown_type};
 use fresh_map::{map_ty_from_type_args, record_fresh_map_ty};
 
 pub(crate) fn check(
@@ -101,75 +100,13 @@ pub(crate) fn check(
             init_ty
         }
         Some(ann) => {
-            let Some(ann_ty) =
-                resolve_type_ann_decl(ann, &checker.aliases, &[], &checker.generic_alias_decls)
+            let tys = (ann.as_str(), init_ty);
+            let Some((ty, face)) = annotated::declared_ty(checker, ast, (name, mutable), tys, init)
             else {
-                checker.errors.push_err(unknown_type(ann));
                 return;
             };
-            let init_ty =
-                crate::check_assignable::in_declared_order(checker, ast, &ann_ty, init, init_ty);
-            if held_any::face::refuses_init(checker, ast, name, init, &ann_ty) {
-                return;
-            }
-            // 423-03 ④ — a fn-typed LET takes the same S2 call-face
-            // admit a fn-typed call ARG takes (`const slot: () =>
-            // void = gb` where gb declares a defaulted param): the
-            // sig-thunk pass reabstracts the mismatched init exactly
-            // like a call-arg position, so the checker face and the
-            // lowering face agree. See `fn_slot_admits` on why this
-            // is not widened inside `is_assignable_to` itself.
-            let fn_slot_widened = crate::check_assignable::fn_slot_admits(
-                &ann_ty,
-                &init_ty,
-                &checker.class_structs,
-                &checker.aliases,
-                &checker.generic_alias_decls,
-            );
-            // An initializer carrying accessor slots is compared
-            // through the property each one implements, and KEEPS its
-            // own layout — see `check_accessor_objlit_slot` for why
-            // adopting the annotation instead turns a refusal into a
-            // closure pointer printed as a number.
-            let ordinary = fn_slot_widened
-                || is_assignable_to_resolved(
-                    &ann_ty,
-                    &init_ty,
-                    &checker.class_structs,
-                    &checker.aliases,
-                    &checker.generic_alias_decls,
-                );
-            // Only where the ordinary comparison FAILS, which is what
-            // keeps an `any` annotation winning: it admits the literal
-            // outright, so the projection never runs and the binding
-            // stays the box its dynamic member lane expects.
-            let accessor_layout = !ordinary
-                && crate::check_accessor_objlit_slot::admits(
-                    &ann_ty,
-                    &init_ty,
-                    &checker.class_structs,
-                    &checker.aliases,
-                    &checker.generic_alias_decls,
-                );
-            if !ordinary && !accessor_layout {
-                checker.errors.push_err(format!(
-                    "type mismatch on `{name}`: declared {ann_ty:?}, init has {init_ty:?}"
-                ));
-                return;
-            }
-            let tys = (&init_ty, &ann_ty);
-            face_slot = record_let_face(checker, ast, (ann, init, mutable), tys, fn_slot_widened);
-            face_slots::record_objlit_stores(checker, ast, &ann_ty, init);
-            if accessor_layout {
-                // Pushing the annotation's element type onto the
-                // literal is the same adoption by another route: it
-                // retypes each element to the data-field shape, and
-                // `xs[0].v` reads the getter closure as a number.
-                init_ty
-            } else {
-                apply_contextual_array_ann(checker, ast, init, &ann_ty);
-                any_layout_slot::declared_face(checker, ast, init, ann_ty)
-            }
+            face_slot = face;
+            ty
         }
     };
     let final_ty = widen_binding_ty(checker, ast, init, type_ann.as_deref(), final_ty);
