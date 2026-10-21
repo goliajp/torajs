@@ -49,10 +49,8 @@ pub(super) fn resolve_promise_inner_ann(
                 // §27.2.5.4: the derived promise settles from whichever
                 // handler runs, so its value is either handler's return;
                 // `.catch(onErr)` passes a fulfilled source's value through
-                ("then", [on_ok, on_err, ..]) => {
-                    Some(join_legs(&ok_leg(*on_ok)?, &err_leg(*on_err)?))
-                }
-                ("catch", [on_err, ..]) => Some(join_legs(&src()?, &err_leg(*on_err)?)),
+                ("then", [on_ok, on_err, ..]) => join_legs(&ok_leg(*on_ok)?, &err_leg(*on_err)?),
+                ("catch", [on_err, ..]) => join_legs(&src()?, &err_leg(*on_err)?),
                 (_, [on_ok, ..]) => ok_leg(*on_ok),
                 _ => None,
             }
@@ -147,7 +145,13 @@ fn pass_through(leg: Leg, src: impl FnOnce() -> Option<String>) -> Option<String
 /// leg's value is its return adopted (a returned promise's own value)
 /// with a void return answering undefined, and a throw-only leg settles
 /// nothing. Legs that agree keep their one type.
-fn join_legs(a: &str, b: &str) -> String {
+///
+/// A join that may settle undefined into a pointer-shaped `T` answers
+/// nothing: the then kernel converts an undefined settled value into a
+/// raw pointer parameter as NULL, so a handler seeded `T | undefined`
+/// would read undefined as null. Its parameter keeps the any lane until
+/// that conversion keeps undefined.
+fn join_legs(a: &str, b: &str) -> Option<String> {
     let value = |t: &str| -> Option<String> {
         match t {
             "never" => None,
@@ -160,12 +164,22 @@ fn join_legs(a: &str, b: &str) -> String {
             ),
         }
     };
-    match (value(a), value(b)) {
-        (Some(a), Some(b)) if a == b => a,
-        (Some(a), Some(b)) => crate::parser::union_combine(&[&a, &b]),
-        (Some(v), None) | (None, Some(v)) => v,
+    let (a, b) = (value(a), value(b));
+    let joined = match (&a, &b) {
+        (Some(a), Some(b)) if a == b => a.clone(),
+        (Some(a), Some(b)) => crate::parser::union_combine(&[a, b]),
+        (Some(v), None) | (None, Some(v)) => v.clone(),
         (None, None) => "undefined".to_string(),
-    }
+    };
+    let settles_undefined = [a, b]
+        .iter()
+        .flatten()
+        .any(|v| v == "undefined" || v.starts_with("__nullable("));
+    let pointer_inner = joined
+        .strip_prefix("__nullable(")
+        .and_then(|r| r.strip_suffix(')'))
+        .is_some_and(|t| !matches!(t, "number" | "boolean"));
+    (!(settles_undefined && pointer_inner)).then_some(joined)
 }
 
 /// Rerun the return-ann sniff for a lifted closure body with the

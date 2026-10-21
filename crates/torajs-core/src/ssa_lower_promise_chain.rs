@@ -213,9 +213,9 @@ impl crate::ssa_lower::LowerCtx<'_> {
         // anything and in what form. Nothing to unbox on the way in,
         // hence no param word and no throw-check.
         let repr_word = if m_name == "finally" {
-            self.chain_cb_repr_word(&cb_pre_ty)
+            self.chain_cb_repr_word(aid, &cb_pre_ty)
         } else {
-            self.chain_cb_repr_word(&cb_pre_ty) | self.chain_cb_param_repr(&cb_pre_ty)
+            self.chain_cb_repr_word(aid, &cb_pre_ty) | self.chain_cb_param_repr(&cb_pre_ty)
         };
         let mut call_args = vec![src_op, cb_op];
         call_args.push(Operand::ConstI64(repr_word));

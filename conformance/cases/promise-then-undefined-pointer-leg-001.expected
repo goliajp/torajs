@@ -1,0 +1,11 @@
+rejected undefined true
+fulfilled s2 false
+closure undefined true
+catch undefined true
+catch passes hi false
+object u
+array null null true
+array undefined undefined true
+await catch undefined true
+await catch passes hi false
+await two legs undefined true

@@ -42,15 +42,15 @@ impl LowerCtx<'_> {
         let on_err = err_handler.passed;
         let on_ok_ty = self.operand_ty(&on_ok);
         let on_err_ty = self.operand_ty(&on_err);
-        let mut ok_word =
-            self.chain_cb_repr_word(&on_ok_pre_ty) | self.chain_cb_param_repr(&on_ok_pre_ty);
+        let mut ok_word = self.chain_cb_repr_word(args[0], &on_ok_pre_ty)
+            | self.chain_cb_param_repr(&on_ok_pre_ty);
         // The CLOSURE flag is the one bit that IS about the operand
         // the kernel receives, so it alone reads the post-wrap type.
         if matches!(on_ok_ty, Type::Closure(_)) {
             ok_word |= crate::ssa_lower_promise_repr_mark::THEN2_CLOSURE_FLAG;
         }
-        let mut err_word =
-            self.chain_cb_repr_word(&on_err_pre_ty) | self.chain_cb_param_repr(&on_err_pre_ty);
+        let mut err_word = self.chain_cb_repr_word(args[1], &on_err_pre_ty)
+            | self.chain_cb_param_repr(&on_err_pre_ty);
         if matches!(on_err_ty, Type::Closure(_)) {
             err_word |= crate::ssa_lower_promise_repr_mark::THEN2_CLOSURE_FLAG;
         }
@@ -129,11 +129,23 @@ impl LowerCtx<'_> {
     /// kernel for its cb-leg result stamp (the forward leg copies
     /// the source's stamp kernel-side). 0 = UNSTAMPED for a return
     /// form the any-lane bridge doesn't decode — stays loud there.
-    pub(crate) fn chain_cb_ret_repr(&self, cb_ty: &Type) -> i64 {
+    ///
+    /// A handler the checker types as returning `undefined` returns the
+    /// null-shaped pointer every `undefined` slot is; it settles
+    /// undefined, the value a void return settles.
+    pub(crate) fn chain_cb_ret_repr(&self, cb: ExprId, cb_ty: &Type) -> i64 {
         let ret = match cb_ty {
             Type::Closure(sig) | Type::FnSig(sig) => self.fn_sigs[sig.0 as usize].1,
             _ => return 0,
         };
+        if ret == Type::Ptr
+            && matches!(
+                self.expr_types.get(&cb),
+                Some(crate::check::Type::Function(_, r)) if **r == crate::check::Type::Undefined
+            )
+        {
+            return crate::ssa_lower_promise_repr_mark::REPR_VOID;
+        }
         let as_f64 = matches!(ret, Type::F64);
         crate::ssa_lower_promise_repr_mark::promise_value_repr(&ret, as_f64, false).unwrap_or(0)
     }
@@ -165,8 +177,8 @@ impl LowerCtx<'_> {
     /// the f64 face the adapter converts, so the value reaches the
     /// handler untouched; and the adapter's outbound bitcast leaves
     /// precisely the bits the pre-wrap return face names.
-    pub(crate) fn chain_cb_repr_word(&self, pre_wrap_ty: &Type) -> i64 {
-        let mut w = self.chain_cb_ret_repr(pre_wrap_ty);
+    pub(crate) fn chain_cb_repr_word(&self, cb: ExprId, pre_wrap_ty: &Type) -> i64 {
+        let mut w = self.chain_cb_ret_repr(cb, pre_wrap_ty);
         if let Type::Closure(sig) | Type::FnSig(sig) = pre_wrap_ty
             && matches!(self.fn_sigs[sig.0 as usize].0.first(), Some(Type::Any))
         {
