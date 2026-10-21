@@ -5,9 +5,9 @@ use torajs_core::ssa::{Operand, Type};
 
 use super::operand::{materialize_operand_fpr, materialize_operand_gpr, operand_is_f64};
 use super::{FP_SCRATCH_LHS, FP_SCRATCH_RHS, OP_SCRATCH_LHS, OP_SCRATCH_TMP, write_u32};
-use crate::enc::{fcvtzs_x_d, mov_d_reg, mov_x_reg, scvtf_d_x, str_d_imm12, str_x_imm12};
+use crate::enc::{fcvtzs_x_d, mov_d_reg, mov_x_reg, scvtf_d_x};
 use crate::linear_scan_lanes::{ArgLane, classify_lanes};
-use crate::reg::{Gpr, Reg};
+use crate::reg::Reg;
 use crate::regalloc::Assignment;
 
 /// Whether argument `i` travels as an f64. The declared param type
@@ -87,7 +87,7 @@ pub(super) fn pass_args(
                 write_u32(bytes, scvtf_d_x(FP_SCRATCH_LHS, g));
                 FP_SCRATCH_LHS
             };
-            write_u32(bytes, str_d_imm12(src, Gpr::SP, j * 8));
+            super::slot::sp_str_d(bytes, src, j * 8);
         } else {
             let src = if actual_is_f64 {
                 let f = materialize_operand_fpr(bytes, arg, FP_SCRATCH_LHS, OP_SCRATCH_LHS, alloc);
@@ -96,7 +96,7 @@ pub(super) fn pass_args(
             } else {
                 materialize_operand_gpr(bytes, arg, OP_SCRATCH_LHS, alloc)
             };
-            write_u32(bytes, str_x_imm12(src, Gpr::SP, j * 8));
+            super::slot::sp_str_x(bytes, src, j * 8);
         }
     }
     // Register lanes are one parallel copy: an argument may still sit
