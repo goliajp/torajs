@@ -1,7 +1,7 @@
 //! The annotation an un-annotated top-level binding registers from
 //! when a named function body reads it. Moved out of [`super`] whole.
 
-use crate::ast::{Ast, Expr, ExprId};
+use crate::ast::{Ast, Expr, ExprId, Stmt};
 use crate::check::Checker;
 
 /// The annotation spelling an UN-annotated top-level binding registers
@@ -27,6 +27,8 @@ use crate::check::Checker;
 ///   (`const g = src.g`);
 /// - an all-literal object literal spells its `__inlobj(...)`, an
 ///   all-literal array its `T[]`, a `new C()` its class or collection;
+/// - an init whose shape would come through a scalar binding holding
+///   an `any` value is `any` ([`reads_held_scalar`]);
 /// - a literal / operator / named-fn-call init spells its scalar
 ///   shape (`ast_refs::infer_toplevel_slot_shape`);
 /// - a `parseInt` / `parseFloat` call on the builtin route is `f64`;
@@ -72,6 +74,9 @@ pub(super) fn synthesized_spelling(
     {
         return Some((ann, false));
     }
+    if !is_var && reads_held_scalar(c, ast, init, 0) {
+        return Some(("any".into(), true));
+    }
     if let Some(shape) = crate::ast_refs::infer_toplevel_slot_shape(ast, init) {
         use crate::ast_refs::GlobalSlotShape as S;
         let spelling = match shape {
@@ -97,4 +102,42 @@ pub(super) fn synthesized_spelling(
     }
     (!is_var && crate::ast_refs_any_promote::any_promote_init(ast, init))
         .then(|| ("any".into(), true))
+}
+
+/// Whether the shape walk (`ast_refs::infer_toplevel_slot_shape`) would
+/// reach a top-level binding whose annotation names a scalar but which
+/// holds an `any` value (`check_stmt_let_decl::any_scalar_slot`): the
+/// annotation says nothing about what such a binding holds, so a copy
+/// of it, or an operator over it, has no certain shape. The walk is
+/// mirrored hop for hop, aliases through un-annotated bindings
+/// included.
+fn reads_held_scalar(c: &Checker, ast: &Ast, init: ExprId, depth: u32) -> bool {
+    if depth > 8 {
+        return false;
+    }
+    match ast.get_expr(init) {
+        Expr::Ident(n) => ast
+            .stmts
+            .iter()
+            .find_map(|s| match s {
+                Stmt::LetDecl {
+                    name,
+                    type_ann,
+                    init,
+                    ..
+                } if name == n => Some(match type_ann {
+                    Some(_) => c.cross_type_widened.contains(init),
+                    None => reads_held_scalar(c, ast, *init, depth + 1),
+                }),
+                _ => None,
+            })
+            .unwrap_or(false),
+        Expr::Sequence { right, .. } => reads_held_scalar(c, ast, *right, depth),
+        Expr::BinOp { left, right, .. } => {
+            reads_held_scalar(c, ast, *left, depth + 1)
+                || reads_held_scalar(c, ast, *right, depth + 1)
+        }
+        Expr::Unary { expr, .. } => reads_held_scalar(c, ast, *expr, depth + 1),
+        _ => false,
+    }
 }
