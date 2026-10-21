@@ -130,6 +130,7 @@ cases = [
   "promise-await-100k",
   "promise-chain-1m",
   "promise-then-100k",
+  "promise-then-pending-100k",
 ]
 
 [categories.closure]
