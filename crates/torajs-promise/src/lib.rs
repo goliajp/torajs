@@ -75,6 +75,7 @@ pub use combinator_keyed::{__torajs_promise_all_keyed_dyn, __torajs_promise_alls
 pub use micro::{__torajs_queue_microtask_closure, __torajs_queue_microtask_simple};
 pub use pool::{
     __torajs_promise_alloc_fulfilled, __torajs_promise_alloc_fulfilled_heap,
+    __torajs_promise_alloc_fulfilled_heap_repr, __torajs_promise_alloc_fulfilled_repr,
     __torajs_promise_alloc_pending, __torajs_promise_alloc_rejected,
     __torajs_promise_alloc_rejected_heap, __torajs_promise_drop, __torajs_promise_resolve_thenable,
 };

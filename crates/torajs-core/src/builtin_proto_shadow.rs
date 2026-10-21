@@ -64,6 +64,7 @@ use crate::ssa::id_hash::HashSet;
 /// writes this one's private fields unchanged.
 mod exec_writes;
 mod hooks;
+mod promise_pinned;
 mod scan;
 mod then_closed;
 mod typed_exec;
@@ -144,6 +145,8 @@ pub(crate) struct ShadowSet {
     exec_written: bool,
     /// The `then` closure proof's run-to-run state (`then_closed`).
     then: then_closed::ThenClosure,
+    /// [`Self::promise_statics_pinned`], once asked.
+    promise_pinned: std::cell::OnceCell<bool>,
 }
 
 impl ShadowSet {

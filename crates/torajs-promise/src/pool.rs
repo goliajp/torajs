@@ -23,8 +23,8 @@ use core::ffi::c_void;
 use core::ptr;
 
 use crate::layout::{
-    HeapHeader, PROMISE_SIZE, Promise, RX_NONE, STATE_FULFILLED, STATE_PENDING, STATE_REJECTED,
-    TAG_PROMISE, as_promise,
+    HeapHeader, PROMISE_SIZE, Promise, REPR_UNSTAMPED, RX_NONE, STATE_FULFILLED, STATE_PENDING,
+    STATE_REJECTED, TAG_PROMISE, as_promise,
 };
 
 mod teardown;
@@ -57,7 +57,7 @@ unsafe extern "C" {
 #[inline(always)]
 unsafe fn promise_alloc_(state: u8, value: i64, is_heap: u8) -> *mut Promise {
     let p = alloc_fixed::<PROMISE_SIZE>() as *mut Promise;
-    unsafe { init_cell(p, state, value, is_heap) };
+    unsafe { init_cell(p, state, value, is_heap, REPR_UNSTAMPED) };
     p
 }
 
@@ -65,19 +65,25 @@ unsafe fn promise_alloc_(state: u8, value: i64, is_heap: u8) -> *mut Promise {
 /// empty row tail-calls an allocating path instantiated per state, so
 /// it keeps only the registers its own entry point needs.
 #[inline(always)]
-unsafe fn promise_alloc_leaf<const STATE: u8, const IS_HEAP: u8>(value: i64) -> *mut c_void {
+unsafe fn promise_alloc_leaf<const STATE: u8, const IS_HEAP: u8>(
+    value: i64,
+    repr: u8,
+) -> *mut c_void {
     let p = pop_fixed::<PROMISE_SIZE>() as *mut Promise;
     if p.is_null() {
-        return unsafe { promise_alloc_fresh::<STATE, IS_HEAP>(value) };
+        return unsafe { promise_alloc_fresh::<STATE, IS_HEAP>(value, repr) };
     }
-    unsafe { init_cell(p, STATE, value, IS_HEAP) };
+    unsafe { init_cell(p, STATE, value, IS_HEAP, repr) };
     p as *mut c_void
 }
 
 #[inline(never)]
-unsafe fn promise_alloc_fresh<const STATE: u8, const IS_HEAP: u8>(value: i64) -> *mut c_void {
+unsafe fn promise_alloc_fresh<const STATE: u8, const IS_HEAP: u8>(
+    value: i64,
+    repr: u8,
+) -> *mut c_void {
     let p = alloc_fixed::<PROMISE_SIZE>() as *mut Promise;
-    unsafe { init_cell(p, STATE, value, IS_HEAP) };
+    unsafe { init_cell(p, STATE, value, IS_HEAP, repr) };
     p as *mut c_void
 }
 
@@ -95,7 +101,7 @@ pub(crate) unsafe fn alloc_pending() -> *mut c_void {
 pub(crate) unsafe fn pop_pending() -> *mut c_void {
     let p = pop_fixed::<PROMISE_SIZE>() as *mut Promise;
     if !p.is_null() {
-        unsafe { init_cell(p, STATE_PENDING, 0, 0) };
+        unsafe { init_cell(p, STATE_PENDING, 0, 0, REPR_UNSTAMPED) };
     }
     p as *mut c_void
 }
@@ -111,7 +117,7 @@ pub(crate) unsafe fn alloc_fulfilled_heap(value: i64) -> *mut c_void {
 }
 
 #[inline(always)]
-unsafe fn init_cell(p: *mut Promise, state: u8, value: i64, is_heap: u8) {
+unsafe fn init_cell(p: *mut Promise, state: u8, value: i64, is_heap: u8, repr: u8) {
     unsafe {
         (*p).header = HeapHeader {
             refcount: 1,
@@ -124,10 +130,10 @@ unsafe fn init_cell(p: *mut Promise, state: u8, value: i64, is_heap: u8) {
         // attach_then / get_value set this to 1 as cb is hooked up;
         // unhandled::hprt_check_dispatch reads it.
         (*p).has_handler = 0;
-        // Fresh cell has not crossed into the any world — the
+        // UNSTAMPED unless the mint site knows the value's form — the
         // box_to_any choke point stamps the real repr (RFC
         // 20260720-anylane-promise-methods knife 1).
-        (*p).value_repr = crate::layout::REPR_UNSTAMPED;
+        (*p).value_repr = repr;
         (*p).deferred_state = 0;
         (*p).rx_kind = RX_NONE;
         (*p).rx_ret_repr = 0;
@@ -159,14 +165,28 @@ unsafe fn promise_release_(p: *mut Promise) {
 /// Takes no pointer arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_alloc_pending() -> *mut c_void {
-    unsafe { promise_alloc_leaf::<STATE_PENDING, 0>(0) }
+    unsafe { promise_alloc_leaf::<STATE_PENDING, 0>(0, REPR_UNSTAMPED) }
 }
 
 /// # Safety
 /// `value` is a primitive payload; it is stored as raw bits and never dereferenced.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_alloc_fulfilled(value: i64) -> *mut c_void {
-    unsafe { promise_alloc_leaf::<STATE_FULFILLED, 0>(value) }
+    unsafe { promise_alloc_leaf::<STATE_FULFILLED, 0>(value, REPR_UNSTAMPED) }
+}
+
+/// [`__torajs_promise_alloc_fulfilled`] with the value's repr code
+/// stamped (`__torajs_promise_stamp_repr`) — the pair a typed
+/// `Promise.resolve(v)` mints, in one call.
+///
+/// # Safety
+/// `value` is a primitive payload; it is stored as raw bits and never dereferenced.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_promise_alloc_fulfilled_repr(
+    value: i64,
+    repr: i64,
+) -> *mut c_void {
+    unsafe { promise_alloc_leaf::<STATE_FULFILLED, 0>(value, repr as u8) }
 }
 
 /// # Safety
@@ -191,7 +211,20 @@ pub unsafe extern "C" fn __torajs_promise_alloc_rejected(reason: i64) -> *mut c_
 /// `value` is a live heap cell and the caller hands one reference to the Promise.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_alloc_fulfilled_heap(value: i64) -> *mut c_void {
-    unsafe { promise_alloc_leaf::<STATE_FULFILLED, 1>(value) }
+    unsafe { promise_alloc_leaf::<STATE_FULFILLED, 1>(value, REPR_UNSTAMPED) }
+}
+
+/// [`__torajs_promise_alloc_fulfilled_heap`] with the value's repr code
+/// stamped, as [`__torajs_promise_alloc_fulfilled_repr`].
+///
+/// # Safety
+/// `value` is a live heap cell and the caller hands one reference to the Promise.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_promise_alloc_fulfilled_heap_repr(
+    value: i64,
+    repr: i64,
+) -> *mut c_void {
+    unsafe { promise_alloc_leaf::<STATE_FULFILLED, 1>(value, repr as u8) }
 }
 
 /// # Safety

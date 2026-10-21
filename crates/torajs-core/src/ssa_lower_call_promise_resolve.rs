@@ -5,7 +5,9 @@
 //!
 //! Every emit is gated on a runtime patch probe over the interned
 //! Promise constructor cell's expando dict — the single store the
-//! any-lane write (`(Promise as any).resolve = fn`) lands in:
+//! any-lane write (`(Promise as any).resolve = fn`) lands in — unless
+//! the program provably writes no such slot
+//! (`ShadowSet::promise_statics_pinned`):
 //!
 //! 1. **probe** (`promise_ctor_patched`) — emitted FIRST: §13.3.6.1
 //!    evaluates the callee reference before Arguments, and the probe
@@ -39,8 +41,11 @@ pub(crate) fn lower_resolve_reject(
 ) -> Operand {
     // The async desugar's synthesized settle spellings are the
     // machinery's own §27.7 capability operations, never the user's
-    // patchable slot — no probe, straight to the typed lane.
-    if ctx.ast.synth_promise_static_calls.contains(&eid) {
+    // patchable slot — no probe, straight to the typed lane. Neither
+    // is there one to probe in a program that cannot write the slot.
+    if ctx.ast.synth_promise_static_calls.contains(&eid)
+        || ctx.scans.proto_shadow.promise_statics_pinned(ctx.ast)
+    {
         let mut arg_ops: Vec<Operand> = Vec::with_capacity(args.len());
         for &a in args {
             arg_ops.push(ctx.lower_expr(a));
@@ -229,8 +234,14 @@ fn lower_patched_call(
 /// `Promise.{resolve,reject}()` — synthesize the undefined sentinel
 /// and route to the primitive fulfilled/rejected allocator.
 fn lower_zero_arg(ctx: &mut LowerCtx<'_>, method: &str) -> Operand {
+    // RFC 20260720-anylane-promise-methods knife 1 — the zero-arg
+    // form settles with undefined; the any-lane bridge answers it
+    // as such.
+    use crate::ssa_lower_promise_repr_mark::REPR_VOID;
     let fid = match method {
-        "resolve" => ctx.intrinsics.promise_alloc_fulfilled,
+        "resolve" => {
+            return ctx.emit_promise_alloc_fulfilled_repr(Operand::ConstI64(0), false, REPR_VOID);
+        }
         "reject" => ctx.intrinsics.promise_alloc_rejected,
         _ => unreachable!(),
     };
@@ -241,11 +252,8 @@ fn lower_zero_arg(ctx: &mut LowerCtx<'_>, method: &str) -> Operand {
         Type::Promise,
         None,
     );
-    // RFC 20260720-anylane-promise-methods knife 1 — the zero-arg
-    // form settles with undefined; the any-lane bridge answers it
-    // as such.
     let out = Operand::Value(v);
-    ctx.emit_promise_stamp_repr(&out, crate::ssa_lower_promise_repr_mark::REPR_VOID);
+    ctx.emit_promise_stamp_repr(&out, REPR_VOID);
     out
 }
 
@@ -417,6 +425,13 @@ fn lower_one_plus_op(
     } else {
         arg_op
     };
+    let repr =
+        crate::ssa_lower_promise_repr_mark::promise_value_repr(&arg_ty, stored_as_f64, is_null);
+    if let Some(repr) = repr
+        && method == "resolve"
+    {
+        return ctx.emit_promise_alloc_fulfilled_repr(arg_i64, is_heap, repr);
+    }
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(
         cur_block,
@@ -425,9 +440,7 @@ fn lower_one_plus_op(
         None,
     );
     let out = Operand::Value(v);
-    if let Some(repr) =
-        crate::ssa_lower_promise_repr_mark::promise_value_repr(&arg_ty, stored_as_f64, is_null)
-    {
+    if let Some(repr) = repr {
         ctx.emit_promise_stamp_repr(&out, repr);
     }
     out

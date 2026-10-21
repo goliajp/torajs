@@ -20,8 +20,27 @@
 //! Codes mirror `torajs-promise/src/layout.rs::REPR_*` — must move in
 //! lockstep.
 
-use crate::ssa::{InstKind, Operand, Type};
-use crate::ssa_lower::LowerCtx;
+use std::collections::HashMap;
+
+use crate::ssa::{FuncId, InstKind, Module, Operand, Type};
+use crate::ssa_lower::{LowerCtx, declare_intrinsic};
+
+/// `__torajs_promise_alloc_fulfilled[_heap]_repr(value, repr)`: the
+/// fulfilled allocators with the stamp folded in, one call per mint.
+const ALLOC_FULFILLED_REPR: &str = "__torajs_promise_alloc_fulfilled_repr";
+const ALLOC_FULFILLED_HEAP_REPR: &str = "__torajs_promise_alloc_fulfilled_heap_repr";
+
+pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) {
+    for name in [ALLOC_FULFILLED_REPR, ALLOC_FULFILLED_HEAP_REPR] {
+        declare_intrinsic(
+            module,
+            fn_table,
+            name,
+            &[Type::I64, Type::I64],
+            Type::Promise,
+        );
+    }
+}
 
 /// RFC 20260720-promise-any-cb knife 1 — bit 8 of the then/catch
 /// kernels' `ret_repr` parameter: set when the handler's first
@@ -100,5 +119,27 @@ impl LowerCtx<'_> {
                 vec![*promise, Operand::ConstI64(repr)],
             ),
         );
+    }
+
+    /// Mint a fulfilled cell holding `value` (i64-packed; a heap value
+    /// hands its reference over) already stamped `repr`.
+    pub(crate) fn emit_promise_alloc_fulfilled_repr(
+        &mut self,
+        value: Operand,
+        is_heap: bool,
+        repr: i64,
+    ) -> Operand {
+        let name = if is_heap {
+            ALLOC_FULFILLED_HEAP_REPR
+        } else {
+            ALLOC_FULFILLED_REPR
+        };
+        let v = self.f.append_inst(
+            self.cur_block,
+            InstKind::Call(self.fn_table[name], vec![value, Operand::ConstI64(repr)]),
+            Type::Promise,
+            None,
+        );
+        Operand::Value(v)
     }
 }

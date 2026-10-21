@@ -196,4 +196,8 @@ pub(crate) const COMPILER_SOURCE_FILES: &[&str] = &[
     "../torajs-egraph/src/str_append/reserve.rs",
     "../torajs-egraph/src/str_append/reserve/web.rs",
     "../torajs-egraph/src/concat_num_fuse/stack.rs",
+    // the Promise.resolve / reject mint and the proof that drops its probe
+    "src/ssa_lower_call_promise_resolve.rs",
+    "src/ssa_lower_promise_repr_mark.rs",
+    "src/builtin_proto_shadow/promise_pinned.rs",
 ];

@@ -37,6 +37,7 @@ pub(crate) struct InitD {
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> InitD {
     let promise = crate::ssa_lower_intrinsics_promise::declare(module, fn_table);
+    crate::ssa_lower_promise_repr_mark::declare(module, fn_table);
     let substr = crate::ssa_lower_intrinsics_substr::declare(module, fn_table);
     let (substr_trim, substr_trim_start, substr_trim_end, substr_trim_into) =
         crate::ssa_lower_substr_trim_into::declare_all(module, fn_table);
