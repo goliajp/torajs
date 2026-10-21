@@ -1,0 +1,13 @@
+undefined onErr 5 number
+null onErr 5 number
+named 31 number
+named rejected 0 number
+undefined onOk 5 number
+null onOk 5 number
+catch undefined 8 number
+named mixed n2 string
+named mixed rejected -1 number
+named one leg 51
+await undefined onOk 7
+await named 61
+await named rejected 0

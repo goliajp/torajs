@@ -43,21 +43,17 @@ pub(super) fn resolve_promise_inner_ann(
         }
         "then" | "catch" => {
             let src = || source_inner_ann(ast, *obj, all_anns, fn_ret_anns);
+            let ok_leg = |cb| handler_ret_ann(ast, cb, Leg::Fulfil, src, all_anns, fn_ret_anns);
+            let err_leg = |cb| handler_ret_ann(ast, cb, Leg::Reject, src, all_anns, fn_ret_anns);
             match (name.as_str(), &args[..]) {
                 // §27.2.5.4: the derived promise settles from whichever
                 // handler runs, so its value is either handler's return;
                 // `.catch(onErr)` passes a fulfilled source's value through
                 ("then", [on_ok, on_err, ..]) => {
-                    let ok = handler_ret_ann(ast, *on_ok, src, fn_ret_anns)?;
-                    let err = handler_ret_ann(ast, *on_err, any_seed, fn_ret_anns)?;
-                    Some(join_legs(&ok, &err))
+                    Some(join_legs(&ok_leg(*on_ok)?, &err_leg(*on_err)?))
                 }
-                ("catch", [on_err, ..]) => {
-                    let pass = src()?;
-                    let err = handler_ret_ann(ast, *on_err, any_seed, fn_ret_anns)?;
-                    Some(join_legs(&pass, &err))
-                }
-                (_, [on_ok, ..]) => handler_ret_ann(ast, *on_ok, src, fn_ret_anns),
+                ("catch", [on_err, ..]) => Some(join_legs(&src()?, &err_leg(*on_err)?)),
+                (_, [on_ok, ..]) => ok_leg(*on_ok),
                 _ => None,
             }
         }
@@ -94,30 +90,57 @@ fn source_inner_ann(
     resolve_promise_inner_ann(ast, eid, all_anns, fn_ret_anns)
 }
 
-fn any_seed() -> Option<String> {
-    Some("any".to_string())
+/// Which settlement a handler argument runs on.
+#[derive(Clone, Copy)]
+enum Leg {
+    Fulfil,
+    Reject,
 }
 
-/// The return annotation of the handler `cb`: its own (explicit or
-/// sniffed up front), else the sniff rerun with its parameter seeded
-/// from `seed` (an un-annotated parameter blocked the up-front one).
-/// Identity chains (`n => n`) propagate through here without needing a
-/// mid-pass rebuild.
+/// The return annotation of the handler `cb` on `leg`: a closure's own
+/// (explicit or sniffed up front), else the sniff rerun with its
+/// parameter seeded (the source's value on the fulfil leg, `any` for a
+/// reason) when an un-annotated parameter blocked the up-front one;
+/// a top-level function's declared or sniffed return. Identity chains
+/// (`n => n`) propagate through here without needing a mid-pass
+/// rebuild.
+///
+/// §27.2.5.4 PerformPromiseThen steps 3-4 replace a handler that is not
+/// callable: on the fulfil leg the source's value passes through, on
+/// the reject leg the reason does, so that leg settles no value
+/// (`never`).
 fn handler_ret_ann(
     ast: &Ast,
     cb: ExprId,
-    seed: impl FnOnce() -> Option<String>,
+    leg: Leg,
+    src: impl FnOnce() -> Option<String>,
+    all_anns: &std::collections::HashMap<String, String>,
     fn_ret_anns: &std::collections::HashMap<String, Option<String>>,
 ) -> Option<String> {
     let fn_name = match ast.get_expr(cb) {
         Expr::Closure { fn_name, .. } => fn_name.clone(),
         Expr::Ident(n) if n.starts_with("__closure_") => n.clone(),
+        Expr::Null => return pass_through(leg, src),
+        Expr::Ident(n) if n == "undefined" => return pass_through(leg, src),
+        // a binding of the name shadows the top-level function
+        Expr::Ident(n) if !all_anns.contains_key(n) => return fn_ret_anns.get(n)?.clone(),
         _ => return None,
     };
     if let Some(Some(r)) = fn_ret_anns.get(&fn_name) {
         return Some(r.clone());
     }
-    sniff_body_with_param_seed(ast, &fn_name, &seed()?)
+    let seed = match leg {
+        Leg::Fulfil => src()?,
+        Leg::Reject => "any".to_string(),
+    };
+    sniff_body_with_param_seed(ast, &fn_name, &seed)
+}
+
+fn pass_through(leg: Leg, src: impl FnOnce() -> Option<String>) -> Option<String> {
+    match leg {
+        Leg::Fulfil => src(),
+        Leg::Reject => Some("never".to_string()),
+    }
 }
 
 /// The value annotation of a promise settled from one of two legs: each
