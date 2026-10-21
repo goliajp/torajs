@@ -33,18 +33,18 @@ const NONE: u32 = u32::MAX;
 /// placeholders among them. A list holds, in the order a full list
 /// would, every constraint naming a value the block reads or a value
 /// a square bound reads; nothing a lookup in the block reads is
-/// missing from it.
+/// missing from it; `constraints` comes back holding the placeholders.
 pub(in super::super) fn inherited(
     func: &Function,
     dom: &DominatorTree,
     mut constraints: Constraints,
     block_defs: &[Vec<ValueId>],
-) -> (Merges, Inherited) {
+) -> (Merges, Inherited, Constraints) {
     let n = func.blocks.len();
     if (0..n).all(|b| constraints.at(BlockId(b as u32)).is_empty()) {
         let merges = Merges::none();
         let inherited = merges.inherited(vec![Vec::new(); n]);
-        return (merges, inherited);
+        return (merges, inherited, constraints);
     }
     let watched = square_values(func, &constraints);
     let mut scope = Scope::new(func, dom, &constraints, block_defs);
@@ -78,7 +78,7 @@ pub(in super::super) fn inherited(
         true
     });
     let inherited = merges.inherited(lists);
-    (merges, inherited)
+    (merges, inherited, constraints)
 }
 
 /// The values a square constraint, or the bound it is compared

@@ -46,15 +46,14 @@ pub(crate) mod point_eval;
 pub mod sum_facts;
 
 use crate::id_hash::HashMap;
-use std::cell::OnceCell;
 
 use torajs_core::ssa::{
     BinOp, BlockId, Function, InstKind, Module, Operand, Terminator, ValueId, visit_value_operands,
 };
 
+use crate::interval::FactCache;
 use crate::interval::refine::{Constraint, Constraints};
 use crate::interval::transfer::{NumFact, POS_INF, op_const_int};
-use crate::interval::{FactCache, Seed, SingleDefs};
 use decide::decide;
 use point_eval::{PointEval, successors};
 use torajs_core::ssa::dominator::DominatorTree;
@@ -84,23 +83,24 @@ pub fn fold_branches(
         if func.is_declaration() {
             continue;
         }
-        let seed = cache.and_then(|c| c.get(facts, fi, func));
+        let seed = cache.and_then(|c| c.get_with_edges(facts, fi, func));
         fold_in_function(func, &names, seed, &mut stats);
     }
     stats
 }
 
+/// The pipeline's facts for a body, with the edge constraints they
+/// were computed under.
+type Seed<'a> = Option<(&'a HashMap<ValueId, NumFact>, &'a Constraints)>;
+
 fn fold_in_function(func: &mut Function, fns: &[String], seed: Seed, stats: &mut BranchFoldStats) {
     let dom = DominatorTree::compute(func);
     let la = LoopAnalysis::compute(func, &dom);
-    let pe = PointEval::new(func, &dom, &la, fns, seed);
-    // Lazily: most functions carry no ICmp-fed CondBr at all.
-    let edges: OnceCell<Constraints> = OnceCell::new();
+    let pe = PointEval::new(func, &dom, &la, fns, seed.map(|s| s.0)).with_edges(seed.map(|s| s.1));
     let src = Sources {
         func,
         la: &la,
         pe: &pe,
-        edges: &edges,
         dom: &dom,
     };
 
@@ -152,13 +152,13 @@ fn fold_in_function(func: &mut Function, fns: &[String], seed: Seed, stats: &mut
     stats.blocks_removed += sweep_unreachable_blocks(func);
 }
 
-/// What [`eval_side`] consults; the edge constraints are built on
-/// first use, the lattice lives in the point evaluator.
+/// What [`eval_side`] consults; the lattice and the edge constraints
+/// live in the point evaluator, each built on first use unless the
+/// pipeline's analysis of the same body supplies it.
 struct Sources<'a> {
     func: &'a Function,
     la: &'a LoopAnalysis,
     pe: &'a PointEval<'a>,
-    edges: &'a OnceCell<Constraints>,
     dom: &'a DominatorTree,
 }
 
@@ -215,14 +215,11 @@ fn shifted_bound(src: &Sources<'_>, vd: (usize, usize)) -> Option<NumFact> {
 /// `v` has a single def (a multi-def cell may be redefined between the
 /// edge and the compare).
 fn edge_range(src: &Sources<'_>, v: ValueId, bi: usize) -> Option<NumFact> {
-    let func = src.func;
     src.pe.single_def(v)?;
-    let edges = src
-        .edges
-        .get_or_init(|| Constraints::compute(func, &SingleDefs::of(func)));
     // a single-def value is never redefined below its edge
-    edges
-        .inherited(func.blocks[bi].id, src.dom)
+    src.pe
+        .edges()
+        .inherited(src.func.blocks[bi].id, src.dom)
         .into_iter()
         .filter_map(|c| match c {
             Constraint::Range(w, f) if w == v => Some(f),
@@ -509,6 +506,37 @@ mod tests {
             .filter(|i| matches!(i.kind, InstKind::BinOp(BinOp::LShr, ..)))
             .count();
         assert_eq!(shifts, 0, "the guard shifts are dead and swept");
+    }
+
+    /// The analysis hands back the constraints `Constraints::compute`
+    /// gives the body, with only its `Merge` placeholders added, and a
+    /// fold seeded with them decides what an unseeded one does.
+    #[test]
+    fn analysis_edges_are_the_computed_constraints() {
+        let f = popcount_guarded(false);
+        let dom = DominatorTree::compute(&f);
+        let a = crate::interval::analyze_function_in(&f, &[], &dom);
+        let computed = Constraints::compute(&f, &crate::interval::SingleDefs::of(&f));
+        let mut ranges = 0;
+        for b in 0..f.blocks.len() {
+            let id = BlockId(b as u32);
+            let kept: Vec<Constraint> = a
+                .edges
+                .at(id)
+                .iter()
+                .copied()
+                .filter(|c| !matches!(c, Constraint::Merge(..)))
+                .collect();
+            assert_eq!(kept, computed.at(id), "block {b}");
+            ranges += kept.len();
+        }
+        assert!(ranges > 0, "the loop guard constrains its edges");
+        let (mut seeded, mut fresh) = (f.clone(), f.clone());
+        let (mut s1, mut s2) = (BranchFoldStats::default(), BranchFoldStats::default());
+        fold_in_function(&mut seeded, &[], Some((&a.facts, &a.edges)), &mut s1);
+        fold_in_function(&mut fresh, &[], None, &mut s2);
+        assert_eq!(s1, s2);
+        assert_eq!(seeded, fresh);
     }
 
     #[test]

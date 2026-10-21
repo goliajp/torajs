@@ -12,7 +12,8 @@ use crate::id_hash::HashMap;
 
 use torajs_core::ssa::{Function, Module, Type, ValueId};
 
-use super::{FactCache, NumFact, analyze_module_with, transfer};
+use super::{FactCache, NumFact, analyze_function_in, transfer};
+use torajs_core::ssa::dominator::DominatorTree;
 
 /// The integer range analysis and the cache that tells its later
 /// readers which bodies it still describes as analyzed, or `None`
@@ -23,7 +24,18 @@ pub fn analyze_gated(module: &Module) -> Option<(Vec<HashMap<ValueId, NumFact>>,
         return None;
     }
     let names: Vec<String> = module.funcs.iter().map(|f| f.name.clone()).collect();
-    let facts = analyze_module_with(module, &names);
+    let (facts, edges): (Vec<_>, Vec<_>) = module
+        .funcs
+        .iter()
+        .map(|f| {
+            if f.is_declaration() {
+                (HashMap::default(), None)
+            } else {
+                let a = analyze_function_in(f, &names, &DominatorTree::compute(f));
+                (a.facts, Some(a.edges))
+            }
+        })
+        .unzip();
     if std::env::var("TORAJS_INTERVAL_STATS").as_deref() == Ok("1") {
         for (func, fm) in module.funcs.iter().zip(&facts) {
             if !func.is_declaration() {
@@ -32,7 +44,7 @@ pub fn analyze_gated(module: &Module) -> Option<(Vec<HashMap<ValueId, NumFact>>,
             }
         }
     }
-    let cache = FactCache::new(module, names);
+    let cache = FactCache::new(module, names, edges);
     Some((facts, cache))
 }
 

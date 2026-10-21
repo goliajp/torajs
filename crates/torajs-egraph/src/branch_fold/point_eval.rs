@@ -33,8 +33,10 @@ use std::cell::{Cell, OnceCell, RefCell};
 
 use torajs_core::ssa::{Function, InstKind, Operand, ValueId};
 
-use crate::interval::analyze_function_with;
+use crate::interval::SingleDefs;
+use crate::interval::analyze_function_in;
 use crate::interval::elem_len::{LenCells, is_len_load};
+use crate::interval::refine::Constraints;
 use crate::interval::transfer::{self, AbsVal, NumFact};
 use torajs_core::ssa::dominator::DominatorTree;
 use torajs_core::ssa::loop_analysis::LoopAnalysis;
@@ -64,6 +66,10 @@ pub(crate) struct PointEval<'a> {
     len_loads: HashSet<ValueId>,
     names: &'a [String],
     flow: OnceCell<Cow<'a, HashMap<ValueId, NumFact>>>,
+    /// The body's edge constraints: the ones the analysis computed
+    /// when it ran here or was seeded with them, else computed on
+    /// first read.
+    edges: OnceCell<Cow<'a, Constraints>>,
     memo: RefCell<HashMap<(ValueId, usize, usize), Option<NumFact>>>,
     fuel: Cell<u32>,
 }
@@ -100,6 +106,7 @@ impl<'a> PointEval<'a> {
             len_loads,
             names,
             flow: seed.map_or_else(OnceCell::new, |f| OnceCell::from(Cow::Borrowed(f))),
+            edges: OnceCell::new(),
             memo: RefCell::new(HashMap::default()),
             fuel: Cell::new(FUEL),
         }
@@ -117,13 +124,32 @@ impl<'a> PointEval<'a> {
         }
     }
 
+    /// The edge constraints the seeded facts were computed under.
+    pub(crate) fn with_edges(self, edges: Option<&'a Constraints>) -> Self {
+        if let Some(e) = edges {
+            self.edges.get_or_init(|| Cow::Borrowed(e));
+        }
+        self
+    }
+
     /// The flow-insensitive lattice's fact for `v`, sound at every
     /// point of the function.
     pub(crate) fn flow_fact(&self, v: ValueId) -> Option<NumFact> {
         self.flow
-            .get_or_init(|| Cow::Owned(analyze_function_with(self.func, self.names)))
+            .get_or_init(|| {
+                let a = analyze_function_in(self.func, self.names, self.dom);
+                self.edges.get_or_init(|| Cow::Owned(a.edges));
+                Cow::Owned(a.facts)
+            })
             .get(&v)
             .copied()
+    }
+
+    /// `Constraints::compute` of the body; the analysis's copy also
+    /// carries its `Merge` placeholders, which no `Range` reader sees.
+    pub(crate) fn edges(&self) -> &Constraints {
+        self.edges
+            .get_or_init(|| Cow::Owned(Constraints::compute(self.func, &SingleDefs::of(self.func))))
     }
 
     /// Point evaluation met with the lattice: each is sound, so the

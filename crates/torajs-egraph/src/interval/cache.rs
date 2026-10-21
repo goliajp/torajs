@@ -20,6 +20,7 @@ use crate::id_hash::{HashMap, IdHasher};
 use torajs_core::ssa::{Function, Module, Terminator, ValueId};
 
 use super::NumFact;
+use super::refine::Constraints;
 
 /// The facts a point evaluator can start from instead of analyzing.
 pub type Seed<'a> = Option<&'a HashMap<ValueId, NumFact>>;
@@ -29,18 +30,25 @@ pub struct FactCache {
     /// index-aligned with `Module::funcs`: the fingerprint of the body
     /// analyzed, `None` for a declaration (no reader asks for one)
     bodies: Vec<Option<u64>>,
+    /// index-aligned with `Module::funcs`: the edge constraints the
+    /// analysis computed for the body, a pure function of it as well
+    edges: Vec<Option<Constraints>>,
 }
 
 impl FactCache {
     /// The cache for `module` as analyzed under `names`, its function
-    /// names.
-    pub fn new(module: &Module, names: Vec<String>) -> Self {
+    /// names; `edges` is index-aligned with `module.funcs`.
+    pub fn new(module: &Module, names: Vec<String>, edges: Vec<Option<Constraints>>) -> Self {
         let bodies = module
             .funcs
             .iter()
             .map(|f| (!f.is_declaration()).then(|| fingerprint(f)))
             .collect();
-        FactCache { names, bodies }
+        FactCache {
+            names,
+            bodies,
+            edges,
+        }
     }
 
     /// The function names the analysis ran under.
@@ -75,11 +83,31 @@ impl FactCache {
         idx: usize,
         func: &Function,
     ) -> Seed<'f> {
-        let analyzed = (*self.bodies.get(idx)?)?;
-        if analyzed != fingerprint(func) {
+        if !self.is_analyzed(idx, func) {
             return None;
         }
         facts?.get(idx)
+    }
+
+    /// [`FactCache::get`], with the edge constraints of the same body.
+    pub fn get_with_edges<'f>(
+        &'f self,
+        facts: Option<&'f [HashMap<ValueId, NumFact>]>,
+        idx: usize,
+        func: &Function,
+    ) -> Option<(&'f HashMap<ValueId, NumFact>, &'f Constraints)> {
+        if !self.is_analyzed(idx, func) {
+            return None;
+        }
+        Some((facts?.get(idx)?, self.edges.get(idx)?.as_ref()?))
+    }
+
+    fn is_analyzed(&self, idx: usize, func: &Function) -> bool {
+        self.bodies
+            .get(idx)
+            .copied()
+            .flatten()
+            .is_some_and(|analyzed| analyzed == fingerprint(func))
     }
 }
 

@@ -124,6 +124,7 @@ pub fn rel_range(rel: Rel, known: NumFact, via_sitofp: bool) -> Option<NumFact> 
 /// level, and the per-probe SipHash was the top self-time slice of
 /// the 75KB test262 unicode-ident class file's egraph stall
 /// (rotation 268 profile).
+#[derive(Clone)]
 pub struct Constraints {
     at_entry: Vec<Vec<Constraint>>,
 }

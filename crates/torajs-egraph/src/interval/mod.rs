@@ -121,10 +121,29 @@ pub fn analyze_function_with(
     func: &Function,
     callee_names: &[String],
 ) -> HashMap<ValueId, NumFact> {
+    analyze_function_in(func, callee_names, &DominatorTree::compute(func)).facts
+}
+
+/// One body's analysis: its facts, and the branch-edge constraints
+/// they were computed under (`Constraints::compute` of the body, with
+/// the merge placeholders the ascent reads appended to the blocks
+/// they sit at).
+pub struct Analysis {
+    pub facts: HashMap<ValueId, NumFact>,
+    pub edges: Constraints,
+}
+
+/// [`analyze_function_with`] under `dom`, the body's dominator tree,
+/// keeping the edge constraints for readers that would otherwise
+/// compute them again.
+pub fn analyze_function_in(
+    func: &Function,
+    callee_names: &[String],
+    dom: &DominatorTree,
+) -> Analysis {
     let (single, cells, block_defs) = def_shapes(func);
-    let dom = DominatorTree::compute(func);
     let constraints = Constraints::compute(func, &single);
-    let (merges, inherited) = refine::scope::inherited(func, &dom, constraints, &block_defs);
+    let (merges, inherited, edges) = refine::scope::inherited(func, dom, constraints, &block_defs);
     let (horizon, thresholds) = horizon::Horizon::new(func, &single, &cells);
     // An allocation's elements are one more multi-def cell whose defs
     // happen to be stores; it rides the same ascent below.
@@ -242,7 +261,10 @@ pub fn analyze_function_with(
         }
     }
 
-    state.into_facts()
+    Analysis {
+        facts: state.into_facts(),
+        edges,
+    }
 }
 
 fn opaque_for(ty: Type) -> AbsVal {
