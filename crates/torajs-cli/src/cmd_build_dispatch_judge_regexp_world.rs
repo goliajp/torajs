@@ -14,12 +14,18 @@
 //!
 //! The scan names every compiler-emitted way into the world:
 //!
-//! - the regex family's own entries (a literal, `new RegExp`, a typed
-//!   `RegExp.x` static, a subclass) and the string kernels that take a
-//!   RegExp cell ([`mints_regexp`]); not the string kernels that only
-//!   share the family's dispatch prefixes (a string-pattern replace,
-//!   whose pattern is a string or an any value some other entry
-//!   minted);
+//! - a subclass ([`opens_regexp_world`]), and a typed RegExp that can
+//!   leave the typed lanes — the regex family's own entries (a
+//!   literal, `new RegExp`, a typed `RegExp.x` static) and the string
+//!   kernels that take a RegExp cell ([`mints_regexp`]) open nothing
+//!   while every RegExp they mint or take stays typed
+//!   ([`crate::cmd_build_dispatch_judge_regexp_escape`]); not the
+//!   string kernels that only share the family's dispatch prefixes (a
+//!   string-pattern replace, whose pattern is a string or an any value
+//!   some other entry minted), nor the any-taking entries
+//!   (`__torajs_regex_compile_any`, `__torajs_regexp_from_any`,
+//!   `__torajs_regexp_escape_any`), which find a RegExp in their any
+//!   operand only when another entrance already put it there;
 //! - a builtin constructor, prototype or method cell minted from a
 //!   compile-time tag, when the tag is RegExp's or not a constant: the
 //!   bare `RegExp` ident as a value, `RegExp.prototype` and its
@@ -122,10 +128,20 @@ pub(crate) const STR_SYMBOL_GATE: &str = "__torajs_any_str_symbol_try";
 
 /// True when a call to `name` mints a RegExp cell or takes one: the
 /// `__torajs_regex*` / `__torajs_regexp*` entries, and a string kernel
-/// whose pattern slot is a typed RegExp (`__torajs_str_*regex*`).
+/// whose pattern slot is a typed RegExp (`__torajs_str_*regex*`). Such
+/// a cell opens the world only once it can leave the typed lanes
+/// ([`crate::cmd_build_dispatch_judge_regexp_escape`]).
 pub(crate) fn mints_regexp(name: &str) -> bool {
     name.starts_with("__torajs_regex")
         || (name.starts_with("__torajs_str_") && name.contains("regex"))
+}
+
+/// A RegExp subclass instance is a class cell around a RegExp, not a
+/// `Type::RegExp` value the escape walk follows: its prototype chain
+/// runs through %RegExp.prototype% and its methods dispatch through
+/// the world, so minting one opens it.
+pub(crate) fn opens_regexp_world(name: &str) -> bool {
+    name.starts_with("__torajs_regex_subclass")
 }
 
 /// Whether a call to a callee can hand out the RegExp constructor or

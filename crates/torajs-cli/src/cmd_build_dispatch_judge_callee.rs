@@ -11,7 +11,9 @@ use crate::cmd_build_dispatch_judge::{
 };
 use crate::cmd_build_dispatch_judge_match_symbol::MatchSymbolSource;
 use crate::cmd_build_dispatch_judge_obj_world::COERCION_PREFIXES;
-use crate::cmd_build_dispatch_judge_regexp_world::{CtorHandout, STR_SYMBOL_GATE, mints_regexp};
+use crate::cmd_build_dispatch_judge_regexp_world::{
+    CtorHandout, STR_SYMBOL_GATE, mints_regexp, opens_regexp_world,
+};
 use crate::cmd_build_dispatch_judge_synth_error::is_synth_error_fn;
 use crate::cmd_build_dispatch_stubs::{is_arm_sym, is_printer_sym};
 
@@ -25,6 +27,7 @@ pub(crate) struct CalleeFacts {
     pub(crate) ctor_handout: CtorHandout,
     pub(crate) match_symbol: MatchSymbolSource,
     pub(crate) mints_regexp: bool,
+    pub(crate) opens_regexp_world: bool,
     pub(crate) ns_world: bool,
     pub(crate) fallback: bool,
     pub(crate) coercion: bool,
@@ -50,6 +53,7 @@ impl CalleeFacts {
             ctor_handout: CtorHandout::of(name),
             match_symbol: MatchSymbolSource::of(name, CtorHandout::of(name)),
             mints_regexp: mints_regexp(name),
+            opens_regexp_world: opens_regexp_world(name),
             ns_world: NS_WORLD_PREFIXES.iter().any(|p| name.starts_with(p)),
             fallback: FALLBACK_PREFIXES.iter().any(|p| name.starts_with(p)),
             coercion: COERCION_PREFIXES.iter().any(|p| name.starts_with(p)),

@@ -32,6 +32,7 @@ use torajs_rc::any_method_family as fam;
 
 use crate::cmd_build_dispatch_judge_callee::CalleeMemo;
 use crate::cmd_build_dispatch_judge_obj_world::COERCION_KEEP;
+use crate::cmd_build_dispatch_judge_regexp_escape::typed_regexp_opens;
 use crate::cmd_build_dispatch_judge_regexp_world::{RegexpWorld, enters_protocol, unplain_mid};
 use crate::cmd_build_dispatch_judge_synth_error::is_synth_error_fn;
 
@@ -276,7 +277,7 @@ pub(crate) fn judge(module: &Module) -> DispatchJudgment {
     let mut any_writer = false;
     let mut typed_arr_print = false;
     let mut symbol_gate = false;
-    let (mut regexp_world, mut regexp_ctor) = (false, false);
+    let (mut regexp_world, mut regexp_ctor, mut regexp_typed) = (false, false, false);
     // (`@@match` reached directly, some symbol minted)
     let mut match_symbol = (false, false);
 
@@ -319,7 +320,8 @@ pub(crate) fn judge(module: &Module) -> DispatchJudgment {
                 symbol_gate |= facts.symbol_gate;
                 regexp_ctor = regexp_ctor || facts.ctor_handout.hands_out(args);
                 (facts.match_symbol).observe(facts.ctor_handout, args, &mut match_symbol);
-                regexp_world |= facts.mints_regexp;
+                regexp_world |= facts.opens_regexp_world;
+                regexp_typed |= facts.mints_regexp;
                 ns_world |= facts.ns_world;
                 if facts.fallback {
                     if diag {
@@ -348,6 +350,7 @@ pub(crate) fn judge(module: &Module) -> DispatchJudgment {
         }
     }
 
+    regexp_world = regexp_world || typed_regexp_opens(module, regexp_typed, diag);
     if !ns_world && !fallback {
         ns_world = crate::cmd_build_dispatch_judge_ctor_reach::ctor_cell_reachable(module, diag);
     }
@@ -407,24 +410,16 @@ pub(crate) fn judge(module: &Module) -> DispatchJudgment {
         match_symbol: match_symbol.0 || (match_symbol.1 && (ns_world || fallback)),
     }
     .verdict(module, diag);
-    if fallback || printer_ref {
-        return DispatchJudgment {
-            stub_arm_bits: rx.arm_bits,
-            stub_ns_static: false,
-            stub_printers: false,
-            stub_regexp_protocol: rx.protocol,
-            regexp_protocol_answers_zero: rx.protocol_answers_zero,
-            stub_regexp_algorithms: rx.algorithms,
-            stub_ctor_regexp: rx.ctor,
-        };
-    }
+    // a fallback trigger or a direct arm reference stubs only what
+    // the RegExp world's own judgment proves
+    let quiet = !(fallback || printer_ref);
     DispatchJudgment {
-        stub_arm_bits: (fam::FAM_ALL & !keep_bits) | rx.arm_bits,
-        stub_ns_static: !ns_world,
+        stub_arm_bits: rx.arm_bits | if quiet { fam::FAM_ALL & !keep_bits } else { 0 },
+        stub_ns_static: quiet && !ns_world,
         // blade-2d granularity (per-family printer domains) comes
         // later; today printers stub only for the fully quiet shape
         // (nothing observed, no family usage, no print world).
-        stub_printers: !print_world && observed.is_empty() && keep_bits == 0,
+        stub_printers: quiet && !print_world && observed.is_empty() && keep_bits == 0,
         stub_regexp_protocol: rx.protocol,
         regexp_protocol_answers_zero: rx.protocol_answers_zero,
         stub_regexp_algorithms: rx.algorithms,

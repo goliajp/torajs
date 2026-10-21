@@ -18,6 +18,7 @@ mod cmd_build_dispatch_judge_ctor_uses;
 mod cmd_build_dispatch_judge_ctor_uses_tests;
 mod cmd_build_dispatch_judge_match_symbol;
 mod cmd_build_dispatch_judge_obj_world;
+mod cmd_build_dispatch_judge_regexp_escape;
 mod cmd_build_dispatch_judge_regexp_unseen;
 #[cfg(test)]
 mod cmd_build_dispatch_judge_regexp_unseen_tests;
@@ -30,6 +31,10 @@ mod cmd_build_extern_relocs;
 mod cmd_build_lower;
 mod cmd_build_ssa_string_registries;
 mod cmd_build_synthesize;
+mod cmd_build_value_escape;
+mod cmd_build_value_escape_slots;
+#[cfg(test)]
+mod cmd_build_value_escape_tests;
 mod cmd_cache;
 mod cmd_debug;
 mod cmd_fmt;
