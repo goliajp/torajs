@@ -66,7 +66,10 @@ pub(crate) fn encode_edge(d: Decoded<'_>, foreign_k: &[u32]) -> Option<u32> {
         ),
         Decoded::Local { sect, atom: None } => (KIND_SECT, u32::from(sect)),
         Decoded::Sym(row) => (KIND_SYM, (row <= PAYLOAD).then_some(row)?),
-        Decoded::Foreign(i, _) => (KIND_FOREIGN, foreign_k[i]),
+        Decoded::Foreign(i, _) => (
+            KIND_FOREIGN,
+            (foreign_k[i] <= PAYLOAD).then_some(foreign_k[i])?,
+        ),
         Decoded::Unlisted(_) => return None,
     };
     Some(kind << KIND_SHIFT | payload)

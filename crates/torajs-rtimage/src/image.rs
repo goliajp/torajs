@@ -477,6 +477,13 @@ mod tests {
     }
 
     #[test]
+    fn parse_rejects_an_image_of_another_version() {
+        let mut img = build(&[]).unwrap();
+        img[8..12].copy_from_slice(&2u32.to_le_bytes());
+        assert_eq!(Image::parse(&img).unwrap_err(), ImageError::BadVersion(2));
+    }
+
+    #[test]
     fn a_table_is_built_once_per_body_and_read_back_per_slot() {
         let shared = object_with_syms(&["_core_x"]);
         let a = archive_of(&[("a.o", &object_with_syms(&["_a"])), ("std.o", &shared)]);
