@@ -21,7 +21,6 @@
 //! 6. **Unknown** — `Err("unknown identifier ...")`.
 
 use crate::check::{Checker, Type};
-use crate::check_stmt_let_decl::any_scalar_slot::held_decl;
 
 /// The builtin namespace-object idents — every arm was the identical
 /// `"X" => Ok(Type::Object("X"))` shape, collapsed to this table
@@ -100,8 +99,7 @@ pub(crate) fn check(
             return Ok(lit);
         }
         if info.ty == Type::Any {
-            let decl = (info.ann.as_deref(), info.decl.as_ref());
-            note_scalar(checker, eid, held_decl(checker, decl));
+            note_scalar(checker, eid, info.held_decl.clone());
         }
         return Ok(held_face(checker, ast, eid, info.held_any, info.ty));
     }

@@ -27,7 +27,6 @@
 use crate::ast::{Ast, ExprId};
 use crate::check::{Checker, DiagPush, Type};
 use crate::check_assignable::is_assignable_to_resolved;
-use crate::check_stmt_let_decl::any_scalar_slot::held_decl;
 use crate::check_stmt_let_decl::fn_face_slot::{
     record_census_store, record_global_store_face, record_store_face,
 };
@@ -201,7 +200,7 @@ pub(crate) fn check(
     let value_ty =
         crate::check_assignable::in_declared_order(checker, ast, &target_ty, value, value_ty);
     let decl = (info.ann.as_deref(), info.decl.as_ref());
-    let slots = (&target_ty, held_decl(checker, decl));
+    let slots = (&target_ty, info.held_decl.clone());
     check_store(checker, ast, &name, slots, (value, &value_ty))?;
     admit_store(checker, (ast, &name), decl, &target_ty, (&value_ty, value))?;
     checker.note_store(&name, value, &value_ty)?;

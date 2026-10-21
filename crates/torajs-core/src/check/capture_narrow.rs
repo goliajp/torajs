@@ -179,6 +179,7 @@ impl Checker {
             fn_slot: outer.fn_slot.clone(),
             union: outer.union.clone(),
             held_any: outer.held_any,
+            held_decl: outer.held_decl.clone(),
             ann: outer.ann.clone(),
             decl: outer.decl.clone(),
             null_declared: outer.null_declared.clone(),

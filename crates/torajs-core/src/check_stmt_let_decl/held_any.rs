@@ -30,8 +30,9 @@ pub(crate) struct HeldAny {
     /// the top-level bindings that hold one, reached as globals from
     /// function bodies
     pub(crate) globals: HashSet<String>,
-    /// the top-level `number` / `string` / `boolean` bindings that hold
-    /// one (`super::any_scalar_slot`), by their declared type
+    /// the top-level bindings typed `any` whose reads the TypeScript
+    /// rules read at another type (`super::any_scalar_slot::held_decl`),
+    /// by that type
     pub(crate) scalar_globals: HashMap<String, Type>,
     /// whether any `number` / `string` / `boolean` binding holds one
     pub(crate) scalars: bool,

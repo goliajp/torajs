@@ -8,7 +8,8 @@
 //! have to convert it (ToNumber answered NaN), so the binding holds the
 //! box from its declaration: its reads type `any` and take the any
 //! lanes, whose number arms stay inline. The annotation is still the
-//! binding's type for the TypeScript rules ([`held_decl`]): what is
+//! binding's type for the TypeScript rules ([`held_decl`], kept on
+//! the binding): what is
 //! stored into it and what its reads flow into are checked against it.
 //!
 //! The mark is the cross-type widen set (`crate::let_widen`), keyed by
@@ -21,7 +22,7 @@
 use std::collections::HashMap;
 
 use crate::ast::{Ast, Expr, ExprId};
-use crate::check::{Checker, FnSlot, Type as T};
+use crate::check::{Checker, Type as T};
 use crate::ssa::Type;
 
 /// Whether `ann` spells one of the scalar types this applies to.
@@ -48,14 +49,21 @@ pub(crate) fn value_repr(slot: &Type, widened: bool) -> Option<Type> {
     (widened && matches!(slot, Type::I64 | Type::F64 | Type::Bool | Type::Str)).then_some(Type::Any)
 }
 
-/// The declared type of a binding declared `ann` by `decl` that holds
-/// a box: what the TypeScript rules read it as (`super::held_any::face`).
+/// The type the TypeScript rules read a binding declared `ann` with
+/// `init` as, when it holds a box (`super::held_any::face`): a scalar
+/// annotation whose initializer is in the widen set, or, unannotated,
+/// the type tsc infers from an initializer typed `any` only because it
+/// reads a held value (`const t = n` with `n: number` holding one).
 pub(crate) fn held_decl(
     checker: &Checker,
-    (ann, decl): (Option<&str>, Option<&FnSlot>),
+    ast: &Ast,
+    (ann, init): (Option<&str>, ExprId),
+    ty: &T,
 ) -> Option<T> {
-    let (Some(ann), Some(FnSlot::Let(init))) = (ann, decl) else {
-        return None;
+    let Some(ann) = ann else {
+        return (*ty == T::Any)
+            .then(|| super::held_any::face::face(checker, ast, init))
+            .flatten();
     };
     let declared = match ann {
         "number" => T::Number,
@@ -65,19 +73,21 @@ pub(crate) fn held_decl(
     };
     checker
         .cross_type_widened
-        .contains(init)
+        .contains(&init)
         .then_some(declared)
 }
 
-/// A binding `name` declared `ann` with `init` that holds a box: noted,
-/// and when it is top-level, function bodies reach it as a global, by
-/// its declared type.
-pub(crate) fn note_held(checker: &mut Checker, name: &str, ann: Option<&str>, init: ExprId) {
-    let Some(t) = held_decl(checker, (ann, Some(&FnSlot::Let(init)))) else {
+/// A binding `name` whose reads the TypeScript rules read as `held`
+/// ([`held_decl`]): noted, and when it is top-level, function bodies
+/// reach it as a global, by that type.
+pub(crate) fn note_held(checker: &mut Checker, name: &str, held: Option<&T>) {
+    let Some(t) = held else {
         return;
     };
-    checker.held_any.scalars = true;
+    if matches!(t, T::Number | T::String | T::Boolean) {
+        checker.held_any.scalars = true;
+    }
     if checker.scopes.len() == 1 {
-        (checker.held_any.scalar_globals).insert(name.to_string(), t);
+        (checker.held_any.scalar_globals).insert(name.to_string(), t.clone());
     }
 }

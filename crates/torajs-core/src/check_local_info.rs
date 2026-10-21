@@ -68,6 +68,11 @@ pub(crate) struct LocalInfo {
     /// An object-typed binding that holds an `any` value
     /// (`crate::check_stmt_let_decl::held_any`).
     pub(crate) held_any: bool,
+    /// The type the TypeScript rules read a binding typed `any` as,
+    /// because it holds an `any` value its declaration gave a type
+    /// (`crate::check_stmt_let_decl::held_any::face`): the annotation
+    /// of `const n: number = x_any`, and what `const t = n` infers.
+    pub(crate) held_decl: Option<Type>,
     /// The annotation the declaration wrote (`let x: T`, `p: T`), for
     /// a binding the program typed itself; `None` for one the compiler
     /// typed.
@@ -115,6 +120,7 @@ impl LocalInfo {
             fn_slot: None,
             union: UnionBinding::default(),
             held_any: false,
+            held_decl: None,
             ann: None,
             decl: None,
             flow_declared: None,

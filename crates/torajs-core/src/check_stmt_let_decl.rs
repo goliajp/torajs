@@ -191,7 +191,9 @@ pub(crate) fn check(
     if held_any && checker.scopes.len() == 1 {
         checker.held_any.globals.insert(name.to_string());
     }
-    any_scalar_slot::note_held(checker, name, type_ann.as_deref(), init);
+    let held_decl =
+        any_scalar_slot::held_decl(checker, ast, (type_ann.as_deref(), init), &final_ty);
+    any_scalar_slot::note_held(checker, name, held_decl.as_ref());
     let is_alias_init = checker.classify_init_alias(ast, init);
     let declared_class: Option<String> = type_ann.as_ref().and_then(|s| {
         let base = crate::check_type_ann::strip_nullable(s);
@@ -232,6 +234,7 @@ pub(crate) fn check(
                 .then_some(crate::check::FnSlot::Let(init)),
             union: const_literal(ast, mutable || is_stepped, type_ann, init),
             held_any,
+            held_decl,
             ann: type_ann.clone(),
             decl: Some(crate::check::FnSlot::Let(init)),
             ..LocalInfo::plain(final_ty)

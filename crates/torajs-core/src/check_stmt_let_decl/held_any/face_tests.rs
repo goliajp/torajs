@@ -113,3 +113,33 @@ fn a_held_object_flows_out_at_its_declared_type() {
          function g(a: Shape): number {{ return a.w; }}\nconsole.log(g(s), u.w, v, s.w);\n"
     ));
 }
+
+#[test]
+fn an_unannotated_copy_keeps_the_declared_type() {
+    let copy = format!("{HELD_NUMBER}const t = n;\n");
+    refused(
+        &format!("{copy}const s: string = t;\n"),
+        "type mismatch on `s`: declared String, init has Number",
+    );
+    refused(
+        &format!("{copy}console.log(t.toUpperCase());\n"),
+        "no member `.toUpperCase` on type Number",
+    );
+    refused(
+        &format!("{copy}function g(a: string) {{ return a; }}\ng(t);\n"),
+        "argument 0: expected String, got Number",
+    );
+    refused(
+        &format!("{copy}function f() {{ const u = t + 1; const s: string = u; return s; }}\n"),
+        "type mismatch on `s`: declared String, init has Number",
+    );
+    refused(
+        &format!("{copy}let v = t;\nv = \"s\";\n"),
+        "type mismatch assigning to `v`: declared Number, value is String",
+    );
+    accepted(&format!(
+        "{copy}const k: number = t + 1;\nlet v = t;\nv = v * 2;\n\
+         function g(a: number): number {{ return a; }}\n\
+         console.log(t.toFixed(1), k, v, g(t), typeof t);\n"
+    ));
+}
