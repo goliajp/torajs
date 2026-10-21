@@ -140,7 +140,7 @@ pub(crate) fn lower_chain_with_own_then_probe(
 /// class inheriting from Promise — its instances flow into slots the
 /// checker types `Promise` (`P.resolve(x)`), and their species is the
 /// subclass.
-fn species_census_written(ctx: &LowerCtx<'_>) -> bool {
+pub(crate) fn species_census_written(ctx: &LowerCtx<'_>) -> bool {
     let set = &ctx.scans.proto_shadow;
     set.shadows("Promise", "constructor")
         || set.hook_written("species")
@@ -155,7 +155,7 @@ fn species_census_written(ctx: &LowerCtx<'_>) -> bool {
 /// top-level fn whose
 /// forwarder the collector minted (`ast_collect_fn_closure_call::
 /// mark_promise_chain_handler_targets`).
-fn handler_forwarder(ctx: &LowerCtx<'_>, aid: ExprId) -> Option<String> {
+pub(crate) fn handler_forwarder(ctx: &LowerCtx<'_>, aid: ExprId) -> Option<String> {
     let Expr::Ident(f) = ctx.ast.get_expr(ctx.peel_as_wrappers(aid)) else {
         return None;
     };
@@ -170,7 +170,7 @@ fn handler_forwarder(ctx: &LowerCtx<'_>, aid: ExprId) -> Option<String> {
 /// arguments, the any method dispatcher under the call's own method
 /// name (`catch` / `finally` reach the runtime's Invoke-of-`then`
 /// lane there, rotation 654), then the typed return contract.
-fn lower_own_then_invoke(
+pub(crate) fn lower_own_then_invoke(
     ctx: &mut LowerCtx<'_>,
     src_op: Operand,
     m_name: &str,

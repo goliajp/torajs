@@ -28,6 +28,7 @@ const AWAIT_PROMISE: &str = "__torajs_module_await_promise";
 const AWAIT_SLOW: &str = "__torajs_module_await_slow";
 const AWAIT_SLOW_FRAME: &str = "__torajs_module_await_slow_frame";
 const YIELD: &str = "__torajs_microtask_yield";
+const YIELD_RETHROW: &str = "__torajs_module_yield_rethrow";
 const BODY_END: &str = "__torajs_module_body_end";
 const EXIT_CODE: &str = "__torajs_module_exit_code";
 
@@ -39,6 +40,7 @@ pub(crate) struct ModuleCalls {
     pub(crate) await_slow: FuncId,
     pub(crate) await_slow_frame: FuncId,
     pub(crate) yield_direct: FuncId,
+    pub(crate) yield_rethrow: FuncId,
     pub(crate) body_end: FuncId,
     pub(crate) exit_code: FuncId,
 }
@@ -53,6 +55,7 @@ impl ModuleCalls {
             await_slow: t[AWAIT_SLOW],
             await_slow_frame: t[AWAIT_SLOW_FRAME],
             yield_direct: t[YIELD],
+            yield_rethrow: t[YIELD_RETHROW],
             body_end: t[BODY_END],
             exit_code: t[EXIT_CODE],
         }
@@ -77,6 +80,7 @@ pub(crate) fn declare(ast: &Ast, module: &mut Module, fn_table: &mut HashMap<Str
     decl(AWAIT_SLOW, &slow, Type::I64);
     decl(AWAIT_SLOW_FRAME, &slow, Type::I64);
     decl(YIELD, &[], Type::Void);
+    decl(YIELD_RETHROW, &[], Type::Void);
     decl(BODY_END, &[], Type::Void);
     decl(EXIT_CODE, &[], Type::I32);
 }

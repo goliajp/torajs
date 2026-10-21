@@ -4,15 +4,41 @@
 use crate::ast::{Expr, ExprId};
 use crate::ssa_lower::LowerCtx;
 
+/// Does the any-method lane claim the call whose callee is `callee`:
+/// a member read off a receiver that types as `any`, is nullish, or
+/// has one of the admitted shapes? Answers the receiver and the name.
+pub(crate) fn claims<'c>(ctx: &'c LowerCtx<'_>, callee: ExprId) -> Option<(ExprId, &'c String)> {
+    // Rotation 591 — §13.3.6.2 reads the base off the REFERENCE, and
+    // a type assertion does not consume one: `(o.f as any)()` calls
+    // with `this === o` exactly as `o.f()` does. The shape test
+    // therefore peels `As`, while every TYPE test below keeps the
+    // unpeeled `callee` — the assertion is what widened the read to
+    // Any, and that widening is the admission this lane wants.
+    let shape = ctx.peel_as_wrappers(callee);
+    let Expr::Member { obj, name } = ctx.ast.get_expr(shape) else {
+        return None;
+    };
+    // A NULLISH receiver (`undefined.toString()`) rides this lane
+    // too: the checker admitted the site (§13.2.3 GetValue is a
+    // runtime TypeError) and the recv box below carries it into the
+    // kernel, whose nullish arm raises the catchable TypeError.
+    let recv_is_nullish = ctx
+        .expr_types
+        .get(obj)
+        .is_some_and(|t| t.is_nullish_value());
+    if !recv_is_nullish
+        && !matches!(ctx.expr_types.get(obj), Some(crate::check::Type::Any))
+        && !non_any_recv_admitted(ctx, callee, obj, name)
+    {
+        return None;
+    }
+    Some((*obj, name))
+}
+
 /// Whether a NON-Any receiver still rides the any-method lane — the
 /// eight admitted shapes, each keyed to the checker arm that admitted
 /// the call as Any (so admitted and lowered shapes cannot drift).
-pub(super) fn non_any_recv_admitted(
-    ctx: &LowerCtx<'_>,
-    callee: ExprId,
-    obj: &ExprId,
-    name: &str,
-) -> bool {
+fn non_any_recv_admitted(ctx: &LowerCtx<'_>, callee: ExprId, obj: &ExprId, name: &str) -> bool {
     // RFC 20260713-array-proto-residual blade 2 — the
     // `<any>.toString.call(x)` family: the member sugar arms
     // type the read as a concrete Function, but the read

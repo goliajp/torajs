@@ -21,7 +21,7 @@ impl crate::ssa_lower::LowerCtx<'_> {
     /// fn declared `-> Promise` (async desugar / annotation);
     /// fs/promises async fns + `Bun.file(...).text/.exists`
     /// (T-19.g, mirrors the `await p.value` source detection).
-    fn src_is_builtin_promise(&self, src_id: ExprId) -> bool {
+    pub(crate) fn src_is_builtin_promise(&self, src_id: ExprId) -> bool {
         // `(p as Promise<T>).then(…)` — the assertion changes no value.
         let src_id = self.peel_as_wrappers(src_id);
         match self.ast.get_expr(src_id) {

@@ -43,6 +43,7 @@ mod held;
 mod in_place;
 mod object;
 mod read;
+mod then_fused;
 
 use held::held;
 pub(crate) use object::{cell_of, is_object_cell};
@@ -53,6 +54,11 @@ use read::read_settled;
 /// or an element still holds, under whatever comma, assignment,
 /// conditional, `??` or `?.` reads it) is taken one first.
 pub(crate) fn lower_await(ctx: &mut LowerCtx<'_>, eid: ExprId, obj: ExprId) -> Operand {
+    if in_place::in_module_body(ctx)
+        && let Some(v) = then_fused::lower(ctx, eid, obj)
+    {
+        return v;
+    }
     if pv::detect_obj_is_builtin_promise(ctx, obj) {
         let src = ctx.lower_expr(obj);
         if !ctx.expr_transfers_ownership(obj) {
@@ -153,7 +159,7 @@ fn await_cell(
     let want = pv::awaited_lane_repr(inner.as_ref());
     let (settled, raw) = if in_place::in_module_body(ctx) {
         // the module body awaits in place; the cell it holds settles
-        (src, in_place::await_read(ctx, src, obj, want))
+        (src, in_place::await_read(ctx, src, obj, want, false))
     } else {
         let settled = suspend_on(ctx, src, inner.unwrap_or(Type::Any));
         (settled, read_settled(ctx, settled, want))

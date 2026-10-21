@@ -14,6 +14,9 @@ pub(super) fn in_module_body(ctx: &LowerCtx<'_>) -> bool {
     ctx.is_main_fn && ctx.suspend_body
 }
 
+/// `torajs-promise` `AWAIT_FUSED`.
+const AWAIT_FUSED: i64 = 1;
+
 /// The await of the owned cell `src` in the module body, and the read
 /// of its settled value word in the form `want_repr` names. The body
 /// keeps its reference on `src`; `obj` is the operand `src` is the
@@ -28,12 +31,14 @@ pub(super) fn in_module_body(ctx: &LowerCtx<'_>) -> bool {
 /// is fulfilled in that form, which is read in place; anything else
 /// (another form, a rejection, a queue run dry) goes through
 /// `__torajs_module_await_slow`, whose throws (the reason, the cancel
-/// throw) take the path out that releases `src`.
+/// throw) take the path out that releases `src`. `fused`: `src` is the
+/// receiver of a fused `await p.then(f)` (`then_fused`).
 pub(super) fn await_read(
     ctx: &mut LowerCtx<'_>,
     src: Operand,
     obj: Option<ExprId>,
     want_repr: i64,
+    fused: bool,
 ) -> ValueId {
     let calls = ModuleCalls::of(ctx);
     let cb = ctx.cur_block;
@@ -75,6 +80,7 @@ pub(super) fn await_read(
     let args = vec![
         src,
         Operand::Value(code),
+        Operand::ConstI64(if fused { AWAIT_FUSED } else { 0 }),
         Operand::ConstI64(want_repr),
     ];
     let raw = InstKind::Call(slow_fn, args);

@@ -42,7 +42,7 @@ use core::ffi::c_void;
 use core::sync::atomic::{AtomicU8, Ordering};
 
 use crate::layout::{
-    Promise, STATE_FULFILLED, STATE_PENDING, THROW_TAG_I64, as_promise,
+    Promise, STATE_FULFILLED, STATE_PENDING, STATE_REJECTED, THROW_TAG_I64, as_promise,
 };
 
 mod waiter;
@@ -123,6 +123,12 @@ fn word_code(sp: *mut Promise, mask: u32, want: u32) -> i64 {
     }
 }
 
+/// `fused` of [`__torajs_module_await_slow`]: the cell is the receiver
+/// of a fused `await p.then(f)` (torajs-core
+/// `ssa_lower_fn::suspend::then_fused`), whose rejection is raised by
+/// the await's continuation, after the jobs ahead of it.
+pub const AWAIT_FUSED: i64 = 1;
+
 /// The slow end of the module body's await of the promise `src`, which
 /// answered `code`: a queue that ran dry runs one host job, reporting a
 /// throw out of it as uncaught, and waits again; with none left it
@@ -135,11 +141,12 @@ fn word_code(sp: *mut Promise, mask: u32, want: u32) -> i64 {
 pub unsafe extern "C" fn __torajs_module_await_slow(
     src: *mut c_void,
     code: i64,
+    fused: i64,
     want_repr: i64,
 ) -> i64 {
     let (mask, want) = state_word_wanted(want_repr);
     let again = || unsafe { __torajs_module_await_promise(src, mask, want) };
-    unsafe { await_slow(src, code, want_repr, again) }
+    unsafe { await_slow(src, code, fused, want_repr, again) }
 }
 
 /// [`__torajs_module_await_slow`] for the result of a call to an async
@@ -152,20 +159,23 @@ pub unsafe extern "C" fn __torajs_module_await_slow(
 pub unsafe extern "C" fn __torajs_module_await_slow_frame(
     src: *mut c_void,
     code: i64,
+    fused: i64,
     want_repr: i64,
 ) -> i64 {
     let sp = as_promise(src);
     let again = || unsafe { __torajs_microtask_await_byte(&raw const (*sp).state) };
-    unsafe { await_slow(src, code, want_repr, again) }
+    unsafe { await_slow(src, code, fused, want_repr, again) }
 }
 
 #[inline(always)]
 unsafe fn await_slow(
     src: *mut c_void,
     mut code: i64,
+    fused: i64,
     want_repr: i64,
     again: impl Fn() -> i64,
 ) -> i64 {
+    let sp = as_promise(src);
     unsafe {
         while code == 0 {
             match __torajs_microtask_host_job() {
@@ -177,6 +187,9 @@ unsafe fn await_slow(
                 _ => __torajs_uncaught_report(),
             }
             code = again();
+        }
+        if fused & AWAIT_FUSED != 0 && (*sp).state == STATE_REJECTED {
+            __torajs_microtask_yield();
         }
         crate::state::__torajs_promise_get_value_as(src, want_repr)
     }
@@ -193,6 +206,23 @@ fn state_word_wanted(want_repr: i64) -> (u32, u32) {
             0xFF00_00FF,
             ((want_repr as u32) << 24) | STATE_FULFILLED as u32,
         )
+    }
+}
+
+/// The module body's handler of a fused `await p.then(f)` threw: the
+/// await raises it after the jobs ahead of its continuation, which run
+/// with the throw kept aside (torajs-core
+/// `ssa_lower_fn::suspend::then_fused`).
+///
+/// # Safety
+/// The caller is the module body, with a throw pending.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_module_yield_rethrow() {
+    unsafe {
+        let tag = __torajs_throw_take_tag();
+        let value = __torajs_throw_take();
+        __torajs_microtask_yield();
+        __torajs_throw_set(tag, value);
     }
 }
 
