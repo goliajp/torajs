@@ -41,7 +41,7 @@
 use crate::ast::{Ast, Expr, ExprId};
 use crate::check::{Checker, Type};
 use legs::two_leg_result;
-pub(crate) use route::try_match;
+pub(crate) use route::{is_reject_mint, try_match};
 
 mod legs;
 mod route;

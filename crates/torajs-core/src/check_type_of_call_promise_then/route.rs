@@ -49,11 +49,26 @@ fn catch_passes_source(
     let Expr::Member { obj, name } = ast.get_expr(*callee) else {
         return Ok(Type::Promise(Box::new(handled)));
     };
-    if name != "catch" {
+    if name != "catch" || is_reject_mint(ast, *obj) {
         return Ok(Type::Promise(Box::new(handled)));
     }
     match crate::check::receiver_type(checker, ast, *obj)? {
         Type::Promise(source) => Ok(promise_of(&super::two_leg_result([*source, handled]))),
         _ => Ok(Type::Promise(Box::new(handled))),
     }
+}
+
+/// Is `eid` a `Promise.reject(...)` mint? It never fulfils, so a
+/// `.catch` on it settles with the handler's value alone. Its checker
+/// type is `Promise<any>` (`any` standing in for `never` at assignment
+/// sites), which a join would read as the top type.
+pub(crate) fn is_reject_mint(ast: &Ast, eid: ExprId) -> bool {
+    let Expr::Call { callee, .. } = ast.get_expr(eid) else {
+        return false;
+    };
+    matches!(
+        ast.get_expr(*callee),
+        Expr::Member { obj, name } if name == "reject"
+            && matches!(ast.get_expr(*obj), Expr::Ident(p) if p == "Promise")
+    )
 }

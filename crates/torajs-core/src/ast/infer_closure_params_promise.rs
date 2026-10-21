@@ -20,6 +20,7 @@
 
 use super::infer_closure_params::infer_lit_ann;
 use super::{Ast, Expr, ExprId, Stmt, infer_return_ann};
+use crate::check_type_of_call_promise_then::is_reject_mint;
 
 pub(super) fn resolve_promise_inner_ann(
     ast: &Ast,
@@ -50,7 +51,14 @@ pub(super) fn resolve_promise_inner_ann(
                 // handler runs, so its value is either handler's return;
                 // `.catch(onErr)` passes a fulfilled source's value through
                 ("then", [on_ok, on_err, ..]) => join_legs(&ok_leg(*on_ok)?, &err_leg(*on_err)?),
-                ("catch", [on_err, ..]) => join_legs(&src()?, &err_leg(*on_err)?),
+                ("catch", [on_err, ..]) => {
+                    let pass = if is_reject_mint(ast, *obj) {
+                        "never".to_string()
+                    } else {
+                        src()?
+                    };
+                    join_legs(&pass, &err_leg(*on_err)?)
+                }
                 (_, [on_ok, ..]) => ok_leg(*on_ok),
                 _ => None,
             }

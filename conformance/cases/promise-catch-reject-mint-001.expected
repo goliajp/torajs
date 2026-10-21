@@ -1,0 +1,11 @@
+num 42 number
+str s! 1
+named -2 number
+undef undefined true
+binding 3.5
+await num 14 number
+chain 82 number
+await str 1 string
+await undef undefined true
+await chain 16
+nested 6
