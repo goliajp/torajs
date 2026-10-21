@@ -63,61 +63,11 @@ pub(crate) fn emit_versioned_header(ctx: &mut LowerCtx, sl: &SplitLoop) -> Split
         (*iter_slot, *sub_slot, *v_slot, *fill_sub, *target);
     let (header, body_blk, after) = (*header, *body_blk, *after);
     let cur = ctx.cur_block;
-    // Hoisted per-loop invariants (entry side, before the header).
-    let hdr = ctx.f.append_inst(
-        cur,
-        InstKind::Load(Type::I64, *parent_op, 0),
-        Type::I64,
-        None,
-    );
-    let flag = ctx.f.append_inst(
-        cur,
-        InstKind::BinOp(
-            SsaBinOp::And,
-            Operand::Value(hdr),
-            Operand::ConstI64(HDR_MASK_IS_LATIN1),
-        ),
-        Type::I64,
-        None,
-    );
-    let is_lat = ctx.f.append_inst(
-        cur,
-        InstKind::ICmp(IPred::Ne, Operand::Value(flag), Operand::ConstI64(0)),
-        Type::Bool,
-        None,
-    );
-    // `length u32 @8` of the Str header, the code-unit count.
-    let plen32 = ctx.f.append_inst(
-        cur,
-        InstKind::Load(Type::I32, *parent_op, 8),
-        Type::I32,
-        None,
-    );
-    let plen = ctx.f.append_inst(
-        cur,
-        InstKind::ZExtI32ToI64(Operand::Value(plen32)),
-        Type::I64,
-        None,
-    );
-    let p_int = ctx
-        .f
-        .append_inst(cur, InstKind::PtrToInt(*parent_op), Type::I64, None);
-    let pbase_i = ctx.f.append_inst(
-        cur,
-        InstKind::BinOp(
-            SsaBinOp::Add,
-            Operand::Value(p_int),
-            Operand::ConstI64(STR_DATA_OFF),
-        ),
-        Type::I64,
-        None,
-    );
-    let pbase = ctx.f.append_inst(
-        cur,
-        InstKind::IntToPtr(Operand::Value(pbase_i)),
-        Type::Ptr,
-        None,
-    );
+    let Hoisted {
+        is_lat,
+        plen,
+        pbase,
+    } = hoist_invariants(ctx, cur, *parent_op);
     let word = word::state(ctx, target);
     // Fast-arm loop state (mem2reg-liftable scalar slots).
     let pos_slot = ctx
@@ -140,6 +90,17 @@ pub(crate) fn emit_versioned_header(ctx: &mut LowerCtx, sl: &SplitLoop) -> Split
         cur,
         InstKind::Store(Operand::ConstBool(false), Operand::Value(done_slot), 0),
     );
+    // The Substr's header and parent words are the same for every part
+    // the fast arm yields; the slow arm's kernel writes all four.
+    if fill_sub {
+        for (val, off) in [
+            (Operand::ConstI64(word::HDR_STATIC_LITERAL), 0),
+            (*parent_op, 16),
+        ] {
+            ctx.f
+                .append_void(cur, InstKind::Store(val, Operand::Value(sub_slot), off));
+        }
+    }
     // Only the slow arm reads the iter struct.
     let slow_init = ctx.f.add_block();
     ctx.f.set_term(
@@ -157,55 +118,51 @@ pub(crate) fn emit_versioned_header(ctx: &mut LowerCtx, sl: &SplitLoop) -> Split
             vec![Operand::Value(iter_slot), *parent_op, *sep_op],
         ),
     );
+    // the slow arm never runs the fast one: it starts done
+    ctx.f.append_void(
+        slow_init,
+        InstKind::Store(Operand::ConstBool(true), Operand::Value(done_slot), 0),
+    );
     ctx.f.set_term(slow_init, Terminator::Br(header));
 
+    // Per part the fast arm tests only its done flag; a done loop asks
+    // the encoding again, which tells the exhausted fast arm from the
+    // slow one. That second test is the Latin-1 flag guard the block
+    // frequencies know, with the kernel call on one arm only, so the
+    // slow arm stays cold (`ssa::branch_prob`).
     let fast_head = ctx.f.add_block();
     let slow_head = ctx.f.add_block();
-    ctx.f.set_term(
-        header,
-        Terminator::CondBr {
-            cond: Operand::Value(is_lat),
-            then_blk: fast_head,
-            else_blk: slow_head,
+    let not_fast = ctx.f.add_block();
+    let exhausted = ctx.f.add_block();
+    emit_dispatch(
+        ctx,
+        &Dispatch {
+            header,
+            done_slot,
+            is_lat,
+            not_fast,
+            exhausted,
+            fast_head,
+            slow_head,
+            after,
         },
     );
 
-    // Slow arm — the pre-existing kernel call.
-    let ok = ctx.f.append_inst(
-        slow_head,
-        InstKind::Call(
-            ctx.intrinsics.split_iter_next,
-            vec![Operand::Value(iter_slot), Operand::Value(sub_slot)],
-        ),
-        Type::Bool,
-        None,
-    );
-    let slow_yield = ctx.f.add_block();
-    ctx.f.set_term(
-        slow_head,
-        Terminator::CondBr {
-            cond: Operand::Value(ok),
-            then_blk: slow_yield,
-            else_blk: after,
+    emit_slow_arm(
+        ctx,
+        &SlowArm {
+            head: slow_head,
+            iter_slot,
+            sub_slot,
+            len_slot,
+            off_slot,
+            body_blk,
+            after,
         },
     );
-    for (off, slot) in [(8, len_slot), (24, off_slot)] {
-        let v = ctx.f.append_inst(
-            slow_yield,
-            InstKind::Load(Type::I64, Operand::Value(sub_slot), off),
-            Type::I64,
-            None,
-        );
-        ctx.f.append_void(
-            slow_yield,
-            InstKind::Store(Operand::Value(v), Operand::Value(slot), 0),
-        );
-    }
-    ctx.f.set_term(slow_yield, Terminator::Br(body_blk));
     emit_fast_next(
         ctx,
         &FastScan {
-            parent_op: *parent_op,
             sub_slot,
             plen,
             pbase,
@@ -217,7 +174,6 @@ pub(crate) fn emit_versioned_header(ctx: &mut LowerCtx, sl: &SplitLoop) -> Split
             fill_sub,
             fast_head,
             body_blk,
-            after,
         },
     );
     SplitView {
@@ -229,10 +185,166 @@ pub(crate) fn emit_versioned_header(ctx: &mut LowerCtx, sl: &SplitLoop) -> Split
     }
 }
 
+/// The loop invariants read once on the entry side, before the header.
+struct Hoisted {
+    /// Whether the parent is Latin-1: the fast arm's guard.
+    is_lat: ValueId,
+    /// The parent's code-unit count.
+    plen: ValueId,
+    /// The parent's payload base.
+    pbase: ValueId,
+}
+
+fn hoist_invariants(ctx: &mut LowerCtx, cur: BlockId, parent_op: Operand) -> Hoisted {
+    let hdr = ctx.f.append_inst(
+        cur,
+        InstKind::Load(Type::I64, parent_op, 0),
+        Type::I64,
+        None,
+    );
+    let flag = ctx.f.append_inst(
+        cur,
+        InstKind::BinOp(
+            SsaBinOp::And,
+            Operand::Value(hdr),
+            Operand::ConstI64(HDR_MASK_IS_LATIN1),
+        ),
+        Type::I64,
+        None,
+    );
+    let is_lat = ctx.f.append_inst(
+        cur,
+        InstKind::ICmp(IPred::Ne, Operand::Value(flag), Operand::ConstI64(0)),
+        Type::Bool,
+        None,
+    );
+    // `length u32 @8` of the Str header, the code-unit count.
+    let plen32 = ctx.f.append_inst(
+        cur,
+        InstKind::Load(Type::I32, parent_op, 8),
+        Type::I32,
+        None,
+    );
+    let plen = ctx.f.append_inst(
+        cur,
+        InstKind::ZExtI32ToI64(Operand::Value(plen32)),
+        Type::I64,
+        None,
+    );
+    let p_int = ctx
+        .f
+        .append_inst(cur, InstKind::PtrToInt(parent_op), Type::I64, None);
+    let pbase_i = ctx.f.append_inst(
+        cur,
+        InstKind::BinOp(
+            SsaBinOp::Add,
+            Operand::Value(p_int),
+            Operand::ConstI64(STR_DATA_OFF),
+        ),
+        Type::I64,
+        None,
+    );
+    let pbase = ctx.f.append_inst(
+        cur,
+        InstKind::IntToPtr(Operand::Value(pbase_i)),
+        Type::Ptr,
+        None,
+    );
+    Hoisted {
+        is_lat,
+        plen,
+        pbase,
+    }
+}
+
+/// The header's per-part test and the blocks it picks between.
+struct Dispatch {
+    header: BlockId,
+    done_slot: ValueId,
+    is_lat: ValueId,
+    not_fast: BlockId,
+    exhausted: BlockId,
+    fast_head: BlockId,
+    slow_head: BlockId,
+    after: BlockId,
+}
+
+fn emit_dispatch(ctx: &mut LowerCtx, d: &Dispatch) {
+    let done = ctx.f.append_inst(
+        d.header,
+        InstKind::Load(Type::Bool, Operand::Value(d.done_slot), 0),
+        Type::Bool,
+        None,
+    );
+    ctx.f.set_term(
+        d.header,
+        Terminator::CondBr {
+            cond: Operand::Value(done),
+            then_blk: d.not_fast,
+            else_blk: d.fast_head,
+        },
+    );
+    ctx.f.set_term(
+        d.not_fast,
+        Terminator::CondBr {
+            cond: Operand::Value(d.is_lat),
+            then_blk: d.exhausted,
+            else_blk: d.slow_head,
+        },
+    );
+    ctx.f.set_term(d.exhausted, Terminator::Br(d.after));
+}
+
+/// The slow arm's blocks and the slots it reads and fills.
+struct SlowArm {
+    head: BlockId,
+    iter_slot: ValueId,
+    sub_slot: ValueId,
+    len_slot: ValueId,
+    off_slot: ValueId,
+    body_blk: BlockId,
+    after: BlockId,
+}
+
+/// The kernel call, and on a part its length and offset into the view
+/// slots.
+fn emit_slow_arm(ctx: &mut LowerCtx, a: &SlowArm) {
+    let ok = ctx.f.append_inst(
+        a.head,
+        InstKind::Call(
+            ctx.intrinsics.split_iter_next,
+            vec![Operand::Value(a.iter_slot), Operand::Value(a.sub_slot)],
+        ),
+        Type::Bool,
+        None,
+    );
+    let slow_yield = ctx.f.add_block();
+    ctx.f.set_term(
+        a.head,
+        Terminator::CondBr {
+            cond: Operand::Value(ok),
+            then_blk: slow_yield,
+            else_blk: a.after,
+        },
+    );
+    for (off, slot) in [(8, a.len_slot), (24, a.off_slot)] {
+        let v = ctx.f.append_inst(
+            slow_yield,
+            InstKind::Load(Type::I64, Operand::Value(a.sub_slot), off),
+            Type::I64,
+            None,
+        );
+        ctx.f.append_void(
+            slow_yield,
+            InstKind::Store(Operand::Value(v), Operand::Value(slot), 0),
+        );
+    }
+    ctx.f.set_term(slow_yield, Terminator::Br(a.body_blk));
+}
+
 /// Everything the fast-arm inline `next` needs — the hoisted loop
 /// invariants and the pre-created blocks it wires into.
 struct FastScan {
-    parent_op: Operand,
     sub_slot: ValueId,
     /// Hoisted `parent_len` (loaded once from the Str header).
     plen: ValueId,
@@ -247,29 +359,15 @@ struct FastScan {
     fill_sub: bool,
     fast_head: BlockId,
     body_blk: BlockId,
-    after: BlockId,
 }
 
-/// Emit the fast-arm inline `next`: the exhausted check, then the
-/// word-at-a-time separator scan, which yields the part itself (view
-/// slots, the Substr in `sub_slot` when the body reads it, and the
-/// advance / exhaust bookkeeping).
+/// Emit the fast-arm inline `next` (the header has already found the
+/// arm not done): the word-at-a-time separator scan, which yields
+/// the part itself (view slots, the Substr's length and offset in
+/// `sub_slot` when the body reads it, and the advance / exhaust
+/// bookkeeping).
 fn emit_fast_next(ctx: &mut LowerCtx, fs: &FastScan) {
-    let done = ctx.f.append_inst(
-        fs.fast_head,
-        InstKind::Load(Type::Bool, Operand::Value(fs.done_slot), 0),
-        Type::Bool,
-        None,
-    );
-    let scan_init = ctx.f.add_block();
-    ctx.f.set_term(
-        fs.fast_head,
-        Terminator::CondBr {
-            cond: Operand::Value(done),
-            then_blk: fs.after,
-            else_blk: scan_init,
-        },
-    );
+    let scan_init = fs.fast_head;
     let pos = ctx.f.append_inst(
         scan_init,
         InstKind::Load(Type::I64, Operand::Value(fs.pos_slot), 0),
@@ -286,7 +384,6 @@ fn emit_fast_next(ctx: &mut LowerCtx, fs: &FastScan) {
             state: fs.word,
         },
         &word::Yield {
-            parent_op: fs.parent_op,
             sub_slot: fs.sub_slot,
             fill_sub: fs.fill_sub,
             pos_slot: fs.pos_slot,

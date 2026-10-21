@@ -46,7 +46,7 @@ const LOW7: i64 = 0x7f7f_7f7f_7f7f_7f7f;
 const HIGHS: i64 = 0x8080_8080_8080_8080_u64 as i64;
 /// `FLAG_STATIC_LITERAL` in the packed header word (flags u16 @6, bit 2):
 /// a yielded Substr borrows the parent, so its drop is a no-op.
-const HDR_STATIC_LITERAL: i64 = 0x0004i64 << 48;
+pub(super) const HDR_STATIC_LITERAL: i64 = 0x0004i64 << 48;
 
 /// The word scan's separator, its state across parts — the marks left
 /// in the word last read and that word's index — and the word index
@@ -93,10 +93,10 @@ pub(super) struct Scan {
 }
 
 /// Where a part is handed to the body: the view slots both arms fill,
-/// the Substr in `sub_slot` when the body reads the part through it,
-/// and the loop bookkeeping.
+/// the Substr in `sub_slot` when the body reads the part through it
+/// (its length and offset: the loop entry wrote the header and parent
+/// words once), and the loop bookkeeping.
 pub(super) struct Yield {
-    pub(super) parent_op: Operand,
     pub(super) sub_slot: ValueId,
     pub(super) fill_sub: bool,
     pub(super) pos_slot: ValueId,
@@ -132,12 +132,7 @@ pub(super) fn emit(ctx: &mut LowerCtx, from: BlockId, sc: &Scan, y: &Yield) {
         store(ctx, blk, v(len), y.len_slot);
         store(ctx, blk, v(pos), y.off_slot);
         if y.fill_sub {
-            for (val, off) in [
-                (Operand::ConstI64(HDR_STATIC_LITERAL), 0),
-                (v(len), 8),
-                (y.parent_op, 16),
-                (v(pos), 24),
-            ] {
+            for (val, off) in [(v(len), 8), (v(pos), 24)] {
                 ctx.f
                     .append_void(blk, InstKind::Store(val, v(y.sub_slot), off));
             }

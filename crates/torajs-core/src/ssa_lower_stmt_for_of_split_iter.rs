@@ -50,8 +50,9 @@
 //! → 0.77s with the split deleted; the call target can't inline —
 //! S7 立项事实 4-①). When the separator is a compile-time 1-byte
 //! Latin-1 literal (the dominant `" "` shape — parser/sfi_pass only
-//! mint ForOfSplitIter for literal seps), the loop header instead
-//! dispatches each iteration on a HOISTED `parent is Latin-1` bool:
+//! mint ForOfSplitIter for literal seps), the loop tests a HOISTED
+//! `parent is Latin-1` bool once at entry; the slow arm starts with the
+//! fast arm's done flag set, and the header dispatches on that flag:
 //!
 //! - fast arm: inline scan — the parent read eight bytes at a time
 //!   the way `memchr` does, each part cut from the word's separator
@@ -63,10 +64,12 @@
 //! - slow arm: the pre-existing `split_iter_next` call (UTF-16 /
 //!   mixed-encoding parents).
 //!
-//! The dispatch costs one perfectly-predicted register test per
-//! iteration; the two arms converge on the SHARED `body_blk` so the
-//! body lowers once and `break`/`continue` semantics are unchanged
-//! (`continue` → header re-dispatches on the same hoisted bool).
+//! The dispatch costs the fast arm one perfectly-predicted register
+//! test per iteration, the same one that finds it exhausted (a done
+//! loop then tells the two arms apart by the hoisted bool); the two
+//! arms converge on the SHARED `body_blk` so the body lowers once and
+//! `break`/`continue` semantics are unchanged (`continue` → header
+//! re-dispatches on the done flag).
 //!
 //! Fast-arm semantics mirror the kernel's `sep_len == 1` Latin-1
 //! branch exactly, including the empty-parent case (one empty chunk
