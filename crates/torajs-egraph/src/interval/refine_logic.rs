@@ -42,8 +42,8 @@ struct Walk<'e> {
 impl Walk<'_> {
     fn deeper(self) -> Self {
         Self {
-            entry: self.entry,
             depth: self.depth + 1,
+            ..self
         }
     }
 }
@@ -56,8 +56,8 @@ pub(super) struct Logic<'a> {
     cell_defs: Vec<HashSet<ValueId>>,
     /// per block: each cell's last def, `Some(op)` when it is a copy
     last_def: Vec<HashMap<ValueId, Option<Operand>>>,
-    /// defining block of every single-def value
-    home: HashMap<ValueId, BlockId>,
+    /// defining block of every single-def value, by value id
+    home: Vec<BlockId>,
     /// per block: its predecessor when it has exactly one
     sole_pred: Vec<Option<usize>>,
 }
@@ -68,7 +68,7 @@ impl<'a> Logic<'a> {
         let mut preds: Vec<Vec<BlockId>> = vec![Vec::new(); n];
         let mut cell_defs: Vec<HashSet<ValueId>> = vec![HashSet::default(); n];
         let mut last_def: Vec<HashMap<ValueId, Option<Operand>>> = vec![HashMap::default(); n];
-        let mut home: HashMap<ValueId, BlockId> = HashMap::default();
+        let mut home: Vec<BlockId> = vec![BlockId(u32::MAX); func.values.len()];
         for block in &func.blocks {
             let bi = block.id.0 as usize;
             match &block.term {
@@ -84,7 +84,7 @@ impl<'a> Logic<'a> {
             for inst in &block.insts {
                 let Some(r) = inst.result else { continue };
                 if defs.contains_key(&r) {
-                    home.insert(r, block.id);
+                    home[r.0 as usize] = block.id;
                     continue;
                 }
                 cell_defs[bi].insert(r);
@@ -180,17 +180,16 @@ impl<'a> Logic<'a> {
         if self.decided_against(x, v, at) {
             return None;
         }
+        let home = self.home[x.0 as usize];
         match kind {
             InstKind::ICmp(..) | InstKind::FCmp(..) => Some(self.compare(kind, v, at)),
             InstKind::BinOp(op @ (BinOp::And | BinOp::Or), l, r)
                 if self.func.values[x.0 as usize].ty == Type::Bool =>
             {
-                self.logic(*op, (l, r), v, self.home[&x], walk)
+                self.logic(*op, (l, r), v, home, walk)
             }
-            InstKind::Copy(_, o) | InstKind::Identity(o) => {
-                self.truth(o, v, self.home[&x], walk.deeper())
-            }
-            InstKind::Select(_, c, t, e) => self.select((c, t, e), v, self.home[&x], walk),
+            InstKind::Copy(_, o) | InstKind::Identity(o) => self.truth(o, v, home, walk.deeper()),
+            InstKind::Select(_, c, t, e) => self.select((c, t, e), v, home, walk),
             _ => Some(Vec::new()),
         }
     }
