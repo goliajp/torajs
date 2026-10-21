@@ -11,6 +11,29 @@ use crate::ssa::{FuncId, Module, StructId, Type};
 use super::super::any_holds::AnyHolds;
 use super::{BOX_ALLOC, EnvLayouts, FITS, OBJ_ALLOC, Paths, Scan};
 
+/// Per sid, whether a slot of that sid can hold a cell of another
+/// layout. A slot of a prefix of an open sid is open too once a cell
+/// read out of an open slot can reach it (`paths`). A boxed adapter
+/// nothing references never runs, and what its body hands on reaches
+/// no slot.
+pub(crate) fn open_sids(module: &Module, envs: &EnvLayouts) -> Vec<bool> {
+    open_sids_with(module, envs, &vec![false; module.funcs.len()]).0
+}
+
+/// [`open_sids`] over the functions `skip` leaves, with every prefix
+/// path a cell took (`(wide, narrow)`: a cell of `wide` reached a slot
+/// of `narrow`).
+pub(crate) fn open_sids_with(
+    module: &Module,
+    envs: &EnvLayouts,
+    skip: &[bool],
+) -> (Vec<bool>, Vec<(StructId, StructId)>) {
+    let holds = AnyHolds::of(module);
+    let mut flow = Flow::new(module, envs, &holds);
+    flow.scan(|i| !skip[i]);
+    flow.settle()
+}
+
 /// [`open_sids`] (`all`), and [`open_sids_with`] over the functions
 /// neither `asleep` nor the dead adapters rule out (`skip`): the scans
 /// the two share run once.

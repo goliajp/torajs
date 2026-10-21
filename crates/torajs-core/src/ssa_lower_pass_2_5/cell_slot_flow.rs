@@ -50,8 +50,7 @@ mod paths;
 
 use super::any_holds::AnyHolds;
 pub(crate) use env::{EnvLayouts, env_layouts};
-use flow::Flow;
-pub(crate) use flow::{Both, open_sids_both};
+pub(crate) use flow::{Both, open_sids, open_sids_both};
 use paths::Paths;
 pub(super) use paths::elem_obj;
 
@@ -61,29 +60,6 @@ const OBJ_ALLOC: &str = "__torajs_obj_alloc";
 const BOX_ALLOC: &str = "__torajs_capture_box_alloc";
 /// The adapter's layout tests; a decode behind one is exact.
 const FITS: [&str; 2] = ["__torajs_anyv_struct_fits", "__torajs_anyv_arr_fits"];
-
-/// Per sid, whether a slot of that sid can hold a cell of another
-/// layout. A slot of a prefix of an open sid is open too once a cell
-/// read out of an open slot can reach it (`paths`). A boxed adapter
-/// nothing references never runs, and what its body hands on reaches
-/// no slot.
-pub(crate) fn open_sids(module: &Module, envs: &EnvLayouts) -> Vec<bool> {
-    open_sids_with(module, envs, &vec![false; module.funcs.len()]).0
-}
-
-/// [`open_sids`] over the functions `skip` leaves, with every prefix
-/// path a cell took (`(wide, narrow)`: a cell of `wide` reached a slot
-/// of `narrow`).
-pub(crate) fn open_sids_with(
-    module: &Module,
-    envs: &EnvLayouts,
-    skip: &[bool],
-) -> (Vec<bool>, Vec<(StructId, StructId)>) {
-    let holds = AnyHolds::of(module);
-    let mut flow = Flow::new(module, envs, &holds);
-    flow.scan(|i| !skip[i]);
-    flow.settle()
-}
 
 /// `base` is `wide`'s layout by field name, field for field.
 pub(crate) fn is_prefix(base: &[(PropKey, Type)], wide: &[(PropKey, Type)]) -> bool {
