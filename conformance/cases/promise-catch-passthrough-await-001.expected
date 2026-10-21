@@ -1,0 +1,12 @@
+a: 1 number
+b: caught string
+c: w string
+d: 1 2
+e: undefined true
+f: 2
+g: 1
+ok: 1 number
+chain: 100
+ok: same: 2
+bad: body boom string
+bad: same: -2

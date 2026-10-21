@@ -40,10 +40,11 @@
 
 use crate::ast::{Ast, Expr, ExprId};
 use crate::check::{Checker, Type};
-use crate::check_type_of_call_promise_then_nullable::try_then_nullable;
 use legs::two_leg_result;
+pub(crate) use route::try_match;
 
 mod legs;
+mod route;
 
 /// The result type of a `.then` / `.catch` whose handler returns `ret`.
 ///
@@ -69,28 +70,6 @@ pub(crate) fn promise_of(ret: &Type) -> Type {
         Type::Never => Type::Promise(Box::new(Type::Undefined)),
         other => Type::Promise(Box::new(other.clone())),
     }
-}
-
-pub(crate) fn try_match(
-    checker: &mut Checker,
-    ast: &Ast,
-    callee: &ExprId,
-    args: &[ExprId],
-) -> Option<Result<Type, String>> {
-    try_then_two_arg(checker, ast, callee, args)
-        .or_else(|| try_then_heterogeneous(checker, ast, callee, args))
-        .or_else(|| {
-            crate::check_type_of_call_promise_then_undefined::try_then_undefined(
-                checker, ast, callee, args,
-            )
-        })
-        .or_else(|| try_then_array(checker, ast, callee, args))
-        .or_else(|| try_then_nullable(checker, ast, callee, args))
-        .or_else(|| {
-            crate::check_type_of_call_promise_then_zero::try_then_zero_arg(
-                checker, ast, callee, args,
-            )
-        })
 }
 
 /// T-19.l (v0.5.0) — `Promise<T>.then(onOk, onRejected)`
