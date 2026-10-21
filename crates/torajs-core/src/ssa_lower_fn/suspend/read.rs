@@ -33,6 +33,9 @@ pub(super) fn state_word_wanted(want_repr: i64) -> (u32, u32) {
 /// through `__torajs_promise_get_value_as`, which converts the form or
 /// raises, and marks the cell handled (the mark matters only to a
 /// rejected cell: the exit's rejection sweep is its one reader).
+/// `settled` must not be NULL: the in-place path loads its state word
+/// before anything else, unlike `__torajs_promise_get_value_as`, which
+/// tolerates a NULL cell.
 pub(super) fn read_settled(
     ctx: &mut LowerCtx<'_>,
     settled: Operand,
