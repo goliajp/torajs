@@ -1,5 +1,5 @@
-// A return that wakes the one waiter on its result in the last pending
-// job leaves the waiter's job to run next. The ticks stay those of
+// A return that wakes the one waiter on its result fulfils the result
+// in place and queues the waiter's job at the tail. The ticks stay those of
 // §27.2.1.8 when that job queues more jobs, when two returns land in
 // adjacent jobs, when several functions wait on one another in a
 // diamond, and with a WeakRef alive (the job boundary between the
