@@ -161,8 +161,9 @@ pub(super) fn inject_for_of_protocol_helpers(ast: &mut Ast) {
 /// `desugar_generators_async::prepare`, after this injection, so any
 /// for-of counts. An async generator's `yield*` is excluded — it takes
 /// the delegation protocol (`desugar_generators_yieldstar`), which
-/// calls none of these. Nested statements are all walked, nested
-/// function declarations included, so the answer covers every loop
+/// calls none of these. Nested statements are all walked; nested
+/// function declarations are not, for by now every nested machine is a
+/// top-level declaration of its own, so the answer covers every loop
 /// the rewrite can visit.
 fn holds_protocol_loop(ast: &Ast, s: &Stmt) -> bool {
     match s {
