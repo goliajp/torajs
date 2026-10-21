@@ -1,0 +1,13 @@
+2 4 6
+A B
+x=1 y=2
+<h><e><y>
+p|q|r
+10 20 -1 close@3
+{"value":10,"done":false} {"value":20,"done":false} {"value":99,"done":true} close@2
+caught boom at 30 10 20 30 close@3
+10 {"value":0,"done":true} {"done":true}
+sum 10
+break 30 close@3
+await abc
+agen 2 3 4

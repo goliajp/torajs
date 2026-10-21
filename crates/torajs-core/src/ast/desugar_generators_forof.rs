@@ -46,8 +46,8 @@
 //! sync `for…of` of an async function's body is rewritten once its
 //! awaits are yields. Both shapes carry §7.4.9 / §7.4.11 iterator
 //! close on the loop's completion (`desugar_generators_forof_close`).
-//! The helpers the shape calls are injected once per program that can
-//! hold a machine (`desugar_generators_forof_helpers`).
+//! The helpers the shape calls are injected once per program whose
+//! machines hold such a loop (`desugar_generators_forof_helpers`).
 //!
 //! A yield-bearing for-in takes its own counted walk over the parser's
 //! key snapshot (`desugar_generators_forin`).

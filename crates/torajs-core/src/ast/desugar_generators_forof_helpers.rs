@@ -1,7 +1,7 @@
 //! The iterator-protocol helpers a state machine's `for…of` /
 //! `for await` rewrite calls (`desugar_generators_forof` +
 //! `_forof_close`), parsed from TS source and injected once per
-//! program that can hold a machine (RFC 20260915 blade 4).
+//! program whose machines hold such a loop (RFC 20260915 blade 4).
 //!
 //! `__agen_step_call` is the `for await` step: a `next()` answering a
 //! thenable is an ASYNC iterator's and passes through (the driver
@@ -104,25 +104,24 @@ pub(crate) const HELPERS: [&str; 4] = [
     "__gfor_close_result",
 ];
 
-/// Put [`FOROF_SRC`] in the tree when the program holds a `function*`
-/// declaration — by the time `desugar_generators` calls this, every
-/// machine (an async function's, an async generator's, a generator
-/// expression's, a nested generator's) is one. Only a machine body
-/// reaches the rewrite that calls these; a program with none pays
-/// nothing, and one with a machine but no for-of loses the four
-/// functions to the dead-strip. The injected functions are
-/// synchronous: no pass that already ran needed to see them.
+/// Put [`FOROF_SRC`] in the tree when some machine body holds a loop
+/// the protocol rewrite can reach — by the time `desugar_generators`
+/// calls this, every machine (an async function's, an async
+/// generator's, a generator expression's, a nested generator's) is a
+/// top-level `function*` declaration. A program whose machines hold no
+/// such loop never calls the helpers, so it does not get them. The
+/// injected functions are synchronous: no pass that already ran needed
+/// to see them.
 pub(super) fn inject_for_of_protocol_helpers(ast: &mut Ast) {
-    let has_machine = ast.stmts.iter().any(|s| {
-        matches!(
-            s,
-            Stmt::FnDecl {
-                is_generator: true,
-                ..
-            }
-        )
+    let needs = ast.stmts.iter().any(|s| match s {
+        Stmt::FnDecl {
+            is_generator: true,
+            body,
+            ..
+        } => body.iter().any(|b| holds_protocol_loop(ast, b)),
+        _ => false,
     });
-    if !has_machine
+    if !needs
         || ast
             .stmts
             .iter()
@@ -150,4 +149,33 @@ pub(super) fn inject_for_of_protocol_helpers(ast: &mut Ast) {
     for s in &mut ast.stmts[offset..] {
         crate::modules::splice::clear_injected_spans(s);
     }
+}
+
+/// Can `s` hold a loop that `desugar_generators_forof::rewrite_in_stmt`
+/// turns into the manual protocol, the only shape that calls the
+/// helpers (`build_step_decl` → `__agen_step_call`, `wrap_with_close` →
+/// the three close helpers)? That rewrite takes a for-of (not a for-in)
+/// whose body yields or that is a `for await`, and every
+/// `ForOfSplitIter`. Yield-bearing is NOT tested here: an async
+/// generator's awaits become yields only in
+/// `desugar_generators_async::prepare`, after this injection, so any
+/// for-of counts. An async generator's `yield*` is excluded — it takes
+/// the delegation protocol (`desugar_generators_yieldstar`), which
+/// calls none of these. Nested statements are all walked, nested
+/// function declarations included, so the answer covers every loop
+/// the rewrite can visit.
+fn holds_protocol_loop(ast: &Ast, s: &Stmt) -> bool {
+    match s {
+        Stmt::ForOfSplitIter { .. } => return true,
+        Stmt::ForOf {
+            var_name,
+            forin_obj: None,
+            is_await,
+            ..
+        } if !(*is_await && ast.yieldstar_async_vars.contains(var_name)) => return true,
+        _ => {}
+    }
+    super::desugar_with::walk::stmt_children_ref(s)
+        .into_iter()
+        .any(|c| holds_protocol_loop(ast, c))
 }
