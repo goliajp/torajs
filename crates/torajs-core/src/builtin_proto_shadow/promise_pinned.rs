@@ -94,4 +94,19 @@ mod tests {
         ));
         assert!(!pinned("(globalThis as any).Promise.resolve = 1;"));
     }
+
+    #[test]
+    fn every_write_form_on_the_bare_spelling_unpins() {
+        let pre = "const f: any = 1; const o: any = {}; const fs: any[] = [];\n";
+        for w in [
+            "delete Promise.resolve;",
+            "Promise.resolve++;",
+            "Promise.reject ||= f;",
+            "[Promise.resolve] = [f];",
+            "({ a: Promise.reject } = o);",
+            "for (Promise.resolve of fs) {}",
+        ] {
+            assert!(!pinned(&format!("{pre}{w}")), "{w}");
+        }
+    }
 }
