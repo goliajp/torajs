@@ -1,0 +1,11 @@
+rejected catch 43 number
+fulfilled catch 6 number
+two legs 11 number
+two legs rejected 0
+string catch s! 1
+mixed str string
+mixed ok 5 number
+await catch 8
+chain 16
+await two legs 10
+nested await 17

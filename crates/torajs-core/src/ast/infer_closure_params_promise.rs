@@ -42,7 +42,7 @@ pub(super) fn resolve_promise_inner_ann(
                 .and_then(|a| resolve_arg_ann(ast, *a, all_anns))
         }
         "then" | "catch" => {
-            let src = || resolve_promise_inner_ann(ast, *obj, all_anns, fn_ret_anns);
+            let src = || source_inner_ann(ast, *obj, all_anns, fn_ret_anns);
             match (name.as_str(), &args[..]) {
                 // §27.2.5.4: the derived promise settles from whichever
                 // handler runs, so its value is either handler's return;
@@ -75,6 +75,23 @@ fn settles_from_two_legs(ast: &Ast, eid: ExprId) -> bool {
         ast.get_expr(*callee),
         Expr::Member { name, .. } if (name == "then" && args.len() >= 2) || (name == "catch" && !args.is_empty())
     )
+}
+
+/// The value annotation of the promise a `.then` / `.catch` is called
+/// on: a chain or mint [`resolve_promise_inner_ann`] walks, or a binding
+/// declared `Promise<T>`.
+fn source_inner_ann(
+    ast: &Ast,
+    eid: ExprId,
+    all_anns: &std::collections::HashMap<String, String>,
+    fn_ret_anns: &std::collections::HashMap<String, Option<String>>,
+) -> Option<String> {
+    if let Expr::Ident(n) = ast.get_expr(eid) {
+        let ann = all_anns.get(n)?;
+        let inner = ann.strip_prefix("Promise<")?.strip_suffix('>')?;
+        return Some(inner.to_string());
+    }
+    resolve_promise_inner_ann(ast, eid, all_anns, fn_ret_anns)
 }
 
 fn any_seed() -> Option<String> {
