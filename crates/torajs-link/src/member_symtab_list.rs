@@ -14,7 +14,7 @@
 
 use torajs_obj::{MH_MAGIC_64, N_EXT, N_SECT, N_TYPE};
 
-use crate::archive::{ArMember, MemberSymtabError};
+use crate::archive::{ArMember, MemberName, MemberSymtabError};
 use crate::member_obj::{MemberObj, symtab_lc_error, symtab_name_error};
 
 /// Debugger (stab) entries carry type bits here; never listed.
@@ -41,7 +41,7 @@ pub fn list_member_symbols(
         return Ok(MemberSymtabList::default());
     }
     let member = ArMember {
-        name: "",
+        name: MemberName::new(""),
         data: bytes,
     };
     MemberObj::parse(member)

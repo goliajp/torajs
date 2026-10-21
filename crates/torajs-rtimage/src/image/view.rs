@@ -3,6 +3,7 @@
 
 use super::{HEADER_LEN, MAGIC, MEMBER_LEN, SYM_LEN, VERSION};
 use crate::archive::ArMember;
+use crate::member_name::MemberName;
 
 /// Why image bytes were refused by [`Image::parse`].
 #[derive(Debug, PartialEq, Eq)]
@@ -143,7 +144,9 @@ impl<'a> Image<'a> {
     fn slot_member(&self, slot: usize) -> ArMember<'a> {
         let id = self.u32_at(self.slots_off + slot * 4);
         let m = self.members_off + id * MEMBER_LEN;
-        let name = self.name_at(self.u32_at(m), self.u32_at(m + 4));
+        let (name_off, name_len) = (self.u32_at(m), self.u32_at(m + 4));
+        let names: &'a [u8] = self.names;
+        let name = MemberName::from_image(&names[name_off..name_off + name_len]);
         let data_off = self.u32_at(m + 8);
         let data_len = self.u32_at(m + 12);
         let blob: &'a [u8] = self.blob;

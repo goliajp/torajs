@@ -16,6 +16,7 @@ use std::collections::{BTreeMap, HashSet};
 
 use crate::archive::{ArMember, ArchiveParseError, MemberSymtabError};
 use crate::archive_undef::member_undef_extern_names;
+use crate::member_name::MemberName;
 
 /// `(archive_idx, member_idx, n_value)` of the member winning a name.
 pub(crate) type Winners<'a> = BTreeMap<&'a str, (u32, u32, u64)>;
@@ -32,7 +33,7 @@ pub(crate) struct PruneError {
 /// (`torajs_rc-<hash>.torajs_rc.<cgu>.rcgu.o`) defines, and any
 /// unmangled global. A Rust-mangled name defined elsewhere (std, core,
 /// alloc, ...) carries a crate hash the compiler never sees.
-pub fn nameable_by_program(sym: &str, winner_member: &str) -> bool {
+pub fn nameable_by_program(sym: &str, winner_member: MemberName<'_>) -> bool {
     winner_member.starts_with("torajs") || !is_rust_mangled(sym)
 }
 

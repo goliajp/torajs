@@ -52,7 +52,7 @@ mod tests {
     /// `__text` atoms, section-relative.
     fn text_atoms(obj: &[u8]) -> Vec<(u64, u64)> {
         let member = ArMember {
-            name: "t.o",
+            name: crate::archive::MemberName::new("t.o"),
             data: obj,
         };
         let reach = build_member_reach(&member).unwrap();

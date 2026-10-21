@@ -257,7 +257,7 @@ mod tests {
         assert_eq!(rd32(&bytes, at), torajs_obj::LC_SYMTAB);
         bytes[at + 4..at + 8].copy_from_slice(&16u32.to_le_bytes());
         let obj = MemberObj::parse(ArMember {
-            name: "m.o",
+            name: crate::archive::MemberName::new("m.o"),
             data: &bytes,
         })
         .unwrap();

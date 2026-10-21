@@ -150,7 +150,7 @@ fn scan_archive(stats: &mut ProbeStats, ar_path: &Path) {
                     .entry(r.r_symbolnum)
                     .or_insert(0) += 1;
                 if stats.sample_dumps.len() < SAMPLE_LIMIT {
-                    push_sample_dump(stats, &name, m.name, r, text_slice);
+                    push_sample_dump(stats, &name, &m.name.to_string(), r, text_slice);
                 }
             }
             *stats.r_type_counts.entry(r.r_type).or_insert(0) += 1;

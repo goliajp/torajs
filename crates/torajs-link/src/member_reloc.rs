@@ -350,7 +350,7 @@ mod tests {
     #[test]
     fn truncated_header_returns_typed_error() {
         let too_small = ArMember {
-            name: "tiny.o",
+            name: crate::archive::MemberName::new("tiny.o"),
             data: &[0u8; 10],
         };
         assert_eq!(
@@ -366,7 +366,7 @@ mod tests {
         let mut data = [0u8; 64];
         data[0..4].copy_from_slice(&0xDEAD_BEEF_u32.to_le_bytes());
         let m = ArMember {
-            name: "bogus.o",
+            name: crate::archive::MemberName::new("bogus.o"),
             data: &data,
         };
         assert_eq!(

@@ -53,6 +53,7 @@ use std::collections::{BTreeMap, HashMap};
 use crate::archive::{
     ArMember, ArParseError, ArchiveParseError, build_archive_index, parse_archive,
 };
+use crate::member_name::MemberName;
 use crate::prune::{Winners, live_members};
 
 mod assemble;
@@ -182,7 +183,7 @@ fn build_members(
     let mut blob: Vec<u8> = Vec::new();
     let mut tables: Vec<u8> = Vec::new();
     let mut colds: Vec<u8> = Vec::new();
-    let mut member_ids: HashMap<(&str, &[u8]), u32> = HashMap::new();
+    let mut member_ids: HashMap<(MemberName<'_>, &[u8]), u32> = HashMap::new();
     // (name_off, name_len, data_off, data_len, table_off, table_len,
     //  cold_off, cold_len)
     let mut members: Vec<[u32; 8]> = Vec::new();
@@ -202,7 +203,7 @@ fn build_members(
             let id = match member_ids.get(&(m.name, m.data)) {
                 Some(&id) => id,
                 None => {
-                    let (name_off, name_len) = names.intern(m.name)?;
+                    let (name_off, name_len) = names.intern(m.name.as_bytes())?;
                     let data_off = u32v(blob.len())?;
                     blob.extend_from_slice(m.data);
                     let t = table(m, &rows).map_err(|err| BuildError::Table {
@@ -373,7 +374,7 @@ mod tests {
         // the copy of std.o in b wins no name, so no program pulls it
         let img = build_reachable(&[&a, &b]).unwrap();
         let v = Image::parse(&img).unwrap();
-        let mb: Vec<&str> = v.members(1).map(|m| m.name).collect();
+        let mb: Vec<MemberName<'_>> = v.members(1).map(|m| m.name).collect();
         assert_eq!(mb, ["b.o"]);
         let b_sym = v.symbols().find(|s| s.name == "_b").unwrap();
         assert_eq!((b_sym.archive_idx, b_sym.member_idx), (1, 0));
@@ -436,7 +437,7 @@ mod tests {
         let b = archive_of(&[("std.o", &std_o), ("torajs_rt.o", &rt)]);
         let img = build_reachable(&[&a, &b]).unwrap();
         let v = Image::parse(&img).unwrap();
-        let kept: Vec<&str> = v.members(0).map(|m| m.name).collect();
+        let kept: Vec<MemberName<'_>> = v.members(0).map(|m| m.name).collect();
         assert_eq!(kept, ["torajs_rt.o", "std.o", "gimli.o", "shim.o"]);
         assert_eq!(
             v.members(1).count(),

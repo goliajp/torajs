@@ -48,7 +48,7 @@ pub(super) fn sym_rows<'a>(
         .collect();
     let mut syms: Vec<u8> = Vec::with_capacity(index.len() * SYM_LEN);
     for (name, (a, m, n_value)) in &index {
-        let (name_off, name_len) = names.intern(name)?;
+        let (name_off, name_len) = names.intern(name.as_bytes())?;
         for v in [name_off, name_len, *a, *m] {
             syms.extend_from_slice(&v.to_le_bytes());
         }
@@ -61,16 +61,16 @@ pub(super) fn sym_rows<'a>(
 #[derive(Default)]
 pub(super) struct Names<'a> {
     pub(super) bytes: Vec<u8>,
-    offs: HashMap<&'a str, (u32, u32)>,
+    offs: HashMap<&'a [u8], (u32, u32)>,
 }
 
 impl<'a> Names<'a> {
-    pub(super) fn intern(&mut self, s: &'a str) -> Result<(u32, u32), BuildError> {
+    pub(super) fn intern(&mut self, s: &'a [u8]) -> Result<(u32, u32), BuildError> {
         if let Some(&r) = self.offs.get(s) {
             return Ok(r);
         }
         let r = (u32v(self.bytes.len())?, u32v(s.len())?);
-        self.bytes.extend_from_slice(s.as_bytes());
+        self.bytes.extend_from_slice(s);
         self.offs.insert(s, r);
         Ok(r)
     }

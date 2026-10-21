@@ -273,7 +273,7 @@ mod tests {
     #[test]
     fn rejects_truncated_header() {
         let too_small = ArMember {
-            name: "tiny.o",
+            name: crate::archive::MemberName::new("tiny.o"),
             data: &[0u8; 16],
         };
         let err = collect_member_sections(&too_small).expect_err("too-small header");

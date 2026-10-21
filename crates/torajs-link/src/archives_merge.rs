@@ -16,7 +16,7 @@ pub(crate) use torajs_rtimage::archive_undef::member_undef_extern_names;
 
 use torajs_rtimage::image::{Image, ImageError};
 
-use crate::archive::{ArMember, MemberSymtabError};
+use crate::archive::{ArMember, MemberName, MemberSymtabError};
 pub use crate::archive_link_extra_syms::ExtraDefined;
 use crate::archive_link_extra_syms::Foreign;
 use crate::dead_strip_reach_cache::ReachCache;
@@ -264,7 +264,7 @@ pub(crate) fn compute_required_members_cached<'a>(
     }
 
     if std::env::var_os("TORAJS_LINK_CLOSURE_DIAG").is_some() {
-        let names: Vec<&str> = required
+        let names: Vec<MemberName<'_>> = required
             .iter()
             .map(|&(a, m)| merged.member(a, m).name)
             .collect();

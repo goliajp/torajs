@@ -9,6 +9,7 @@ pub use torajs_rtimage::archive::{
     ArchiveSymbol, MemberSymtabError, build_archive_index, parse_archive,
     parse_member_defined_externs,
 };
+pub use torajs_rtimage::member_name::MemberName;
 
 #[cfg(test)]
 mod tests {

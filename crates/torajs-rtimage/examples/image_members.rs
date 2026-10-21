@@ -11,6 +11,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use torajs_rtimage::archive::parse_archive;
 use torajs_rtimage::image::{Image, build_reachable};
+use torajs_rtimage::member_name::MemberName;
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -24,14 +25,14 @@ fn main() {
     let image = build_reachable(&borrowed).expect("build");
     let view = Image::parse(&image).expect("parse");
 
-    let mut in_image: BTreeSet<(&str, &[u8])> = BTreeSet::new();
+    let mut in_image: BTreeSet<(MemberName<'_>, &[u8])> = BTreeSet::new();
     for a in 0..view.archive_count() {
         for m in view.members(a) {
             in_image.insert((m.name, m.data));
         }
     }
     // distinct member -> the archives carrying it
-    let mut all: BTreeMap<(&str, &[u8]), Vec<usize>> = BTreeMap::new();
+    let mut all: BTreeMap<(MemberName<'_>, &[u8]), Vec<usize>> = BTreeMap::new();
     for (a, bytes) in borrowed.iter().enumerate() {
         for m in parse_archive(bytes).expect("archive") {
             all.entry((m.name, m.data)).or_default().push(a);

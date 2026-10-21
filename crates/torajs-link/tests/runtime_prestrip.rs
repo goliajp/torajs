@@ -12,6 +12,7 @@ use torajs_link::runtime_prestrip::{prestrip_image, prestripped_runtime_image};
 use torajs_obj::{MH_SUBSECTIONS_VIA_SYMBOLS, MachHeader64};
 use torajs_rtimage::archive::{ArMember, parse_member_defined_externs};
 use torajs_rtimage::image::Image;
+use torajs_rtimage::member_name::MemberName;
 use torajs_rtimage::prune::nameable_by_program;
 
 fn original() -> &'static [u8] {
@@ -24,7 +25,7 @@ fn stripped() -> &'static [u8] {
 }
 
 /// `(archive, member name)` of every member of `img`, by index.
-fn member_names<'a>(img: &Image<'a>) -> Vec<Vec<&'a str>> {
+fn member_names<'a>(img: &Image<'a>) -> Vec<Vec<MemberName<'a>>> {
     (0..img.archive_count())
         .map(|a| img.members(a).map(|m| m.name).collect())
         .collect()
@@ -40,7 +41,7 @@ fn every_name_a_program_can_reference_resolves_to_the_same_member() {
         Image::parse(stripped()).unwrap(),
     );
     let (names_before, names_after) = (member_names(&before), member_names(&after));
-    let index_after: BTreeMap<&str, (usize, &str)> = after
+    let index_after: BTreeMap<&str, (usize, MemberName<'_>)> = after
         .symbols()
         .map(|s| {
             (
@@ -78,7 +79,8 @@ fn every_member_without_subsections_is_kept_as_it_is() {
     );
     let (mut without, mut checked) = (0, 0);
     for a in 0..before.archive_count() {
-        let kept: BTreeMap<&str, &[u8]> = after.members(a).map(|m| (m.name, m.data)).collect();
+        let kept: BTreeMap<MemberName<'_>, &[u8]> =
+            after.members(a).map(|m| (m.name, m.data)).collect();
         for m in before.members(a) {
             let header = MachHeader64::parse(m.data)
                 .unwrap_or_else(|| panic!("{}: not a 64-bit Mach-O object", m.name));
@@ -86,7 +88,7 @@ fn every_member_without_subsections_is_kept_as_it_is() {
                 continue;
             }
             without += 1;
-            if let Some(data) = kept.get(m.name) {
+            if let Some(data) = kept.get(&m.name) {
                 assert!(*data == m.data, "{} changed", m.name);
                 checked += 1;
             }
@@ -170,7 +172,7 @@ fn a_subsections_object_loses_its_unreachable_atom() {
 
 fn defined(obj: &[u8]) -> Vec<&str> {
     let member = ArMember {
-        name: "t.o",
+        name: MemberName::new("t.o"),
         data: obj,
     };
     let syms = parse_member_defined_externs(&member).expect("symtab");

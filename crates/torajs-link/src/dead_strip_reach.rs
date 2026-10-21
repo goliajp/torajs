@@ -31,6 +31,7 @@ use std::rc::Rc;
 use torajs_codegen::CompiledFunction;
 use torajs_obj::{N_SECT, N_TYPE};
 
+use crate::archive::MemberName;
 use crate::archive_link_extra_syms::ExtraDefined;
 use crate::archives_merge::{MergedArchives, RequiredMembers};
 pub(crate) use crate::dead_strip_reach_build::trim16;
@@ -75,7 +76,7 @@ pub(crate) struct SectAtoms {
 /// is shared with the link's [`ReachCache`].
 #[derive(Clone)]
 pub(crate) struct MemberReach<'a> {
-    pub(crate) member_name: &'a str,
+    pub(crate) member_name: MemberName<'a>,
     /// Indexed by 1-based section ordinal − 1.
     pub(crate) sects: Vec<SectAtoms>,
     pub(crate) nlist: Rc<[NlEntry<'a>]>,

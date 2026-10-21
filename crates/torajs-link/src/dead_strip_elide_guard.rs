@@ -135,7 +135,7 @@ mod tests {
         ];
         let rows: Vec<(&str, u64)> = names.iter().map(|&n| (n, 0x4800)).collect();
         let mut m = text_reach(0x4000, 0x1000, &rows);
-        m.member_name = "rc.o";
+        m.member_name = crate::archive::MemberName::new("rc.o");
         assert_eq!(m.sects[0].atoms.len(), 2);
         m.sects[0].live = vec![false, true];
         let closure = vec!["___torajs_closure_props_attach".to_string()];
@@ -172,7 +172,7 @@ mod tests {
     fn repeated_name_answers_at_every_row() {
         use crate::dead_strip_reach_table::test_support::text_reach;
         let mut m = text_reach(0, 16, &[("w", 0), ("w", 8)]);
-        m.member_name = "x.o";
+        m.member_name = crate::archive::MemberName::new("x.o");
         assert_eq!(m.sects[0].atoms.len(), 2);
         m.sects[0].live = vec![true, false];
         let reach = ReachResult {
@@ -207,7 +207,7 @@ mod tests {
         };
         let obj = torajs_obj::write_object(&[leaf("_head"), leaf("_inner")]);
         let member = ArMember {
-            name: "x.o",
+            name: crate::archive::MemberName::new("x.o"),
             data: &obj,
         };
         let reach_with = |live: bool| {

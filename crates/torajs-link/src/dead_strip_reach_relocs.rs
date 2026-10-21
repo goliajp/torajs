@@ -108,7 +108,7 @@ mod tests {
         assert!(matches!(index(mixed.clone()), Table::Sorted(_)));
         let bytes = [0u8; 1];
         let member = ArMember {
-            name: "m.o",
+            name: crate::archive::MemberName::new("m.o"),
             data: &bytes,
         };
         for (table, want) in [(desc, [1, 2, 3]), (mixed, [1, 3, 2])] {

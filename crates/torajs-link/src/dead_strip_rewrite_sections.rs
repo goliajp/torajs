@@ -475,8 +475,12 @@ mod tests {
             assert_eq!(got_dead, want_dead);
             assert!(got == want);
             // and the link reads it through the cut as written
-            let read =
-                crate::member_obj_check::check_cut_reads_as_written("t.o", &obj, &cuts, dead_at);
+            let read = crate::member_obj_check::check_cut_reads_as_written(
+                crate::archive::MemberName::new("t.o"),
+                &obj,
+                &cuts,
+                dead_at,
+            );
             assert_eq!(read, Some(3));
         }
     }

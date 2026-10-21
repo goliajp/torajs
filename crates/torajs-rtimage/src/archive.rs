@@ -68,7 +68,7 @@ pub struct ArMember<'a> {
     /// Member name without the BSD long-name prefix bytes. For
     /// names short enough to fit in the 16-byte `ar_name` slot,
     /// this trims trailing spaces.
-    pub name: &'a str,
+    pub name: MemberName<'a>,
     /// Member payload (the `.o` Mach-O bytes for code archives).
     pub data: &'a [u8],
 }
@@ -158,7 +158,7 @@ pub fn parse_archive(bytes: &[u8]) -> Result<Vec<ArMember<'_>>, ArParseError> {
             name == "__.SYMDEF" || name == "__.SYMDEF SORTED" || name.starts_with("__.SYMDEF");
         if !is_symdef {
             members.push(ArMember {
-                name,
+                name: MemberName::new(name),
                 data: member_data,
             });
         }
@@ -177,6 +177,8 @@ pub fn parse_archive(bytes: &[u8]) -> Result<Vec<ArMember<'_>>, ArParseError> {
 // ---- S7-B: Mach-O member symbol extraction ----
 
 use std::collections::BTreeMap;
+
+use crate::member_name::MemberName;
 
 // `mach-o/loader.h` / `mach-o/nlist.h` values this leaf crate reads;
 // `torajs-obj` carries the same names but sits above `torajs-core`
@@ -616,7 +618,7 @@ mod tests {
         // `target-name-hash.crate.hash-cgu.N.rcgu.o` pattern).
         for m in &members {
             assert!(
-                m.name.ends_with(".o"),
+                m.name.as_bytes().ends_with(b".o"),
                 "unexpected member name {:?}",
                 m.name
             );
@@ -664,7 +666,7 @@ mod tests {
     #[test]
     fn parse_member_too_small_errors_truncated_header() {
         let m = ArMember {
-            name: "x.o",
+            name: MemberName::new("x.o"),
             data: b"too short",
         };
         assert_eq!(
@@ -681,7 +683,7 @@ mod tests {
         let mut data = vec![0u8; 64];
         data[0..4].copy_from_slice(&0xfeedface_u32.to_le_bytes()); // MH_MAGIC (32-bit)
         let m = ArMember {
-            name: "x.o",
+            name: MemberName::new("x.o"),
             data: &data,
         };
         let syms = parse_member_defined_externs(&m).unwrap();

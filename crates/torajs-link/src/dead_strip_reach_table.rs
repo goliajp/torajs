@@ -281,7 +281,11 @@ pub(crate) mod test_support {
     /// [`build_member_reach`] of [`text_object`], the bytes leaked.
     pub(crate) fn text_reach(addr: u64, size: u64, rows: &[(&str, u64)]) -> MemberReach<'static> {
         let data: &'static [u8] = Vec::leak(text_object(addr, size, rows));
-        build_member_reach(&ArMember { name: "t.o", data }).unwrap()
+        build_member_reach(&ArMember {
+            name: crate::archive::MemberName::new("t.o"),
+            data,
+        })
+        .unwrap()
     }
 
     /// A member without symbols whose sections are `(addr, size, atom
@@ -306,7 +310,7 @@ pub(crate) mod test_support {
             t.extend_from_slice(&v.to_le_bytes());
         }
         let member = ArMember {
-            name: "m.o",
+            name: crate::archive::MemberName::new("m.o"),
             data: &[],
         };
         reach_from_table(&member, &t)
@@ -365,7 +369,11 @@ mod tests {
             obj[p..p + 2].copy_from_slice(&N_NO_DEAD_STRIP.to_le_bytes());
         }
         let data: &'static [u8] = Vec::leak(obj);
-        let r = build_member_reach(&ArMember { name: "t.o", data }).unwrap();
+        let r = build_member_reach(&ArMember {
+            name: crate::archive::MemberName::new("t.o"),
+            data,
+        })
+        .unwrap();
         let rows: Vec<(&str, u64)> = r
             .no_dead_strip_rows()
             .map(|e| (e.name, e.n_value))

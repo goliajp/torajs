@@ -1,7 +1,7 @@
 //! Test support: a member read through its cut against the object the
 //! cut writes out.
 
-use crate::archive::ArMember;
+use crate::archive::{ArMember, MemberName};
 use crate::dead_strip_cut::Cut;
 use crate::dead_strip_rewrite::DeadRowPlacement;
 use crate::dead_strip_rewrite_sections::SectionCut;
@@ -15,7 +15,7 @@ use crate::member_sections::is_no_file_storage;
 /// symbols. Returns how many sections the cut shortened, `None`
 /// when it changes nothing.
 pub(crate) fn check_cut_reads_as_written(
-    name: &str,
+    name: MemberName<'_>,
     bytes: &[u8],
     cuts: &[SectionCut<'_>],
     dead_at: DeadRowPlacement,
@@ -65,7 +65,7 @@ pub(crate) fn check_cut_reads_as_written(
 }
 
 /// Every nlist row and name of `read` against `want`.
-fn check_rows(name: &str, read: &MemberObj<'_>, want: &MemberObj<'_>) {
+fn check_rows(name: MemberName<'_>, read: &MemberObj<'_>, want: &MemberObj<'_>) {
     let (st_r, st_w) = (read.symtab().unwrap(), want.symtab().unwrap());
     assert_eq!(st_r.nsyms, st_w.nsyms);
     for i in 0..st_w.nsyms {
