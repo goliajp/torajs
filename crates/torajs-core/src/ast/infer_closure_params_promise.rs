@@ -144,7 +144,9 @@ fn pass_through(leg: Leg, src: impl FnOnce() -> Option<String>) -> Option<String
 /// The value annotation of a promise settled from one of two legs: each
 /// leg's value is its return adopted (a returned promise's own value)
 /// with a void return answering undefined, and a throw-only leg settles
-/// nothing. Legs that agree keep their one type.
+/// nothing. Legs that agree keep their one type. The checker types the
+/// derived promise the same way (`two_leg_result` in
+/// `check_type_of_call_promise_then`).
 ///
 /// A join that may settle undefined into a pointer-shaped `T` answers
 /// nothing: the then kernel converts an undefined settled value into a

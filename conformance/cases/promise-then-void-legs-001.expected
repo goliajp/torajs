@@ -1,0 +1,7 @@
+ok leg 1
+any legs fulfilled undefined true
+err leg no
+any legs rejected undefined true
+typed ok leg 2
+mixed legs undefined true
+void and undefined undefined true
