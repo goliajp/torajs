@@ -8,11 +8,10 @@
 
 use crate::ast::{Ast, ExprId};
 use crate::check::{Checker, Type};
-use crate::check_stmt_let_decl::held_any::face as held_face;
 
 mod arg_admitted;
+mod args;
 mod defaulted_param;
-use arg_admitted::arg_admitted;
 
 pub(crate) fn general_call(
     checker: &mut Checker,
@@ -150,103 +149,13 @@ pub(crate) fn general_call(
             effective_args.len()
         ));
     }
-    let args = &effective_args;
-    // M5.1 class-method dispatch flag derived in
-    // [`crate::check_type_of_call_dispatch_flags`] (chunk 306;
-    // M6.1 String borrow flag pruned in chunk 311).
-    let is_class_method = crate::check_type_of_call_dispatch_flags::derive(ast, callee);
-    let mut boxed_entry = false;
-    for (i, (param_ty, arg_id)) in params.iter().zip(args.iter()).enumerate() {
-        let arg_ty = checker.type_of(ast, *arg_id)?;
-        let arg_ty =
-            crate::check_assignable::in_declared_order(checker, ast, param_ty, *arg_id, arg_ty);
-        let arg_ty = super::source_array_param::face_view(checker, ast, *callee, param_ty, &arg_ty)
-            .unwrap_or(arg_ty);
-        held_face::check_arg(checker, ast, (i, *arg_id), param_ty)?;
-        let Some(boxed) = arg_route(
-            checker,
-            ast,
-            eid,
-            callee,
-            is_class_method,
-            i,
-            param_ty,
-            &arg_ty,
-            arg_id,
-        ) else {
-            // §7.2 middle tier — a callback slot handed a value no
-            // type of which is callable. The spec has a runtime
-            // answer for that (throw, after the arguments evaluate),
-            // so refusing the program here would be the static-subset
-            // answer. See `super::callback_slot_throw`.
-            if let Some(msg) =
-                super::callback_slot_throw::message_for(checker, ast, *callee, param_ty, &arg_ty)
-            {
-                for &rest in &args[i + 1..] {
-                    checker.type_of(ast, rest)?;
-                }
-                checker.spec_throws.insert(eid, msg);
-                return Ok(*ret);
-            }
-            return Err(format!(
-                "argument {i}: expected {param_ty:?}, got {arg_ty:?}"
-            ));
-        };
-        boxed_entry |= boxed;
-        crate::iface_witness::note_flow(param_ty, &arg_ty, true);
-        // TS-shape: function parameters SHARE non-Copy args —
-        // calling `f(x)` never marks `x` moved. The consuming-
-        // params bitmap retired in chunk 568: every store lane
-        // takes its own +1 (chunks 564-567), so the historical
-        // caller-side consume double-counted into a leak.
-        //
-        // Rotation 412 — TS contextual typing for a literal Array
-        // ARGUMENT: once admitted, its recorded type is the param's
-        // (the chunk-702 let-decl story, same helper). Without this
-        // a uniform-kind literal against an `any[]` param (the ctor
-        // rest relay's `[true]`) minted the typed flavor and the
-        // callee's Arr<Any> readers mis-decoded the slots.
-        crate::check_stmt_let_decl::apply_contextual_array_ann(checker, ast, *arg_id, param_ty);
-    }
+    let Some(boxed_entry) = args::check(checker, ast, eid, callee, &params, &effective_args)?
+    else {
+        return Ok(*ret);
+    };
     if boxed_entry {
         return Ok(super::any_struct_slot::call_ret_face(checker, eid, *ret));
     }
     let ret = super::fn_slot_ret::call_ret_face(checker, ast, eid, *callee, *ret);
     Ok(super::any_widen_ret::call_ret_face(checker, ast, eid, ret))
-}
-
-/// Is the argument admitted, and does the call then ride the callee's
-/// boxed entry? None refuses it. [`arg_admitted`], then an `any`
-/// argument into an object parameter of a function value
-/// ([`super::any_struct_slot`]).
-#[allow(clippy::too_many_arguments)]
-fn arg_route(
-    checker: &mut Checker,
-    ast: &Ast,
-    eid: ExprId,
-    callee: &ExprId,
-    is_class_method: bool,
-    i: usize,
-    param_ty: &Type,
-    arg_ty: &Type,
-    arg_id: &ExprId,
-) -> Option<bool> {
-    use super::any_struct_slot::{Route, admit};
-    if arg_admitted(
-        checker,
-        ast,
-        eid,
-        callee,
-        is_class_method,
-        i,
-        param_ty,
-        arg_ty,
-        arg_id,
-    ) {
-        return Some(false);
-    }
-    if is_class_method {
-        return None;
-    }
-    admit(checker, ast, eid, *callee, i, arg_ty, param_ty).map(|r| matches!(r, Route::Boxed))
 }
