@@ -17,11 +17,14 @@ use crate::check::{Checker, DiagPush, Type};
 /// `any` only because it reads a held value; `None` when it has no other.
 pub(crate) fn face(c: &Checker, ast: &Ast, eid: ExprId) -> Option<Type> {
     let reads = &c.held_any.reads;
-    if let Some(t) = reads.get(&eid) {
-        return Some(t.clone());
-    }
+    // a read typed before its scope was complete (the hoist pre-pass)
+    // may have resolved to another binding and left a stale entry: only
+    // a value the checker still types `any` reads a held one
     if reads.is_empty() || c.expr_types.get(&eid) != Some(&Type::Any) {
         return None;
+    }
+    if let Some(t) = reads.get(&eid) {
+        return Some(t.clone());
     }
     match ast.get_expr(eid) {
         Expr::BinOp { op, left, right } => binary(c, ast, *op, (*left, *right)),
