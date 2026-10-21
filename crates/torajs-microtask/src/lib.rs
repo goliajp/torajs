@@ -132,8 +132,8 @@ pub unsafe extern "C" fn __torajs_microtask_enqueue(fn_: Option<MicrotaskFn>, ar
 /// semantics: drain to empty before yielding to event loop / exit).
 ///
 /// Auto-called from synthesized `main` at program exit by
-/// codegen (T-15.e). After the drain, head + tail are both reset
-/// to 0 so the next enqueue starts at slot 0.
+/// codegen (T-15.e). A drain that ran a task resets head + tail to 0
+/// so the next enqueue starts at slot 0; an empty queue is left as is.
 ///
 /// # Safety
 /// Calls user-provided fn pointers; each fn must be a valid
@@ -141,34 +141,35 @@ pub unsafe extern "C" fn __torajs_microtask_enqueue(fn_: Option<MicrotaskFn>, ar
 /// in a way that violates the single-threaded invariant.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_microtask_run_until_idle() {
-    // an empty queue with no kept-objects hook is the drain's whole
-    // work at most call sites (every `await` checkpoint); answering it
-    // here keeps that case free of the drain loop's frame
-    if KEPT_CLEAR.load(Ordering::Relaxed).is_null()
-        && MT_HEAD.load(Ordering::Relaxed) == MT_TAIL.load(Ordering::Relaxed)
-    {
-        MT_HEAD.store(0, Ordering::Relaxed);
-        MT_TAIL.store(0, Ordering::Relaxed);
+    // an empty queue is the drain's whole work at most call sites
+    // (every `await` checkpoint); answering it here keeps that case
+    // free of the drain loop's frame
+    if MT_HEAD.load(Ordering::Relaxed) == MT_TAIL.load(Ordering::Relaxed) {
+        // the job that called the drain is over
+        unsafe { clear_kept_objects() };
         return;
     }
     unsafe { drain() }
 }
 
+/// The caller saw a job pending; clearing the kept objects pops none.
 #[inline(never)]
 unsafe fn drain() {
     // The job that called the drain is over.
     unsafe { clear_kept_objects() };
     loop {
         let head = MT_HEAD.load(Ordering::Relaxed);
-        if head == MT_TAIL.load(Ordering::Relaxed) {
-            break;
-        }
         // a job may grow the ring, so its geometry is read per pop
         let slot = head & (MT_CAP.load(Ordering::Relaxed) - 1);
         let t = unsafe { *MT_QUEUE.load(Ordering::Relaxed).add(slot) };
         MT_HEAD.store(head + 1, Ordering::Relaxed);
         unsafe { (t.fn_)(t.arg) };
+        // a job may install the hook (its first WeakRef), so it is read
+        // after every job
         unsafe { clear_kept_objects() };
+        if MT_HEAD.load(Ordering::Relaxed) == MT_TAIL.load(Ordering::Relaxed) {
+            break;
+        }
     }
     MT_HEAD.store(0, Ordering::Relaxed);
     MT_TAIL.store(0, Ordering::Relaxed);
