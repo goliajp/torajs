@@ -2,7 +2,8 @@
 //! case, and the walk says whether it can leave the typed lanes.
 
 use torajs_core::ssa::{
-    BinOp, BlockId, FuncId, Function, IPred, InstKind, Module, Operand, Terminator, Type, ValueId,
+    BinOp, BlockId, DataGlobal, FuncId, Function, IPred, InstKind, Module, Operand, Terminator,
+    Type, ValueId,
 };
 
 use crate::cmd_build_value_escape::escapes;
@@ -60,8 +61,9 @@ impl Fixture {
         self.m.add_function(self.f);
         !escapes(
             &self.m,
+            &self.m.funcs,
             |t| (t == Type::RegExp).then_some(()),
-            |name| name.starts_with("__torajs_regex"),
+            |_, name| name.starts_with("__torajs_regex"),
         )
         .is_empty()
     }
@@ -162,13 +164,72 @@ fn a_return_keeps_it_only_under_its_own_type() {
     let re = fx.regexp();
     fx.f.set_term(fx.b, Terminator::Ret(Some(re)));
     fx.m.add_function(fx.f);
-    let typed = escapes(&fx.m, |t| (t == Type::RegExp).then_some(()), |_| true);
+    let typed = escapes(
+        &fx.m,
+        &fx.m.funcs,
+        |t| (t == Type::RegExp).then_some(()),
+        |_, _| true,
+    );
     assert!(typed.is_empty());
 
     let mut fx = Fixture::new(Type::Ptr);
     let re = fx.regexp();
     fx.f.set_term(fx.b, Terminator::Ret(Some(re)));
     fx.m.add_function(fx.f);
-    let untyped = escapes(&fx.m, |t| (t == Type::RegExp).then_some(()), |_| true);
+    let untyped = escapes(
+        &fx.m,
+        &fx.m.funcs,
+        |t| (t == Type::RegExp).then_some(()),
+        |_, _| true,
+    );
     assert_eq!(untyped.len(), 1);
+}
+
+/// One fn stores a RegExp into a RegExp-typed global, which keeps it
+/// typed; another holds no RegExp value at all, only that global's
+/// address, and hands the address to a kernel. The second fn is still
+/// walked, and the handoff is the escape.
+#[test]
+fn a_fn_holding_only_a_tracked_global_slot_is_still_walked() {
+    let mut m = Module::default();
+    m.data_globals.push(DataGlobal {
+        name: "G".into(),
+        ty: Type::RegExp,
+    });
+    let compile = m.add_function(Function::new("__torajs_regex_compile", Type::RegExp));
+    let push = m.add_function(Function::new("__torajs_arr_push", Type::Void));
+    let mut a = Function::new("writer", Type::Void);
+    let b = a.add_block();
+    let re = a.append_inst(b, InstKind::Call(compile, vec![]), Type::RegExp, None);
+    let g = a.append_inst(b, InstKind::GlobalRef("G".into()), Type::Ptr, None);
+    a.append_inst(
+        b,
+        InstKind::Store(Operand::Value(re), Operand::Value(g), 0),
+        Type::Void,
+        None,
+    );
+    a.set_term(b, Terminator::Ret(None));
+    m.add_function(a);
+    let mut h = Function::new("handoff", Type::Void);
+    let b = h.add_block();
+    let g = h.append_inst(b, InstKind::GlobalRef("G".into()), Type::Ptr, None);
+    h.append_inst(
+        b,
+        InstKind::Call(push, vec![Operand::ConstI64(0), Operand::Value(g)]),
+        Type::Void,
+        None,
+    );
+    h.set_term(b, Terminator::Ret(None));
+    m.add_function(h);
+    let out = escapes(
+        &m,
+        &m.funcs,
+        |t| (t == Type::RegExp).then_some(()),
+        |_, name| name.starts_with("__torajs_regex"),
+    );
+    let why = out.get(&()).expect("the address handoff is an escape");
+    assert!(
+        why.starts_with("handoff: slot handed to `__torajs_arr_push`"),
+        "{why}"
+    );
 }

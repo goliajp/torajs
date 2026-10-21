@@ -372,7 +372,7 @@ fn assume(
         // away — r505) is dead only now, and its relocs are exactly
         // the seeds the guard must not see.
         let roots = user_gc::table_root_fids_with(
-            cfg,
+            &cfg.vtable_globals,
             class_layouts.as_deref().unwrap_or(&cfg.class_layouts),
         );
         if diag {

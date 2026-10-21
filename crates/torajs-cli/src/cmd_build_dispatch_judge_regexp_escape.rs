@@ -26,16 +26,17 @@ fn keeps_regexp(name: &str) -> bool {
 }
 
 /// Whether a program that mints typed RegExps (`mints`) opens the
-/// RegExp world through them: only once some use lets one leave the
-/// typed lanes.
-pub(crate) fn typed_regexp_opens(module: &Module, mints: bool, diag: bool) -> bool {
+/// RegExp world through them: only once some use in a fn the link
+/// keeps (`live`, by FuncId) lets one leave the typed lanes.
+pub(crate) fn typed_regexp_opens(module: &Module, live: &[bool], mints: bool, diag: bool) -> bool {
     if !mints {
         return false;
     }
     let first = crate::cmd_build_value_escape::escapes(
         module,
+        crate::cmd_build_dispatch_judge_callee::live_funcs(module, live),
         |t| (t == Type::RegExp).then_some(()),
-        keeps_regexp,
+        |_, name| keeps_regexp(name),
     )
     .remove(&());
     if diag {

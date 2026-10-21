@@ -70,7 +70,7 @@ impl Fixture {
 
     fn unseen(mut self) -> bool {
         self.m.add_function(self.f);
-        unseen_protocol_call(&self.m, false)
+        unseen_protocol_call(&self.m, &vec![true; self.m.funcs.len()], false)
     }
 }
 

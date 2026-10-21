@@ -31,6 +31,9 @@ mod cmd_build_extern_relocs;
 mod cmd_build_lower;
 mod cmd_build_ssa_string_registries;
 mod cmd_build_synthesize;
+mod cmd_build_twin_rows;
+#[cfg(test)]
+mod cmd_build_twin_rows_tests;
 mod cmd_build_value_escape;
 mod cmd_build_value_escape_slots;
 #[cfg(test)]

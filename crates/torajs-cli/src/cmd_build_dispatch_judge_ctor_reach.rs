@@ -58,9 +58,9 @@ const CLASS_REGISTER: (&str, usize) = ("__torajs_anyv_class_register", 4);
 
 /// True when the program can read a builtin constructor cell off a
 /// value (see the module doc). `diag` names the first reason.
-pub(crate) fn ctor_cell_reachable(module: &Module, diag: bool) -> bool {
+pub(crate) fn ctor_cell_reachable(module: &Module, live: &[bool], diag: bool) -> bool {
     let ctor_ids = crate::cmd_build_dispatch_judge_ctor_uses::ctor_key_ids(module);
-    for f in &module.funcs {
+    for f in crate::cmd_build_dispatch_judge_callee::live_funcs(module, live) {
         if let Some(why) =
             crate::cmd_build_dispatch_judge_ctor_uses::ctor_read_escape(module, f, &ctor_ids)
         {

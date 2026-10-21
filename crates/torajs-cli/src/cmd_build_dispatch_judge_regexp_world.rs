@@ -232,7 +232,7 @@ pub(crate) struct RegexpVerdict {
 }
 
 impl RegexpWorld {
-    pub(crate) fn verdict(&self, module: &Module, diag: bool) -> RegexpVerdict {
+    pub(crate) fn verdict(&self, module: &Module, live: &[bool], diag: bool) -> RegexpVerdict {
         let (arm_bits, protocol, ctor) = if !self.world {
             (
                 torajs_rc::any_method_family::FAM_REGEXP,
@@ -243,7 +243,7 @@ impl RegexpWorld {
             // all plain: the algorithms, the only constructor of a
             // RegExp through the build seam besides a ctor value, are
             // stubbed too
-            let plain = !self.match_symbol && self.all_plain(module, diag);
+            let plain = !self.match_symbol && self.all_plain(module, live, diag);
             return RegexpVerdict {
                 arm_bits: 0,
                 protocol: !self.protocol_entry,
@@ -253,7 +253,7 @@ impl RegexpWorld {
             };
         } else {
             let ctor_read = self.ctor_read.unwrap_or_else(|| {
-                crate::cmd_build_dispatch_judge_ctor_reach::ctor_cell_reachable(module, diag)
+                crate::cmd_build_dispatch_judge_ctor_reach::ctor_cell_reachable(module, live, diag)
             });
             (0, true, !ctor_read)
         };
@@ -273,16 +273,14 @@ impl RegexpWorld {
     /// way to the constructor or the prototype, and no call that could
     /// change either or the cell ([`makes_unplain`]). The second walk
     /// runs only for a candidate.
-    fn all_plain(&self, module: &Module, diag: bool) -> bool {
+    fn all_plain(&self, module: &Module, live: &[bool], diag: bool) -> bool {
         if self.ctor || !self.plain_candidate {
             return false;
         }
         let ctor_read = self.ctor_read.unwrap_or_else(|| {
-            crate::cmd_build_dispatch_judge_ctor_reach::ctor_cell_reachable(module, diag)
+            crate::cmd_build_dispatch_judge_ctor_reach::ctor_cell_reachable(module, live, diag)
         });
-        let unplain_call = module
-            .funcs
-            .iter()
+        let unplain_call = crate::cmd_build_dispatch_judge_callee::live_funcs(module, live)
             .flat_map(|f| &f.blocks)
             .flat_map(|b| &b.insts)
             .find_map(|i| match &i.kind {

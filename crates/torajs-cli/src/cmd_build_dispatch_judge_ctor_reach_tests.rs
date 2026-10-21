@@ -20,7 +20,7 @@ fn keyed_read(make_key: impl FnOnce(&mut Module, &mut Function) -> ValueId) -> b
         None,
     );
     m.add_function(f);
-    ctor_cell_reachable(&m, false)
+    ctor_cell_reachable(&m, &vec![true; m.funcs.len()], false)
 }
 
 #[test]

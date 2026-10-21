@@ -77,8 +77,8 @@ const KEY_WALKERS: [&str; 2] = ["__torajs_anyv_get_property_descriptors", "__tor
 /// True when some call in `module` can reach a protocol method under
 /// an id the judgment scan does not observe (see the module doc).
 /// `diag` names the first reason.
-pub(crate) fn unseen_protocol_call(module: &Module, diag: bool) -> bool {
-    for f in &module.funcs {
+pub(crate) fn unseen_protocol_call(module: &Module, live: &[bool], diag: bool) -> bool {
+    for f in crate::cmd_build_dispatch_judge_callee::live_funcs(module, live) {
         if let Some(why) = unseen_in(module, f) {
             if diag {
                 eprintln!("[judge] regexp unseen protocol call: {} {why}", f.name);

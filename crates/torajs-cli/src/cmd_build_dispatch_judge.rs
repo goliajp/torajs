@@ -260,9 +260,10 @@ fn judge_ns_static(
     }
 }
 
-/// Scan the lowered module and judge the stub set. Returns the
-/// no-stub judgment (bits 0) on any conservative-fallback trigger.
-pub(crate) fn judge(module: &Module) -> DispatchJudgment {
+/// Scan the lowered module's fns the link keeps (`live`, by FuncId)
+/// and judge the stub set. Returns the no-stub judgment (bits 0) on
+/// any conservative-fallback trigger.
+pub(crate) fn judge(module: &Module, live: &[bool]) -> DispatchJudgment {
     let diag_env = std::env::var_os("TORAJS_DISPATCH_JUDGE_DIAG");
     let diag = diag_env.as_deref().is_some_and(|v| v != "0");
     // level 2: dump every distinct runtime symbol the module calls.
@@ -282,7 +283,7 @@ pub(crate) fn judge(module: &Module) -> DispatchJudgment {
     let mut match_symbol = (false, false);
 
     let mut memo = CalleeMemo::new(module);
-    for f in &module.funcs {
+    for f in crate::cmd_build_dispatch_judge_callee::live_funcs(module, live) {
         let synth_error_fn = is_synth_error_fn(&f.name);
         for b in &f.blocks {
             for inst in &b.insts {
@@ -350,9 +351,10 @@ pub(crate) fn judge(module: &Module) -> DispatchJudgment {
         }
     }
 
-    regexp_world = regexp_world || typed_regexp_opens(module, regexp_typed, diag);
+    regexp_world = regexp_world || typed_regexp_opens(module, live, regexp_typed, diag);
     if !ns_world && !fallback {
-        ns_world = crate::cmd_build_dispatch_judge_ctor_reach::ctor_cell_reachable(module, diag);
+        ns_world =
+            crate::cmd_build_dispatch_judge_ctor_reach::ctor_cell_reachable(module, live, diag);
     }
     // computed just above unless a fallback trigger skipped it
     let ctor_read = (ns_world || !fallback).then_some(ns_world);
@@ -399,7 +401,7 @@ pub(crate) fn judge(module: &Module) -> DispatchJudgment {
     // program spells or cannot pin
     let unseen = fallback
         && (regexp_world || regexp_ctor)
-        && crate::cmd_build_dispatch_judge_regexp_unseen::unseen_protocol_call(module, diag);
+        && crate::cmd_build_dispatch_judge_regexp_unseen::unseen_protocol_call(module, live, diag);
     let rx = RegexpWorld {
         world: regexp_world || regexp_ctor,
         ctor: regexp_ctor,
@@ -409,7 +411,7 @@ pub(crate) fn judge(module: &Module) -> DispatchJudgment {
         // a minted symbol's `constructor` read is the Symbol ctor
         match_symbol: match_symbol.0 || (match_symbol.1 && (ns_world || fallback)),
     }
-    .verdict(module, diag);
+    .verdict(module, live, diag);
     // a fallback trigger or a direct arm reference stubs only what
     // the RegExp world's own judgment proves
     let quiet = !(fallback || printer_ref);

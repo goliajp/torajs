@@ -21,17 +21,19 @@
 use std::collections::HashMap;
 use std::hash::Hash;
 
-use torajs_core::ssa::{Function, InstKind, Module, Operand, Terminator, Type, ValueId};
+use torajs_core::ssa::{FuncId, Function, InstKind, Module, Operand, Terminator, Type, ValueId};
 
 use crate::cmd_build_value_escape_slots::{int_views, slot_types, slot_value};
 
-/// The first escape found for each tracked key, as a readable reason.
-/// `key_of` picks the tracked types (and keys them); `sink` names the
-/// runtime kernels a tracked value may be handed to.
-pub(crate) fn escapes<K: Copy + Eq + Hash>(
-    module: &Module,
+/// The first escape found for each tracked key in `funcs`, as a
+/// readable reason. `key_of` picks the tracked types (and keys them);
+/// `sink` names the callees (by id and name) a tracked value may be
+/// handed to.
+pub(crate) fn escapes<'m, K: Copy + Eq + Hash>(
+    module: &'m Module,
+    funcs: impl IntoIterator<Item = &'m Function>,
     key_of: impl Fn(Type) -> Option<K>,
-    sink: impl Fn(&str) -> bool,
+    sink: impl Fn(FuncId, &str) -> bool,
 ) -> HashMap<K, String> {
     let mut out = HashMap::new();
     let global_ty: HashMap<&str, Type> = module
@@ -39,8 +41,15 @@ pub(crate) fn escapes<K: Copy + Eq + Hash>(
         .iter()
         .map(|g| (g.name.as_str(), g.ty))
         .collect();
-    for f in &module.funcs {
+    for f in funcs {
         let slots = slot_types(f, &global_ty);
+        // a fn with neither a value nor a slot (local or global) of a
+        // tracked type has nothing to let out
+        if !f.values.iter().any(|v| key_of(v.ty).is_some())
+            && slots.values().flatten().all(|t| key_of(*t).is_none())
+        {
+            continue;
+        }
         let views = int_views(f, &key_of);
         FnScan {
             module,
@@ -70,7 +79,7 @@ impl<K, KF, SF> FnScan<'_, K, KF, SF>
 where
     K: Copy + Eq + Hash,
     KF: Fn(Type) -> Option<K>,
-    SF: Fn(&str) -> bool,
+    SF: Fn(FuncId, &str) -> bool,
 {
     fn ty(&self, op: &Operand) -> Option<Type> {
         match op {
@@ -89,10 +98,6 @@ where
             Operand::Value(v) => self.slots.get(v).copied().flatten().and_then(self.key_of),
             _ => None,
         }
-    }
-
-    fn is_slot(&self, op: &Operand) -> bool {
-        matches!(op, Operand::Value(v) if self.slots.contains_key(v))
     }
 
     fn escape(&mut self, key: K, why: impl FnOnce() -> String) {
@@ -258,9 +263,6 @@ where
         {
             self.escape(k, || format!("stored through {ptr:?}"));
         }
-        if let Some(k) = self.key(ptr).filter(|_| self.is_slot(ptr)) {
-            self.escape(k, || "slot of a tracked value".into());
-        }
     }
 
     /// A derivation (`Copy`, `Identity`, a `Select` arm) keeps the
@@ -277,9 +279,9 @@ where
         }
     }
 
-    fn call(&mut self, fid: torajs_core::ssa::FuncId, args: &[Operand]) {
+    fn call(&mut self, fid: FuncId, args: &[Operand]) {
         let callee = &self.module.funcs[fid.0 as usize];
-        let kept = (self.sink)(&callee.name);
+        let kept = (self.sink)(fid, &callee.name);
         for (i, a) in args.iter().enumerate() {
             if let Some(k) = self.slot_key(a) {
                 self.escape(k, || format!("slot handed to `{}` arg {i}", callee.name));

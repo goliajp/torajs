@@ -45,7 +45,7 @@
 //! `TORAJS_USER_GC_OFF=1` disables the pass (A/B pricing);
 //! `TORAJS_USER_GC_DIAG=1` prints the dead set to stderr.
 
-use crate::exec::LinkConfig;
+use crate::exec::{LinkConfig, UserClassLayoutEntry, UserVtableEntry};
 use crate::fn_addr_syms::parse_fn_addr_alias;
 use torajs_codegen::CompiledFunction;
 use torajs_codegen::reloc::{CallTarget, RelocKind};
@@ -99,17 +99,30 @@ pub(crate) fn drop_stripped_fn_name_rows(
 
 /// Every `FuncId` a link-emitted table takes the address of.
 pub(crate) fn table_root_fids(cfg: &LinkConfig) -> Vec<usize> {
-    table_root_fids_with(cfg, &cfg.class_layouts)
+    table_root_fids_with(&cfg.vtable_globals, &cfg.class_layouts)
+}
+
+/// The live bit per fn of `funcs` under the strip
+/// [`strip_dead_user_fns`] runs over a config carrying `vtables` and
+/// `class_layouts`, without stripping: for a caller that must look
+/// only at the fns the link keeps, before the config exists.
+pub fn live_user_fns(
+    funcs: &[CompiledFunction],
+    entry: &str,
+    vtables: &[UserVtableEntry],
+    class_layouts: &[UserClassLayoutEntry],
+) -> Vec<bool> {
+    live_with_roots(funcs, entry, &table_root_fids_with(vtables, class_layouts))
 }
 
 /// [`table_root_fids`] against a class-layout table other than the
 /// config's own — the elide pre-pass re-roots after dropping the
 /// twin column.
 pub(crate) fn table_root_fids_with(
-    cfg: &LinkConfig,
-    class_layouts: &[crate::exec::UserClassLayoutEntry],
+    vtables: &[UserVtableEntry],
+    class_layouts: &[UserClassLayoutEntry],
 ) -> Vec<usize> {
-    cfg.vtable_globals
+    vtables
         .iter()
         .flat_map(|vt| vt.slot_syms.iter().flatten())
         .filter_map(|s| parse_fn_addr_alias(s))
@@ -133,6 +146,33 @@ pub(crate) fn strip_with_roots(
     entry: &str,
     table_root_fids: &[usize],
     diag: bool,
+) -> Vec<bool> {
+    let live = live_with_roots(funcs, entry, table_root_fids);
+    let mut dead_fns = 0usize;
+    let mut dead_bytes = 0usize;
+    for (i, f) in funcs.iter_mut().enumerate() {
+        if live[i] || f.bytes.is_empty() {
+            continue;
+        }
+        dead_fns += 1;
+        dead_bytes += f.bytes.len();
+        if diag {
+            eprintln!("[user-gc] dead: {} ({} bytes)", f.name, f.bytes.len());
+        }
+        f.bytes.clear();
+        f.relocs.clear();
+    }
+    if diag {
+        eprintln!("[user-gc] {dead_fns} fns / {dead_bytes} bytes stripped");
+    }
+    live
+}
+
+/// The reachability walk of [`strip_with_roots`].
+fn live_with_roots(
+    funcs: &[CompiledFunction],
+    entry: &str,
+    table_root_fids: &[usize],
 ) -> Vec<bool> {
     if std::env::var_os("TORAJS_USER_GC_OFF").is_some() {
         return vec![true; funcs.len()];
@@ -181,23 +221,6 @@ pub(crate) fn strip_with_roots(
         for j in targets {
             mark(j, &mut live, &mut stack);
         }
-    }
-    let mut dead_fns = 0usize;
-    let mut dead_bytes = 0usize;
-    for (i, f) in funcs.iter_mut().enumerate() {
-        if live[i] || f.bytes.is_empty() {
-            continue;
-        }
-        dead_fns += 1;
-        dead_bytes += f.bytes.len();
-        if diag {
-            eprintln!("[user-gc] dead: {} ({} bytes)", f.name, f.bytes.len());
-        }
-        f.bytes.clear();
-        f.relocs.clear();
-    }
-    if diag {
-        eprintln!("[user-gc] {dead_fns} fns / {dead_bytes} bytes stripped");
     }
     live
 }

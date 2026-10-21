@@ -4,7 +4,7 @@
 //! so the answers are worked out once per callee
 //! ([`CalleeMemo`]) rather than once per call.
 
-use torajs_core::ssa::{FuncId, Module};
+use torajs_core::ssa::{FuncId, Function, Module};
 
 use crate::cmd_build_dispatch_judge::{
     ANY_WRITERS, FALLBACK_PREFIXES, MID_CARRIERS, NS_WORLD_PREFIXES, PREFIX_FAMILIES, PRINT_WORLD,
@@ -81,4 +81,18 @@ impl CalleeMemo {
         self.0[fid.0 as usize]
             .get_or_insert_with(|| CalleeFacts::of(&module.funcs[fid.0 as usize].name))
     }
+}
+
+/// The fns of `module` the link keeps (`live`, by FuncId): every scan
+/// of the judgment walks only these.
+pub(crate) fn live_funcs<'m>(
+    module: &'m Module,
+    live: &'m [bool],
+) -> impl Iterator<Item = &'m Function> {
+    module
+        .funcs
+        .iter()
+        .zip(live)
+        .filter(|(_, l)| **l)
+        .map(|(f, _)| f)
 }

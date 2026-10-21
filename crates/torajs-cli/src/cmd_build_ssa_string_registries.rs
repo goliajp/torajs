@@ -17,6 +17,7 @@
 //!   encoding off the header — a UTF-16 name printed as half its
 //!   bytes under the payload alias).
 
+use torajs_codegen::CompiledFunction;
 use torajs_core::ssa::{FuncId, Module, Type};
 use torajs_link::exec::{
     UserClassLayoutEntry, UserClassNameEntry, UserDataGlobalEntry, UserFnNameEntry,
@@ -133,11 +134,19 @@ pub(crate) fn build_data_globals(ssa_module: &Module) -> Vec<UserDataGlobalEntry
 /// (now removed): the outer-ptr was NULL so the cycle collector
 /// short-circuited on class-bearing programs. e8 lands real bytes
 /// + dyld rebase via the e7b chained-fixups TextRebaseScope.
-pub(crate) fn build_class_layout_entries(ssa_module: &Module) -> Vec<UserClassLayoutEntry> {
+///
+/// A row whose twin column the judgment drops points it at a reject
+/// stub appended to `funcs` ([`crate::cmd_build_twin_rows`]).
+pub(crate) fn build_class_layout_entries(
+    ssa_module: &Module,
+    funcs: &mut Vec<CompiledFunction>,
+) -> Vec<UserClassLayoutEntry> {
+    let twins = crate::cmd_build_twin_rows::twin_replacements(ssa_module, funcs);
     ssa_module
         .class_layouts
         .iter()
-        .map(|cl| UserClassLayoutEntry {
+        .zip(twins)
+        .map(|(cl, twin_stub)| UserClassLayoutEntry {
             child_offsets: cl.child_offsets.clone(),
             is_named: cl.is_named,
             is_generic: cl.is_generic,
@@ -173,7 +182,7 @@ pub(crate) fn build_class_layout_entries(ssa_module: &Module) -> Vec<UserClassLa
                         | (u32::from(mm.twin_primary) << 1)
                         | (u32::from(mm.declared_here) << 2)
                         | (u32::from(mm.touches_private) << 3),
-                    twin_fn_id: mm.twin_adapter_fid.map(|f| f.0),
+                    twin_fn_id: mm.twin_adapter_fid.map(|f| twin_stub.unwrap_or(f.0)),
                 })
                 .collect(),
         })

@@ -231,16 +231,18 @@ pub(crate) fn build_link_config(
     let mut t = PhaseTimer::start(1);
     let mut funcs = compile_module_funcs(ssa_module);
     t.tick("compile_module_funcs");
-    // S2-5 blade 2b: judge which dispatch families the program can
-    // never enter and stub their arm seams (cmd_build_dispatch_judge).
-    // TORAJS_DISPATCH_STUB_ALL / _OFF stub every family / none; _NS and
-    // TORAJS_LINK_STUB_FORCE=<sym,…> force single seams (diagnostics).
+    // S2-5 blade 2b: stub the arms of the families the program never enters (dispatch judge);
+    // TORAJS_DISPATCH_STUB_ALL / _OFF / _NS, TORAJS_LINK_STUB_FORCE=<sym,…> force (diagnostics).
+    let class_layouts = build_class_layout_entries(ssa_module, &mut funcs);
+    let vtable_globals = build_vtable_globals(ssa_module);
     let mut judged_stubs = Vec::new();
     if crate::cmd_build_dispatch_stubs::stub_all_enabled() {
         crate::cmd_build_dispatch_stubs::append_dispatch_stubs(&mut funcs, u16::MAX, true, true);
         judged_stubs = crate::cmd_build_dispatch_stubs::regexp_world_stubs(true, false, true, true);
     } else if !crate::cmd_build_dispatch_stubs::stub_off() {
-        let j = crate::cmd_build_dispatch_judge::judge(ssa_module);
+        let live =
+            torajs_link::user_gc::live_user_fns(&funcs, ENTRY_SYM, &vtable_globals, &class_layouts);
+        let j = crate::cmd_build_dispatch_judge::judge(ssa_module, &live);
         crate::cmd_build_dispatch_stubs::append_dispatch_stubs(
             &mut funcs,
             j.stub_arm_bits,
@@ -260,8 +262,6 @@ pub(crate) fn build_link_config(
     let mut strings = build_user_strings(ssa_module);
     let class_names = build_class_names(ssa_module, &mut strings);
     let data_globals = build_data_globals(ssa_module);
-    let class_layouts = build_class_layout_entries(ssa_module);
-    let vtable_globals = build_vtable_globals(ssa_module);
     let fn_name_globals = build_fn_name_globals(ssa_module);
 
     let mut cfg = LinkConfig {

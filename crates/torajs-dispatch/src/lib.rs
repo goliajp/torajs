@@ -197,8 +197,9 @@ pub unsafe extern "C" fn __torajs_dispatch_stub_reject_ptr(
 
 /// Record the named TypeError for `fam_id`. It rides x7 (stamped by
 /// the stub's movz): 0..14 = the arm roster order, 16..40 = printer
-/// kernels, 40+ = link-judged exotic slow paths. The name makes a
-/// wrong judgment attributable from the failure line alone.
+/// kernels, 40..=58 = link-judged exotic slow paths, 59 = a class
+/// method row's dropped twin column. The name makes a wrong judgment
+/// attributable from the failure line alone.
 unsafe fn throw_reject(fam_id: u64) {
     let mut msg = [0u8; REJECT_MSG_CAP];
     reject_message(fam_id, &mut msg);
@@ -250,18 +251,20 @@ unsized cell free\
 typed-array keyed any read\
 struct field-read guard\
 struct absent set\
+class method twin\
 method family";
-/// `SUBJECTS[OFF[i]..OFF[i + 1]]` is subject `i` (u16: the string is 517 B).
-const OFF: [u16; 38] = [
+/// `SUBJECTS[OFF[i]..OFF[i + 1]]` is subject `i` (u16: the string is 534 B).
+const OFF: [u16; 39] = [
     0, 3, 6, 12, 18, 24, 28, 34, 38, 45, 51, 57, 63, 70, 74, 77, 99, 113, 130, 149, 172, 198, 216,
-    232, 253, 270, 292, 307, 331, 354, 376, 402, 421, 438, 464, 487, 504, 517,
+    232, 253, 270, 292, 307, 331, 354, 376, 402, 421, 438, 464, 487, 504, 521, 534,
 ];
 const ARM_FAMILY_COUNT: u64 = 15;
 /// Subject indices past the arm families.
 const SUBJ_NS_STATIC: usize = 15;
 const SUBJ_PRINTER: usize = 16;
 const SUBJ_LINK_FIRST: usize = 17;
-const SUBJ_FALLBACK: usize = 36;
+const SUBJ_TWIN: usize = 36;
+const SUBJ_FALLBACK: usize = 37;
 
 const REJECT_METHOD_FAMILY: &str = " method family";
 const REJECT_DISPATCH_TAIL: &str = " stripped (dispatch judgment bug)";
@@ -298,6 +301,7 @@ fn reject_message(fam_id: u64, buf: &mut [u8; REJECT_MSG_CAP]) -> usize {
             "",
             REJECT_LINK_TAIL,
         ),
+        59 => (SUBJ_TWIN, "", REJECT_DISPATCH_TAIL),
         _ => (SUBJ_FALLBACK, "", REJECT_DISPATCH_TAIL),
     };
     // Filled through the iterator forms rather than range indexing:
@@ -372,6 +376,7 @@ mod tests {
         );
         assert_line(57, "struct field-read guard stripped (link judgment bug)");
         assert_line(58, "struct absent set stripped (link judgment bug)");
+        assert_line(59, "class method twin stripped (dispatch judgment bug)");
         assert_line(u64::MAX, "method family stripped (dispatch judgment bug)");
     }
 

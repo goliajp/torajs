@@ -176,7 +176,7 @@ pub(crate) fn class_register_sites(
 }
 
 /// Do every class's cells stay inside their prologue, in every fn?
-fn class_cells_stay_private(module: &Module) -> bool {
+pub(crate) fn class_cells_stay_private(module: &Module) -> bool {
     let diag = std::env::var_os("TORAJS_CLASS_ELIDE_DIAG").is_some();
     module.funcs.iter().all(|f| match first_escape(module, f) {
         None => true,
