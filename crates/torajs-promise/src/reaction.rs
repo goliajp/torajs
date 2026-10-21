@@ -36,7 +36,6 @@
 
 use core::ffi::c_void;
 use core::ptr;
-use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 
 use crate::layout::{
     CB_INLINE_TAG, Promise, REPR_ANY, REPR_HEAP, REPR_STR, REPR_VOID, RX_CATCH, RX_CLOSURE,
@@ -47,9 +46,11 @@ use crate::pool::__torajs_promise_drop;
 use crate::state::{__torajs_promise_reject, __torajs_promise_resolve};
 use crate::then::{ThenCbI64, call_handler, stamp_result_repr};
 use crate::then_box::{reject_on_pending_throw, settle_handler_return, settle_param};
+use queue::queue_idle;
 use torajs_rc::rc_inc_cell;
 
 pub(crate) mod candidate;
+mod queue;
 pub mod record;
 
 unsafe extern "C" {
@@ -60,11 +61,6 @@ unsafe extern "C" {
         fn_: crate::layout::MicrotaskFn,
         cell: *mut c_void,
     ) -> *mut c_void;
-    /// torajs-microtask — the queue's pop and push counts and its
-    /// job-boundary hook, read in place ([`queue_idle`])
-    static __torajs_microtask_head: AtomicUsize;
-    static __torajs_microtask_tail: AtomicUsize;
-    static __torajs_microtask_kept_clear: AtomicPtr<c_void>;
 }
 
 /// Park the reaction `(kind, cb)` in `derived`, take its stakes and
@@ -321,18 +317,5 @@ unsafe fn settle_into_chain(dp: *mut Promise, ret_repr: u8, value: i64) -> Stake
             __torajs_microtask_enqueue(inline_reaction_dispatch, next as i64);
             Stake::Queued
         }
-    }
-}
-
-/// Nothing is pending behind the running job and no job-boundary hook
-/// is installed: a reaction queued now would be the very next job.
-#[inline(always)]
-unsafe fn queue_idle() -> bool {
-    unsafe {
-        __torajs_microtask_head.load(Ordering::Relaxed)
-            == __torajs_microtask_tail.load(Ordering::Relaxed)
-            && __torajs_microtask_kept_clear
-                .load(Ordering::Relaxed)
-                .is_null()
     }
 }

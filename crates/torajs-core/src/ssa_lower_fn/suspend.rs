@@ -37,11 +37,14 @@ use crate::ast::ExprId;
 use crate::ssa::{InstKind, Operand, SuspendKind, SuspendLane, Type};
 use crate::ssa_lower::LowerCtx;
 use crate::ssa_lower_member_promise_value as pv;
-use crate::ssa_lower_temp_scratch::ThrowTemp;
 
+mod held;
 mod object;
+mod read;
 
+use held::held;
 pub(crate) use object::{cell_of, is_object_cell};
+use read::read_settled;
 
 /// The suspension releases the cell it awaited, so an operand that does
 /// not hand over a reference of its own (a promise a binding, a field
@@ -165,23 +168,6 @@ fn suspend_on(ctx: &mut LowerCtx<'_>, src: Operand, lane: Type) -> Operand {
     settled
 }
 
-/// The settled cell's value word as `want_repr` asks for it; a
-/// rejected source raises its reason here.
-fn read_settled(ctx: &mut LowerCtx<'_>, settled: Operand, want_repr: i64) -> crate::ssa::ValueId {
-    let cb = ctx.cur_block;
-    let raw = ctx.f.append_inst(
-        cb,
-        InstKind::Call(
-            ctx.intrinsics.promise_get_value_as,
-            vec![settled, Operand::ConstI64(want_repr)],
-        ),
-        Type::I64,
-        None,
-    );
-    ctx.emit_throw_check_owned(None, settled, Type::Promise);
-    raw
-}
-
 /// Await a value that is not a thenable: the body keeps the operand
 /// across the suspension, as its own reference (a borrowed read takes
 /// one, since the binding it came from may change while the function
@@ -214,49 +200,4 @@ fn suspend_direct(ctx: &mut LowerCtx<'_>, eid: ExprId, op: Operand, ty: Type) ->
         ctx.emit_throw_check(None);
     }
     op
-}
-
-/// What the body owns at a suspension point: what the throw check
-/// after it releases (no `try` is open around an await here), that is
-/// the owned locals, the temps parked for a throw and the operand the
-/// suspension keeps. The frame's trace reports them while the function
-/// waits there. Left out: a substring view (no cycle passes through
-/// one, and it has no universal header to read), and whatever the
-/// throw path releases by another protocol than a drop of the value
-/// it holds (capture boxes, class cells, relocation slots).
-fn held(ctx: &mut LowerCtx<'_>, kept: Option<(Operand, Type)>) -> Vec<Operand> {
-    let traced = |ty: Type| !ty.is_copy() && ty != Type::Substr;
-    let mut slots: Vec<(crate::ssa::ValueId, Type)> = (ctx.locals.iter())
-        .filter(|(name, info)| {
-            traced(info.ty)
-                && !info.moved
-                && !ctx.stack_alloced_locals.contains(*name)
-                && !ctx.boxed_noncopy_lets.contains(*name)
-                && !(info.ty == Type::Any
-                    && crate::ssa_lower_closure::class_sentinel_name(ctx, name))
-        })
-        .map(|(_, info)| (info.slot, info.ty))
-        .collect();
-    let temps = ctx.temps.throw_live.iter().flatten();
-    let mut held: Vec<Operand> = Vec::new();
-    for t in temps {
-        match t {
-            ThrowTemp::Value(op, ty) if traced(*ty) => held.push(*op),
-            ThrowTemp::Slot(slot, ty) if traced(*ty) => slots.push((*slot, *ty)),
-            _ => {}
-        }
-    }
-    slots.sort_by_key(|(s, _)| s.0);
-    slots.dedup_by_key(|(s, _)| s.0);
-    let cb = ctx.cur_block;
-    for (slot, ty) in slots {
-        let load = InstKind::Load(ty, Operand::Value(slot), 0);
-        held.push(Operand::Value(ctx.f.append_inst(cb, load, ty, None)));
-    }
-    if let Some((op, ty)) = kept
-        && traced(ty)
-    {
-        held.push(op);
-    }
-    held
 }
