@@ -10,7 +10,10 @@
 //! compares. A collision hands a changed body the facts of the old one;
 //! they hold only because every pass keeps facts id-valid (see
 //! `interval::run`: a value redefined in place takes a subset of its old
-//! values, a value whose meaning changes loses its fact).
+//! values, a value whose meaning changes loses its fact). The edge
+//! constraints kept beside the facts have no such guarantee: a collision
+//! hands a changed body the old body's ranges, so they rest on the
+//! fingerprint alone.
 
 use std::borrow::Cow;
 use std::hash::{Hash, Hasher};

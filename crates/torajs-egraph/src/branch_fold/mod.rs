@@ -91,9 +91,14 @@ pub fn fold_branches(
 
 /// The pipeline's facts for a body, with the edge constraints they
 /// were computed under.
-type Seed<'a> = Option<(&'a HashMap<ValueId, NumFact>, &'a Constraints)>;
+type PipelineSeed<'a> = Option<(&'a HashMap<ValueId, NumFact>, &'a Constraints)>;
 
-fn fold_in_function(func: &mut Function, fns: &[String], seed: Seed, stats: &mut BranchFoldStats) {
+fn fold_in_function(
+    func: &mut Function,
+    fns: &[String],
+    seed: PipelineSeed,
+    stats: &mut BranchFoldStats,
+) {
     let dom = DominatorTree::compute(func);
     let la = LoopAnalysis::compute(func, &dom);
     let pe = PointEval::new(func, &dom, &la, fns, seed.map(|s| s.0)).with_edges(seed.map(|s| s.1));
