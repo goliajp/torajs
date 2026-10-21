@@ -276,15 +276,17 @@ pub(crate) fn populate_class_drop_bodies(
 }
 
 /// The class tags of every sid (sorted), and the classes whose layout
-/// holds an array field by their internal name, gathered in one pass over
-/// `class_name_to_tag`.
+/// holds an array field by their internal name.
+type TagsAndNamed<'a> = (HashMap<u32, Vec<u32>>, Vec<(&'a str, u32)>);
+
+/// [`TagsAndNamed`], gathered in one pass over `class_name_to_tag`.
 fn tags_and_named<'a>(
     class_name_to_tag: &'a HashMap<String, u32>,
     sid_of: &impl Fn(&String) -> Option<u32>,
     struct_layouts: &[Vec<(PropKey, Type)>],
     anon_stamp_pool: &crate::ssa_lower_anon_stamp::AnonStampPoolCell,
     class_sids: &HashSet<u32>,
-) -> (HashMap<u32, Vec<u32>>, Vec<(&'a str, u32)>) {
+) -> TagsAndNamed<'a> {
     let mut tags: HashMap<u32, Vec<u32>> = HashMap::new();
     let holds_arr =
         |sid: u32| (struct_layouts[sid as usize].iter()).any(|(_, t)| matches!(t, Type::Arr(_)));

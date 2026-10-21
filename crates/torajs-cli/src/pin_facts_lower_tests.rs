@@ -20,9 +20,11 @@ fn lower(src: &str) -> Module {
     ssa_lower::lower_with_arity(&ast, &artifacts)
 }
 
-/// Each pin as its class, its field, its cluster's method names, its
+/// A pin as its class, its field, its cluster's method names, its
 /// entries' and whether only direct calls enter it.
-fn pins(src: &str) -> Vec<(String, String, Vec<String>, Vec<String>, bool)> {
+type PinRow = (String, String, Vec<String>, Vec<String>, bool);
+
+fn pins(src: &str) -> Vec<PinRow> {
     let m = lower(src);
     let method = |f: &FuncId| {
         let name = &m.funcs[f.0 as usize].name;
@@ -50,7 +52,7 @@ fn pins(src: &str) -> Vec<(String, String, Vec<String>, Vec<String>, bool)> {
         .collect()
 }
 
-fn parser_pin() -> Vec<(String, String, Vec<String>, Vec<String>, bool)> {
+fn parser_pin() -> Vec<PinRow> {
     let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
     vec![(
         "Parser".into(),
