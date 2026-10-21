@@ -62,13 +62,16 @@ impl UnionFind {
     }
 
     pub(super) fn find_frozen(&self, k: &SlotKey) -> SlotKey {
-        let mut cur = k;
-        loop {
-            match self.parent.get(cur) {
-                Some(p) => cur = p,
-                None => return cur.clone(),
-            }
+        self.root_of(k).unwrap_or(k).clone()
+    }
+
+    /// The representative of `k`'s class, unless that is `k` itself.
+    pub(super) fn root_of(&self, k: &SlotKey) -> Option<&SlotKey> {
+        let mut cur = self.parent.get(k)?;
+        while let Some(p) = self.parent.get(cur) {
+            cur = p;
         }
+        Some(cur)
     }
 
     pub(super) fn keys(&self) -> impl Iterator<Item = &SlotKey> {

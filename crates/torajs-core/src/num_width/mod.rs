@@ -356,7 +356,7 @@ pub(crate) fn analyze(
 
     alias_fallthrough_closures(ast, &mut fallthrough_fns);
 
-    let promise_taint = pipeline::join_classes(&mut a);
+    let mut promise_taint = pipeline::join_classes(&mut a);
     cycle::seed_growth_cycles(&a.edges, &mut a.seeds);
     let arith_in_window = magnitude::settle(&mut a);
     analyze_tables::seed_any_and_poison(&mut a);
@@ -366,6 +366,7 @@ pub(crate) fn analyze(
 
     // W-ESC — escape faces on frozen class reps, Elem chains included
     let escapes = hof_receivers::settle(&a, &mut tables.params);
+    promise_taint.keep_containers(std::mem::take(&mut a.containerish));
 
     let mut table = WidthTable::new(
         canon_out,

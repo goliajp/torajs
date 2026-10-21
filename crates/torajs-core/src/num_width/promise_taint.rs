@@ -42,8 +42,9 @@ pub(crate) struct PromiseTaint {
     wide: HashSet<SlotKey>,
     /// The keys the walk found a container in, and their classes, the
     /// classes that keep their form; asked only of a face a promise
-    /// reaches.
-    containerish: Vec<SlotKey>,
+    /// reaches. The analysis hands its set over once it is done
+    /// reading it ([`Self::keep_containers`]).
+    containerish: std::collections::HashSet<SlotKey>,
     held: OnceLock<HashSet<SlotKey>>,
     /// The value point classes outside `faces` one of whose holders is
     /// tainted, built on the first read keyed outside the faces.
@@ -63,19 +64,39 @@ impl PromiseTaint {
     /// which keeps its form (an async body's result point also carries
     /// the `Error` it rejects with)?
     pub(crate) fn widens(&self, uf: &UnionFind, f: &SlotKey) -> bool {
+        self.widens_by(uf, f, &self.containerish)
+    }
+
+    /// [`Self::widens`], the container keys being `containerish`.
+    fn widens_by(
+        &self,
+        uf: &UnionFind,
+        f: &SlotKey,
+        containerish: &std::collections::HashSet<SlotKey>,
+    ) -> bool {
         if self.tainted.is_empty() {
             return false;
         }
         let c = canon_key_frozen(uf, f);
-        self.reaches_from(uf, f, &c) && !self.held(uf).contains(&c)
+        self.reaches_from(uf, f, &c) && !self.held(uf, containerish).contains(&c)
     }
 
-    fn held(&self, uf: &UnionFind) -> &HashSet<SlotKey> {
+    fn held(
+        &self,
+        uf: &UnionFind,
+        containerish: &std::collections::HashSet<SlotKey>,
+    ) -> &HashSet<SlotKey> {
         self.held.get_or_init(|| {
-            (self.containerish.iter())
+            (containerish.iter())
                 .map(|k| canon_key_frozen(uf, k))
                 .collect()
         })
+    }
+
+    /// Take over the analysis's container keys, which it no longer
+    /// adds to or reads, for lowering's reads.
+    pub(super) fn keep_containers(&mut self, containerish: std::collections::HashSet<SlotKey>) {
+        self.containerish = containerish;
     }
 
     fn reaches(&self, uf: &UnionFind, f: &SlotKey) -> bool {
@@ -205,14 +226,14 @@ pub(super) fn seed_untracked_points(a: &mut Analysis) -> PromiseTaint {
         tainted,
         faces,
         wide,
-        containerish: a.containerish.iter().cloned().collect(),
+        containerish: Default::default(),
         held: OnceLock::new(),
         wide_unnoted: OnceLock::new(),
         #[cfg(torajs_checks)]
         awaits,
     };
     let points: Vec<SlotKey> = (a.promise_reads.faces.iter())
-        .filter(|f| taint.widens(&a.uf, f))
+        .filter(|f| taint.widens_by(&a.uf, f, &a.containerish))
         .map(|f| canon_key_frozen(&a.uf, f))
         .collect();
     a.seeds.extend(points);
