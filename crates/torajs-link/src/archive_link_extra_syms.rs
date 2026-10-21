@@ -13,7 +13,7 @@ use torajs_codegen::id_hash::HashSet;
 
 use crate::class_name_table_layout::class_name_table_extra_defined_syms;
 use crate::exec::LinkConfig;
-use crate::fn_addr_syms::fn_addr_alias_index;
+use crate::fn_addr_syms::fn_addr_alias_index_bytes;
 use crate::fn_name_table_layout::fn_name_table_extra_defined_syms;
 use crate::user_class_layouts_layout::user_class_layouts_extra_defined_syms;
 use crate::user_data_globals_layout::user_data_globals_extra_defined_syms;
@@ -69,16 +69,16 @@ pub struct ExtraDefined {
 }
 
 impl ExtraDefined {
-    fn is_fn_alias(&self, name: &str) -> bool {
-        fn_addr_alias_index(name).is_some_and(|i| i < self.fn_count)
+    fn is_fn_alias(&self, name: &[u8]) -> bool {
+        fn_addr_alias_index_bytes(name).is_some_and(|i| i < self.fn_count)
     }
 
     /// These names and the user fns' own, as one membership test.
     pub(crate) fn with_user_fns<'a>(&'a self, funcs: &'a [CompiledFunction]) -> UserDefined<'a> {
         let names = funcs
             .iter()
-            .map(|f| f.name.as_str())
-            .chain(self.names.iter().map(String::as_str))
+            .map(|f| f.name.as_bytes())
+            .chain(self.names.iter().map(String::as_bytes))
             .collect();
         UserDefined { names, extra: self }
     }
@@ -87,12 +87,17 @@ impl ExtraDefined {
 /// A name a user fn or the link defines: a member's reference to it
 /// never pulls the archive's copy.
 pub(crate) struct UserDefined<'a> {
-    names: HashSet<&'a str>,
+    names: HashSet<&'a [u8]>,
     extra: &'a ExtraDefined,
 }
 
 impl UserDefined<'_> {
     pub(crate) fn contains(&self, name: &str) -> bool {
+        self.contains_bytes(name.as_bytes())
+    }
+
+    /// [`Self::contains`] of a name read as bytes.
+    pub(crate) fn contains_bytes(&self, name: &[u8]) -> bool {
         self.names.contains(name) || self.extra.is_fn_alias(name)
     }
 }

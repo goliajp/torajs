@@ -225,7 +225,7 @@ pub(crate) fn compute_required_members_cached<'a>(
 
     while let Some(row) = worklist.pop() {
         // a name the user defines never pulls the archive's copy
-        if !visited.insert(row) || defined_in_user.contains(image.symbol(row as usize).name) {
+        if !visited.insert(row) || defined_in_user.contains_bytes(image.symbol_name(row as usize)) {
             continue;
         }
         let key = image.symbol_owner(row as usize);

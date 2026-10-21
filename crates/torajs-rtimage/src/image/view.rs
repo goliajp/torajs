@@ -174,6 +174,16 @@ impl<'a> Image<'a> {
         }
     }
 
+    /// The name of row `i` as bytes, read without the UTF-8 check
+    /// [`Self::symbol`] makes (the builder writes every name from a
+    /// `&str`).
+    pub fn symbol_name(&self, i: usize) -> &'a [u8] {
+        let s = self.syms_off + i * SYM_LEN;
+        let (off, len) = (self.u32_at(s), self.u32_at(s + 4));
+        let names: &'a [u8] = self.names;
+        &names[off..off + len]
+    }
+
     /// `(archive_idx, member_idx)` of row `i`, without reading its name.
     pub fn symbol_owner(&self, i: usize) -> (usize, usize) {
         let s = self.syms_off + i * SYM_LEN;

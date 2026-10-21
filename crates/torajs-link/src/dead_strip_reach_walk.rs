@@ -231,15 +231,18 @@ impl<'w, 'a> Walker<'w, 'a> {
                 self.sym_node(row, sym_loc)
             };
         }
-        let name = self.merged.image.symbol(row as usize).name;
-        if self.defined_in_user.contains(name) {
+        let image = &self.merged.image;
+        let name = image.symbol_name(row as usize);
+        if self.defined_in_user.contains_bytes(name) {
             self.user_rows.insert(row);
-            self.user_refs.insert(name.to_string());
+            self.user_refs
+                .insert(image.symbol(row as usize).name.into());
             return None;
         }
         let node = self.sym_node(row, sym_loc);
         if node.is_none() {
-            self.unresolved.insert(name.to_string());
+            self.unresolved
+                .insert(image.symbol(row as usize).name.into());
         }
         node
     }
@@ -282,7 +285,7 @@ impl<'w, 'a> Walker<'w, 'a> {
         }
         let loc = &mut sym_loc[row as usize];
         if *loc == 0 {
-            *loc = match r.defined(image.symbol(row as usize).name) {
+            *loc = match r.defined_bytes(image.symbol_name(row as usize)) {
                 None => KNOWN,
                 Some((sect, value)) => {
                     let atom = atom_at(r, sect, value).map_or(0, |a| u64::from(a) + 1);

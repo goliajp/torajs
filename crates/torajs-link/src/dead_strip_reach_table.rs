@@ -76,8 +76,13 @@ fn u64_at(b: &[u8], off: usize) -> u64 {
 impl<'a> MemberReach<'a> {
     /// `(n_sect, n_value)` of the last `N_SECT` row named `name`.
     pub(crate) fn defined(&self, name: &str) -> Option<(u8, u64)> {
+        self.defined_bytes(name.as_bytes())
+    }
+
+    /// [`Self::defined`] of a name read as bytes.
+    pub(crate) fn defined_bytes(&self, name: &[u8]) -> Option<(u8, u64)> {
         let d = &self.defined;
-        d.binary_search_by(|e| e.0.cmp(name))
+        d.binary_search_by(|e| e.0.as_bytes().cmp(name))
             .ok()
             .map(|k| (d[k].1, d[k].2))
     }

@@ -33,12 +33,20 @@ pub fn parse_fn_addr_alias(sym: &str) -> Option<usize> {
 /// `<i>` when `sym` is either alias exactly as codegen spells it
 /// (`format!("{prefix}{i}")`: decimal, no sign, no leading zero).
 pub fn fn_addr_alias_index(sym: &str) -> Option<usize> {
+    fn_addr_alias_index_bytes(sym.as_bytes())
+}
+
+/// [`fn_addr_alias_index`] of a name read as bytes.
+pub(crate) fn fn_addr_alias_index_bytes(sym: &[u8]) -> Option<usize> {
     let t = FN_ADDR_ALIAS_PREFIXES
         .iter()
-        .find_map(|p| sym.strip_prefix(p))?;
+        .find_map(|p| sym.strip_prefix(p.as_bytes()))?;
     let canonical =
-        !t.is_empty() && t.bytes().all(|b| b.is_ascii_digit()) && (t == "0" || !t.starts_with('0'));
-    canonical.then(|| t.parse().ok()).flatten()
+        !t.is_empty() && t.iter().all(u8::is_ascii_digit) && (t == b"0" || t[0] != b'0');
+    // ASCII digits only, so a str
+    canonical
+        .then(|| std::str::from_utf8(t).ok()?.parse().ok())
+        .flatten()
 }
 
 /// S2-5 blade 2 prereq — user-fn NAME → vaddr registration

@@ -396,6 +396,7 @@ mod tests {
         assert_eq!(v.symbol_count(), syms.len());
         for (i, s) in syms.iter().enumerate() {
             assert_eq!(v.find_symbol(s.name), Some(i));
+            assert_eq!(v.symbol_name(i), s.name.as_bytes());
             assert_eq!(v.symbol_owner(i), (s.archive_idx, s.member_idx));
         }
         for miss in ["", "_", "_ab", "_core", "_core_x0", "_zz", "~"] {
