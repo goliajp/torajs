@@ -90,3 +90,26 @@ fn what_tsc_accepts_still_compiles() {
          console.log(s.toUpperCase(), m);\n",
     );
 }
+
+const HELD_SHAPE: &str = "type Shape = { w: number };\nconst raw: any = { w: 2 };\n\
+                          const s: Shape = raw;\n";
+
+#[test]
+fn a_held_object_flows_out_at_its_declared_type() {
+    refused(
+        &format!("{HELD_SHAPE}const t: string = s;\n"),
+        "type mismatch on `t`: declared String, init has",
+    );
+    refused(
+        &format!("{HELD_SHAPE}function g(a: number) {{ return a; }}\ng(s);\n"),
+        "argument 0: expected Number, got",
+    );
+    refused(
+        &format!("{HELD_SHAPE}function h(): string {{ return s; }}\n"),
+        "return type mismatch: function expects String, got",
+    );
+    accepted(&format!(
+        "{HELD_SHAPE}const u: Shape = s;\nconst v: any = s;\n\
+         function g(a: Shape): number {{ return a.w; }}\nconsole.log(g(s), u.w, v, s.w);\n"
+    ));
+}

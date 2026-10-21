@@ -250,7 +250,8 @@ pub(crate) fn check(
 }
 
 /// A read of a binding that holds an `any` value types as `any` unless
-/// a member access reads through it (`crate::check_stmt_let_decl::held_any`).
+/// a member access reads through it (`crate::check_stmt_let_decl::held_any`);
+/// its declared type is kept for the TypeScript rules.
 fn held_face(
     checker: &mut Checker,
     ast: &crate::ast::Ast,
@@ -259,6 +260,7 @@ fn held_face(
     ty: Type,
 ) -> Type {
     if held && !checker.held_any.is_receiver(ast, eid) {
+        checker.held_any.reads.insert(eid, ty);
         Type::Any
     } else {
         ty
