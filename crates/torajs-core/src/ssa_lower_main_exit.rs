@@ -59,7 +59,7 @@ pub(crate) fn emit_exit_code(ctx: &mut LowerCtx) -> crate::ssa::ValueId {
 }
 
 /// Leave the process with `exit_code`: `call __torajs_process_exit`
-/// (flush stdout and stderr, census lines under cfg, libc `exit`). It
+/// (flush stdout and stderr, census lines under cfg, the exit syscall). It
 /// never returns; the `ret` after it only closes the block. Every way
 /// out of the top level ends here: the fall-through end of `main`,
 /// the uncaught throw, and `process.exit(n)` itself.

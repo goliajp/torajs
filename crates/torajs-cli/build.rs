@@ -6,6 +6,9 @@
 
 fn main() {
     println!("cargo::rerun-if-changed=build.rs");
+    // Opt-in flag the census build sets (RUSTFLAGS=--cfg=torajs_census);
+    // this crate has no [lints] table, so it declares the name itself.
+    println!("cargo::rustc-check-cfg=cfg(torajs_census)");
     let mut n = 0;
     for (key, path) in std::env::vars() {
         if let Some(name) = key.strip_prefix("DEP_TORAJS_RUNTIME_") {

@@ -3,7 +3,7 @@
 //! Layer-3 substrate (P7.h-proc, 2026-05-24) — replaces the
 //! `process_*` family in `runtime_str.c`. Covers:
 //!
-//! - `process.exit(code)` — `libc::exit` (no return)
+//! - `process.exit(code)` — the exit syscall (no return)
 //! - `process.cwd() → string` — `fcntl(open("."), F_GETPATH, buf)`
 //!   via torajs-syscall (XNU has no `getcwd` syscall — the orthodox
 //!   libc impl is exactly this open/fcntl/close trio)
@@ -16,19 +16,14 @@
 //! - `process.stdout.write(str)` — libc `printf` (shared stdio buffer)
 //! - `process.stderr.write(str)` — libc `write(2)` direct to fd 2
 //!
-//! All 8 fns are thin libc wrappers (per-fn body ≤ 20 LOC) — kept
-//! in one file under the "thin-interface fn group" exception
-//! (otherwise the "one file = one fn doing one thing" polish rule
-//! would force a per-fn split).
+//! All 8 fns are thin wrappers (per-fn body ≤ 20 LOC), kept in one
+//! file as a thin-interface fn group rather than one file per fn.
 //!
 //! ## Buffering
 //!
-//! `stdout.write` goes through `printf` to share the C stdio stdout
-//! buffer with `print_i64` / `print_bool` / `__torajs_str_print` (so
-//! mixed write sequences don't reorder). `stderr.write` goes
-//! directly to fd 2 via `write(2)` — stderr is conventionally
-//! unbuffered (line-buffered for TTYs at most), so kernel ordering
-//! is preserved without an explicit `fflush`.
+//! `stdout.write` goes through torajs-io's line buffer; `stderr.write`
+//! flushes it, then writes fd 2 directly, so `2>&1` keeps the caller's
+//! order. The exit flushes it last.
 
 use core::ffi::{c_char, c_void};
 use torajs_mutex::Mutex;
@@ -41,7 +36,6 @@ const STDERR_FILENO: i32 = 2;
 const PATH_MAX_LEN: usize = 4096;
 
 unsafe extern "C" {
-    fn exit(code: i32) -> !;
     fn strlen(s: *const c_char) -> usize;
     fn write(fd: i32, buf: *const c_void, n: usize) -> isize;
     // v0.7-A3 Step 14-b — 0-libc buffered stdout writer. Replaces
@@ -159,12 +153,11 @@ mod census {
     }
 }
 
-/// The one way out of a torajs program: `process.exit(code)`, the
-/// end of `main`, and an uncaught throw all call it. Flushes stdout
-/// then stderr (the line buffers hold whatever followed the last
-/// newline), prints the census lines under `--cfg torajs_census`, and
-/// leaves through libc `exit`. The heap is not walked: the process is
-/// going away and no spec-visible effect remains.
+/// The one way out of a program (`process.exit`, the end of `main`, an
+/// uncaught throw): flush stdout then stderr, print the census lines
+/// under `--cfg torajs_census`, leave through the exit syscall. The heap
+/// is not walked. libc `exit` would only import a symbol: the runtime
+/// has no atexit handler and buffers nothing in libc stdio.
 ///
 /// # Safety
 /// Takes no pointer arguments; never returns.
@@ -178,7 +171,7 @@ pub unsafe extern "C" fn __torajs_process_exit(code: i64) -> ! {
         __torajs_cycle_census_dump();
         census::__torajs_process_census_dump();
     }
-    unsafe { exit(code as i32) }
+    torajs_syscall::exit(code as i32)
 }
 
 /// `process.cwd()` → fresh Str. Empty Str on failure. Walks the

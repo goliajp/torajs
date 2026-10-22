@@ -180,18 +180,18 @@ fn compile_module_funcs(ssa_module: &Module) -> Vec<CompiledFunction> {
             cf.name = USER_MAIN_SYM.to_string();
         }
     }
-    // r498 — argv-init on demand: the captured argc/argv/envp
-    // globals are only readable through the `__torajs_process_*`
-    // intrinsic family (`process` / `Bun` are compiler-resolved
-    // namespaces; there is no runtime object that could reach the
-    // registry dynamically), so a program whose compiled fns carry
-    // no such reloc can never observe whether init ran. Skipping
-    // the call lets dead-strip drop the whole torajs-process member.
+    // argv init runs only for a program that can read argc/argv/envp, which only the
+    // `__torajs_process_*` intrinsics do; dead-strip then drops torajs-process. The exit every
+    // program ends in reads none of them, except the entry clock a census build prints.
     let needs_argv = funcs.iter().any(|f| {
         f.relocs.iter().any(|r| match &r.kind {
             RelocKind::CallSite {
                 target: CallTarget::Extern(name),
-            } => name.trim_start_matches('_').starts_with("torajs_process_"),
+            } => {
+                let name = name.trim_start_matches('_');
+                name.starts_with("torajs_process_")
+                    && (name != "torajs_process_exit" || cfg!(torajs_census))
+            }
             _ => false,
         })
     });
