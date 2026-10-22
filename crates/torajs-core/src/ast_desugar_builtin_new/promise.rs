@@ -83,8 +83,14 @@ pub(super) fn rewrite_promise_new(ast: &mut Ast) {
             ast.call_type_args.insert(ExprId(i as u32), type_args);
         }
     }
-    // a promise whose `T` the context names is made by a helper that
-    // returns `Promise<T>`, so the expression is typed where it sits
+    name_helpers(ast, callees);
+}
+
+/// Point each rewritten call's callee at its helper and write the
+/// helpers out. A promise whose `T` the context names is made by a
+/// helper that returns `Promise<T>`, so the expression is typed where
+/// it sits.
+fn name_helpers(ast: &mut Ast, callees: Vec<(ExprId, ExprId)>) {
     let contexts = executor_contexts(ast, |t| settled(t).is_some());
     let mut helpers = BTreeSet::new();
     for (call, callee) in callees {
