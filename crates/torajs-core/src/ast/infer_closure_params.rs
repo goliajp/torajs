@@ -29,7 +29,8 @@ use super::{Ast, Expr, ExprId};
 
 mod replace_cb;
 use replace_cb::seed_replace_cb_anns;
-
+mod sole_bindings;
+pub(super) use sole_bindings::SoleBindings;
 /* Resolve a literal expression's type ann string.
  * - `Array(els)`      → infer `T[]` from els[0]'s shape (literal
  *                       receiver path — `[1,2,3].map(x => ...)`).
@@ -207,6 +208,8 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
             .map(|(_, call, segs)| (call, segs.into_iter().map(Some).collect()))
             .collect();
 
+    // walked on the first site that asks, not for every program
+    let mut sole: Option<SoleBindings> = None;
     let this_anns = super::infer_closure_this_scope::this_anns_by_call(ast);
     let n = ast.exprs.len();
     for i in 0..n {
@@ -254,12 +257,16 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
             continue;
         };
         if matches!(name.as_str(), "then" | "catch") {
+            let promise_tables = super::infer_closure_params_promise::PromiseTables {
+                all_anns: &all_anns,
+                fn_ret_anns: &fn_ret_anns,
+                bindings: sole.get_or_insert_with(|| SoleBindings::collect(ast)),
+            };
             super::infer_closure_params_promise::seed_then_catch_params(
                 ast,
                 obj,
                 &name,
-                &all_anns,
-                &fn_ret_anns,
+                &promise_tables,
                 &closure_args,
                 &fn_user_param_count,
                 &mut param_only_updates,

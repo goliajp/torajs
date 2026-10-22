@@ -17,22 +17,32 @@
 //!   to a recursive resolve of the receiver's chain, seed the param,
 //!   and re-sniff — the second try then succeeds and the ret ann
 //!   propagates. Recursion is bounded by the AST shape.
+//! - A binding annotated `Promise<T>`, or a call of a function whose
+//!   return type is written `Promise<T>` ([`receiver`]).
+
+mod receiver;
+pub(super) use receiver::PromiseTables;
 
 use super::infer_closure_params::infer_lit_ann;
 use super::{Ast, Expr, ExprId, Stmt, infer_return_ann};
 use crate::check_type_of_call_promise_then::is_reject_mint;
+use std::collections::HashMap;
 
 pub(super) fn resolve_promise_inner_ann(
     ast: &Ast,
     eid: ExprId,
-    all_anns: &std::collections::HashMap<String, String>,
-    fn_ret_anns: &std::collections::HashMap<String, Option<String>>,
+    t: &PromiseTables<'_>,
 ) -> Option<String> {
-    let Expr::Call { callee, args } = ast.get_expr(eid) else {
-        return None;
+    let (callee, args) = match ast.get_expr(eid) {
+        Expr::Call { callee, args } => (*callee, args),
+        Expr::Ident(n) => return t.binding_inner(n),
+        _ => return None,
     };
-    let Expr::Member { obj, name } = ast.get_expr(*callee) else {
-        return None;
+    let Expr::Member { obj, name } = ast.get_expr(callee) else {
+        let Expr::Ident(f) = ast.get_expr(callee) else {
+            return None;
+        };
+        return t.call_inner(ast, f);
     };
     match name.as_str() {
         "resolve" | "reject" => {
@@ -40,12 +50,12 @@ pub(super) fn resolve_promise_inner_ann(
                 return None;
             }
             args.first()
-                .and_then(|a| resolve_arg_ann(ast, *a, all_anns))
+                .and_then(|a| resolve_arg_ann(ast, *a, t.all_anns))
         }
         "then" | "catch" => {
-            let src = || source_inner_ann(ast, *obj, all_anns, fn_ret_anns);
-            let ok_leg = |cb| handler_ret_ann(ast, cb, Leg::Fulfil, src, all_anns, fn_ret_anns);
-            let err_leg = |cb| handler_ret_ann(ast, cb, Leg::Reject, src, all_anns, fn_ret_anns);
+            let src = || resolve_promise_inner_ann(ast, *obj, t);
+            let ok_leg = |cb| handler_ret_ann(ast, cb, Leg::Fulfil, src, t);
+            let err_leg = |cb| handler_ret_ann(ast, cb, Leg::Reject, src, t);
             match (name.as_str(), &args[..]) {
                 // §27.2.5.4: the derived promise settles from whichever
                 // handler runs, so its value is either handler's return;
@@ -79,23 +89,6 @@ fn settles_from_two_legs(ast: &Ast, eid: ExprId) -> bool {
     )
 }
 
-/// The value annotation of the promise a `.then` / `.catch` is called
-/// on: a chain or mint [`resolve_promise_inner_ann`] walks, or a binding
-/// declared `Promise<T>`.
-fn source_inner_ann(
-    ast: &Ast,
-    eid: ExprId,
-    all_anns: &std::collections::HashMap<String, String>,
-    fn_ret_anns: &std::collections::HashMap<String, Option<String>>,
-) -> Option<String> {
-    if let Expr::Ident(n) = ast.get_expr(eid) {
-        let ann = all_anns.get(n)?;
-        let inner = ann.strip_prefix("Promise<")?.strip_suffix('>')?;
-        return Some(inner.to_string());
-    }
-    resolve_promise_inner_ann(ast, eid, all_anns, fn_ret_anns)
-}
-
 /// Which settlement a handler argument runs on.
 #[derive(Clone, Copy)]
 enum Leg {
@@ -120,16 +113,16 @@ fn handler_ret_ann(
     cb: ExprId,
     leg: Leg,
     src: impl FnOnce() -> Option<String>,
-    all_anns: &std::collections::HashMap<String, String>,
-    fn_ret_anns: &std::collections::HashMap<String, Option<String>>,
+    t: &PromiseTables<'_>,
 ) -> Option<String> {
+    let fn_ret_anns = t.fn_ret_anns;
     let fn_name = match ast.get_expr(cb) {
         Expr::Closure { fn_name, .. } => fn_name.clone(),
         Expr::Ident(n) if n.starts_with("__closure_") => n.clone(),
         Expr::Null => return pass_through(leg, src),
         Expr::Ident(n) if n == "undefined" => return pass_through(leg, src),
         // a binding of the name shadows the top-level function
-        Expr::Ident(n) if !all_anns.contains_key(n) => return fn_ret_anns.get(n)?.clone(),
+        Expr::Ident(n) if !t.all_anns.contains_key(n) => return fn_ret_anns.get(n)?.clone(),
         _ => return None,
     };
     if let Some(Some(r)) = fn_ret_anns.get(&fn_name) {
@@ -215,7 +208,7 @@ fn sniff_body_with_param_seed(ast: &Ast, fn_name: &str, param_inner_ann: &str) -
             {
                 p.type_ann = Some(param_inner_ann.to_string());
             }
-            return infer_return_ann(&ast.exprs, body, &synth, &std::collections::HashMap::new());
+            return infer_return_ann(&ast.exprs, body, &synth, &HashMap::new());
         }
     }
     None
@@ -223,11 +216,7 @@ fn sniff_body_with_param_seed(ast: &Ast, fn_name: &str, param_inner_ann: &str) -
 
 /// Best-effort type annotation for an expression flowing into a
 /// `Promise.resolve/reject(arg)` mint — the arg's static shape.
-fn resolve_arg_ann(
-    ast: &Ast,
-    eid: ExprId,
-    all_anns: &std::collections::HashMap<String, String>,
-) -> Option<String> {
+fn resolve_arg_ann(ast: &Ast, eid: ExprId, all_anns: &HashMap<String, String>) -> Option<String> {
     match ast.get_expr(eid) {
         Expr::Ident(n) => all_anns.get(n).cloned(),
         _ => infer_lit_ann(ast, eid),
@@ -275,18 +264,16 @@ fn reason_position(method: &str, arg_idx: usize) -> bool {
     method == "catch" || arg_idx >= 1
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(super) fn seed_then_catch_params(
     ast: &Ast,
     obj: ExprId,
     method: &str,
-    all_anns: &std::collections::HashMap<String, String>,
-    fn_ret_anns: &std::collections::HashMap<String, Option<String>>,
+    tables: &PromiseTables<'_>,
     closure_args: &[(usize, String)],
-    fn_user_param_count: &std::collections::HashMap<String, usize>,
-    param_only_updates: &mut std::collections::HashMap<String, Vec<String>>,
+    fn_user_param_count: &HashMap<String, usize>,
+    param_only_updates: &mut HashMap<String, Vec<String>>,
 ) {
-    let Some(inner_ann) = resolve_promise_inner_ann(ast, obj, all_anns, fn_ret_anns) else {
+    let Some(inner_ann) = resolve_promise_inner_ann(ast, obj, tables) else {
         return;
     };
     // a union of two handlers' returns is no declaration a narrow could
@@ -304,7 +291,11 @@ pub(super) fn seed_then_catch_params(
             } else {
                 seed.clone()
             };
-            param_only_updates.insert(fn_name.clone(), vec![s; p]);
+            // a reaction job passes the handler one argument
+            // (§27.2.2.1 step 1.e); the rest are undefined
+            let mut anns = vec!["any".to_string(); p];
+            anns[0] = s;
+            param_only_updates.insert(fn_name.clone(), anns);
         }
     }
 }
