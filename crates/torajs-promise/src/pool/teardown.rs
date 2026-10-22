@@ -66,7 +66,9 @@ pub(crate) unsafe fn release_cell(p: *mut c_void) {
 /// a dead cell own something: `value_is_heap` (+9) and `rx_kind` (+13).
 const OWNING_BYTES: u64 = 0x0000_ff00_0000_ff00;
 
+// the mask reads the word little-endian
 const _: () = {
+    assert!(cfg!(target_endian = "little"));
     assert!(core::mem::offset_of!(Promise, state) == 8);
     assert!(core::mem::offset_of!(Promise, value_is_heap) == 9);
     assert!(core::mem::offset_of!(Promise, rx_kind) == 13);
