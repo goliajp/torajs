@@ -7,7 +7,7 @@
 //! these 0-arg helpers, which set the spec-correct message via
 //! `__torajs_throw_type_error` and return — `emit_throw_check(None)`
 //! at the call site propagates the pending throw to the nearest
-//! catch or to `__torajs_uncaught_exit_code`.
+//! catch or to `__torajs_uncaught_exit`.
 
 use core::ffi::{c_char, c_void};
 

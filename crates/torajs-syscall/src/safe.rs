@@ -92,7 +92,9 @@ pub fn close(fd: i32) -> Result<(), Errno> {
     decode(raw).map(|_| ())
 }
 
-/// `exit(code) -> !`. Process terminates; never returns.
+/// `exit(code) -> !`. Process terminates; never returns. On Darwin
+/// `SYS_EXIT` ends the whole process; a Linux port needs `exit_group`
+/// (`exit` there ends only the calling thread).
 pub fn exit(code: i32) -> ! {
     unsafe { syscall1(SYS_EXIT, code as i64) };
     // Unreachable — kernel won't return from SYS_EXIT. The loop

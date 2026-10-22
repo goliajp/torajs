@@ -55,8 +55,8 @@ impl LowerCtx<'_> {
         } else if self.is_main_fn && !self.suspend_body {
             // the throw escaped every user frame: an uncaught exception
             // reports the pending throw to stderr and exits 1
-            // (__torajs_uncaught_exit_code), where returning the
-            // sentinel 0 would exit clean
+            // (__torajs_uncaught_exit), where returning the sentinel 0
+            // would exit clean
             self.cur_block = throw_blk;
             if let Some((op, ty)) = owned {
                 self.emit_drop_value(op, ty);
@@ -65,17 +65,7 @@ impl LowerCtx<'_> {
                 self.emit_drop_throw_temp(t.clone());
             }
             self.emit_drops_for_owned_locals();
-            let uncaught_fid = *self
-                .fn_table
-                .get("__torajs_uncaught_exit_code")
-                .expect("__torajs_uncaught_exit_code declared in module setup");
-            let code = self.f.append_inst(
-                self.cur_block,
-                InstKind::Call(uncaught_fid, vec![]),
-                Type::I32,
-                None,
-            );
-            crate::ssa_lower_main_exit::emit_exit(self, code);
+            crate::ssa_lower_main_exit::emit_uncaught_exit(self);
         } else {
             self.cur_block = throw_blk;
             if let Some((op, ty)) = owned {

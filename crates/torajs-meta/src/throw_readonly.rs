@@ -14,7 +14,7 @@
 //! Same shape as `torajs-arr`'s `throw_empty` helpers: record the
 //! pending throw via `__torajs_throw_type_error` and return normally —
 //! the call site's `emit_throw_check(None)` propagates it to the
-//! nearest catch or to `__torajs_uncaught_exit_code`.
+//! nearest catch or to `__torajs_uncaught_exit`.
 
 use core::ffi::c_char;
 

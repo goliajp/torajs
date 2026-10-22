@@ -11,8 +11,8 @@
 //!   and for verified-non-throwing user fns (M4.3.b — fib40 / gcd /
 //!   mandelbrot etc., recovering the M4.1 5% slowdown for programs
 //!   that never touch try/throw). For `main`, the escaped-throw path
-//!   routes through `__torajs_uncaught_exit_code` to report the
-//!   pending throw to stderr + yield exit code 1 (bug-327 C2.5).
+//!   routes through `__torajs_uncaught_exit` to report the
+//!   pending throw to stderr + exit 1 (bug-327 C2.5).
 //!
 //! Method body is byte-for-byte preserved from the source; the sibling
 //! reaches LowerCtx fields via `impl<'a> super::LowerCtx<'a>`, so the

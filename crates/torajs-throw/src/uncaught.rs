@@ -2,11 +2,9 @@
 //! [`crate`] as the rotation-196 file-size sweep (parent had drifted
 //! to 512 prod LOC; rotation 185 audit registered it at 512). The
 //! synthesized main's throw-propagate branch calls
-//! `__torajs_uncaught_exit_code`, which reads the pending throw
-//! atomics, renders it (Str payload / Error `name: message` /
-//! placeholder) to stderr via `__torajs_syscall_write`, and yields
-//! exit code 1. Verbatim move; nothing about the rendering path
-//! changes.
+//! `__torajs_uncaught_exit`, which reads the pending throw atomics,
+//! renders it (Str payload / Error `name: message` / placeholder) to
+//! stderr via `__torajs_syscall_write`, and leaves with exit code 1.
 //!
 //! `#[unsafe(no_mangle)]` on the extern symbol means the linker
 //! finds it regardless of Rust module path — no re-export needed
@@ -22,6 +20,8 @@ unsafe extern "C" {
     fn __torajs_value_drop_heap(p: *mut c_void);
     /// Raw fd write — Layer-0 syscall shim (torajs-syscall).
     fn __torajs_syscall_write(fd: i32, buf: *const u8, n: usize) -> isize;
+    /// torajs-process — flush, then the exit syscall; never returns.
+    fn __torajs_process_exit(code: i64) -> !;
     /// torajs-anyvalue — an error instance's `name` resolved through
     /// its own slot and then the class prototype chain (§20.5.3.2 puts
     /// the class name on `<C>.prototype`, so the slot normally holds
@@ -138,18 +138,25 @@ pub unsafe extern "C" fn __torajs_uncaught_error_render_impl(p: *const u8) {
     }
 }
 
+/// The throw that escaped `main`: write the uncaught banner to stderr
+/// and leave through `__torajs_process_exit` with 1 (0 when no throw
+/// is pending). One call per escape site, where a code to return and
+/// a second call to exit with it would be two.
+///
 /// # Safety
 ///
 /// No preconditions: the entry reads the throw slots and writes the
 /// uncaught banner to stderr. Unsafe for the uniform extern signature
 /// of the runtime surface.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_uncaught_exit_code() -> i32 {
-    if THROW_ACTIVE.load(Ordering::Relaxed) == 0 {
-        return 0;
-    }
-    unsafe { render_pending() };
-    1
+pub unsafe extern "C" fn __torajs_uncaught_exit() -> ! {
+    let code = if THROW_ACTIVE.load(Ordering::Relaxed) == 0 {
+        0
+    } else {
+        unsafe { render_pending() };
+        1
+    };
+    unsafe { __torajs_process_exit(code) }
 }
 
 /// Set once [`__torajs_uncaught_report`] reported a throw.
@@ -162,7 +169,7 @@ static UNCAUGHT_SEEN: AtomicI32 = AtomicI32::new(0);
 /// next job's throw check to take as its own. No throw pending: no-op.
 ///
 /// # Safety
-/// As [`__torajs_uncaught_exit_code`].
+/// As [`__torajs_uncaught_exit`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_uncaught_report() {
     if THROW_ACTIVE.load(Ordering::Relaxed) == 0 {

@@ -25,20 +25,20 @@ use crate::ssa_lower::{LowerCtx, declare_intrinsic};
 
 const MAIN_EXIT_CODE_SYM: &str = "__torajs_main_exit_code";
 
-/// bug-327 C2.5 — uncaught-throw reporter + exit code. Called from
+/// bug-327 C2.5 — uncaught-throw reporter and exit. Called from
 /// `emit_throw_check`'s main-frame propagate branch (a throw that
 /// escaped every user frame): reports the pending throw to stderr
-/// and returns 1. Runtime lives in torajs-throw.
-const UNCAUGHT_EXIT_CODE_SYM: &str = "__torajs_uncaught_exit_code";
+/// and leaves with 1. Runtime lives in torajs-throw.
+const UNCAUGHT_EXIT_SYM: &str = "__torajs_uncaught_exit";
 
 /// Declare the `__torajs_main_exit_code` /
-/// `__torajs_uncaught_exit_code` externs at module setup. Caller
+/// `__torajs_uncaught_exit` externs at module setup. Caller
 /// passes the module + fn_table being built; we register the
 /// symbols and discard the returned FuncIds (reachable via
 /// `fn_table[<sym>]` at emit time).
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) {
     declare_intrinsic(module, fn_table, MAIN_EXIT_CODE_SYM, &[], Type::I32);
-    declare_intrinsic(module, fn_table, UNCAUGHT_EXIT_CODE_SYM, &[], Type::I32);
+    declare_intrinsic(module, fn_table, UNCAUGHT_EXIT_SYM, &[], Type::Void);
 }
 
 /// Emit `call __torajs_main_exit_code` and answer the exit-code
@@ -77,6 +77,23 @@ pub(crate) fn emit_exit(ctx: &mut LowerCtx, exit_code: crate::ssa::ValueId) {
     );
     let cb = ctx.cur_block;
     ctx.f.set_term(cb, Terminator::Unreachable);
+}
+
+/// Leave the process from a throw that escaped `main`:
+/// `call __torajs_uncaught_exit` (the report, then
+/// `__torajs_process_exit`), which never returns. The block ends in a
+/// dead `ret`, not `Unreachable`: lowering reads `Unreachable` as a block
+/// still open, and would append the statements after the throw and the
+/// whole program end to it.
+pub(crate) fn emit_uncaught_exit(ctx: &mut LowerCtx) {
+    let fid = *ctx
+        .fn_table
+        .get(UNCAUGHT_EXIT_SYM)
+        .expect("__torajs_uncaught_exit declared in module setup");
+    let cb = ctx.cur_block;
+    ctx.f.append_void(cb, InstKind::Call(fid, vec![]));
+    ctx.f
+        .set_term(cb, Terminator::Ret(Some(Operand::ConstI32(1))));
 }
 
 /// r505 (A12) — release the class object / prototype cells at exit

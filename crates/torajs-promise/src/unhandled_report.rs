@@ -69,7 +69,7 @@ unsafe fn __torajs_unhandled_error_render_slow(p: *const u8) {
 ///   - Error-derived instance (type_tag == Obj + FLAG_ERROR) →
 ///     `name: message\n` read from the Error layout prefix, with
 ///     `: message` omitted when the message is empty. Verbatim
-///     twin of `torajs_throw::__torajs_uncaught_exit_code`'s
+///     twin of `torajs_throw::__torajs_uncaught_exit`'s
 ///     rendering, so tr's two error-report paths agree.
 ///   - other real heap (Closure / RegExp / Date / Symbol / plain
 ///     object / etc.) → `error: <object>\n` placeholder.

@@ -19,7 +19,7 @@
 //!    inside the same fn runs before propagating.
 //! 3. Otherwise:
 //!    - **main fn** (bug-327 C2.5) → uncaught-exit-1 path: drop
-//!      owned locals, ret the code from `__torajs_uncaught_exit_code`.
+//!      owned locals, leave through `__torajs_uncaught_exit`.
 //!    - **other fns** → drop owned locals + ret a typed sentinel
 //!      (0 / 0.0 / false / null) so the caller's
 //!      `emit_throw_check` picks up the propagate.
@@ -200,17 +200,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) {
         ctx.f.set_term(cb, Terminator::Br(handler.blk));
     } else if ctx.is_main_fn && !ctx.suspend_body {
         ctx.emit_drops_for_owned_locals();
-        let uncaught_fid = *ctx
-            .fn_table
-            .get("__torajs_uncaught_exit_code")
-            .expect("__torajs_uncaught_exit_code declared in module setup");
-        let code = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Call(uncaught_fid, vec![]),
-            Type::I32,
-            None,
-        );
-        crate::ssa_lower_main_exit::emit_exit(ctx, code);
+        crate::ssa_lower_main_exit::emit_uncaught_exit(ctx);
     } else {
         ctx.emit_drops_for_owned_locals();
         let cb = ctx.cur_block;
