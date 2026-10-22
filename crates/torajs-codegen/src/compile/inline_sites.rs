@@ -2,14 +2,12 @@
 
 use torajs_core::ssa::{InstKind, Module};
 
-pub(super) mod promise_drop;
 pub(super) mod promise_then;
 pub(super) mod str_append_substr;
 
 use super::arr_push::ArrPush;
 use super::substr_drop::SubstrDrop;
 use super::{CellOps, StrAppendLit};
-use promise_drop::PromiseDrop;
 use promise_then::PromiseThen;
 use str_append_substr::StrAppendSubstr;
 
@@ -29,8 +27,6 @@ pub struct InlineSites {
     pub(crate) substr_drop: Option<SubstrDrop>,
     /// Typed array push ([`ArrPush`]).
     pub(crate) arr_push: Option<ArrPush>,
-    /// Typed promise release ([`PromiseDrop`]).
-    pub(crate) promise_drop: Option<PromiseDrop>,
     /// Plain-handler `then` on a pending source ([`PromiseThen`]).
     pub(crate) promise_then: Option<PromiseThen>,
 }
@@ -43,7 +39,6 @@ impl InlineSites {
             str_append_substr: StrAppendSubstr::of_module(module),
             substr_drop: SubstrDrop::of_module(module),
             arr_push: ArrPush::of_module(module),
-            promise_drop: PromiseDrop::of_module(module),
             promise_then: PromiseThen::of_module(module),
         }
     }
@@ -63,7 +58,6 @@ impl InlineSites {
             || self.str_append_substr.is_some_and(|s| s.matches(kind))
             || self.substr_drop.is_some_and(|d| d.matches(kind))
             || self.arr_push.is_some_and(|p| p.matches(kind))
-            || self.promise_drop.is_some_and(|d| d.matches(kind))
             || self.promise_then.is_some_and(|t| t.matches(kind))
     }
 }
@@ -98,7 +92,4 @@ pub(super) fn try_emit_saved(
             .substr_drop
             .is_some_and(|op| super::substr_drop::try_emit(bytes, relocs, inst, alloc, saves, op))
         || promise_then::try_emit(bytes, relocs, inst, alloc, saves, facts)
-        || sites
-            .promise_drop
-            .is_some_and(|op| promise_drop::try_emit(bytes, relocs, inst, alloc, saves, op))
 }

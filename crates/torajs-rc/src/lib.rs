@@ -102,7 +102,6 @@
 // symbol the final user binary doesn't reference — rc_inc /
 // rc_dec pull in no std code.
 
-#[cfg(any(test, torajs_rc_underflow_detect))]
 use std::ffi::c_void;
 
 pub mod builtin_proto;
@@ -472,7 +471,18 @@ impl HeapHeader {
         if self.is_static_literal() {
             return DropPolicy::Keep;
         }
-        self.dec_ref_counted()
+        report_underflow(self.refcount);
+        self.refcount -= 1;
+        if self.refcount == 0 {
+            // SAFETY: the cell is still valid here; the hook inspects
+            // the WeakRef registry by pointer identity.
+            unsafe {
+                weak_gate::notify_target_dying(self as *mut HeapHeader as *mut c_void);
+            }
+            DropPolicy::Free
+        } else {
+            DropPolicy::Keep
+        }
     }
 }
 

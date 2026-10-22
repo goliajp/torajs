@@ -50,27 +50,6 @@ pub unsafe fn rc_dec_cell(p: *mut c_void) -> bool {
     }
 }
 
-impl HeapHeader {
-    /// [`HeapHeader::dec_ref`] for a header the caller has already
-    /// seen is not a static literal: the same underflow report and
-    /// WeakRef target-dying hook, without the static test.
-    #[inline]
-    pub fn dec_ref_counted(&mut self) -> DropPolicy {
-        crate::report_underflow(self.refcount);
-        self.refcount -= 1;
-        if self.refcount == 0 {
-            // SAFETY: the cell is still valid here; the hook inspects
-            // the WeakRef registry by pointer identity.
-            unsafe {
-                crate::weak_gate::notify_target_dying(self as *mut HeapHeader as *mut c_void);
-            }
-            DropPolicy::Free
-        } else {
-            DropPolicy::Keep
-        }
-    }
-}
-
 /// FFI bridge to [`HeapHeader::inc_ref`]. Null-safe.
 ///
 /// # Safety

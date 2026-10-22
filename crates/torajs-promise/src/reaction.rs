@@ -53,7 +53,7 @@ use crate::then_box::{handler_value, reject_on_pending_throw, settle_handler_ret
 use queue::queue_idle;
 use torajs_rc::rc_inc_cell;
 
-pub mod candidate;
+pub(crate) mod candidate;
 mod frame;
 mod queue;
 pub mod record;
