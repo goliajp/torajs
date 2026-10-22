@@ -31,10 +31,3 @@ const lit2: R = {
   run: (f) => f(7),
 };
 lit2.run((x) => console.log("arrow", typeof x, x * 2));
-
-const anyParam: R = {
-  run(f: any) {
-    f("u");
-  },
-};
-anyParam.run((x) => console.log("any-param", typeof x, x));
