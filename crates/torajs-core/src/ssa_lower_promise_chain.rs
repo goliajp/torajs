@@ -25,11 +25,14 @@ impl crate::ssa_lower::LowerCtx<'_> {
         // `(p as Promise<T>).then(…)` — the assertion changes no value.
         let src_id = self.peel_as_wrappers(src_id);
         match self.ast.get_expr(src_id) {
-            Expr::Ident(n) => self
-                .locals
-                .get(n)
-                .map(|info| matches!(info.ty, Type::Promise))
-                .unwrap_or(false),
+            // a top-level binding read from a function body is a global
+            Expr::Ident(n) => matches!(
+                self.locals
+                    .get(n)
+                    .map(|info| &info.ty)
+                    .or_else(|| self.globals.get(n)),
+                Some(Type::Promise)
+            ),
             Expr::Call {
                 callee: src_callee, ..
             } => {
