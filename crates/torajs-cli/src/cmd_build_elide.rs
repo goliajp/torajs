@@ -105,7 +105,11 @@
 //! name / prototype-chain resolver is the reporter's only edge into
 //! the generic value world; a program that injected no error class
 //! (nothing registers through `__torajs_register_native_error`) can
-//! hold no FLAG_ERROR cell (fam 46).
+//! hold no FLAG_ERROR cell (fam 46). The unhandled-rejection
+//! reporter's rendering is its twin on the same guard (fam 62): the
+//! exit sweep is live in every program that can reject a promise, so
+//! its name read kept the class registry's reader, and with it every
+//! class prologue, in each such program.
 //!
 //! **Struct instance drop legs** (r502) — the typed drop of a class
 //! instance / anonymous struct shape releases its expando bag, and a
@@ -441,7 +445,17 @@ mod tests {
     #[test]
     fn exotic_slow_path_stubs_are_symbol_guarded_loud_rejects() {
         let stubs = guarded_stubs();
-        assert_eq!(stubs.len(), 18);
+        assert_eq!(stubs.len(), 19);
+        let unhandled = &stubs[18];
+        assert_eq!(unhandled.sym, "___torajs_unhandled_error_render_slow");
+        assert_eq!(
+            unhandled.guard.to_string(),
+            "syms:___torajs_register_native_error"
+        );
+        assert_eq!(
+            &unhandled.bytes[..4],
+            &(0xD280_0000u32 | (62 << 5) | 7).to_le_bytes()
+        );
         let shift_ro = &stubs[17];
         assert_eq!(shift_ro.sym, "___torajs_arr_shift_ro_length_slow");
         assert_eq!(

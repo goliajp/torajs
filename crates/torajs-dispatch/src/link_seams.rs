@@ -22,6 +22,7 @@ unsafe extern "C" {
     fn __torajs_cycle_unbuffer(p: *mut core::ffi::c_void);
     fn __torajs_cycle_buffer(p: *mut core::ffi::c_void);
     fn __torajs_uncaught_error_render_impl(p: *const u8);
+    fn __torajs_unhandled_error_render_impl(p: *const u8);
     fn __torajs_anyv_rc_dec(v: u64);
     fn __torajs_obj_field_set_exotic_impl(
         p: *mut u8,
@@ -311,4 +312,15 @@ pub unsafe extern "C" fn __torajs_obj_buffer_slow(cell: *mut core::ffi::c_void) 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_uncaught_error_render_slow(p: *const u8) {
     unsafe { __torajs_uncaught_error_render_impl(p) }
+}
+
+/// Default resolution of the unhandled-rejection reporter's
+/// Error-instance rendering, the uncaught one's twin (torajs-promise):
+/// `name: message` through the same resolver.
+///
+/// # Safety
+/// `p` is a live `Tag::Obj` cell carrying FLAG_ERROR.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_unhandled_error_render_slow(p: *const u8) {
+    unsafe { __torajs_unhandled_error_render_impl(p) }
 }

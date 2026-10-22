@@ -33,6 +33,26 @@ unsafe extern "C" {
     fn __torajs_str_is_undef(p: *const u8) -> i64;
 }
 
+// The Error-instance rendering seam, twin of the uncaught reporter's
+// (`torajs_throw::uncaught`). Its default definition lives in
+// `torajs-dispatch`; the link shadows it with a loud-reject stub when
+// `__torajs_register_native_error`'s text is dead. With no error class
+// registered the runtime raisers throw bare Strs, and a FLAG_ERROR cell
+// can only come from a live Error root ctor, whose stack install reads
+// the class registry and so keeps the registration live. The name
+// resolver behind the branch roots the generic value world; the sweep
+// that reaches it stays live in every program that can reject a
+// promise. Unit-test binaries of this crate carry no dispatch member,
+// so they bridge to the impl directly.
+#[cfg(not(test))]
+unsafe extern "C" {
+    fn __torajs_unhandled_error_render_slow(p: *const u8);
+}
+#[cfg(test)]
+unsafe fn __torajs_unhandled_error_render_slow(p: *const u8) {
+    unsafe { __torajs_unhandled_error_render_impl(p) }
+}
+
 /// Default unhandled-rejection reporter. Writes one line to stderr
 /// and sets the process-global flag.
 ///
@@ -96,7 +116,7 @@ pub(crate) unsafe fn fire_unhandled_reporter(pp: *mut Promise) {
             return;
         }
         if type_tag == TAG_OBJ && unsafe { (*header).flags } & FLAG_ERROR != 0 {
-            unsafe { report_error_instance(reason as *const u8) };
+            unsafe { __torajs_unhandled_error_render_slow(reason as *const u8) };
             return;
         }
         unsafe {
@@ -139,7 +159,8 @@ pub(crate) unsafe fn fire_unhandled_reporter(pp: *mut Promise) {
 /// rather than dereferenced: this reporter runs at process exit on
 /// a value nobody handled, so a partially-constructed Error must
 /// still yield a line rather than a fault.
-unsafe fn report_error_instance(p: *const u8) {
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_unhandled_error_render_impl(p: *const u8) {
     // §20.5.3.2 — see the `torajs_throw::uncaught` twin: the `name`
     // slot normally holds the own-absence sentinel, so it is resolved
     // rather than read at its offset.

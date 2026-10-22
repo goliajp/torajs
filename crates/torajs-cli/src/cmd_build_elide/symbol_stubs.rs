@@ -4,7 +4,7 @@
 /// entries whose text liveness un-assumes the stub, landing-pad fam
 /// id). The join seam's enabler is the exotic-flag writer; the
 /// species probe's enablers are the two props-bag creators.
-pub(super) const SYMBOL_STUBS: [(&str, &[&str], u32); 17] = [
+pub(super) const SYMBOL_STUBS: [(&str, &[&str], u32); 18] = [
     (
         "___torajs_arr_join_exotic",
         &["___torajs_arr_flag_exotic"],
@@ -141,6 +141,14 @@ pub(super) const SYMBOL_STUBS: [(&str, &[&str], u32); 17] = [
         "___torajs_arr_shift_ro_length_slow",
         &["___torajs_arr_flag_length_ro"],
         61,
+    ),
+    // the unhandled-rejection reporter's Error-instance rendering, the
+    // uncaught one's (fam 46) twin on the same guard: the exit sweep
+    // that reaches it is live in every program that can reject.
+    (
+        "___torajs_unhandled_error_render_slow",
+        &["___torajs_register_native_error"],
+        62,
     ),
 ];
 
