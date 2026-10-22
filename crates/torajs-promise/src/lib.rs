@@ -36,6 +36,7 @@ pub mod closure_abi;
 mod combinator;
 pub(crate) mod combinator_aggregate;
 pub(crate) mod combinator_all_fanin;
+pub(crate) mod combinator_all_sync;
 pub mod combinator_allsettled;
 pub(crate) mod combinator_any;
 pub mod combinator_dyn;
@@ -65,9 +66,8 @@ pub mod then_two;
 pub mod unhandled;
 mod unhandled_report;
 
-pub use combinator::{
-    __torajs_promise_all_sync, __torajs_promise_any_sync, __torajs_promise_race_sync,
-};
+pub use combinator::{__torajs_promise_any_sync, __torajs_promise_race_sync};
+pub use combinator_all_sync::__torajs_promise_all_sync;
 pub use combinator_allsettled::__torajs_promise_allsettled_sync;
 pub use combinator_dyn::{
     __torajs_promise_all_dyn, __torajs_promise_allsettled_dyn, __torajs_promise_any_dyn,
