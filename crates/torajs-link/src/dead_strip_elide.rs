@@ -69,7 +69,7 @@ use torajs_codegen::frame::FrameLayout;
 
 use crate::archives_merge::{ExtraDefined, MergedArchives, compute_required_members_cached};
 use crate::dead_strip_elide_columns::{Columns, columns_present, without_columns};
-use crate::dead_strip_elide_guard::guard_live;
+use crate::dead_strip_elide_guard::{GuardIndex, guard_live};
 use crate::dead_strip_elide_patch::{patch_site, site_drops_user_ref};
 use crate::dead_strip_reach::{ReachResult, compute_reachability};
 use crate::dead_strip_reach_cache::ReachCache;
@@ -182,6 +182,13 @@ pub(crate) fn judge_and_patch<'a>(
     let diag = std::env::var_os("TORAJS_LINK_ELIDE_DIAG").is_some();
     let twin_guard = Columns::twin_guard();
     let adapter_guard = Columns::adapter_guard();
+    let stub_guards = cfg.guarded_stubs.iter().map(|s| &s.guard);
+    let guards = cfg
+        .elidable_sites
+        .iter()
+        .map(|s| &s.guard)
+        .chain(stub_guards);
+    let mut idx = GuardIndex::new(guards.chain([&twin_guard, &adapter_guard]));
 
     let mut elided: Vec<bool> = vec![true; cfg.elidable_sites.len()];
     let mut applied: Vec<bool> = vec![true; cfg.guarded_stubs.len()];
@@ -210,36 +217,25 @@ pub(crate) fn judge_and_patch<'a>(
         )?;
         t.tick("elide_reach");
         let mut changed = false;
-        for (i, site) in cfg.elidable_sites.iter().enumerate() {
-            if elided[i] && guard_live(&reach, &site.guard) {
-                elided[i] = false;
+        let sites = elided
+            .iter_mut()
+            .zip(cfg.elidable_sites.iter().map(|s| &s.guard));
+        let stubs = applied
+            .iter_mut()
+            .zip(cfg.guarded_stubs.iter().map(|s| &s.guard));
+        let cols = [
+            (&mut dropped.twin, &twin_guard),
+            (&mut dropped.adapter, &adapter_guard),
+        ];
+        let open: Vec<_> = sites.chain(stubs).chain(cols).filter(|g| *g.0).collect();
+        idx.observe(&reach, open.iter().map(|g| g.1));
+        for (on, guard) in open {
+            if guard_live(&reach, guard, &idx) {
+                *on = false;
                 changed = true;
                 if diag {
-                    eprint!("{}", explain_live(&reach, &site.guard));
+                    eprint!("{}", explain_live(&reach, guard));
                 }
-            }
-        }
-        for (i, stub) in cfg.guarded_stubs.iter().enumerate() {
-            if applied[i] && guard_live(&reach, &stub.guard) {
-                applied[i] = false;
-                changed = true;
-                if diag {
-                    eprint!("{}", explain_live(&reach, &stub.guard));
-                }
-            }
-        }
-        if dropped.twin && guard_live(&reach, &twin_guard) {
-            dropped.twin = false;
-            changed = true;
-            if diag {
-                eprint!("{}", explain_live(&reach, &twin_guard));
-            }
-        }
-        if dropped.adapter && guard_live(&reach, &adapter_guard) {
-            dropped.adapter = false;
-            changed = true;
-            if diag {
-                eprint!("{}", explain_live(&reach, &adapter_guard));
             }
         }
         if !changed {
