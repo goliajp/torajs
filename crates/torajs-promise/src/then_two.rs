@@ -23,12 +23,12 @@
 use core::ffi::c_void;
 use core::ptr;
 
-use crate::layout::{REPR_VOID, STATE_REJECTED, as_promise};
+use crate::layout::{REPR_ANY, REPR_VOID, STATE_REJECTED, as_promise};
 use crate::pool::{__torajs_promise_drop, alloc_pending};
 use crate::state::__torajs_promise_attach_then;
 use crate::then::{ThenCbI64, stamp_result_repr};
 use crate::then_box::{
-    PARAM_ANY_FLAG, PARAM_REPR_SHIFT, refuse_unstamped, settle_handler_return, settle_param,
+    PARAM_ANY_FLAG, PARAM_REPR_SHIFT, handler_value, refuse_unstamped, settle_handler_return,
 };
 
 /// Bit 9 of a then2 handler word — the handler pointer is a closure
@@ -92,13 +92,20 @@ unsafe extern "C" fn then2_dispatch(arg: i64) {
         } else {
             ((*a).on_ok, (*a).ok_flags, (*a).ok_repr, (*a).ok_param_repr)
         };
-        let value = settle_param(
-            (*src).value_repr,
-            flags & FLAG_PARAM_ANY != 0,
-            param_repr,
-            (*src).value,
-        );
-        let result = run_leg(handler, flags, repr, value);
+        let (result, repr) = 'call: {
+            let value = match handler_value(
+                src,
+                flags & FLAG_PARAM_ANY != 0,
+                param_repr,
+                handler,
+                flags & FLAG_CLOSURE != 0,
+            ) {
+                Ok(v) => v,
+                // a value the leg's lane cannot hold ran its any twin
+                Err(av) => break 'call (av, REPR_ANY),
+            };
+            (run_leg(handler, flags, repr, value), repr)
+        };
         // Either leg may complete abruptly — the throw becomes the
         // result's rejection, including onErr's, whose throw REPLACES
         // the reason it was handed. Otherwise both legs FULFILL on a

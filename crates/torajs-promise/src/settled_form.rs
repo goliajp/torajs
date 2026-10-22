@@ -23,7 +23,7 @@ use crate::layout::{REPR_ANY, REPR_F64, REPR_I64, REPR_UNSTAMPED};
 /// form, nor for an `any` reader (boxing is the caller's, since it
 /// pays for the box).
 #[inline]
-fn converts(src: u8, target: u8) -> bool {
+pub(crate) fn converts(src: u8, target: u8) -> bool {
     src != target && src != REPR_UNSTAMPED && target != REPR_UNSTAMPED && target != REPR_ANY
 }
 
@@ -81,7 +81,7 @@ pub(crate) unsafe fn into_form(src: u8, target: u8, v: i64) -> i64 {
 
 #[cold]
 #[inline(never)]
-unsafe fn convert(src: u8, target: u8, v: i64) -> i64 {
+pub(crate) unsafe fn convert(src: u8, target: u8, v: i64) -> i64 {
     if !converts(src, target) {
         return v;
     }
@@ -103,7 +103,7 @@ unsafe fn convert(src: u8, target: u8, v: i64) -> i64 {
 /// that can reach the point is one it follows (a point a promise from
 /// `any` can reach reads at f64). A fraction here is a value point the
 /// analysis missed; a debug build stops on it.
-fn other_width(src: u8, v: i64) -> i64 {
+pub(crate) fn other_width(src: u8, v: i64) -> i64 {
     if src == REPR_I64 {
         (v as f64).to_bits() as i64
     } else {

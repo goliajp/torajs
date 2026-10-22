@@ -60,6 +60,7 @@ pub mod then;
 pub mod then_adopt;
 pub mod then_box;
 pub mod then_finally;
+mod then_twin;
 pub mod then_two;
 pub mod unhandled;
 mod unhandled_report;

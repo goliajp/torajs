@@ -36,6 +36,8 @@
 //! cannot die, the queue holds it.
 
 use core::ffi::c_void;
+use core::hint::select_unpredictable;
+use core::mem::transmute;
 use core::ptr;
 
 use crate::frame::AsyncFrame;
@@ -47,7 +49,7 @@ use crate::layout::{
 use crate::pool::__torajs_promise_drop;
 use crate::state::{__torajs_promise_reject, __torajs_promise_resolve};
 use crate::then::{ThenCbI64, call_handler, stamp_result_repr};
-use crate::then_box::{reject_on_pending_throw, settle_handler_return, settle_param};
+use crate::then_box::{handler_value, reject_on_pending_throw, settle_handler_return};
 use queue::queue_idle;
 use torajs_rc::rc_inc_cell;
 
@@ -242,22 +244,20 @@ unsafe fn run_inline_reaction(dp: *mut Promise) -> Stake {
         // `.then` fires on a fulfillment, `.catch` on a rejection
         let fires = kind & RX_INTEREST_MASK == RX_THEN + rejected as u8;
         let stake = if fires {
-            let v = settle_param(
-                (*sp).value_repr,
-                kind & RX_PARAM_ANY != 0,
-                param_repr,
-                (*sp).value,
-            );
-            let result = if kind & RX_CLOSURE != 0 {
-                call_handler(cb, v)
-            } else {
-                let f: ThenCbI64 = core::mem::transmute(cb);
-                f(v)
-            };
-            // A Void-ret handler leaves garbage in the return
-            // register — settle a clean 0 behind the VOID stamp.
-            let result = if ret_repr == REPR_VOID { 0 } else { result };
-            settle_into_chain(dp, ret_repr, result)
+            let (param_any, closure) = (kind & RX_PARAM_ANY != 0, kind & RX_CLOSURE != 0);
+            match handler_value(sp, param_any, param_repr, cb, closure) {
+                Ok(v) => {
+                    let result = if closure {
+                        call_handler(cb, v)
+                    } else {
+                        transmute::<*mut c_void, ThenCbI64>(cb)(v)
+                    };
+                    // a Void-ret handler leaves garbage in its return register
+                    let result = select_unpredictable(ret_repr == REPR_VOID, 0, result);
+                    settle_into_chain(dp, ret_repr, result)
+                }
+                Err(twin_answer) => settle_into_chain(dp, REPR_ANY, twin_answer),
+            }
         } else {
             // The handler's interest does not match: forward the
             // settlement unchanged so a downstream handler sees it.

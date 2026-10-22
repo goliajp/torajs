@@ -17,8 +17,8 @@ use core::ffi::c_void;
 use core::sync::atomic::{AtomicI64, Ordering};
 
 use crate::layout::{
-    REPR_ANY, REPR_BOOL, REPR_F64, REPR_HEAP, REPR_I64, REPR_NULL, REPR_STR, REPR_UNSTAMPED,
-    REPR_VOID, as_promise,
+    Promise, REPR_ANY, REPR_BOOL, REPR_F64, REPR_HEAP, REPR_I64, REPR_NULL, REPR_STR,
+    REPR_UNSTAMPED, REPR_VOID, as_promise,
 };
 use crate::state::__torajs_promise_reject;
 
@@ -82,7 +82,7 @@ unsafe extern "C" {
 ///
 /// Reason encoding mirrors that bridge exactly: box the (tag, value)
 /// pair off the throw TLS and stamp the cell `REPR_ANY`, so a
-/// downstream handler's [`settle_param`] converts it into whatever lane
+/// downstream handler's [`handler_value`] converts it into whatever lane
 /// that handler declared. `value_is_heap` marks the boxed stake as the
 /// cell's to release; the take composition (tag peeked before value —
 /// `take` clears `active` but leaves the tag slot) transfers the
@@ -192,9 +192,12 @@ pub(crate) unsafe fn settled_is_undefined(repr: u8, value: i64) -> bool {
 ///
 /// A tag that disagrees with the declared lane means the annotation
 /// lied — TS `any` type-checks that and hands the value over
-/// unconverted, which a typed lane cannot represent. The nearest
-/// answer it can hold is used (ToNumber-shaped for the number lane,
-/// truthiness for the boolean one).
+/// unconverted, which a typed lane cannot represent. A handler hands
+/// such a value to its any twin instead ([`crate::then_twin`]); the
+/// readers with no twin to go to (`await`, a combinator's result slot,
+/// a handler without an adapter) take the nearest answer the lane can
+/// hold (ToNumber-shaped for the number lane, truthiness for the
+/// boolean one).
 pub(crate) unsafe fn unbox_settled(param_repr: u8, av: i64) -> i64 {
     unsafe {
         // The target lane IS `any` — hand the box back whole, before
@@ -244,23 +247,33 @@ pub(crate) unsafe fn unbox_settled(param_repr: u8, av: i64) -> i64 {
 
 /// The value a handler's first parameter receives: boxed when it
 /// declared `any`, otherwise read into the lane it declared the way
-/// every other reader of a settled cell is
-/// ([`crate::settled_form::into_form`]). A typed pair that disagrees
+/// every other reader of a settled cell is. A typed pair that disagrees
 /// reaches it too: `Promise.resolve(p)` where `p` is an `any` holding
 /// a promise answers the INNER cell (§27.2.4.7 step 2), whose stamp
 /// says i64, while the call site's erased `Promise<any>` let a
-/// `(x: number)` handler declare f64.
-pub(crate) unsafe fn settle_param(
-    src_repr: u8,
+/// `(x: number)` handler declare f64. `Err` carries the OWNED boxed
+/// answer of the handler's any twin, which ran in its place on a value
+/// the declared lane cannot hold ([`crate::then_twin`]).
+///
+/// # Safety
+/// `src` is a live settled cell; `cb` is the handler (a closure cell
+/// when `closure`, else a fn pointer).
+#[inline(always)]
+pub(crate) unsafe fn handler_value(
+    src: *const Promise,
     param_any: bool,
     param_repr: u8,
-    value: i64,
-) -> i64 {
+    cb: *mut c_void,
+    closure: bool,
+) -> Result<i64, i64> {
     unsafe {
+        let (src_repr, value) = ((*src).value_repr, (*src).value);
         if param_any {
-            box_settled(src_repr, value)
+            Ok(box_settled(src_repr, value))
+        } else if src_repr == param_repr {
+            Ok(value)
         } else {
-            crate::settled_form::into_form(src_repr, param_repr, value)
+            crate::then_twin::handler_arg(src_repr, param_repr, value, cb, closure)
         }
     }
 }

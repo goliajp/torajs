@@ -76,3 +76,12 @@ pub const CLOSURE_PROPS_OFF: usize = 24;
 pub unsafe extern "C" fn __torajs_closure_props_attach(cell: *mut u8, props: *mut c_void) {
     unsafe { *(cell.add(CLOSURE_PROPS_OFF) as *mut *mut c_void) = props }
 }
+
+/// The `.then` / `.catch` handler twin table a module without one
+/// links: a 0 first word, which names no runner, so the reaction reads
+/// a value into its handler's lane as it is and links no twin code. A
+/// module that registers handlers gets the table laid out by the link
+/// under the same name, which wins over this one (torajs-promise
+/// `then_twin`).
+#[unsafe(no_mangle)]
+pub static __torajs_then_twins: [i64; 1] = [0];
