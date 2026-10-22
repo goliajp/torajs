@@ -1,7 +1,6 @@
 //! `Stmt::LetDecl { mutable, name, type_ann, init, is_var }`
 //! typecheck pulled out of [`crate::check::Checker::check_stmt`]'s
 //! `Stmt::LetDecl` arm as chunk-108 of the check_stmt decomp.
-//! 11th check_stmt sibling — last big check_stmt arm.
 //!
 //! Steps:
 //!

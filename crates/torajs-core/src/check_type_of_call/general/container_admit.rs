@@ -4,8 +4,8 @@
 
 use crate::ast::{Ast, ExprId};
 use crate::check::{Checker, Type};
-use crate::check_type_of_call::any_widen::any_promise_into_promise_param;
 use crate::check_type_of_call::any_widen::arr_any_into_typed_arr_param;
+use crate::check_type_of_call::any_widen_promise::any_promise_into_promise_param;
 
 /// Does a container argument fit its parameter by one of the wedges
 /// below? `param_ty` / `arg_ty` arrive with class names resolved.

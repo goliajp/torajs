@@ -25,14 +25,7 @@ impl crate::ssa_lower::LowerCtx<'_> {
         // `(p as Promise<T>).then(…)` — the assertion changes no value.
         let src_id = self.peel_as_wrappers(src_id);
         match self.ast.get_expr(src_id) {
-            // a top-level binding read from a function body is a global
-            Expr::Ident(n) => matches!(
-                self.locals
-                    .get(n)
-                    .map(|info| &info.ty)
-                    .or_else(|| self.globals.get(n)),
-                Some(Type::Promise)
-            ),
+            Expr::Ident(n) => matches!(self.slot_ty(n), Some(Type::Promise)),
             Expr::Call {
                 callee: src_callee, ..
             } => {
@@ -74,13 +67,8 @@ impl crate::ssa_lower::LowerCtx<'_> {
                 // (`(async () => ...)().then(...)`).
                 let closure_returns_promise = match self.ast.get_expr(*src_callee) {
                     Expr::Ident(n) => {
-                        let slot_ty = self
-                            .locals
-                            .get(n)
-                            .map(|info| &info.ty)
-                            .or_else(|| self.globals.get(n));
                         matches!(
-                            slot_ty,
+                            self.slot_ty(n),
                             Some(Type::Closure(sig)) | Some(Type::FnSig(sig))
                                 if matches!(self.fn_sigs[sig.0 as usize].1, Type::Promise)
                         )
@@ -164,6 +152,14 @@ impl crate::ssa_lower::LowerCtx<'_> {
             ),
             _ => false,
         }
+    }
+
+    /// a top-level binding read from a function body is a global
+    fn slot_ty(&self, n: &str) -> Option<&Type> {
+        self.locals
+            .get(n)
+            .map(|info| &info.ty)
+            .or_else(|| self.globals.get(n))
     }
 
     // lower_then_two_arg + chain_cb_ret_repr live in the sibling

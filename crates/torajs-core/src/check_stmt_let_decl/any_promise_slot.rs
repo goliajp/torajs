@@ -20,12 +20,19 @@ use crate::ast_desugar_builtin_new::promise::context::promise_inner;
 use crate::check::Type as T;
 use crate::check_type_of_call_promise_then::{is_reject_mint, typed_lane};
 
+/// Whether a binding annotated `ann` joins the widen set keyed by `init`:
+/// a scalar annotation over a read of an `any` value holds the box
+/// (`super::any_scalar_slot`), a promise annotation takes [`takes_any`].
+pub(crate) fn widens(ann: &str, init: ExprId, ast: &Ast, types: &HashMap<ExprId, T>) -> bool {
+    super::any_scalar_slot::takes_box(ann, init, ast, types) || takes_any(ann, init, ast, types)
+}
+
 /// Whether a binding annotated `ann` takes the face of `init`: the
 /// annotation names a `Promise<T>` with a `T` other than `any`, and the
 /// initializer types `Promise<any>` because it settles a value of any
 /// kind. A `Promise.reject(r)` types `Promise<any>` too, as the `never`
 /// a rejected promise fulfils with: the annotation names it truly.
-pub(crate) fn takes_any(ann: &str, init: ExprId, ast: &Ast, types: &HashMap<ExprId, T>) -> bool {
+fn takes_any(ann: &str, init: ExprId, ast: &Ast, types: &HashMap<ExprId, T>) -> bool {
     promise_inner(ann).is_some_and(|i| i != "any")
         && types.get(&init).is_some_and(untyped)
         && !is_reject_mint(ast, init)
