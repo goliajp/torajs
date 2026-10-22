@@ -62,7 +62,7 @@ pub(crate) fn lower_chain_with_own_then_probe(
     let boxable = args.iter().zip(arg_ops).all(|(&aid, op)| {
         !matches!(ctx.operand_ty(op), Type::FnSig(_)) || handler_forwarder(ctx, aid).is_some()
     });
-    if !boxable || ctx.ast.synth_promise_static_calls.contains(&src_id) {
+    if !boxable || ctx.ast.synth_promise_static_calls.contains(&src_id) || no_cell_overrides(ctx) {
         return ctx.lower_chain_fast(m_name, src_op, args, arg_ops);
     }
     let patched_blk = ctx.f.add_block();
@@ -140,6 +140,15 @@ pub(crate) fn lower_chain_with_own_then_probe(
 /// class inheriting from Promise — its instances flow into slots the
 /// checker types `Promise` (`P.resolve(x)`), and their species is the
 /// subclass.
+/// No cell of this program can carry an own `then` or `constructor`
+/// (the `then` closure proof opens on both names and on every computed
+/// key that could spell them), and nothing program-wide redirects
+/// SpeciesConstructor: the bag a cell may still hold changes neither
+/// §27.2.5.1's Invoke nor §27.2.5.4 steps 3-4, so the probe is dead.
+fn no_cell_overrides(ctx: &LowerCtx<'_>) -> bool {
+    !species_census_written(ctx) && ctx.scans.proto_shadow.then_closed(ctx.ast)
+}
+
 pub(crate) fn species_census_written(ctx: &LowerCtx<'_>) -> bool {
     let set = &ctx.scans.proto_shadow;
     set.shadows("Promise", "constructor")
