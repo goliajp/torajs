@@ -82,6 +82,10 @@ pub(crate) struct BinopScratch {
     /// read has answered borrowed, the slot of the flag that says it
     /// took a stake after all (`ssa_lower_index::dict::ask_key_borrow`).
     pub(crate) key_borrow: Option<(ExprId, Option<crate::ssa::ValueId>)>,
+    /// A number dictionary write's request that the read on its
+    /// right-hand side answer its entry; lives across that right-hand
+    /// side (`ssa_lower_index::dict_entry`).
+    pub(crate) dict_entry: Option<crate::ssa_lower_index::dict_entry::Request>,
     /// The one field that outlives its binop: a string `+` on the
     /// right of an assignment hands its throw check to the assignment
     /// (`ssa_lower_binop::str_check`).

@@ -126,6 +126,49 @@ pub unsafe extern "C" fn __torajs_dynobj_dict_get(recv: u64, key: *const c_void)
     unsafe { get_walk(obj, key) }
 }
 
+/// [`__torajs_dynobj_dict_get`] that also answers, in `*entry_out`, the
+/// entry the write `*write_recv[write_key] = v` this read feeds may
+/// then overwrite in place (the update `d[k] = (d[k] ?? 0) + 1`): the
+/// cached own entry the answer came from when the read's receiver box
+/// and key cell are the write's, and the entry is a writable data
+/// entry of an object that is no module namespace; else null. The
+/// answer is a number there, so the entry holds an immediate: nothing
+/// to release, no setter, no global binding behind it. The call site
+/// keeps the pointer only while no program code runs.
+///
+/// # Safety
+/// As [`__torajs_dynobj_dict_get`]; `entry_out` is writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_dynobj_dict_get_entry(
+    recv: u64,
+    key: *const c_void,
+    entry_out: *mut *mut c_void,
+    write_recv: u64,
+    write_key: *const c_void,
+) -> u64 {
+    unsafe {
+        if let Some(obj) = dynobj_cell(recv)
+            && let Some(e) = cached(obj, key)
+        {
+            let v = (*e).value_anyv;
+            if nanbox::is_number(v) {
+                // one select rather than a branch per test: taken
+                // branches are what the update loop pays for
+                let writable = bucket_flags((*e).key_ptr_tagged) & BUCKET_FLAG_WRITABLE != 0;
+                let same = (recv ^ write_recv) | (key as u64 ^ write_key as u64) == 0;
+                *entry_out = if same & writable & !module_ns(obj) {
+                    e.cast()
+                } else {
+                    core::ptr::null_mut()
+                };
+                return v;
+            }
+        }
+        *entry_out = core::ptr::null_mut();
+        __torajs_dynobj_dict_get(recv, key)
+    }
+}
+
 /// [`__torajs_dynobj_dict_get`] on a dynobj whose cached entry did not
 /// answer: the walk, then the generic read.
 ///
@@ -205,6 +248,33 @@ pub unsafe extern "C" fn __torajs_dynobj_dict_set(
             return;
         }
         set_walk(recv_slot, key, v, throw_on_refusal, obj);
+    }
+}
+
+/// [`__torajs_dynobj_dict_set`] after the read
+/// [`__torajs_dynobj_dict_get_entry`] wrote `*entry_slot`: the store
+/// into that entry when it answered one (no program code ran since the
+/// probe, so it is still the receiver's own writable data entry holding
+/// an immediate), else the plain write. `entry_slot` comes last so the
+/// other arguments stay in the registers the plain write takes them in.
+///
+/// # Safety
+/// As [`__torajs_dynobj_dict_set`]; `*entry_slot` is what the read
+/// keyed by this write's receiver box and key cell answered.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_dynobj_dict_set_entry(
+    recv_slot: *mut u64,
+    key: *mut c_void,
+    v: u64,
+    throw_on_refusal: bool,
+    entry_slot: *const *mut c_void,
+) {
+    unsafe {
+        let e = *entry_slot;
+        if !e.is_null() {
+            return store_own(e.cast(), v);
+        }
+        __torajs_dynobj_dict_set(recv_slot, key, v, throw_on_refusal)
     }
 }
 
@@ -408,6 +478,47 @@ mod tests {
         }
     }
 
+    /// The entry answer is the cached own entry only when the write
+    /// names the read's receiver and key cell and the entry is
+    /// writable, holds a number and is not on a module namespace; the
+    /// value answer is the same as the plain read's either way.
+    #[test]
+    fn get_entry_answers_only_a_writable_number_entry() {
+        let (ka, kb) = (make_str("a"), make_str("b"));
+        unsafe {
+            let obj = __torajs_dynobj_alloc();
+            let a = ka.as_ptr() as *mut c_void;
+            let b = kb.as_ptr() as *mut c_void;
+            insert(obj, a, BUCKET_FLAGS_DEFAULT, av::box_int32(4));
+            insert(obj, b, BUCKET_FLAG_CONFIGURABLE, av::box_double(1.5));
+            // the walk leaves each key's cached-entry hint behind
+            for k in [a, b] {
+                assert!(own_number(obj, k).is_some());
+            }
+            let mut e: *mut c_void = core::ptr::dangling_mut();
+            let r = obj as u64;
+            let v = __torajs_dynobj_dict_get_entry(r, a, &mut e, r, a);
+            assert_eq!(v, av::box_int32(4));
+            assert_eq!(e, entries(obj).cast());
+            // another key cell or receiver box for the write
+            let v = __torajs_dynobj_dict_get_entry(r, a, &mut e, r, b);
+            assert_eq!(v, av::box_int32(4));
+            assert!(e.is_null());
+            let v = __torajs_dynobj_dict_get_entry(r, a, &mut e, r + 8, a);
+            assert_eq!(v, av::box_int32(4));
+            assert!(e.is_null());
+            let v = __torajs_dynobj_dict_get_entry(r, b, &mut e, r, b);
+            assert_eq!(v, av::box_double(1.5));
+            assert!(e.is_null());
+            *(obj.cast::<u8>().add(6) as *mut u16) |= DYNOBJ_HDR_FLAG_MODULE_NS;
+            let v = __torajs_dynobj_dict_get_entry(r, a, &mut e, r, a);
+            assert_eq!(v, av::box_int32(4));
+            assert!(e.is_null());
+            *(obj.cast::<u8>().add(6) as *mut u16) &= !DYNOBJ_HDR_FLAG_MODULE_NS;
+            free_dynobj_blocks(obj);
+        }
+    }
+
     /// A writable own entry holding an immediate takes the box as is,
     /// in place, with its flags.
     #[test]
@@ -424,6 +535,30 @@ mod tests {
             assert_eq!(recv, obj as u64);
             let flags = bucket_flags((*entries(obj)).key_ptr_tagged);
             assert_eq!(flags, BUCKET_FLAGS_DEFAULT);
+            free_dynobj_blocks(obj);
+        }
+    }
+
+    /// The write after the entry read stores into the answered entry,
+    /// and without one is the plain write.
+    #[test]
+    fn set_entry_stores_into_the_answered_entry_else_writes() {
+        let k = make_str("k");
+        unsafe {
+            let obj = __torajs_dynobj_alloc();
+            let kp = k.as_ptr() as *mut c_void;
+            insert(obj, kp, BUCKET_FLAGS_DEFAULT, av::box_int32(1));
+            assert!(own_number(obj, kp).is_some());
+            let mut recv = obj as u64;
+            let mut e: *mut c_void = core::ptr::null_mut();
+            __torajs_dynobj_dict_get_entry(recv, kp, &mut e, recv, kp);
+            assert_eq!(e, entries(obj).cast());
+            __torajs_dynobj_dict_set_entry(&mut recv, kp, av::box_int32(2), true, &e);
+            assert_eq!((*entries(obj)).value_anyv, av::box_int32(2));
+            let none: *mut c_void = core::ptr::null_mut();
+            __torajs_dynobj_dict_set_entry(&mut recv, kp, av::box_int32(3), true, &none);
+            assert_eq!((*entries(obj)).value_anyv, av::box_int32(3));
+            assert_eq!(recv, obj as u64);
             free_dynobj_blocks(obj);
         }
     }

@@ -22,8 +22,16 @@ const GET: &str = "__torajs_dynobj_dict_get";
 /// `__torajs_dynobj_dict_set(recv_slot, key, value, throw_on_refusal)`,
 /// the value's stake moving into the call.
 const SET: &str = "__torajs_dynobj_dict_set";
+/// `__torajs_dynobj_dict_get_entry(recv, key, entry_out, write_recv,
+/// write_key) -> any`, the read that also answers the entry its write
+/// may overwrite ([`super::dict_entry`]).
+const GET_ENTRY: &str = "__torajs_dynobj_dict_get_entry";
+/// `__torajs_dynobj_dict_set_entry(recv_slot, key, value,
+/// throw_on_refusal, entry_slot)`, the write after that read: the
+/// store into the answered entry, else the plain write.
+const SET_ENTRY: &str = "__torajs_dynobj_dict_set_entry";
 
-/// Declares both entries in a program that has a number dictionary
+/// Declares the entries in a program that has a number dictionary
 /// (`Ast::number_dicts`); no other program calls them, so no other
 /// program's SSA carries them.
 pub(crate) fn declare(
@@ -38,20 +46,41 @@ pub(crate) fn declare(
     declare_intrinsic(
         module,
         fn_table,
+        GET_ENTRY,
+        &[Type::Any, Type::Ptr, Type::Ptr, Type::Any, Type::Ptr],
+        Type::Any,
+    );
+    declare_intrinsic(
+        module,
+        fn_table,
         SET,
         &[Type::Ptr, Type::Ptr, Type::Any, Type::Bool],
         Type::Void,
     );
+    declare_intrinsic(
+        module,
+        fn_table,
+        SET_ENTRY,
+        &[Type::Ptr, Type::Ptr, Type::Any, Type::Bool, Type::Ptr],
+        Type::Void,
+    );
 }
 
-/// `recv[key]` with `key` a borrowed Str cell, as an owned `any`.
-pub(crate) fn get(ctx: &mut LowerCtx<'_>, recv: &Operand, key: ValueId) -> Operand {
-    let v = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Call(ctx.fn_table[GET], vec![*recv, Operand::Value(key)]),
-        Type::Any,
-        None,
-    );
+/// `recv[key]` with `key` a borrowed Str cell, as an owned `any`; the
+/// read `index` keys also answers its entry when the write around it
+/// asked ([`super::dict_entry`]).
+pub(crate) fn get(ctx: &mut LowerCtx<'_>, recv: &Operand, index: ExprId, key: ValueId) -> Operand {
+    let mut args = vec![*recv, Operand::Value(key)];
+    let callee = match super::dict_entry::answer(ctx, index) {
+        Some(more) => {
+            args.extend(more);
+            ctx.fn_table[GET_ENTRY]
+        }
+        None => ctx.fn_table[GET],
+    };
+    let v = ctx
+        .f
+        .append_inst(ctx.cur_block, InstKind::Call(callee, args), Type::Any, None);
     ctx.emit_throw_check(None);
     Operand::Value(v)
 }
@@ -104,10 +133,11 @@ pub(crate) fn key_borrow_answer(ctx: &mut LowerCtx<'_>, asked: bool) -> Option<V
 pub(crate) fn get_then_settle(
     ctx: &mut LowerCtx<'_>,
     recv: &Operand,
+    index: ExprId,
     key: ValueId,
     borrowed: Option<ValueId>,
 ) -> Operand {
-    let out = get(ctx, recv, key);
+    let out = get(ctx, recv, index, key);
     let Some(flag) = borrowed else {
         return out;
     };
@@ -166,13 +196,17 @@ pub(crate) fn box_value(
 
 /// `recv[key] = boxed` with `key` a borrowed Str cell and `recv` a
 /// borrowed binding. The receiver rides a slot the way the kernel's
-/// does, and an `any` local takes the slot back afterwards.
+/// does, and an `any` local takes the slot back afterwards. `entry` is
+/// the slot the read on the right-hand side answered its entry in
+/// ([`super::dict_entry`]); the write is then the same one call with
+/// that slot added.
 pub(crate) fn set(
     ctx: &mut LowerCtx<'_>,
     recv: Operand,
     key: ValueId,
     boxed: Operand,
     recv_ident: &Option<String>,
+    entry: Option<ValueId>,
 ) {
     let slot = ctx.alloca(Type::Any, Some("__any_recv_slot"));
     ctx.f.append_void(
@@ -180,14 +214,21 @@ pub(crate) fn set(
         InstKind::Store(recv, Operand::Value(slot), 0),
     );
     let strict = !crate::ssa_lower_set_flavor::cur_fn_is_sloppy(ctx);
-    let args = vec![
+    let mut args = vec![
         Operand::Value(slot),
         Operand::Value(key),
         boxed,
         Operand::ConstBool(strict),
     ];
+    let callee = match entry {
+        Some(e) => {
+            args.push(Operand::Value(e));
+            ctx.fn_table[SET_ENTRY]
+        }
+        None => ctx.fn_table[SET],
+    };
     ctx.f
-        .append_void(ctx.cur_block, InstKind::Call(ctx.fn_table[SET], args));
+        .append_void(ctx.cur_block, InstKind::Call(callee, args));
     ctx.emit_throw_check(None);
     crate::ssa_lower_assign_member_any::write_back_recv(ctx, slot, recv_ident);
 }
