@@ -1,0 +1,7 @@
+then catch string s
+then for-of string s
+then switch string s
+await catch string t
+await for-of string t
+await switch string t
+await empty number 0

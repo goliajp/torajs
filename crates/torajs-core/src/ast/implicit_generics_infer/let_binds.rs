@@ -6,12 +6,15 @@
 //! declaration of it the body makes names the same type — counting a
 //! declaration in a nested statement over a name the caller seeded (a
 //! parameter, a capture) — and a declaration whose initializer the
-//! sniff cannot name drops the name for the rest of the body.
+//! sniff cannot name drops the name for the rest of the body, as does
+//! a `for … of` variable or a `catch` parameter, which no initializer
+//! names. Every statement a return can sit in is entered.
 
 use std::collections::{HashMap, HashSet};
 
 use super::{AstExprsView, binds_to_params, infer_expr_ann_with};
 use crate::ast::Stmt;
+use crate::ast::desugar_with::walk::stmt_children_ref;
 
 /// Register in `binds` each binding `body` declares, as above.
 pub(super) fn collect(
@@ -49,48 +52,30 @@ impl Scan<'_> {
                 type_ann,
                 init,
                 ..
-            } => self.declare(name, type_ann.as_ref(), *init, depth, binds),
-            Stmt::If {
-                then_branch,
-                else_branch,
+            }
+            | Stmt::UsingDecl {
+                name,
+                type_ann,
+                init,
                 ..
-            } => {
-                self.stmt(then_branch, depth + 1, binds);
-                if let Some(eb) = else_branch {
-                    self.stmt(eb, depth + 1, binds);
-                }
-            }
-            Stmt::While { body, .. } | Stmt::DoWhile { body, .. } | Stmt::Labeled { body, .. } => {
-                self.stmt(body, depth + 1, binds)
-            }
-            Stmt::For { init, body, .. } => {
-                if let Some(i) = init {
-                    self.stmt(i, depth + 1, binds);
-                }
-                self.stmt(body, depth + 1, binds);
-            }
-            Stmt::Block(stmts) | Stmt::Multi(stmts) => {
-                let depth = if matches!(s, Stmt::Block(_)) {
-                    depth + 1
-                } else {
-                    depth
-                };
-                for s in stmts {
-                    self.stmt(s, depth, binds);
-                }
+            } => self.declare(name, type_ann.as_ref(), Some(*init), depth, binds),
+            // bindings no initializer names: the next element, the thrown value
+            Stmt::ForOf { var_name, .. } | Stmt::ForOfSplitIter { var_name, .. } => {
+                self.declare(var_name, None, None, depth + 1, binds)
             }
             Stmt::Try {
-                body,
-                catch_body,
-                finally_body,
+                catch_param: Some(p),
                 ..
-            } => {
-                let blocks = [Some(body), Some(catch_body), finally_body.as_ref()];
-                for s in blocks.into_iter().flatten().flatten() {
-                    self.stmt(s, depth + 1, binds);
-                }
-            }
+            } => self.declare(p, None, None, depth + 1, binds),
             _ => {}
+        }
+        let depth = if matches!(s, Stmt::Multi(_)) {
+            depth
+        } else {
+            depth + 1
+        };
+        for c in stmt_children_ref(s) {
+            self.stmt(c, depth, binds);
         }
     }
 
@@ -98,7 +83,7 @@ impl Scan<'_> {
         &mut self,
         name: &str,
         written: Option<&String>,
-        init: crate::ast::ExprId,
+        init: Option<crate::ast::ExprId>,
         depth: u32,
         binds: &mut HashMap<String, String>,
     ) {
@@ -109,7 +94,7 @@ impl Scan<'_> {
         // with the bindings registered so far (`let x = 3; let y = x + 1`)
         let ann = written.cloned().or_else(|| {
             let params = binds_to_params(binds);
-            infer_expr_ann_with(self.exprs, init, &params, binds, self.fn_sigs)
+            infer_expr_ann_with(self.exprs, init?, &params, binds, self.fn_sigs)
         });
         let prior = binds.get(name);
         let shadows = self.declared.contains(name) || (depth > 0 && prior.is_some());
