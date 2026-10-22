@@ -20,7 +20,7 @@
 
 mod bound;
 
-use super::{Analysis, Scope, SlotKey, W};
+use super::{Analysis, Scope, SlotKeyId, W};
 use crate::ast::{BinOp, Expr, ExprId, UnaryOp};
 
 pub(super) use bound::settle;
@@ -48,7 +48,7 @@ const TOP: u128 = u128::MAX;
 #[derive(Clone, Debug)]
 pub(super) enum Mag {
     Const(u128),
-    Slot(SlotKey),
+    Slot(SlotKeyId),
     Sum(Box<Mag>, Box<Mag>),
     /// `a - b`, bounded as a sum; kept apart so a step can be told to
     /// count up.
@@ -80,7 +80,7 @@ pub(super) fn f64_flow() -> Flow {
 /// guard each loop's test establishes.
 #[derive(Default)]
 pub(super) struct MagRecord {
-    writes: Vec<(SlotKey, Mag, Option<usize>)>,
+    writes: Vec<(SlotKeyId, Mag, Option<usize>)>,
     arith: Vec<(ExprId, Mag)>,
     /// Indexed by loop id.
     guards: Vec<Option<Guard>>,
@@ -95,7 +95,7 @@ pub(super) struct MagRecord {
 struct Guard {
     /// The function the loop is in (`""` for the top level).
     fn_name: String,
-    key: SlotKey,
+    key: SlotKeyId,
     below: Mag,
 }
 
@@ -107,7 +107,7 @@ struct Lin {
     k: u128,
 }
 
-fn lin(m: &Mag, outside: &impl Fn(&SlotKey) -> Option<u128>) -> Lin {
+fn lin(m: &Mag, outside: &impl Fn(&SlotKeyId) -> Option<u128>) -> Lin {
     match m {
         Mag::Const(c) => Lin { x: 0, k: *c },
         Mag::Slot(s) => match outside(s) {
@@ -184,9 +184,13 @@ impl Analysis<'_> {
             Expr::Bool(_) | Expr::Null => Mag::Const(1),
             Expr::Ident(n) => match self.resolve(n, scope) {
                 Some(k) => Mag::Slot(k),
-                None if scope.fn_name.starts_with("__") && self.by_name.contains_key(n) => {
-                    Mag::Max(self.by_name[n].iter().cloned().map(Mag::Slot).collect())
-                }
+                None if scope.fn_name.starts_with("__") && self.named(n).is_some() => Mag::Max(
+                    self.named(n)
+                        .into_iter()
+                        .flatten()
+                        .map(|k| Mag::Slot(*k))
+                        .collect(),
+                ),
                 None => Mag::top(),
             },
             Expr::BinOp { op, left, right } => match op {
@@ -238,7 +242,7 @@ impl Analysis<'_> {
                     }
                 });
                 match named {
-                    Some(f) => Mag::Slot(SlotKey::Ret(f)),
+                    Some(f) => Mag::Slot(self.keys.ret(&f)),
                     None => self
                         .container_key_lookup(eid, scope)
                         .map_or(Mag::top(), Mag::Slot),
@@ -252,7 +256,7 @@ impl Analysis<'_> {
             }
             Expr::Spread { expr } => self
                 .container_key_lookup(*expr, scope)
-                .map_or(Mag::top(), |k| Mag::Slot(SlotKey::Elem(Box::new(k)))),
+                .map_or(Mag::top(), |k| Mag::Slot(self.keys.elem(k))),
             Expr::Index { .. } | Expr::OptIndex { .. } => self
                 .container_key_lookup(eid, scope)
                 .map_or(Mag::top(), Mag::Slot),
@@ -261,7 +265,7 @@ impl Analysis<'_> {
     }
 
     /// Record a write of `m` into `target`.
-    pub(super) fn record_mag(&mut self, target: SlotKey, m: Mag) {
+    pub(super) fn record_mag(&mut self, target: SlotKeyId, m: Mag) {
         let at = self.mag.open.last().copied();
         self.mag.writes.push((target, m, at));
     }
@@ -270,7 +274,7 @@ impl Analysis<'_> {
     /// not take for a number carries no number, or one from a source it
     /// does not track; either way it is held to [`UNRECORDED_REACH`],
     /// so an object or a string written into a slot never seeds it F64.
-    pub(super) fn record_write(&mut self, target: SlotKey, w: &W, m: Mag) {
+    pub(super) fn record_write(&mut self, target: SlotKeyId, w: &W, m: Mag) {
         let m = match w {
             W::NotNum => Mag::Min(Box::new(m), Box::new(Mag::Const(UNRECORDED_REACH))),
             _ => m,
@@ -281,7 +285,7 @@ impl Analysis<'_> {
     /// Record `++` / `--` on `target` as the write of a unit step.
     pub(super) fn record_step(&mut self, target: ExprId, up: bool, scope: &Scope) {
         if let Some(k) = self.container_key_lookup(target, scope) {
-            let (s, one) = (Box::new(Mag::Slot(k.clone())), Box::new(Mag::Const(1)));
+            let (s, one) = (Box::new(Mag::Slot(k)), Box::new(Mag::Const(1)));
             self.record_mag(
                 k,
                 if up {

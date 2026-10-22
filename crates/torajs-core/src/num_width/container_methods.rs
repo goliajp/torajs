@@ -5,8 +5,7 @@
 //! `container_walk.rs` (file-size limit); the read-only mirror lives
 //! in `container_lookup.rs`.
 
-use super::{Analysis, Scope, SlotKey};
-use crate::ast::PropKey;
+use super::{Analysis, Scope};
 use crate::ast::{Expr, ExprId};
 
 mod arg_params;
@@ -128,7 +127,7 @@ impl<'a> Analysis<'a> {
             && let Some(cb_arg) = args.get(1).copied()
             && let Some(sk) = self.container_key_of(*a0, scope)
         {
-            self.wire_elem_to_cb_param(&SlotKey::Elem(Box::new(sk)), *a0, cb_arg, scope);
+            self.wire_elem_to_cb_param(self.keys.elem(sk), *a0, cb_arg, scope);
         }
     }
 
@@ -152,10 +151,10 @@ impl<'a> Analysis<'a> {
             return;
         };
         if matches!(name.as_str(), "then" | "catch" | "finally") {
-            self.promise_chain_wiring(eid, &recv, &name, args, scope);
+            self.promise_chain_wiring(eid, recv, &name, args, scope);
         }
-        self.mark_containerish(&recv);
-        let ek = SlotKey::Elem(Box::new(recv.clone()));
+        self.mark_containerish(recv);
+        let ek = self.keys.elem(recv);
         let write_args: Vec<ExprId> = match name.as_str() {
             "push" | "unshift" => args.to_vec(),
             "fill" => args.iter().take(1).copied().collect(),
@@ -183,19 +182,19 @@ impl<'a> Analysis<'a> {
                 && self.expr_types.get(&a) == Some(&crate::check::Type::Any)
             {
                 for ann in self.pushed_elem_anns(obj, scope) {
-                    self.any_object_seed(a, &ek, &ann);
+                    self.any_object_seed(a, ek, &ann);
                 }
             }
             let w = self.flow(a, scope);
-            self.add_container_constraint(ek.clone(), w);
+            self.add_container_constraint(ek, w);
             // A function value written into the element slot wires the
             // slot's signature projections onto its own (F5; 638-13).
-            self.fn_value_flow(&ek, a, scope);
+            self.fn_value_flow(ek, a, scope);
             // F2-fix — nested-reference alias only when the written
             // value is itself a container (candidate-side evidence);
             // scalar args contribute the one-way width edge above.
             if let Some(ak) = self.container_key_of(a, scope) {
-                self.nested_unions.push((ek.clone(), ak));
+                self.nested_unions.push((ek, ak));
             }
         }
         // §23.1.3.1 — `concat` copies its container arguments' slot
@@ -208,31 +207,31 @@ impl<'a> Analysis<'a> {
         if name == "concat" {
             for &a in args {
                 let w = self.flow(a, scope);
-                self.add_container_constraint(ek.clone(), w);
+                self.add_container_constraint(ek, w);
                 if let Some(ak) = self.container_key_of(a, scope) {
-                    self.mark_containerish(&ak);
-                    self.uf.union(&recv, &ak);
+                    self.mark_containerish(ak);
+                    self.uf.union(&self.keys, recv, ak);
                 }
             }
         }
         if answers_undef_sentinel(&name) {
-            self.add_container_constraint(ek.clone(), super::magnitude::f64_flow());
+            self.add_container_constraint(ek, super::magnitude::f64_flow());
         }
-        self.callback_param_wiring(&name, args, obj, &ek, &recv, scope);
+        self.callback_param_wiring(&name, args, obj, ek, recv, scope);
         // User class method broadcast: receiver joins every owner
         // class; args flow into every owner's params (conservative —
         // static dispatch needs types the analysis doesn't have).
         for c in self.classes.clone() {
             let f = format!("__cm_{c}__{name}");
             if let Some(ps) = self.method_arg_params(&f) {
-                let ck = SlotKey::Class(c.clone());
-                self.mark_containerish(&ck);
-                self.uf.union(&recv, &ck);
+                let ck = self.keys.class(&c);
+                self.mark_containerish(ck);
+                self.uf.union(&self.keys, recv, ck);
                 for (i, a) in args.iter().enumerate() {
                     if let Some(p) = ps.get(i + 1) {
-                        let pk = SlotKey::Param(f.clone(), p.clone());
+                        let pk = self.keys.param(&f, p);
                         let w = self.flow(*a, scope);
-                        self.add_container_constraint(pk.clone(), w);
+                        self.add_container_constraint(pk, w);
                         self.alias_guarded(pk, *a, scope);
                     }
                 }
@@ -246,20 +245,20 @@ impl<'a> Analysis<'a> {
         // the receiver an instance: an object's own function member of
         // that name takes the same arguments.
         if !BUILTIN_MEMBER_METHODS.contains(&name.as_str()) {
-            let fk = SlotKey::Field(Box::new(recv.clone()), PropKey::from(name));
-            self.record_variadic_call(callee, args, &fk);
+            let fk = self.keys.field(recv, &name);
+            self.record_variadic_call(callee, args, fk);
             for (i, a) in args.iter().enumerate() {
                 let w = self.flow(*a, scope);
-                let pk = SlotKey::Field(Box::new(fk.clone()), PropKey::from(format!("__p{i}")));
-                self.add_constraint(pk.clone(), w);
+                let pk = self.keys.field(fk, format!("__p{i}"));
+                self.add_constraint(pk, w);
                 // RFC 20260726-array-elem-width, member-callee half — a
                 // CONTAINER arg JOINS the projection, it does not merely
                 // hand over its scalar width (direct + F1 arms both do
                 // this). Without it `ns.take(xs)` read its array from a
                 // different element class than the caller filled: an
                 // `any`-held block met a raw f64 loader and answered NaN.
-                self.alias_guarded(pk.clone(), *a, scope);
-                self.fn_value_flow(&pk, *a, scope);
+                self.alias_guarded(pk, *a, scope);
+                self.fn_value_flow(pk, *a, scope);
             }
         }
     }

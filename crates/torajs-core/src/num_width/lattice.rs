@@ -1,8 +1,8 @@
 //! The expression-width lattice the constraint walk computes in:
 //! what one expression contributes to the slots it reaches.
 
-use super::SlotKey;
-use std::collections::{HashMap, HashSet, VecDeque};
+use super::{KeyMap, KeySet, SlotKeyId, SlotKeys};
+use std::collections::VecDeque;
 
 /// A slot dependency plus whether the value path from that slot to
 /// the consuming write runs through a growth op (Mul, or Add/Sub with
@@ -11,7 +11,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 /// iterations — integral, yet not i64-safe (W5): past 2^53 the f64
 /// semantics round where i64 keeps exact / wraps, so the slot must
 /// stay F64 and let guarded demotion (1b-ii) pull it back.
-pub(super) type Dep = (SlotKey, bool);
+pub(super) type Dep = (SlotKeyId, bool);
 
 /// Width of an expression as seen by the analysis.
 #[derive(Clone)]
@@ -49,19 +49,16 @@ pub(super) fn literal_is_f64(n: f64) -> bool {
 
 /// Poison flows forward along assignment edges until stable.
 /// Monotone single-direction lattice — O(edges).
-pub(super) fn fixpoint(
-    seeds: Vec<SlotKey>,
-    edges: &HashMap<SlotKey, Vec<Dep>>,
-) -> HashSet<SlotKey> {
-    let mut out: HashSet<SlotKey> = HashSet::new();
-    let mut work: VecDeque<SlotKey> = seeds.into_iter().collect();
+pub(super) fn fixpoint(seeds: Vec<SlotKeyId>, edges: &KeyMap<Vec<Dep>>) -> KeySet {
+    let mut out = KeySet::default();
+    let mut work: VecDeque<SlotKeyId> = seeds.into_iter().collect();
     while let Some(k) = work.pop_front() {
-        if out.insert(k.clone())
+        if out.insert(k)
             && let Some(dsts) = edges.get(&k)
         {
             for (d, _) in dsts {
                 if !out.contains(d) {
-                    work.push_back(d.clone());
+                    work.push_back(*d);
                 }
             }
         }
@@ -72,9 +69,9 @@ pub(super) fn fixpoint(
 /// `TORAJS_NUM_WIDTH_STATS=1` — dump the canonical F64 class set (one
 /// line per poisoned representative), the same diagnostic shape as the
 /// SSA-pass `*_STATS` switches.
-pub(super) fn dump_f64_classes(canon_out: &HashSet<SlotKey>) {
+pub(super) fn dump_f64_classes(keys: &SlotKeys, canon_out: &KeySet) {
     if std::env::var_os("TORAJS_NUM_WIDTH_STATS").is_some() {
-        let mut lines: Vec<String> = canon_out.iter().map(|k| format!("{k:?}")).collect();
+        let mut lines: Vec<String> = canon_out.iter().map(|k| keys.debug(*k)).collect();
         lines.sort();
         for l in &lines {
             eprintln!("[num_width] f64 class: {l}");

@@ -20,69 +20,77 @@
 //!   module, so scalar copy chains (`let v = xs[0]; v = v / 2`) don't
 //!   glue the copy's width back onto the source class.
 
+use super::slot_keys::{SlotKeyData, SlotKeyId, SlotKeys};
 use super::{Analysis, SlotKey};
 use crate::ssa::id_hash::{HashMap, HashSet};
 
-/// Union-find over slot keys. Walk-time access goes through the
+/// Union-find over slot key ids, a parent array indexed by id (an id
+/// past its end is its own root). Walk-time access goes through the
 /// mutating path-compressing `find`; frozen post-analysis queries
 /// walk the parent chain without mutation.
 #[derive(Default)]
 pub(crate) struct UnionFind {
-    parent: HashMap<SlotKey, SlotKey>,
+    parent: Vec<u32>,
 }
 
 impl UnionFind {
-    pub(super) fn find(&mut self, k: &SlotKey) -> SlotKey {
-        let p = match self.parent.get(k) {
-            None => return k.clone(),
-            Some(p) => p.clone(),
-        };
-        let root = self.find(&p);
-        if root != p {
-            self.parent.insert(k.clone(), root.clone());
+    #[inline]
+    fn parent_of(&self, k: SlotKeyId) -> SlotKeyId {
+        match self.parent.get(k.index()) {
+            Some(p) => SlotKeyId::from_index(*p as usize),
+            None => k,
+        }
+    }
+
+    pub(super) fn find(&mut self, k: SlotKeyId) -> SlotKeyId {
+        let root = self.find_frozen(k);
+        let mut cur = k;
+        while cur != root {
+            let next = self.parent_of(cur);
+            self.parent[cur.index()] = root.index() as u32;
+            cur = next;
         }
         root
     }
 
-    pub(super) fn union(&mut self, a: &SlotKey, b: &SlotKey) {
+    pub(super) fn union(&mut self, keys: &SlotKeys, a: SlotKeyId, b: SlotKeyId) {
         let ra = self.find(a);
         let rb = self.find(b);
         if ra == rb {
             return;
         }
+        let need = ra.index().max(rb.index()) + 1;
+        if self.parent.len() < need {
+            let from = self.parent.len() as u32;
+            self.parent.extend(from..need as u32);
+        }
         // Minimal-nesting representative: keeps canonical spellings
         // shallow and makes self-referential containers (`xs.push(xs)`
         // unions Elem(xs) with xs) terminate — the congruence rewrite
         // Elem(find(x)) can then never deepen a key.
-        if depth(&rb) < depth(&ra) {
-            self.parent.insert(ra, rb);
+        if keys.depth(rb) < keys.depth(ra) {
+            self.parent[ra.index()] = rb.index() as u32;
         } else {
-            self.parent.insert(rb, ra);
+            self.parent[rb.index()] = ra.index() as u32;
         }
     }
 
-    pub(super) fn find_frozen(&self, k: &SlotKey) -> SlotKey {
-        self.root_of(k).unwrap_or(k).clone()
-    }
-
-    /// The representative of `k`'s class, unless that is `k` itself.
-    pub(super) fn root_of(&self, k: &SlotKey) -> Option<&SlotKey> {
-        let mut cur = self.parent.get(k)?;
-        while let Some(p) = self.parent.get(cur) {
+    pub(super) fn find_frozen(&self, k: SlotKeyId) -> SlotKeyId {
+        let mut cur = k;
+        loop {
+            let p = self.parent_of(cur);
+            if p == cur {
+                return cur;
+            }
             cur = p;
         }
-        Some(cur)
     }
 
-    pub(super) fn keys(&self) -> impl Iterator<Item = &SlotKey> {
-        self.parent.keys().chain(self.parent.values())
-    }
-}
-
-fn depth(k: &SlotKey) -> usize {
-    match k {
-        SlotKey::Elem(x) | SlotKey::Field(x, _) => depth(x) + 1,
-        _ => 0,
+    /// Every key of a class with more than one member.
+    pub(super) fn keys(&self) -> impl Iterator<Item = SlotKeyId> + '_ {
+        (self.parent.iter().enumerate())
+            .filter(|(i, p)| **p as usize != *i)
+            .flat_map(|(i, p)| [SlotKeyId::from_index(i), SlotKeyId::from_index(*p as usize)])
     }
 }
 
@@ -90,22 +98,52 @@ fn depth(k: &SlotKey) -> usize {
 /// to their class representatives, then the whole key resolved.
 /// Congruence closure registers the rewritten spellings, so the outer
 /// find lands on the class the walk's symbolic spellings merged into.
-pub(super) fn canon_key(uf: &mut UnionFind, k: &SlotKey) -> SlotKey {
-    let rewritten = match k {
-        SlotKey::Elem(x) => SlotKey::Elem(Box::new(canon_key(uf, x))),
-        SlotKey::Field(x, n) => SlotKey::Field(Box::new(canon_key(uf, x)), n.clone()),
-        _ => k.clone(),
+pub(super) fn canon_key(uf: &mut UnionFind, keys: &SlotKeys, k: SlotKeyId) -> SlotKeyId {
+    let rewritten = match keys.data(k) {
+        SlotKeyData::Elem(x) => {
+            let cx = canon_key(uf, keys, x);
+            keys.mk(SlotKeyData::Elem(cx))
+        }
+        SlotKeyData::Field(x, n) => {
+            let cx = canon_key(uf, keys, x);
+            keys.mk(SlotKeyData::Field(cx, n))
+        }
+        _ => k,
     };
-    uf.find(&rewritten)
+    uf.find(rewritten)
 }
 
-pub(super) fn canon_key_frozen(uf: &UnionFind, k: &SlotKey) -> SlotKey {
-    let rewritten = match k {
-        SlotKey::Elem(x) => SlotKey::Elem(Box::new(canon_key_frozen(uf, x))),
-        SlotKey::Field(x, n) => SlotKey::Field(Box::new(canon_key_frozen(uf, x)), n.clone()),
-        _ => k.clone(),
+/// [`canon_key`] without path compression. The rewritten spelling is
+/// interned, so the answer can be filed in a set and met again.
+pub(super) fn canon_key_frozen(uf: &UnionFind, keys: &SlotKeys, k: SlotKeyId) -> SlotKeyId {
+    let rewritten = match keys.data(k) {
+        SlotKeyData::Elem(x) => {
+            let cx = canon_key_frozen(uf, keys, x);
+            keys.mk(SlotKeyData::Elem(cx))
+        }
+        SlotKeyData::Field(x, n) => {
+            let cx = canon_key_frozen(uf, keys, x);
+            keys.mk(SlotKeyData::Field(cx, n))
+        }
+        _ => k,
     };
-    uf.find_frozen(&rewritten)
+    uf.find_frozen(rewritten)
+}
+
+/// [`canon_key_frozen`] of a spelling lowering asks with, adding
+/// nothing to the table: `None` when some rewritten part was never
+/// interned. Interning a part interns every key under it, so such a
+/// spelling is its own class, and no class the analysis filed.
+pub(super) fn canon_spelling(uf: &UnionFind, keys: &SlotKeys, k: &SlotKey) -> Option<SlotKeyId> {
+    let rewritten = match k {
+        SlotKey::Elem(x) => keys.get(&SlotKeyData::Elem(canon_spelling(uf, keys, x)?))?,
+        SlotKey::Field(x, n) => {
+            let cx = canon_spelling(uf, keys, x)?;
+            keys.get(&SlotKeyData::Field(cx, keys.find_atom(n)?))?
+        }
+        _ => keys.lookup(k)?,
+    };
+    Some(uf.find_frozen(rewritten))
 }
 
 /// Nominal class hookups: every instance of `class C` shares one
@@ -115,25 +153,22 @@ pub(super) fn canon_key_frozen(uf: &UnionFind, k: &SlotKey) -> SlotKey {
 pub(super) fn nominal_unions(a: &mut Analysis) {
     let mut fn_names: Vec<&String> = a.fn_params.keys().collect();
     fn_names.sort();
-    let mut unions: Vec<(SlotKey, SlotKey)> = Vec::new();
+    let mut unions: Vec<(SlotKeyId, SlotKeyId)> = Vec::new();
     for f in fn_names {
         for c in &a.classes {
             if *f == format!("__new_{c}") {
-                unions.push((SlotKey::Class(c.clone()), SlotKey::Ret(f.clone())));
+                unions.push((a.keys.class(c), a.keys.ret(f)));
             } else if f.starts_with(&format!("__cm_{c}__"))
                 && a.fn_params[f].first().is_some_and(|p| p == "__this")
             {
-                unions.push((
-                    SlotKey::Class(c.clone()),
-                    SlotKey::Param(f.clone(), "__this".to_string()),
-                ));
+                unions.push((a.keys.class(c), a.keys.param(f, "__this")));
             }
         }
     }
     for (x, y) in unions {
-        a.mark_containerish(&x);
-        a.mark_containerish(&y);
-        a.uf.union(&x, &y);
+        a.mark_containerish(x);
+        a.mark_containerish(y);
+        a.uf.union(&a.keys, x, y);
     }
 }
 
@@ -157,7 +192,7 @@ pub(super) fn generator_step_unions(a: &mut Analysis) {
     }
     let mut fn_names: Vec<String> = a.fn_params.keys().cloned().collect();
     fn_names.sort();
-    let mut unions: Vec<(SlotKey, SlotKey)> = Vec::new();
+    let mut unions: Vec<(SlotKeyId, SlotKeyId)> = Vec::new();
     let factories: Vec<(String, String)> = a
         .ast
         .generator_factory_classes
@@ -165,20 +200,19 @@ pub(super) fn generator_step_unions(a: &mut Analysis) {
         .map(|(f, c)| (f.clone(), c.clone()))
         .collect();
     for (factory, class) in factories {
-        let elem = SlotKey::Elem(Box::new(SlotKey::Ret(factory)));
+        let fr = a.keys.ret(&factory);
+        let elem = a.keys.elem(fr);
         for m in &fn_names {
             if *m == format!("__cm_{class}__next") || *m == format!("__cmany_{class}__next") {
-                unions.push((
-                    elem.clone(),
-                    SlotKey::Field(Box::new(SlotKey::Ret(m.clone())), "value".into()),
-                ));
+                let mr = a.keys.ret(m);
+                unions.push((elem, a.keys.field(mr, "value")));
             }
         }
     }
     for (x, y) in unions {
-        a.mark_containerish(&x);
-        a.mark_containerish(&y);
-        a.uf.union(&x, &y);
+        a.mark_containerish(x);
+        a.mark_containerish(y);
+        a.uf.union(&a.keys, x, y);
     }
 }
 
@@ -210,7 +244,7 @@ pub(super) fn objlit_ctor_unions(a: &mut Analysis) {
     if fn_owner.is_empty() {
         return;
     }
-    let mut unions: Vec<(SlotKey, SlotKey)> = Vec::new();
+    let mut unions: Vec<(SlotKeyId, SlotKeyId)> = Vec::new();
     for (i, e) in a.ast.exprs.iter().enumerate() {
         let crate::ast::Expr::ObjectLit { fields } = e else {
             continue;
@@ -223,13 +257,13 @@ pub(super) fn objlit_ctor_unions(a: &mut Analysis) {
             _ => None,
         });
         if let Some(ty) = owner {
-            unions.push((SlotKey::Class(ty.clone()), SlotKey::Anon(i as u32)));
+            unions.push((a.keys.class(ty), a.keys.anon(i as u32)));
         }
     }
     for (x, y) in unions {
-        a.mark_containerish(&x);
-        a.mark_containerish(&y);
-        a.uf.union(&x, &y);
+        a.mark_containerish(x);
+        a.mark_containerish(y);
+        a.uf.union(&a.keys, x, y);
     }
 }
 
@@ -253,26 +287,24 @@ pub(super) fn activate_guarded(a: &mut Analysis) {
         // evidence the argument site left. Those two agree only
         // through congruence, which `canonicalize` runs after this
         // pass, so ask in deep-canonical form rather than literally.
-        let evidence: HashSet<SlotKey> = a
-            .containerish
-            .iter()
-            .map(|k| canon_key_frozen(&a.uf, k))
+        let evidence: HashSet<SlotKeyId> = (a.containerish.iter())
+            .map(|k| canon_key_frozen(&a.uf, &a.keys, *k))
             .collect();
-        for ((x, y), applied) in a.guarded_unions.iter().zip(&mut applied_g) {
+        for (&(x, y), applied) in a.guarded_unions.iter().zip(&mut applied_g) {
             if !*applied
-                && (evidence.contains(&canon_key_frozen(&a.uf, x))
-                    || evidence.contains(&canon_key_frozen(&a.uf, y)))
+                && (evidence.contains(&canon_key_frozen(&a.uf, &a.keys, x))
+                    || evidence.contains(&canon_key_frozen(&a.uf, &a.keys, y)))
             {
-                a.containerish.insert(x.clone());
-                a.containerish.insert(y.clone());
-                a.uf.union(x, y);
+                a.containerish.insert(x);
+                a.containerish.insert(y);
+                a.uf.union(&a.keys, x, y);
                 (*applied, changed) = (true, true);
             }
         }
-        for ((ek, cand), applied) in a.nested_unions.iter().zip(&mut applied_n) {
-            if !*applied && evidence.contains(&canon_key_frozen(&a.uf, cand)) {
-                a.containerish.insert(ek.clone());
-                a.uf.union(ek, cand);
+        for (&(ek, cand), applied) in a.nested_unions.iter().zip(&mut applied_n) {
+            if !*applied && evidence.contains(&canon_key_frozen(&a.uf, &a.keys, cand)) {
+                a.containerish.insert(ek);
+                a.uf.union(&a.keys, ek, cand);
                 (*applied, changed) = (true, true);
             }
         }
@@ -282,11 +314,12 @@ pub(super) fn activate_guarded(a: &mut Analysis) {
     }
 }
 
-fn collect_subkeys(k: &SlotKey, out: &mut HashSet<SlotKey>) {
-    if out.insert(k.clone()) {
-        match k {
-            SlotKey::Elem(x) | SlotKey::Field(x, _) => collect_subkeys(x, out),
-            _ => {}
+fn collect_subkeys(keys: &SlotKeys, k: SlotKeyId, out: &mut HashSet<SlotKeyId>) {
+    let mut k = k;
+    while out.insert(k) {
+        match keys.data(k) {
+            SlotKeyData::Elem(x) | SlotKeyData::Field(x, _) => k = x,
+            _ => break,
         }
     }
 }
@@ -297,32 +330,39 @@ fn collect_subkeys(k: &SlotKey, out: &mut HashSet<SlotKey>) {
 /// every seed / edge key onto its representative so the fixpoint
 /// propagates per alias class.
 pub(super) fn canonicalize(a: &mut Analysis) {
-    let mut keys: HashSet<SlotKey> = HashSet::default();
+    let mut keys: HashSet<SlotKeyId> = HashSet::default();
     for s in &a.seeds {
-        collect_subkeys(s, &mut keys);
+        collect_subkeys(&a.keys, *s, &mut keys);
     }
     for (d, ts) in &a.edges {
-        collect_subkeys(d, &mut keys);
+        collect_subkeys(&a.keys, *d, &mut keys);
         for (t, _) in ts {
-            collect_subkeys(t, &mut keys);
+            collect_subkeys(&a.keys, *t, &mut keys);
         }
     }
-    let uf_keys: Vec<SlotKey> = a.uf.keys().cloned().collect();
+    let uf_keys: Vec<SlotKeyId> = a.uf.keys().collect();
     for k in uf_keys {
-        collect_subkeys(&k, &mut keys);
+        collect_subkeys(&a.keys, k, &mut keys);
     }
 
     loop {
         let mut changed = false;
-        for k in keys.clone() {
-            let canon_inner = match &k {
-                SlotKey::Elem(x) => SlotKey::Elem(Box::new(a.uf.find(x))),
-                SlotKey::Field(x, n) => SlotKey::Field(Box::new(a.uf.find(x)), n.clone()),
+        let snapshot: Vec<SlotKeyId> = keys.iter().copied().collect();
+        for k in snapshot {
+            let canon_inner = match a.keys.data(k) {
+                SlotKeyData::Elem(x) => {
+                    let fx = a.uf.find(x);
+                    a.keys.mk(SlotKeyData::Elem(fx))
+                }
+                SlotKeyData::Field(x, n) => {
+                    let fx = a.uf.find(x);
+                    a.keys.mk(SlotKeyData::Field(fx, n))
+                }
                 _ => continue,
             };
-            keys.insert(canon_inner.clone());
-            if a.uf.find(&k) != a.uf.find(&canon_inner) {
-                a.uf.union(&k, &canon_inner);
+            keys.insert(canon_inner);
+            if a.uf.find(k) != a.uf.find(canon_inner) {
+                a.uf.union(&a.keys, k, canon_inner);
                 changed = true;
             }
         }
@@ -332,14 +372,17 @@ pub(super) fn canonicalize(a: &mut Analysis) {
     }
 
     let seeds = std::mem::take(&mut a.seeds);
-    a.seeds = seeds.iter().map(|k| canon_key(&mut a.uf, k)).collect();
+    a.seeds = (seeds.iter())
+        .map(|k| canon_key(&mut a.uf, &a.keys, *k))
+        .collect();
     let edges = std::mem::take(&mut a.edges);
     for (d, ts) in edges {
-        let cd = canon_key(&mut a.uf, &d);
-        let entry = a.edges.entry(cd).or_default();
+        let cd = canon_key(&mut a.uf, &a.keys, d);
+        let mut out = Vec::with_capacity(ts.len());
         for (t, g) in ts {
-            entry.push((canon_key(&mut a.uf, &t), g));
+            out.push((canon_key(&mut a.uf, &a.keys, t), g));
         }
+        a.edges.entry(cd).or_default().extend(out);
     }
 }
 

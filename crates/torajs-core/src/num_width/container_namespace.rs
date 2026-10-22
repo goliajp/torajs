@@ -6,7 +6,7 @@
 //! `container_methods.rs` (file-size limit).
 
 use super::magnitude::Mag;
-use super::{Analysis, Scope, SlotKey, W};
+use super::{Analysis, Scope, W};
 use crate::ast::{Expr, ExprId, PropKey};
 
 impl<'a> Analysis<'a> {
@@ -77,13 +77,13 @@ impl<'a> Analysis<'a> {
             if let Some(a0) = args.first()
                 && let Some(rk) = self.container_key_of(*a0, scope)
             {
-                self.mark_containerish(&rk);
-                let ek = SlotKey::Elem(Box::new(rk));
+                self.mark_containerish(rk);
+                let ek = self.keys.elem(rk);
                 if name == "deleteProperty" {
                     self.add_container_constraint(ek, super::magnitude::f64_flow());
                 } else if let Some(v) = args.get(2).copied() {
                     let w = self.flow(v, scope);
-                    self.add_container_constraint(ek.clone(), w);
+                    self.add_container_constraint(ek, w);
                     if let Some(vk) = self.container_key_of(v, scope) {
                         self.nested_unions.push((ek, vk));
                     }
@@ -112,7 +112,7 @@ impl<'a> Analysis<'a> {
         let Some(rk) = args.first().and_then(|t| self.container_key_of(*t, scope)) else {
             return;
         };
-        self.mark_containerish(&rk);
+        self.mark_containerish(rk);
         for s in args.iter().skip(1) {
             let Some(crate::check::Type::Struct(fs)) = self.expr_types.get(s) else {
                 continue;
@@ -129,14 +129,14 @@ impl<'a> Analysis<'a> {
                 };
                 let flow = match &sk {
                     Some(sk) if !getter => {
-                        let fk = SlotKey::Field(Box::new(sk.clone()), key.clone());
+                        let fk = self.keys.field(*sk, &key);
                         let name = key.lossy().into_owned();
-                        let mag = Mag::Max(vec![Mag::Slot(fk.clone()), Mag::Prop(name)]);
+                        let mag = Mag::Max(vec![Mag::Slot(fk), Mag::Prop(name)]);
                         (W::Num(vec![(fk, false)]), mag)
                     }
                     _ => super::magnitude::f64_flow(),
                 };
-                self.add_container_constraint(SlotKey::Field(Box::new(rk.clone()), key), flow);
+                self.add_container_constraint(self.keys.field(rk, &key), flow);
             }
         }
     }

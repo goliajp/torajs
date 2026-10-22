@@ -3,8 +3,7 @@
 //! (which cannot take the side-effecting `&mut` path; the walk has
 //! already attached Anon constraints and unions at flow sites).
 
-use super::{Analysis, Scope, SlotKey};
-use crate::ast::PropKey;
+use super::{Analysis, Scope, SlotKeyId};
 use crate::ast::{BinOp, Expr, ExprId};
 
 impl<'a> Analysis<'a> {
@@ -12,14 +11,14 @@ impl<'a> Analysis<'a> {
     /// shape, none of the side effects (Anon constraints, unions).
     /// `width_of` consumes this: it runs under `&self` and the walk
     /// has already attached the side effects at flow sites.
-    pub(super) fn container_key_lookup(&self, eid: ExprId, scope: &Scope) -> Option<SlotKey> {
+    pub(super) fn container_key_lookup(&self, eid: ExprId, scope: &Scope) -> Option<SlotKeyId> {
         match self.ast.get_expr(eid) {
             Expr::Ident(n) => {
                 if let Some(k) = self.resolve(n, scope) {
                     return Some(k);
                 }
-                if scope.fn_name.starts_with("__") && self.by_name.contains_key(n) {
-                    return Some(SlotKey::Captured(n.clone()));
+                if scope.fn_name.starts_with("__") && self.named(n).is_some() {
+                    return Some(self.keys.captured(n));
                 }
                 None
             }
@@ -27,20 +26,20 @@ impl<'a> Analysis<'a> {
                 // Mirror of the walk's await-origin arm.
                 if let Some(origin) = self.ast.yield_into_await_origins.get(&eid).copied() {
                     let base = self.container_key_lookup(origin, scope)?;
-                    return Some(SlotKey::Field(Box::new(base), "value".into()));
+                    return Some(self.keys.field(base, "value"));
                 }
                 let base = self.container_key_lookup(*obj, scope)?;
-                Some(SlotKey::Field(Box::new(base), PropKey::from(name)))
+                Some(self.keys.field(base, name))
             }
             Expr::OptIndex { obj, .. } | Expr::Index { obj, .. } => {
                 let base = self.container_key_lookup(*obj, scope)?;
-                Some(SlotKey::Elem(Box::new(base)))
+                Some(self.keys.elem(base))
             }
             Expr::Call { callee, args } => {
                 if let Some(f) = self.direct_callee(eid, *callee)
                     && self.fn_params.contains_key(&f)
                 {
-                    return Some(SlotKey::Ret(f));
+                    return Some(self.keys.ret(&f));
                 }
                 if self.retargets.contains_key(&eid)
                     || matches!(self.ast.get_expr(*callee), Expr::Ident(_))
@@ -50,7 +49,7 @@ impl<'a> Analysis<'a> {
                     // the indirect projection (mirror of the walk side).
                     return self
                         .container_key_lookup(*callee, scope)
-                        .map(|k| SlotKey::Field(Box::new(k), "__ret".into()));
+                        .map(|k| self.keys.field(k, "__ret"));
                 }
                 if let Expr::Member { obj, name } = self.ast.get_expr(*callee) {
                     // ②.6b — mirror of the walk's promise_static_key.
@@ -58,7 +57,7 @@ impl<'a> Analysis<'a> {
                         && ns == "Promise"
                         && self.resolve(ns, scope).is_none()
                     {
-                        return Some(SlotKey::Anon(eid.0));
+                        return Some(self.keys.anon(eid.0));
                     }
                     // Mirror of the walk's `Array.from` arm. Both static
                     // calls have an untrackable receiver — a global
@@ -70,7 +69,7 @@ impl<'a> Analysis<'a> {
                         && ns == "Array"
                         && self.resolve(ns, scope).is_none()
                     {
-                        return (name == "from").then_some(SlotKey::Anon(eid.0));
+                        return (name == "from").then(|| self.keys.anon(eid.0));
                     }
                     let recv = self.container_key_lookup(*obj, scope)?;
                     return self.method_result_key_pure(eid, recv, name, args);
@@ -79,7 +78,7 @@ impl<'a> Analysis<'a> {
                 // value (`fs[0]()`): same `__ret` projection as the
                 // walk side.
                 self.container_key_lookup(*callee, scope)
-                    .map(|k| SlotKey::Field(Box::new(k), "__ret".into()))
+                    .map(|k| self.keys.field(k, "__ret"))
             }
             Expr::Array(_)
             | Expr::ObjectLit { .. }
@@ -88,7 +87,7 @@ impl<'a> Analysis<'a> {
             | Expr::BinOp {
                 op: BinOp::LAnd | BinOp::LOr,
                 ..
-            } => Some(SlotKey::Anon(eid.0)),
+            } => Some(self.keys.anon(eid.0)),
             Expr::Sequence { right, .. } => self.container_key_lookup(*right, scope),
             Expr::As { expr, .. } => self.container_key_lookup(*expr, scope),
             Expr::Assign { value, .. } => self.container_key_lookup(*value, scope),
@@ -115,15 +114,15 @@ impl<'a> Analysis<'a> {
     fn method_result_key_pure(
         &self,
         eid: ExprId,
-        recv: SlotKey,
+        recv: SlotKeyId,
         name: &str,
         args: &[ExprId],
-    ) -> Option<SlotKey> {
+    ) -> Option<SlotKeyId> {
         match name {
             "slice" | "filter" | "reverse" | "sort" | "toReversed" | "toSorted" | "splice"
             | "toSpliced" | "with" | "concat" | "flat" | "map" | "flatMap" | "fill"
-            | "copyWithin" => Some(SlotKey::Anon(eid.0)),
-            "pop" | "shift" | "at" | "find" | "findLast" => Some(SlotKey::Elem(Box::new(recv))),
+            | "copyWithin" => Some(self.keys.anon(eid.0)),
+            "pop" | "shift" | "at" | "find" | "findLast" => Some(self.keys.elem(recv)),
             // §20.1.3.7 — `Object.prototype.valueOf` answers `this`, so
             // the product IS the receiver. Same gate and spelling as the
             // walk's arm.
@@ -137,28 +136,26 @@ impl<'a> Analysis<'a> {
             // proved a builtin container), so the class-name gate
             // doesn't apply to them.
             "get" if !self.any_class_owns_method("get") || self.demoted.contains_key(&eid) => {
-                Some(SlotKey::Elem(Box::new(recv)))
+                Some(self.keys.elem(recv))
             }
             "reduce" | "reduceRight" => args
                 .first()
                 .and_then(|a| self.callee_fn_name(*a))
-                .map(SlotKey::Ret),
+                .map(|f| self.keys.ret(&f)),
             // ②.6b — same Anon spelling as the walk's promise arm.
-            "then" | "catch" | "finally" => Some(SlotKey::Anon(eid.0)),
+            "then" | "catch" | "finally" => Some(self.keys.anon(eid.0)),
             _ => {
                 let any = self
                     .classes
                     .iter()
                     .any(|c| self.fn_params.contains_key(&format!("__cm_{c}__{name}")));
                 if any {
-                    Some(SlotKey::Anon(eid.0))
+                    Some(self.keys.anon(eid.0))
                 } else {
                     // F5 — struct-field-fn call: same `__ret`
                     // projection spelling as the walk side.
-                    Some(SlotKey::Field(
-                        Box::new(SlotKey::Field(Box::new(recv), PropKey::from(name))),
-                        "__ret".into(),
-                    ))
+                    let fk = self.keys.field(recv, name);
+                    Some(self.keys.field(fk, "__ret"))
                 }
             }
         }

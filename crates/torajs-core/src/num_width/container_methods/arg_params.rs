@@ -2,8 +2,8 @@
 //! list carries more than the arguments: a receiver, the argv face's
 //! synthetic pointer, an accessor write that spells no call at all.
 
-use super::super::{Analysis, Scope, SlotKey};
-use crate::ast::{ExprId, PropKey};
+use super::super::{Analysis, Scope};
+use crate::ast::ExprId;
 
 impl Analysis<'_> {
     /// A `__cm_` body's params without the argv face's synthetic
@@ -44,18 +44,18 @@ impl Analysis<'_> {
         scope: &Scope,
     ) {
         if let Some(rk) = self.container_key_of(obj, scope) {
-            let slot = SlotKey::Field(Box::new(rk), PropKey::from(format!("__setter_{name}")));
-            let pk = SlotKey::Field(Box::new(slot), PropKey::from("__p0"));
-            self.mark_containerish(&pk);
+            let slot = self.keys.field(rk, format!("__setter_{name}"));
+            let pk = self.keys.field(slot, "__p0");
+            self.mark_containerish(pk);
             let w = self.flow(value, scope);
             self.add_container_constraint(pk, w);
         }
         for c in self.classes.clone() {
             let f = format!("__cm_{c}__{name}_set");
             if let Some(p1) = self.method_arg_params(&f).and_then(|ps| ps.get(1).cloned()) {
-                let pk = SlotKey::Param(f.clone(), p1);
+                let pk = self.keys.param(&f, &p1);
                 let w = self.flow(value, scope);
-                self.add_container_constraint(pk.clone(), w);
+                self.add_container_constraint(pk, w);
                 self.alias_guarded(pk, value, scope);
             }
         }

@@ -1,7 +1,6 @@
 //! The Call arm of the constraint walk (`walk.rs`).
 
-use super::{Analysis, Scope, SlotKey};
-use crate::ast::PropKey;
+use super::{Analysis, Scope, SlotKeyId};
 use crate::ast::{BinOp, Expr, ExprId};
 
 impl Analysis<'_> {
@@ -25,13 +24,13 @@ impl Analysis<'_> {
             for (i, arg) in args.iter().enumerate() {
                 if let Some(pname) = pnames.get(i) {
                     let w = self.flow(*arg, scope);
-                    let pk = SlotKey::Param(fname.clone(), pname.clone());
-                    self.add_constraint(pk.clone(), w);
-                    for ann in self.binding_anns(&pk) {
-                        self.any_member_seed(*arg, &pk, &ann);
+                    let pk = self.keys.param(&fname, pname);
+                    self.add_constraint(pk, w);
+                    for ann in self.binding_anns(pk) {
+                        self.any_member_seed(*arg, pk, &ann);
                     }
-                    self.alias_guarded(pk.clone(), *arg, scope);
-                    self.fn_value_flow(&pk, *arg, scope);
+                    self.alias_guarded(pk, *arg, scope);
+                    self.fn_value_flow(pk, *arg, scope);
                 }
             }
             // a spread hands every later parameter one of its elements
@@ -41,7 +40,7 @@ impl Analysis<'_> {
             {
                 let m = self.mag_of(args[at], scope);
                 for p in pnames.into_iter().skip(at) {
-                    self.record_mag(SlotKey::Param(fname.clone(), p), m.clone());
+                    self.record_mag(self.keys.param(&fname, &p), m.clone());
                 }
             }
         } else if !matches!(self.ast.get_expr(callee), Expr::Member { .. })
@@ -70,9 +69,9 @@ impl Analysis<'_> {
             ) {
                 self.container_key_of(callee, scope);
             }
-            self.fn_value_flow(&ck, callee, scope);
-            self.record_variadic_call(callee, args, &ck);
-            self.flow_into_projections(&ck, args, scope);
+            self.fn_value_flow(ck, callee, scope);
+            self.record_variadic_call(callee, args, ck);
+            self.flow_into_projections(ck, args, scope);
         } else if let Some((obj, pos)) = self.replayed_args(callee, args)
             && let Some(ck) = self.container_key_lookup(obj, scope)
         {
@@ -80,10 +79,10 @@ impl Analysis<'_> {
             // arguments after the receiver fill its projections as a
             // plain indirect call's would; an `apply` array that is no
             // literal lists none of them
-            self.fn_value_flow(&ck, obj, scope);
+            self.fn_value_flow(ck, obj, scope);
             match pos {
-                Some(pos) => self.flow_into_projections(&ck, &pos, scope),
-                None => self.record_unlisted_args(&ck, 0),
+                Some(pos) => self.flow_into_projections(ck, &pos, scope),
+                None => self.record_unlisted_args(ck, 0),
             }
         }
         self.member_call_effects(eid, callee, args, scope);
@@ -100,15 +99,15 @@ impl Analysis<'_> {
     /// Each of `args` into the `__p{i}` projection of the fn value
     /// slot `ck`, by position. A spread stands for the arguments from
     /// its position on, which no projection lists.
-    fn flow_into_projections(&mut self, ck: &SlotKey, args: &[ExprId], scope: &Scope) {
+    fn flow_into_projections(&mut self, ck: SlotKeyId, args: &[ExprId], scope: &Scope) {
         let spread = |a: &ExprId| matches!(self.ast.get_expr(*a), Expr::Spread { .. });
         if let Some(at) = args.iter().position(spread) {
             self.record_unlisted_args(ck, at);
         }
         for (i, arg) in args.iter().enumerate() {
             let w = self.flow(*arg, scope);
-            let pk = SlotKey::Field(Box::new(ck.clone()), PropKey::from(format!("__p{i}")));
-            self.add_constraint(pk.clone(), w);
+            let pk = self.keys.field(ck, format!("__p{i}"));
+            self.add_constraint(pk, w);
             // a container argument joins the projection too, not just
             // hands over its scalar width: an arrow bound to a local
             // (`let f = (xs: number[]) => xs[0]`) otherwise read the
@@ -117,8 +116,8 @@ impl Analysis<'_> {
             // `fn_value_flow` at the binding's init already glued this
             // projection onto the lifted fn's Param key, so one union
             // reaches it.
-            self.alias_guarded(pk.clone(), *arg, scope);
-            self.fn_value_flow(&pk, *arg, scope);
+            self.alias_guarded(pk, *arg, scope);
+            self.fn_value_flow(pk, *arg, scope);
         }
     }
 

@@ -26,7 +26,7 @@ use super::members::method_body;
 use crate::ast::{Expr, ExprId};
 use crate::check::Type;
 use crate::num_width::hidden_any::{Graph, Node, Origin, Ref};
-use crate::num_width::{Analysis, Scope, SlotKey};
+use crate::num_width::{Analysis, Scope};
 
 /// How deep the walk follows `const` initializers and type aliases.
 const DEPTH: u8 = 8;
@@ -93,8 +93,8 @@ impl Graph<'_> {
         }
         let l = self.lookups(a);
         let ann: Option<&str> = match a.ast.get_expr(obj) {
-            Expr::Ident(n) => match self.resolve(a, n, sc) {
-                Ref::At(Node::Decl(i)) => match self.origin(i) {
+            Expr::Ident(n) => match self.resolve(a, n, sc).with_param(&a.keys) {
+                (Ref::At(Node::Decl(i)), _) => match self.origin(i) {
                     Origin::Fixed(v) => return self.receiver_at((a, sc), v, depth + 1, seen),
                     // what an open annotation (one a desugar pass writes
                     // on a hoisted `var`) leaves is what the binding holds
@@ -107,11 +107,9 @@ impl Graph<'_> {
                     },
                     Origin::Param(_) | Origin::Unknown => None,
                 },
-                Ref::At(Node::Read(SlotKey::Param(f, p))) => {
-                    l.param_anns.get(&(f, p)).map(String::as_str)
-                }
+                (_, Some((f, p))) => l.param_anns.get(&(f, p)).map(String::as_str),
                 // a top-level binding a function reads
-                Ref::Keyed(_) => match l.decls.get(n).map(Vec::as_slice) {
+                (Ref::Keyed(_), _) => match l.decls.get(n).map(Vec::as_slice) {
                     Some([Origin::Open(v)]) => l.let_anns.get(v).map(String::as_str),
                     _ => None,
                 },

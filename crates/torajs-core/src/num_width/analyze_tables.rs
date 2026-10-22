@@ -12,7 +12,7 @@
 use crate::ast::GenericStructDecls;
 use std::collections::{HashMap, HashSet};
 
-use super::{Analysis, SlotKey, container, let_names};
+use super::{Analysis, ByName, KeyMap, SlotKeyData, SlotKeyId, SlotKeys, container, let_names};
 use crate::ast::{Ast, Expr, Stmt, UnaryOp};
 
 /// Pre-walk name registry: every fn's param names, every top-level
@@ -26,8 +26,8 @@ use crate::ast::{Ast, Expr, Stmt, UnaryOp};
 pub(super) type SlotRegistry = (
     HashMap<String, Vec<String>>,
     HashSet<String>,
-    HashMap<String, Vec<SlotKey>>,
-    HashMap<SlotKey, f64>,
+    ByName,
+    KeyMap<f64>,
 );
 
 /// The integer literal an immutable binding was initialized with,
@@ -38,7 +38,7 @@ pub(super) type SlotRegistry = (
 /// (506-06). `mutable: false` is the whole guarantee: the checker
 /// rejects every assignment to such a binding, so the value the
 /// declaration shows is the value every read sees.
-fn record_const_int(ast: &Ast, decl: Option<&Stmt>, key: SlotKey, out: &mut HashMap<SlotKey, f64>) {
+fn record_const_int(ast: &Ast, decl: Option<&Stmt>, key: SlotKeyId, out: &mut KeyMap<f64>) {
     let Some(Stmt::LetDecl {
         mutable: false,
         init,
@@ -69,11 +69,12 @@ fn int_literal_value(ast: &Ast, eid: crate::ast::ExprId) -> Option<f64> {
     }
 }
 
-pub(super) fn collect_slot_registry(ast: &Ast) -> SlotRegistry {
+pub(super) fn collect_slot_registry(ast: &Ast, keys: &SlotKeys) -> SlotRegistry {
     let mut fn_params: HashMap<String, Vec<String>> = HashMap::new();
     let mut toplevel_lets: HashSet<String> = HashSet::new();
-    let mut by_name: HashMap<String, Vec<SlotKey>> = HashMap::new();
-    let mut const_ints: HashMap<SlotKey, f64> = HashMap::new();
+    let mut by_name = ByName::default();
+    let mut const_ints = KeyMap::default();
+    let atom = |n: &str| keys.atom(torajs_wtf8::Wtf8::new(n));
     for stmt in &ast.stmts {
         match stmt {
             Stmt::FnDecl { name, params, .. } => {
@@ -81,25 +82,19 @@ pub(super) fn collect_slot_registry(ast: &Ast) -> SlotRegistry {
                     name.clone(),
                     params.iter().map(|p| p.name.clone()).collect(),
                 );
+                let f = atom(name);
                 for p in params {
-                    by_name
-                        .entry(p.name.clone())
-                        .or_default()
-                        .push(SlotKey::Param(name.clone(), p.name.clone()));
+                    let n = atom(&p.name);
+                    let k = keys.mk(SlotKeyData::Param(f, n));
+                    by_name.entry(n).or_default().push(k);
                 }
                 if let Stmt::FnDecl { body, .. } = stmt {
                     for b in body {
                         let_names::walk_bindings(b, &mut |v, decl| {
-                            by_name
-                                .entry(v.to_string())
-                                .or_default()
-                                .push(SlotKey::Local(name.clone(), v.to_string()));
-                            record_const_int(
-                                ast,
-                                decl,
-                                SlotKey::Local(name.clone(), v.to_string()),
-                                &mut const_ints,
-                            );
+                            let n = atom(v);
+                            let k = keys.mk(SlotKeyData::Local(f, n));
+                            by_name.entry(n).or_default().push(k);
+                            record_const_int(ast, decl, k, &mut const_ints);
                         });
                     }
                 }
@@ -107,16 +102,10 @@ pub(super) fn collect_slot_registry(ast: &Ast) -> SlotRegistry {
             other => {
                 let_names::walk_bindings(other, &mut |name, decl| {
                     toplevel_lets.insert(name.to_string());
-                    by_name
-                        .entry(name.to_string())
-                        .or_default()
-                        .push(SlotKey::Global(name.to_string()));
-                    record_const_int(
-                        ast,
-                        decl,
-                        SlotKey::Global(name.to_string()),
-                        &mut const_ints,
-                    );
+                    let n = atom(name);
+                    let k = keys.mk(SlotKeyData::Global(n));
+                    by_name.entry(n).or_default().push(k);
+                    record_const_int(ast, decl, k, &mut const_ints);
                 });
             }
         }
@@ -156,10 +145,8 @@ pub(super) fn seed_any_and_poison(a: &mut Analysis<'_>) {
     // fractional f64s at runtime; an I64 repr would FpToSi-truncate
     // them (NaN → 0, silent). Conservative direction — repr cost
     // only, never correctness.
-    let frozen_any: Vec<SlotKey> = a
-        .any_seeds
-        .iter()
-        .map(|k| container::canon_key_frozen(&a.uf, k))
+    let frozen_any: Vec<SlotKeyId> = (a.any_seeds.iter())
+        .map(|k| container::canon_key_frozen(&a.uf, &a.keys, *k))
         .collect();
     a.seeds.extend(frozen_any);
     // An untrackable index-assign receiver poisons every container
@@ -173,11 +160,9 @@ pub(super) fn seed_any_and_poison(a: &mut Analysis<'_>) {
     // edge graph so the fixpoint carries the poison to its scalar
     // dependents, keeping both sides of the lattice consistent.
     if a.container_poison {
-        let poisoned: Vec<SlotKey> = a
-            .edges
-            .keys()
-            .filter(|k| matches!(k, SlotKey::Elem(_) | SlotKey::Field(..)))
-            .cloned()
+        let poisoned: Vec<SlotKeyId> = (a.edges.keys())
+            .filter(|k| a.keys.inner(**k).is_some())
+            .copied()
             .collect();
         a.seeds.extend(poisoned);
     }
@@ -195,15 +180,15 @@ fn seed_accessor_fields(a: &mut Analysis<'_>) {
     let mut owners: Vec<&String> = a.classes.iter().chain(&a.nominal_aliases).collect();
     owners.sort();
     owners.dedup();
-    let reached: Vec<SlotKey> = owners
+    let reached: Vec<SlotKeyId> = owners
         .into_iter()
         .filter_map(|c| Some((c, a.struct_decls.get(c)?)))
         .flat_map(|(c, fields)| {
             (fields.iter())
                 .filter(|(f, _)| names.may(&f.lossy()))
-                .map(|(f, _)| SlotKey::Field(Box::new(SlotKey::Class(c.clone())), f.clone()))
+                .map(|(f, _)| a.keys.field(a.keys.class(c), f))
         })
-        .map(|k| container::canon_key_frozen(&a.uf, &k))
+        .map(|k| container::canon_key_frozen(&a.uf, &a.keys, k))
         .collect();
     a.seeds.extend(reached);
 }

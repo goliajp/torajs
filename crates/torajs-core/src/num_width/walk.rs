@@ -3,7 +3,7 @@
 //! slot value flow) for the fixpoint in `mod.rs`.
 
 use super::magnitude::Flow;
-use super::{Analysis, Scope, SlotKey};
+use super::{Analysis, Scope};
 use crate::ast::{BinOp, Expr, ExprId, Stmt};
 
 impl<'a> Analysis<'a> {
@@ -18,10 +18,10 @@ impl<'a> Analysis<'a> {
             Stmt::Return(Some(e)) => {
                 if !scope.fn_name.is_empty() {
                     let w = self.flow(*e, scope);
-                    let rk = SlotKey::Ret(scope.fn_name.to_string());
-                    self.add_constraint(rk.clone(), w);
-                    self.alias_guarded(rk.clone(), *e, scope);
-                    self.fn_value_flow(&rk, *e, scope);
+                    let rk = self.keys.ret(scope.fn_name);
+                    self.add_constraint(rk, w);
+                    self.alias_guarded(rk, *e, scope);
+                    self.fn_value_flow(rk, *e, scope);
                 }
                 self.walk_expr(*e, scope);
             }
@@ -30,7 +30,7 @@ impl<'a> Analysis<'a> {
                 // slot, so its width feeds that slot's class and comes
                 // back out at whatever catch binding reads it.
                 let w = self.flow(*e, scope);
-                self.add_container_constraint(SlotKey::Thrown, w);
+                self.add_container_constraint(self.keys.thrown(), w);
                 self.walk_expr(*e, scope);
             }
             Stmt::Expr(e) | Stmt::Yield(e) => self.walk_expr(*e, scope),
@@ -63,19 +63,19 @@ impl<'a> Analysis<'a> {
                 // width_of (live once W4 wires the Index arm) plus a
                 // guarded alias for container elements.
                 let key = if scope.fn_name.is_empty() {
-                    SlotKey::Global(var_name.clone())
+                    self.keys.global(var_name)
                 } else {
-                    SlotKey::Local(scope.fn_name.to_string(), var_name.clone())
+                    self.keys.local(scope.fn_name, var_name)
                 };
                 let w = self.flow(*elem_expr, scope);
-                self.add_constraint(key.clone(), w);
+                self.add_constraint(key, w);
                 // a `Map<K, number>` values() source steps an f64 on the
                 // typed lane (`ssa_lower_map_num_lane`), sentinel included
                 if let Expr::Index { obj, .. } = self.ast.get_expr(*elem_expr)
                     && matches!(self.expr_types.get(obj),
                         Some(crate::check::Type::MapIter(t)) if **t == crate::check::Type::Number)
                 {
-                    self.add_constraint(key.clone(), super::magnitude::f64_flow());
+                    self.add_constraint(key, super::magnitude::f64_flow());
                 }
                 self.alias_guarded(key, *elem_expr, scope);
                 self.walk_expr(*elem_expr, scope);
@@ -125,7 +125,7 @@ impl<'a> Analysis<'a> {
                     && super::container_methods::in_number_domain(catch_type)
                     && let Some(k) = self.resolve(p, scope)
                 {
-                    self.uf.union(&SlotKey::Thrown, &k);
+                    self.uf.union(&self.keys, self.keys.thrown(), k);
                 }
                 for bs in body {
                     self.walk_stmt(bs, scope);
@@ -172,34 +172,34 @@ impl<'a> Analysis<'a> {
     fn walk_let_decl(&mut self, name: &str, type_ann: Option<&str>, init: ExprId, scope: &Scope) {
         let w = self.flow(init, scope);
         let key = if scope.fn_name.is_empty() {
-            SlotKey::Global(name.to_string())
+            self.keys.global(name)
         } else {
-            SlotKey::Local(scope.fn_name.to_string(), name.to_string())
+            self.keys.local(scope.fn_name, name)
         };
         // D5 — a binding annotated with a cyclic alias joins the
         // alias's nominal field-width point; F1 — one annotated with
         // a fn-type joins the spelling's signature class.
         if let Some(ann) = type_ann {
-            self.alias_ann_union(&key, ann);
-            self.fnsig_ann_union(&key, ann);
+            self.alias_ann_union(key, ann);
+            self.fnsig_ann_union(key, ann);
             // W-ESC — any-annotated binding is an escape sink
             // (escape.rs).
-            self.seed_any_face(&key, ann, true);
+            self.seed_any_face(key, ann, true);
         }
         // ②.7 — JSON.parse targets: runtime data, every number-domain
         // face seeds F64 (see json_seed.rs).
         if self.is_json_parse(init) {
-            self.json_parse_seed(&key, type_ann);
+            self.json_parse_seed(key, type_ann);
         } else if let Some(ann) = type_ann
             && self.expr_types.get(&init) == Some(&crate::check::Type::Any)
         {
-            self.any_object_seed(init, &key, ann);
+            self.any_object_seed(init, key, ann);
         } else if let Some(ann) = type_ann {
-            self.any_member_seed(init, &key, ann);
+            self.any_member_seed(init, key, ann);
         }
-        self.add_constraint(key.clone(), w);
-        self.alias_guarded(key.clone(), init, scope);
-        self.fn_value_flow(&key, init, scope);
+        self.add_constraint(key, w);
+        self.alias_guarded(key, init, scope);
+        self.fn_value_flow(key, init, scope);
         self.walk_expr(init, scope);
     }
 
@@ -216,19 +216,19 @@ impl<'a> Analysis<'a> {
                     self.assign_to_name(&n, w, scope);
                     if let Some(k) = self.resolve(&n, scope) {
                         let any = self.expr_types.get(value) == Some(&crate::check::Type::Any);
-                        for ann in self.binding_anns(&k) {
+                        for ann in self.binding_anns(k) {
                             if any {
-                                self.any_object_seed(*value, &k, &ann);
+                                self.any_object_seed(*value, k, &ann);
                             } else {
-                                self.any_member_seed(*value, &k, &ann);
+                                self.any_member_seed(*value, k, &ann);
                             }
                         }
-                        self.alias_guarded(k.clone(), *value, scope);
-                        self.fn_value_flow(&k, *value, scope);
-                    } else if scope.fn_name.starts_with("__") && self.by_name.contains_key(&n) {
+                        self.alias_guarded(k, *value, scope);
+                        self.fn_value_flow(k, *value, scope);
+                    } else if scope.fn_name.starts_with("__") && self.named(&n).is_some() {
                         // Captured container reassigned from a lifted
                         // closure — alias through the shared key.
-                        self.alias_guarded(SlotKey::Captured(n), *value, scope);
+                        self.alias_guarded(self.keys.captured(&n), *value, scope);
                     }
                 } else {
                     self.container_assign(*target, *value, scope);
@@ -318,9 +318,9 @@ impl<'a> Analysis<'a> {
                 // known container flow), so a call-argument literal
                 // never seeded and its fractional / NaN initializer
                 // truncated through an I64 slot.
-                let anon = SlotKey::Anon(eid.0);
+                let anon = self.keys.anon(eid.0);
                 for (fname, e) in fields {
-                    let fk = SlotKey::Field(Box::new(anon.clone()), fname.clone());
+                    let fk = self.keys.field(anon, fname);
                     let w = self.flow(*e, scope);
                     self.add_container_constraint(fk, w);
                     self.walk_expr(*e, scope);
@@ -380,7 +380,7 @@ impl<'a> Analysis<'a> {
         if let Some(key) = self.resolve(n, scope) {
             self.add_constraint(key, w);
         } else if scope.fn_name.starts_with("__")
-            && let Some(keys) = self.by_name.get(n).cloned()
+            && let Some(keys) = self.named(n).cloned()
         {
             for k in keys {
                 self.add_constraint(k, w.clone());

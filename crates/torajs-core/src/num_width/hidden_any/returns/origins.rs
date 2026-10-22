@@ -5,7 +5,7 @@ use crate::ast::{Expr, ExprId};
 use crate::check::Type;
 use crate::num_width::hidden_any::Graph;
 use crate::num_width::hidden_any::{Node, Origin, Ref};
-use crate::num_width::{Analysis, Scope, SlotKey};
+use crate::num_width::{Analysis, Scope};
 
 impl Graph<'_> {
     /// The typed return of the type of `callee`, a binding or parameter
@@ -26,14 +26,12 @@ impl Graph<'_> {
         if **r == Type::Any || a.ast.face_mismatch_globals.contains(n) {
             return None;
         }
-        let plain = match self.resolve(a, n, sc) {
-            Ref::At(Node::Decl(i)) => match self.origin(i) {
+        let plain = match self.resolve(a, n, sc).with_param(&a.keys) {
+            (Ref::At(Node::Decl(i)), _) => match self.origin(i) {
                 Origin::Fixed(v) | Origin::Open(v) => !a.ast.face_mismatch_lets.contains(&v),
                 Origin::Param(_) | Origin::Unknown => false,
             },
-            Ref::At(Node::Read(SlotKey::Param(f, p))) => {
-                !a.ast.boxed_params_of(&f).is_some_and(|ps| ps.contains(&p))
-            }
+            (_, Some((f, p))) => !a.ast.boxed_params_of(&f).is_some_and(|ps| ps.contains(&p)),
             _ => false,
         };
         plain.then_some(r)
@@ -42,17 +40,17 @@ impl Graph<'_> {
     /// What the declarations `n` may name say about their values; an
     /// open parameter spells `any`.
     pub(super) fn origins(&self, a: &Analysis<'_>, sc: &Scope, n: &str) -> Vec<Origin> {
-        match self.resolve(a, n, sc) {
-            Ref::At(Node::Decl(i)) => vec![self.origin(i)],
-            Ref::At(Node::Read(SlotKey::Param(f, p))) => {
+        match self.resolve(a, n, sc).with_param(&a.keys) {
+            (Ref::At(Node::Decl(i)), _) => vec![self.origin(i)],
+            (_, Some((f, p))) => {
                 let open = self.lookups(a).open_params.get(&(f, p)).copied();
                 vec![Origin::Param(open.unwrap_or(true))]
             }
-            Ref::Keyed(_) => match self.lookups(a).decls.get(n) {
+            (Ref::Keyed(_), _) => match self.lookups(a).decls.get(n) {
                 Some(os) => os.clone(),
                 None => vec![Origin::Unknown],
             },
-            Ref::At(_) => vec![Origin::Unknown],
+            (Ref::At(_), _) => vec![Origin::Unknown],
         }
     }
 

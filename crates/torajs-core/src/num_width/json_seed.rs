@@ -11,7 +11,7 @@
 //! duplicates lowering's T-02 promotion — harmless overlap, one
 //! source of truth here.
 
-use super::{Analysis, SlotKey};
+use super::{Analysis, SlotKeyData, SlotKeyId};
 use crate::ast::PropKey;
 use crate::ast::{Expr, ExprId, Stmt};
 use std::collections::HashSet;
@@ -39,9 +39,9 @@ impl<'a> Analysis<'a> {
 
     /// Seed every number-domain face reachable from a JSON.parse
     /// target slot, walking the annotation spelling.
-    pub(super) fn json_parse_seed(&mut self, key: &SlotKey, ann: Option<&str>) {
+    pub(super) fn json_parse_seed(&mut self, key: SlotKeyId, ann: Option<&str>) {
         if number_domain(ann) {
-            self.add_constraint(key.clone(), super::magnitude::f64_flow());
+            self.add_constraint(key, super::magnitude::f64_flow());
         }
         let mut seen: HashSet<String> = HashSet::new();
         self.seed_number_faces(key, ann, &mut seen);
@@ -53,17 +53,17 @@ impl<'a> Analysis<'a> {
     /// fields seed on the class's own aggregation point (`Class(C)`),
     /// which the layout reads; a slot's own key would only widen a twin
     /// layout that no longer names the class.
-    fn seed_number_faces(&mut self, key: &SlotKey, ann: Option<&str>, seen: &mut HashSet<String>) {
+    fn seed_number_faces(&mut self, key: SlotKeyId, ann: Option<&str>, seen: &mut HashSet<String>) {
         let Some(ann) = ann else { return };
         let ann = crate::check_type_ann::strip_nullable(ann).trim();
         if let Some(elem) = ann.strip_suffix("[]") {
-            let ek = SlotKey::Elem(Box::new(key.clone()));
+            let ek = self.keys.elem(key);
             self.mark_containerish(key);
-            self.mark_containerish(&ek);
+            self.mark_containerish(ek);
             if number_domain(Some(elem)) {
-                self.add_container_constraint(ek.clone(), super::magnitude::f64_flow());
+                self.add_container_constraint(ek, super::magnitude::f64_flow());
             }
-            self.seed_number_faces(&ek, Some(elem), seen);
+            self.seed_number_faces(ek, Some(elem), seen);
             return;
         }
         // Named-type or object-type-literal spelling — seed each
@@ -76,17 +76,17 @@ impl<'a> Analysis<'a> {
             return;
         }
         let holder = if self.ast.class_parents.contains_key(ann) {
-            SlotKey::Class(ann.to_string())
+            self.keys.class(ann)
         } else {
-            key.clone()
+            key
         };
-        self.mark_containerish(&holder);
+        self.mark_containerish(holder);
         for (fname, fann) in fields {
-            let fk = SlotKey::Field(Box::new(holder.clone()), fname);
+            let fk = self.keys.field(holder, &fname);
             if number_domain(Some(&fann)) {
-                self.add_container_constraint(fk.clone(), super::magnitude::f64_flow());
+                self.add_container_constraint(fk, super::magnitude::f64_flow());
             }
-            self.seed_number_faces(&fk, Some(&fann), seen);
+            self.seed_number_faces(fk, Some(&fann), seen);
         }
     }
 }
@@ -100,7 +100,7 @@ impl Analysis<'_> {
     /// would reject a fraction the annotation admits (RFC 20260922
     /// §4.4 item 1). A write at `site` in a body that never runs casts
     /// nothing.
-    pub(super) fn any_object_seed(&mut self, site: ExprId, key: &SlotKey, ann: &str) {
+    pub(super) fn any_object_seed(&mut self, site: ExprId, key: SlotKeyId, ann: &str) {
         let (ast, retargets, types) = (self.ast, self.retargets, self.expr_types);
         let idle =
             (self.idle).get_or_init(|| super::idle_bodies::IdleBodies::of(ast, retargets, types));
@@ -116,7 +116,7 @@ impl Analysis<'_> {
     /// member handed an `any` value is cast into the type the field
     /// declares (`ssa_lower_object_lit::declared`), at any depth of
     /// nested literals. Any other value seeds nothing.
-    pub(super) fn any_member_seed(&mut self, lit: ExprId, key: &SlotKey, ann: &str) {
+    pub(super) fn any_member_seed(&mut self, lit: ExprId, key: SlotKeyId, ann: &str) {
         let Expr::ObjectLit { fields } = self.ast.get_expr(lit) else {
             return;
         };
@@ -125,11 +125,11 @@ impl Analysis<'_> {
             let Some((_, fann)) = declared.iter().find(|(k, _)| *k == name) else {
                 continue;
             };
-            let fk = SlotKey::Field(Box::new(key.clone()), name);
+            let fk = self.keys.field(key, &name);
             if self.expr_types.get(&v) == Some(&crate::check::Type::Any) {
-                self.any_object_seed(v, &fk, fann);
+                self.any_object_seed(v, fk, fann);
             } else {
-                self.any_member_seed(v, &fk, fann);
+                self.any_member_seed(v, fk, fann);
             }
         }
     }
@@ -149,7 +149,7 @@ impl Analysis<'_> {
         {
             return Some(ann);
         }
-        let binding = |n: &str| self.binding_anns(&self.resolve(n, scope)?).pop();
+        let binding = |n: &str| self.binding_anns(self.resolve(n, scope)?).pop();
         let class_of = |e| crate::ast_throw_info::class_of(self.expr_types, e);
         let owner = crate::ast_throw_info::written_ann(self.ast, obj, &binding, &class_of)?;
         let fields = self.object_fields(crate::check_type_ann::strip_nullable(&owner).trim());
@@ -177,7 +177,7 @@ impl Analysis<'_> {
     /// same-named `let` of a body shares the slot, so this answers each
     /// of them, a superset of the one declaration a cast reads at its
     /// write (`LowerCtx::binding_ann`).
-    pub(super) fn binding_anns(&self, key: &SlotKey) -> Vec<String> {
+    pub(super) fn binding_anns(&self, key: SlotKeyId) -> Vec<String> {
         let decl = |f: &str| {
             self.ast.stmts.iter().find_map(|s| match s {
                 Stmt::FnDecl {
@@ -198,20 +198,24 @@ impl Analysis<'_> {
                 out.push(a.clone());
             }
         };
-        match key {
-            SlotKey::Global(n) => {
+        let name = |a| self.keys.name(a).to_string();
+        match self.keys.data(key) {
+            SlotKeyData::Global(n) => {
+                let n = name(n);
                 let top = self.ast.stmts.iter();
                 for s in top.filter(|s| !matches!(s, Stmt::FnDecl { .. })) {
-                    crate::ast::walk_stmts(std::slice::from_ref(s), &mut |s| take(s, n));
+                    crate::ast::walk_stmts(std::slice::from_ref(s), &mut |s| take(s, &n));
                 }
             }
-            SlotKey::Local(f, n) => {
-                if let Some((_, body)) = decl(f) {
-                    crate::ast::walk_stmts(body, &mut |s| take(s, n));
+            SlotKeyData::Local(f, n) => {
+                let n = name(n);
+                if let Some((_, body)) = decl(&name(f)) {
+                    crate::ast::walk_stmts(body, &mut |s| take(s, &n));
                 }
             }
-            SlotKey::Param(f, n) => {
-                let p = decl(f).and_then(|(ps, _)| ps.iter().find(|p| p.name == *n));
+            SlotKeyData::Param(f, n) => {
+                let n = name(n);
+                let p = decl(&name(f)).and_then(|(ps, _)| ps.iter().find(|p| p.name == n));
                 out.extend(p.and_then(|p| p.type_ann.clone()));
             }
             _ => {}
@@ -223,11 +227,9 @@ impl Analysis<'_> {
     /// value appended to it (`ast_throw_info::written_ann`).
     pub(super) fn pushed_elem_anns(&self, recv: ExprId, scope: &super::Scope) -> Vec<String> {
         let anns = match self.ast.get_expr(recv) {
-            Expr::Ident(n) => {
-                (self.resolve(n, scope)).map_or(Vec::new(), |k| self.binding_anns(&k))
-            }
+            Expr::Ident(n) => (self.resolve(n, scope)).map_or(Vec::new(), |k| self.binding_anns(k)),
             _ => {
-                let binding = |n: &str| self.binding_anns(&self.resolve(n, scope)?).pop();
+                let binding = |n: &str| self.binding_anns(self.resolve(n, scope)?).pop();
                 let class_of = |e| crate::ast_throw_info::class_of(self.expr_types, e);
                 let ann = crate::ast_throw_info::written_ann(self.ast, recv, &binding, &class_of);
                 ann.into_iter().collect()

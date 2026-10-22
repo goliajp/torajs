@@ -24,15 +24,15 @@
 use std::collections::HashSet;
 
 use super::container::canon_key_frozen;
-use super::{Analysis, SlotKey};
-use crate::ast::{Expr, ExprId, PropKey};
+use super::{Analysis, SlotKeyId};
+use crate::ast::{Expr, ExprId};
 use crate::check::Type;
 
 impl Analysis<'_> {
     /// Record an indirect call whose callee is typed by a variadic fn
     /// face, with the first position its arguments may leave unfilled
     /// (a spread stands for an unknown count from its own position).
-    pub(super) fn record_variadic_call(&mut self, callee: ExprId, args: &[ExprId], ck: &SlotKey) {
+    pub(super) fn record_variadic_call(&mut self, callee: ExprId, args: &[ExprId], ck: SlotKeyId) {
         let Some(Type::Function(params, _)) = self.expr_types.get(&callee) else {
             return;
         };
@@ -43,7 +43,7 @@ impl Analysis<'_> {
             .iter()
             .position(|a| matches!(self.ast.get_expr(*a), Expr::Spread { .. }))
             .unwrap_or(args.len());
-        self.variadic_calls.push((ck.clone(), filled, false));
+        self.variadic_calls.push((ck, filled, false));
     }
 
     /// Record an indirect call whose arguments from position `from` on
@@ -51,8 +51,8 @@ impl Analysis<'_> {
     /// `f.call(t, ...xs)`) or an `apply` array that is no literal
     /// (`f.apply(t, xs)`). Each parameter from there may take any
     /// number, or none.
-    pub(super) fn record_unlisted_args(&mut self, ck: &SlotKey, from: usize) {
-        self.variadic_calls.push((ck.clone(), from, true));
+    pub(super) fn record_unlisted_args(&mut self, ck: SlotKeyId, from: usize) {
+        self.variadic_calls.push((ck, from, true));
     }
 }
 
@@ -62,25 +62,23 @@ impl Analysis<'_> {
 /// are unknown from there on seeds those parameters too.
 pub(super) fn seed(a: &mut Analysis<'_>, undef_params: &mut HashSet<(String, String)>) {
     for (ck, filled, unlisted) in std::mem::take(&mut a.variadic_calls) {
-        let slot = canon_key_frozen(&a.uf, &ck);
+        let slot = canon_key_frozen(&a.uf, &a.keys, ck);
         let mut short = false;
         let mut wide = Vec::new();
         for (key, f, params) in &a.fn_flows {
-            if params.len() > filled && canon_key_frozen(&a.uf, key) == slot {
+            if params.len() > filled && canon_key_frozen(&a.uf, &a.keys, *key) == slot {
                 short = true;
                 undef_params.extend(params[filled..].iter().map(|p| (f.clone(), p.clone())));
                 if unlisted {
-                    let pks = params[filled..]
-                        .iter()
-                        .map(|p| SlotKey::Param(f.clone(), p.clone()));
-                    wide.extend(pks.map(|pk| canon_key_frozen(&a.uf, &pk)));
+                    let pks = params[filled..].iter().map(|p| a.keys.param(f, p));
+                    wide.extend(pks.map(|pk| canon_key_frozen(&a.uf, &a.keys, pk)));
                 }
             }
         }
         a.seeds.extend(wide);
         if short {
-            let rk = SlotKey::Field(Box::new(ck), PropKey::from("__ret"));
-            a.seeds.push(canon_key_frozen(&a.uf, &rk));
+            let rk = a.keys.field(ck, "__ret");
+            a.seeds.push(canon_key_frozen(&a.uf, &a.keys, rk));
         }
     }
 }

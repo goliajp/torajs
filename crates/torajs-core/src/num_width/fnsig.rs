@@ -5,7 +5,7 @@
 //! a class: every slot spelled with it interns one signature at
 //! lowering, and every function flowing through any of those slots
 //! must agree with that signature's widths. The canonical spelling
-//! itself is the nominal name — `SlotKey::Class(canon)` — and the
+//! itself is the nominal name — `self.keys.class(&canon)` — and the
 //! signature's number faces project through `Field(class, "__ret")`
 //! / `Field(class, "__p{i}")`.
 //!
@@ -28,8 +28,7 @@
 //! ret-flow edges of *scalar* calls (`let q = h(); q = q / 4` must
 //! not glue q's width back onto Ret(h) — the S5 one-way edge).
 
-use super::{Analysis, Scope, SlotKey};
-use crate::ast::PropKey;
+use super::{Analysis, Scope, SlotKeyId};
 use crate::ast::{Expr, ExprId, Stmt};
 
 /// The fn-type canonical spelling of an annotation, peeling the
@@ -108,20 +107,20 @@ impl<'a> Analysis<'a> {
     /// string into a class of its own that no resident ever joined,
     /// and `fs[0]()` read an f64 return off the integer lane
     /// (rotation 639, 638-13).
-    pub(super) fn fnsig_ann_union(&mut self, key: &SlotKey, ann: &str) {
+    pub(super) fn fnsig_ann_union(&mut self, key: SlotKeyId, ann: &str) {
         let mut spelling = ann.trim();
-        let mut k = key.clone();
+        let mut k = key;
         while let Some(inner) = spelling.strip_suffix("[]") {
             spelling = inner.trim();
-            k = SlotKey::Elem(Box::new(k));
+            k = self.keys.elem(k);
         }
         let Some(canon) = fn_type_canon(spelling) else {
             return;
         };
-        let ck = SlotKey::Class(canon);
-        self.mark_containerish(&ck);
-        self.mark_containerish(&k);
-        self.uf.union(&ck, &k);
+        let ck = self.keys.class(&canon);
+        self.mark_containerish(ck);
+        self.mark_containerish(k);
+        self.uf.union(&self.keys, ck, k);
     }
 
     /// Annotation-driven nominal hookups for fn-type spellings, the
@@ -140,12 +139,12 @@ impl<'a> Analysis<'a> {
                 } => {
                     for p in params {
                         if let Some(ann) = &p.type_ann {
-                            let k = SlotKey::Param(name.clone(), p.name.clone());
-                            self.fnsig_ann_union(&k, ann);
+                            let k = self.keys.param(name, &p.name);
+                            self.fnsig_ann_union(k, ann);
                         }
                     }
                     if let Some(ann) = return_type {
-                        self.fnsig_ann_union(&SlotKey::Ret(name.clone()), ann);
+                        self.fnsig_ann_union(self.keys.ret(name), ann);
                     }
                 }
                 Stmt::TypeDecl {
@@ -157,9 +156,8 @@ impl<'a> Analysis<'a> {
                         continue;
                     }
                     for (fname, ann) in fields {
-                        let fk =
-                            SlotKey::Field(Box::new(SlotKey::Class(name.clone())), fname.clone());
-                        self.fnsig_ann_union(&fk, ann);
+                        let fk = self.keys.field(self.keys.class(name), fname);
+                        self.fnsig_ann_union(fk, ann);
                     }
                 }
                 _ => {}
@@ -173,13 +171,13 @@ impl<'a> Analysis<'a> {
     /// projections. Call at every value-flow site (let init, assign
     /// RHS, return expr, call arg). A choice (`c ? f : g`, `f || g`)
     /// flows each function it may answer.
-    pub(super) fn fn_value_flow(&mut self, key: &SlotKey, eid: ExprId, scope: &Scope) {
+    pub(super) fn fn_value_flow(&mut self, key: SlotKeyId, eid: ExprId, scope: &Scope) {
         for leaf in crate::ast_closure_param_tag_member::passthrough_leaves(self.ast, eid) {
             self.fn_leaf_flow(key, leaf, scope);
         }
     }
 
-    fn fn_leaf_flow(&mut self, key: &SlotKey, eid: ExprId, scope: &Scope) {
+    fn fn_leaf_flow(&mut self, key: SlotKeyId, eid: ExprId, scope: &Scope) {
         let fname = match self.ast.get_expr(eid) {
             Expr::Ident(n)
                 if self.resolve(n, scope).is_none() && self.fn_params.contains_key(n) =>
@@ -193,16 +191,15 @@ impl<'a> Analysis<'a> {
         };
         let user_params = self.closure_arg_params(&fname, eid);
         self.fn_flows
-            .push((key.clone(), fname.clone(), user_params.clone()));
+            .push((key, fname.clone(), user_params.clone()));
         self.mark_containerish(key);
-        let rk = SlotKey::Field(Box::new(key.clone()), "__ret".into());
-        self.mark_containerish(&rk);
-        self.uf.union(&rk, &SlotKey::Ret(fname.clone()));
+        let rk = self.keys.field(key, "__ret");
+        self.mark_containerish(rk);
+        self.uf.union(&self.keys, rk, self.keys.ret(&fname));
         for (i, p) in user_params.iter().enumerate() {
-            let pk = SlotKey::Field(Box::new(key.clone()), PropKey::from(format!("__p{i}")));
-            self.mark_containerish(&pk);
-            self.uf
-                .union(&pk, &SlotKey::Param(fname.clone(), p.clone()));
+            let pk = self.keys.field(key, format!("__p{i}"));
+            self.mark_containerish(pk);
+            self.uf.union(&self.keys, pk, self.keys.param(&fname, p));
         }
     }
 
@@ -219,13 +216,13 @@ impl<'a> Analysis<'a> {
         cb_arg: ExprId,
         face: &str,
         scope: &Scope,
-    ) -> Option<SlotKey> {
+    ) -> Option<SlotKeyId> {
         if self.callee_fn_name(cb_arg).is_some() {
             return None;
         }
         let k = self.container_key_lookup(cb_arg, scope)?;
-        let pk = SlotKey::Field(Box::new(k), PropKey::from(face));
-        self.mark_containerish(&pk);
+        let pk = self.keys.field(k, face);
+        self.mark_containerish(pk);
         Some(pk)
     }
 

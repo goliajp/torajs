@@ -9,7 +9,7 @@
 use super::container::canon_key_frozen;
 use super::hidden_any::{Graph, Node};
 use super::hidden_any_calls::answers_any;
-use super::{Analysis, Scope, SlotKey};
+use super::{Analysis, Scope};
 use crate::ast::{BinOp, Expr, ExprId};
 use crate::check::Type;
 
@@ -79,9 +79,9 @@ impl Graph<'_> {
         if **el == Type::Any {
             return Some(Node::AnyVal);
         }
-        let k = canon_key_frozen(&a.uf, &a.container_key_lookup(obj, scope)?);
+        let k = canon_key_frozen(&a.uf, &a.keys, a.container_key_lookup(obj, scope)?);
         self.any_escaped
             .contains(&k)
-            .then(|| Node::Read(SlotKey::Elem(Box::new(k))))
+            .then(|| Node::Read(a.keys.elem(k)))
     }
 }

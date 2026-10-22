@@ -12,7 +12,7 @@
 //! construction site, which sits in the creator's body and names its
 //! captures — so each capture resolves there, in the creator's scope.
 
-use super::{Analysis, Scope, SlotKey, W, let_names};
+use super::{Analysis, Scope, SlotKeyId, SlotKeys, W, let_names};
 use crate::ast::desugar_async_sm_walk::{visit_expr_children, visit_stmt_exprs};
 use crate::ast::{Ast, Expr, ExprId, Stmt};
 use std::collections::{HashMap, HashSet};
@@ -20,7 +20,7 @@ use std::collections::{HashMap, HashSet};
 /// Lifted fn → captured name → the creator-side binding it reads.
 /// `None` marks a capture whose binding could not be pinned to one
 /// slot (unresolvable in the creator, or two creators disagreeing).
-pub(super) type CaptureMap = HashMap<String, HashMap<String, Option<SlotKey>>>;
+pub(super) type CaptureMap = HashMap<String, HashMap<String, Option<SlotKeyId>>>;
 
 /// The slot `n` names inside `fn_name` (`""` = the top level): the
 /// fn's own param, else its own local, else the binding its creator
@@ -28,27 +28,26 @@ pub(super) type CaptureMap = HashMap<String, HashMap<String, Option<SlotKey>>>;
 /// no single slot answers `None` rather than falling through to a
 /// same-spelled top-level binding it may not be.
 fn resolve_name(
+    keys: &SlotKeys,
     fn_name: &str,
     params: &HashSet<String>,
     locals: &HashSet<String>,
     toplevel_lets: &HashSet<String>,
     captures: &CaptureMap,
     n: &str,
-) -> Option<SlotKey> {
+) -> Option<SlotKeyId> {
     if !fn_name.is_empty() {
         if params.contains(n) {
-            return Some(SlotKey::Param(fn_name.to_string(), n.to_string()));
+            return Some(keys.param(fn_name, n));
         }
         if locals.contains(n) {
-            return Some(SlotKey::Local(fn_name.to_string(), n.to_string()));
+            return Some(keys.local(fn_name, n));
         }
         if let Some(c) = captures.get(fn_name).and_then(|m| m.get(n)) {
-            return c.clone();
+            return *c;
         }
     }
-    toplevel_lets
-        .contains(n)
-        .then(|| SlotKey::Global(n.to_string()))
+    toplevel_lets.contains(n).then(|| keys.global(n))
 }
 
 /// One body expressions can sit in, with the names it binds: a
@@ -63,11 +62,13 @@ pub(super) struct Body<'s> {
 impl Body<'_> {
     pub(super) fn resolve(
         &self,
+        keys: &SlotKeys,
         toplevel_lets: &HashSet<String>,
         captures: &CaptureMap,
         n: &str,
-    ) -> Option<SlotKey> {
+    ) -> Option<SlotKeyId> {
         resolve_name(
+            keys,
             &self.name,
             &self.params,
             &self.locals,
@@ -105,12 +106,8 @@ impl Body<'_> {
     }
 
     /// The key a binding of `n` declared in this body lives under.
-    pub(super) fn binding_key(&self, n: &str) -> SlotKey {
-        if self.name.is_empty() {
-            SlotKey::Global(n.to_string())
-        } else {
-            SlotKey::Local(self.name.clone(), n.to_string())
-        }
+    pub(super) fn binding_key(&self, keys: &SlotKeys, n: &str) -> SlotKeyId {
+        keys.binding(&self.name, n)
     }
 }
 
@@ -152,6 +149,7 @@ pub(super) fn collect_captures(
     ast: &Ast,
     bodies: &[Body<'_>],
     toplevel_lets: &HashSet<String>,
+    keys: &SlotKeys,
 ) -> CaptureMap {
     let mut sites: Vec<(&Body<'_>, &String, &Vec<String>)> = Vec::new();
     for b in bodies {
@@ -171,8 +169,8 @@ pub(super) fn collect_captures(
         for (b, cf, names) in &sites {
             let m = next.entry((*cf).clone()).or_default();
             for n in names.iter() {
-                let r = b.resolve(toplevel_lets, &caps, n);
-                let e = m.entry(n.clone()).or_insert_with(|| r.clone());
+                let r = b.resolve(keys, toplevel_lets, &caps, n);
+                let e = m.entry(n.clone()).or_insert(r);
                 if *e != r {
                     *e = None;
                 }
@@ -183,7 +181,7 @@ pub(super) fn collect_captures(
         for (m, info) in &ast.gen_env_methods {
             if let Some(w) = next.get(&info.wrapper_fn_name(ast)) {
                 let reads = (w.iter()).filter(|(n, _)| info.names.contains(n));
-                let reads = reads.map(|(n, k)| (n.clone(), k.clone())).collect();
+                let reads = reads.map(|(n, k)| (n.clone(), *k)).collect();
                 next.insert(m.clone(), reads);
             }
         }
@@ -195,8 +193,9 @@ pub(super) fn collect_captures(
 }
 
 impl<'a> Analysis<'a> {
-    pub(super) fn resolve(&self, n: &str, scope: &Scope) -> Option<SlotKey> {
+    pub(super) fn resolve(&self, n: &str, scope: &Scope) -> Option<SlotKeyId> {
         resolve_name(
+            &self.keys,
             scope.fn_name,
             &scope.params,
             &scope.locals,
@@ -216,8 +215,8 @@ impl<'a> Analysis<'a> {
         if !scope.fn_name.starts_with("__") {
             return W::NotNum;
         }
-        if let Some(keys) = self.by_name.get(n) {
-            return W::Num(keys.iter().map(|k| (k.clone(), false)).collect());
+        if let Some(keys) = self.named(n) {
+            return W::Num(keys.iter().map(|k| (*k, false)).collect());
         }
         let captured = self
             .captures

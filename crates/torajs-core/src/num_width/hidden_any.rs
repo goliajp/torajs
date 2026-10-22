@@ -20,7 +20,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use super::captures::bodies;
-use super::{Analysis, Scope, SlotKey};
+use super::{Analysis, KeySet, Scope, SlotKeyId, SlotKeys};
 use crate::ast::ExprId;
 use crate::check::Type;
 use crate::check_monomorph_any_widen::struct_escape::twin_original;
@@ -33,9 +33,9 @@ pub(super) enum Node {
     /// A read through a slot key the scope walk could not pin to one
     /// declaration: a parameter, an element point, or every
     /// declaration of that key.
-    Read(SlotKey),
+    Read(SlotKeyId),
     /// A write through such a key; it reaches every declaration of it.
-    Write(SlotKey),
+    Write(SlotKeyId),
     /// An element read of an `any[]`, or a call answering through an
     /// any-widened clone typed `any` (`hidden_any_calls`).
     AnyVal,
@@ -47,7 +47,7 @@ pub(super) enum Node {
     /// (`returns`); it reaches only other returns.
     RetAny(String),
     /// What a container stores (`hidden_any_containers`).
-    Into(SlotKey),
+    Into(SlotKeyId),
 }
 
 /// What a name resolves to: one node, or the slot keys of every
@@ -55,27 +55,36 @@ pub(super) enum Node {
 #[derive(Clone, Debug, PartialEq)]
 pub(super) enum Ref {
     At(Node),
-    Keyed(Vec<SlotKey>),
+    Keyed(Vec<SlotKeyId>),
 }
 
 impl Ref {
     pub(super) fn reads(&self) -> Vec<Node> {
         match self {
             Ref::At(n) => vec![n.clone()],
-            Ref::Keyed(ks) => ks.iter().map(|k| Node::Read(k.clone())).collect(),
+            Ref::Keyed(ks) => ks.iter().map(|k| Node::Read(*k)).collect(),
         }
     }
 
     pub(super) fn writes(&self) -> Vec<Node> {
         match self {
             Ref::At(n) => vec![n.clone()],
-            Ref::Keyed(ks) => ks.iter().map(|k| Node::Write(k.clone())).collect(),
+            Ref::Keyed(ks) => ks.iter().map(|k| Node::Write(*k)).collect(),
         }
+    }
+
+    /// This, and the `(fn, param)` names when it reads a parameter's key.
+    pub(super) fn with_param(self, keys: &SlotKeys) -> (Ref, Option<(String, String)>) {
+        let param = match &self {
+            Ref::At(Node::Read(k)) => keys.param_names(*k),
+            _ => None,
+        };
+        (self, param)
     }
 }
 
 pub(super) struct Decl {
-    pub(super) key: SlotKey,
+    pub(super) key: SlotKeyId,
     /// The initializer of a retype candidate ([`candidate`]).
     pub(super) init: Option<ExprId>,
     /// Where the values it holds come from (`returns`).
@@ -104,7 +113,8 @@ pub(super) enum Origin {
 pub(super) type CapMap = HashMap<(String, String), Option<Ref>>;
 
 pub(super) struct Graph<'s> {
-    pub(super) any_escaped: &'s HashSet<SlotKey>,
+    pub(super) any_escaped: &'s KeySet,
+    pub(super) keys: &'s SlotKeys,
     pub(super) edges: HashMap<Node, Vec<Node>>,
     pub(super) seeds: Vec<Node>,
     pub(super) decls: Vec<Decl>,
@@ -140,7 +150,7 @@ pub(crate) struct HiddenAny {
     pub(crate) args: HashSet<ExprId>,
     pub(crate) fields: HashSet<ExprId>,
     pub(crate) rets: HashSet<String>,
-    pub(super) filled: Vec<SlotKey>,
+    pub(super) filled: Vec<SlotKeyId>,
 }
 
 /// The initializers of the declarations to retype `any`, and the call
@@ -150,7 +160,7 @@ pub(crate) struct HiddenAny {
 /// parameters of the any-widened clones (`hidden_any_seeds`).
 pub(super) fn collect(
     a: &Analysis<'_>,
-    any_escaped: &HashSet<SlotKey>,
+    any_escaped: &KeySet,
     elem_params: &HashSet<(String, String)>,
 ) -> HiddenAny {
     let bodies = bodies(a.ast);
@@ -161,9 +171,10 @@ pub(super) fn collect(
     let g = loop {
         let mut g = Graph {
             any_escaped,
+            keys: &a.keys,
             edges: HashMap::new(),
             seeds: (elem_params.iter())
-                .map(|(f, p)| Node::Read(SlotKey::Param(f.clone(), p.clone())))
+                .map(|(f, p)| Node::Read(a.keys.param(f, p)))
                 .collect(),
             decls: Vec::new(),
             caps_in: caps,
@@ -215,19 +226,20 @@ impl Graph<'_> {
 
     /// The tainted candidates' initializers and arguments.
     fn retyped(mut self) -> HiddenAny {
+        let keys = self.keys;
         for (i, d) in self.decls.iter().enumerate() {
-            let (r, w) = (Node::Read(d.key.clone()), Node::Write(d.key.clone()));
+            let (r, w) = (Node::Read(d.key), Node::Write(d.key));
             self.edges.entry(Node::Decl(i)).or_default().push(r);
             self.edges.entry(w).or_default().push(Node::Decl(i));
         }
-        let keyed: Vec<SlotKey> = (self.edges.values().flatten())
+        let keyed: Vec<SlotKeyId> = (self.edges.values().flatten())
             .filter_map(|n| match n {
-                Node::Write(k) => Some(k.clone()),
+                Node::Write(k) => Some(*k),
                 _ => None,
             })
             .collect();
         for k in keyed {
-            let r = Node::Read(k.clone());
+            let r = Node::Read(k);
             self.edges.entry(Node::Write(k)).or_default().push(r);
         }
         let kind_seeds = self.kind_seeds();
@@ -250,7 +262,7 @@ impl Graph<'_> {
             match n {
                 Node::Arg(e) => drop(out.args.insert(*e)),
                 Node::Ret(f) | Node::RetAny(f) => drop(out.rets.insert(f.clone())),
-                Node::Into(k) => out.filled.push(k.clone()),
+                Node::Into(k) => out.filled.push(*k),
                 _ => {}
             }
         }
@@ -260,7 +272,11 @@ impl Graph<'_> {
             {
                 // TORAJS_NUM_WIDTH_STATS=1 — one line per retyped declaration
                 if stats {
-                    eprintln!("[num_width] hidden-any decl: {:?} init {}", d.key, init.0);
+                    eprintln!(
+                        "[num_width] hidden-any decl: {} init {}",
+                        keys.debug(d.key),
+                        init.0
+                    );
                 }
                 out.inits.insert(init);
             }
@@ -285,7 +301,7 @@ impl Graph<'_> {
         // a lifted body may still write an outer binding of that
         // spelling (`walk::assign_to_name`)
         if sc.fn_name.starts_with("__") {
-            return Ref::Keyed(a.by_name.get(n).cloned().unwrap_or_default());
+            return Ref::Keyed(a.named(n).cloned().unwrap_or_default());
         }
         Ref::Keyed(Vec::new())
     }

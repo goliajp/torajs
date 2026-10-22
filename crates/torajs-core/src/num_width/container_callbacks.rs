@@ -4,7 +4,7 @@
 //! joining the parameter that receives O. Split from
 //! `container_methods.rs` (file-size limit).
 
-use super::{Analysis, Scope, SlotKey};
+use super::{Analysis, Scope, SlotKeyId};
 use crate::ast::ExprId;
 
 impl Analysis<'_> {
@@ -27,7 +27,7 @@ impl Analysis<'_> {
     /// own narrow layout, its fraction coming back as raw bits.
     pub(super) fn wire_elem_to_cb_param(
         &mut self,
-        ek: &SlotKey,
+        ek: SlotKeyId,
         src: ExprId,
         cb_arg: ExprId,
         scope: &Scope,
@@ -47,21 +47,18 @@ impl Analysis<'_> {
     /// this is not folded into the arm above.
     fn wire_elem_to_cb_param_at(
         &mut self,
-        ek: &SlotKey,
+        ek: SlotKeyId,
         src: ExprId,
         cb_arg: ExprId,
         idx: usize,
         scope: &Scope,
     ) {
         if let Some(pk) = self.cb_param_key(cb_arg, idx, scope) {
-            self.c_edges
-                .entry(ek.clone())
-                .or_default()
-                .push((pk.clone(), false));
+            self.c_edges.entry(ek).or_default().push((pk, false));
             if self.elems_are_objects(src) {
-                self.guarded_unions.push((pk.clone(), ek.clone()));
+                self.guarded_unions.push((pk, ek));
             }
-            self.nested_unions.push((ek.clone(), pk));
+            self.nested_unions.push((ek, pk));
         }
     }
 
@@ -77,11 +74,11 @@ impl Analysis<'_> {
     /// [`Self::fn_value_flow`] joined with every function stored there.
     /// Without the projection the stored function's parameter kept the
     /// integer default and a 0.5 element reached it as 0.
-    fn cb_param_key(&mut self, cb_arg: ExprId, idx: usize, scope: &Scope) -> Option<SlotKey> {
+    fn cb_param_key(&mut self, cb_arg: ExprId, idx: usize, scope: &Scope) -> Option<SlotKeyId> {
         match self.callee_fn_name(cb_arg) {
             Some(cb) => {
                 let p = self.callback_params(&cb).get(idx).cloned()?;
-                Some(SlotKey::Param(cb, p))
+                Some(self.keys.param(&cb, &p))
             }
             None => self.callback_projection(cb_arg, &format!("__p{idx}"), scope),
         }
@@ -89,16 +86,16 @@ impl Analysis<'_> {
 
     /// The key of a callback's return point, by the same two spellings
     /// as [`Self::cb_param_key`].
-    fn cb_ret_key(&mut self, cb_arg: ExprId, scope: &Scope) -> Option<SlotKey> {
+    fn cb_ret_key(&mut self, cb_arg: ExprId, scope: &Scope) -> Option<SlotKeyId> {
         match self.callee_fn_name(cb_arg) {
-            Some(cb) => Some(SlotKey::Ret(cb)),
+            Some(cb) => Some(self.keys.ret(&cb)),
             None => self.callback_projection(cb_arg, "__ret", scope),
         }
     }
 
     /// `forEach`'s element wiring, which is per-receiver: a Set hands
     /// the member twice (see [`Self::wire_elem_to_cb_param_at`]).
-    fn wire_foreach_params(&mut self, ek: &SlotKey, cb_arg: ExprId, recv: ExprId, scope: &Scope) {
+    fn wire_foreach_params(&mut self, ek: SlotKeyId, cb_arg: ExprId, recv: ExprId, scope: &Scope) {
         self.wire_elem_to_cb_param_at(ek, recv, cb_arg, 0, scope);
         if matches!(self.expr_types.get(&recv), Some(crate::check::Type::Set)) {
             self.wire_elem_to_cb_param_at(ek, recv, cb_arg, 1, scope);
@@ -112,8 +109,8 @@ impl Analysis<'_> {
         name: &str,
         args: &[ExprId],
         obj: ExprId,
-        ek: &SlotKey,
-        recv: &SlotKey,
+        ek: SlotKeyId,
+        recv: SlotKeyId,
         scope: &Scope,
     ) {
         // Callback-taking iteration — the element param sees the
@@ -150,19 +147,16 @@ impl Analysis<'_> {
                         // from the callback's own ret.
                         if let Some(init) = args.get(1).copied() {
                             let w = self.flow(init, scope);
-                            self.add_container_constraint(pk.clone(), w);
-                            self.alias_guarded(pk.clone(), init, scope);
+                            self.add_container_constraint(pk, w);
+                            self.alias_guarded(pk, init, scope);
                         }
                         if let Some(rk) = self.cb_ret_key(cb_arg, scope) {
                             self.c_edges.entry(rk).or_default().push((pk, false));
                         }
                     }
                     if let Some(pk) = self.cb_param_key(cb_arg, 1, scope) {
-                        self.c_edges
-                            .entry(ek.clone())
-                            .or_default()
-                            .push((pk.clone(), false));
-                        self.guarded_unions.push((pk, ek.clone()));
+                        self.c_edges.entry(ek).or_default().push((pk, false));
+                        self.guarded_unions.push((pk, ek));
                     }
                 }
             }
@@ -178,7 +172,7 @@ impl Analysis<'_> {
             && let Some(&cb_arg) = args.first()
             && let Some(pk) = self.cb_param_key(cb_arg, o_idx, scope)
         {
-            self.guarded_unions.push((pk, recv.clone()));
+            self.guarded_unions.push((pk, recv));
         }
     }
 }

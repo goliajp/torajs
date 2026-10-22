@@ -7,7 +7,7 @@
 //! field-width decision for a cyclic alias must therefore join at
 //! *type* granularity, exactly like classes: every `class C` instance
 //! shares one layout, and `nominal_unions` (container.rs) glues all
-//! of them onto `SlotKey::Class(C)`. Aliases have no constructor to
+//! of them onto `self.keys.class(&C)`. Aliases have no constructor to
 //! hook, so the gluing points are the annotation spellings instead:
 //! let / param / ret annotations naming a cyclic alias, and named-type
 //! fields whose annotation names one (the latter collapses the
@@ -29,7 +29,7 @@
 //! allow differently-classed slots of one spelling to carry
 //! different widths).
 
-use super::{Analysis, SlotKey};
+use super::{Analysis, SlotKeyId};
 use crate::ast::{Ast, Stmt};
 use std::collections::{HashMap, HashSet};
 
@@ -159,13 +159,13 @@ impl<'a> Analysis<'a> {
     /// a slot typed as a class to the class's field widths (no-op for
     /// every other annotation). `Item[]` wraps the slot key in `Elem`
     /// per array layer — the *elements* are the instances.
-    pub(super) fn alias_ann_union(&mut self, key: &SlotKey, ann: &str) {
+    pub(super) fn alias_ann_union(&mut self, key: SlotKeyId, ann: &str) {
         let Some((base, depth)) = named_ref(ann) else {
             return;
         };
-        let mut k = key.clone();
+        let mut k = key;
         for _ in 0..depth {
-            k = SlotKey::Elem(Box::new(k));
+            k = self.keys.elem(k);
         }
         if !self.nominal_aliases.contains(base) {
             if self
@@ -173,7 +173,7 @@ impl<'a> Analysis<'a> {
                 .binary_search_by(|c| c.as_str().cmp(base))
                 .is_ok()
             {
-                self.class_field_widths(&k, base);
+                self.class_field_widths(k, base);
                 return;
             }
             // Generic instantiation key — register lazily on first
@@ -183,10 +183,10 @@ impl<'a> Analysis<'a> {
                 return;
             }
         }
-        let ck = SlotKey::Class(base.to_string());
-        self.mark_containerish(&ck);
-        self.mark_containerish(&k);
-        self.uf.union(&ck, &k);
+        let ck = self.keys.class(base);
+        self.mark_containerish(ck);
+        self.mark_containerish(k);
+        self.uf.union(&self.keys, ck, k);
     }
 
     /// Every instance of class `class` has the class's one layout, so a
@@ -198,20 +198,17 @@ impl<'a> Analysis<'a> {
     /// container class and widens no layout. The lowerer's own classes
     /// (`__`-named: generator frames and the like) join their slots by
     /// their own nominal fields and are left alone.
-    fn class_field_widths(&mut self, k: &SlotKey, class: &str) {
+    fn class_field_widths(&mut self, k: SlotKeyId, class: &str) {
         if class.starts_with("__") {
             return;
         }
-        let ck = SlotKey::Class(class.to_string());
+        let ck = self.keys.class(class);
         for (fname, fann) in self.object_fields(class) {
             if !super::json_seed::number_domain(Some(&fann)) {
                 continue;
             }
-            let (a, b) = (
-                SlotKey::Field(Box::new(k.clone()), fname.clone()),
-                SlotKey::Field(Box::new(ck.clone()), fname),
-            );
-            self.mark_containerish(&a);
+            let (a, b) = (self.keys.field(k, &fname), self.keys.field(ck, &fname));
+            self.mark_containerish(a);
             self.c_edges.entry(b).or_default().push((a, false));
         }
     }
@@ -252,8 +249,8 @@ impl<'a> Analysis<'a> {
             .collect();
         for (fname, fann) in &fields {
             let substituted = crate::ssa_lower::substitute_in_ann(fann, &subst);
-            let fk = SlotKey::Field(Box::new(SlotKey::Class(key.clone())), fname.clone());
-            self.alias_ann_union(&fk, &substituted);
+            let fk = self.keys.field(self.keys.class(key), fname);
+            self.alias_ann_union(fk, &substituted);
         }
         true
     }
@@ -274,12 +271,12 @@ impl<'a> Analysis<'a> {
                 } => {
                     for p in params {
                         if let Some(ann) = &p.type_ann {
-                            let k = SlotKey::Param(name.clone(), p.name.clone());
-                            self.alias_ann_union(&k, ann);
+                            let k = self.keys.param(name, &p.name);
+                            self.alias_ann_union(k, ann);
                         }
                     }
                     if let Some(ann) = return_type {
-                        self.alias_ann_union(&SlotKey::Ret(name.clone()), ann);
+                        self.alias_ann_union(self.keys.ret(name), ann);
                     }
                 }
                 Stmt::TypeDecl {
@@ -291,9 +288,8 @@ impl<'a> Analysis<'a> {
                         continue;
                     }
                     for (fname, ann) in fields {
-                        let fk =
-                            SlotKey::Field(Box::new(SlotKey::Class(name.clone())), fname.clone());
-                        self.alias_ann_union(&fk, ann);
+                        let fk = self.keys.field(self.keys.class(name), fname);
+                        self.alias_ann_union(fk, ann);
                     }
                 }
                 _ => {}

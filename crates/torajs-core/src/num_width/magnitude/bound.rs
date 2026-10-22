@@ -16,7 +16,8 @@ use super::{COUNTER_HORIZON, EXACT_INT_MAX, Guard, Lin, Mag, TOP, UNRECORDED_REA
 use crate::ast::{Expr, ExprId, Stmt};
 use crate::num_width::container::{UnionFind, canon_key_frozen};
 use crate::num_width::cycle::tarjan;
-use crate::num_width::{Analysis, SlotKey};
+use crate::num_width::slot_keys::{SlotKeyData, SlotKeys};
+use crate::num_width::{Analysis, SlotKeyId};
 use std::collections::{HashMap, HashSet};
 
 /// A write's bound and the innermost loop it runs in.
@@ -27,15 +28,15 @@ type Write = (Mag, Option<usize>);
 /// `container::canonicalize`.
 pub(in crate::num_width) fn settle(a: &mut Analysis) -> HashSet<ExprId> {
     let record = std::mem::take(&mut a.mag);
-    let getters: HashMap<String, Vec<SlotKey>> =
+    let getters: HashMap<String, Vec<SlotKeyId>> =
         crate::ast::accessor_lookup::getter_fns_by_prop(a.ast)
             .into_iter()
-            .map(|(p, fns)| (p, fns.iter().map(|f| SlotKey::Ret(f.to_string())).collect()))
+            .map(|(p, fns)| (p, fns.iter().map(|f| a.keys.ret(f)).collect()))
             .collect();
-    let canon = |m: &Mag| canon_mag(&a.uf, &getters, m);
-    let mut writes: HashMap<SlotKey, Vec<Write>> = HashMap::new();
+    let canon = |m: &Mag| canon_mag(&a.uf, &a.keys, &getters, m);
+    let mut writes: HashMap<SlotKeyId, Vec<Write>> = HashMap::new();
     for (t, m, at) in &record.writes {
-        let t = canon_key_frozen(&a.uf, t);
+        let t = canon_key_frozen(&a.uf, &a.keys, *t);
         writes.entry(t).or_default().push((canon(m), *at));
     }
     // edges not marked growth carry a value through unchanged; the
@@ -44,10 +45,7 @@ pub(in crate::num_width) fn settle(a: &mut Analysis) -> HashSet<ExprId> {
     for (src, dsts) in &a.edges {
         for (t, growth) in dsts {
             if !growth && t != src {
-                writes
-                    .entry(t.clone())
-                    .or_default()
-                    .push((Mag::Slot(src.clone()), None));
+                writes.entry(*t).or_default().push((Mag::Slot(*src), None));
             }
         }
     }
@@ -57,18 +55,18 @@ pub(in crate::num_width) fn settle(a: &mut Analysis) -> HashSet<ExprId> {
         .map(|g| {
             g.map(|g| Guard {
                 fn_name: g.fn_name,
-                key: canon_key_frozen(&a.uf, &g.key),
+                key: canon_key_frozen(&a.uf, &a.keys, g.key),
                 below: canon(&g.below),
             })
         })
         .collect();
-    let bounds = bound_slots(&writes, &guards, &direct_only(a));
+    let bounds = bound_slots(&a.keys, &writes, &guards, &direct_only(a));
     for (k, (_, reach)) in &bounds {
         if *reach > EXACT_INT_MAX as u128 {
-            a.seeds.push(k.clone());
+            a.seeds.push(*k);
         }
     }
-    let read = |k: &SlotKey| Some(bounds.get(k).map_or(UNRECORDED_REACH, |b| b.0));
+    let read = |k: &SlotKeyId| Some(bounds.get(k).map_or(UNRECORDED_REACH, |b| b.0));
     let mut over: HashSet<ExprId> = HashSet::new();
     let mut seen: HashSet<ExprId> = HashSet::new();
     for (eid, m) in &record.arith {
@@ -83,31 +81,36 @@ pub(in crate::num_width) fn settle(a: &mut Analysis) -> HashSet<ExprId> {
 
 /// `m` over class representatives, with each property read spelled as
 /// the returns of the getters it may run.
-fn canon_mag(uf: &UnionFind, getters: &HashMap<String, Vec<SlotKey>>, m: &Mag) -> Mag {
-    let b = |m: &Mag| Box::new(canon_mag(uf, getters, m));
+fn canon_mag(
+    uf: &UnionFind,
+    keys: &SlotKeys,
+    getters: &HashMap<String, Vec<SlotKeyId>>,
+    m: &Mag,
+) -> Mag {
+    let b = |m: &Mag| Box::new(canon_mag(uf, keys, getters, m));
     match m {
         Mag::Const(c) => Mag::Const(*c),
-        Mag::Slot(k) => Mag::Slot(canon_key_frozen(uf, k)),
+        Mag::Slot(k) => Mag::Slot(canon_key_frozen(uf, keys, *k)),
         Mag::Sum(x, y) => Mag::Sum(b(x), b(y)),
         Mag::Diff(x, y) => Mag::Diff(b(x), b(y)),
         Mag::Prod(x, y) => Mag::Prod(b(x), b(y)),
         Mag::Min(x, y) => Mag::Min(b(x), b(y)),
-        Mag::Max(v) => Mag::Max(v.iter().map(|m| canon_mag(uf, getters, m)).collect()),
+        Mag::Max(v) => Mag::Max(v.iter().map(|m| canon_mag(uf, keys, getters, m)).collect()),
         Mag::Prop(p) => Mag::Max(
             getters
                 .get(p)
                 .into_iter()
                 .flatten()
-                .map(|k| Mag::Slot(canon_key_frozen(uf, k)))
+                .map(|k| Mag::Slot(canon_key_frozen(uf, keys, *k)))
                 .collect(),
         ),
     }
 }
 
-fn slots_of(m: &Mag, out: &mut Vec<SlotKey>) {
+fn slots_of(m: &Mag, out: &mut Vec<SlotKeyId>) {
     match m {
         Mag::Const(_) | Mag::Prop(_) => {}
-        Mag::Slot(k) => out.push(k.clone()),
+        Mag::Slot(k) => out.push(*k),
         Mag::Sum(x, y) | Mag::Diff(x, y) | Mag::Prod(x, y) | Mag::Min(x, y) => {
             slots_of(x, out);
             slots_of(y, out);
@@ -121,34 +124,35 @@ fn slots_of(m: &Mag, out: &mut Vec<SlotKey>) {
 /// adds to it, which is one step past the slot's bound before the slot
 /// holds it.
 fn bound_slots(
-    writes: &HashMap<SlotKey, Vec<Write>>,
+    keys: &SlotKeys,
+    writes: &HashMap<SlotKeyId, Vec<Write>>,
     guards: &[Option<Guard>],
     direct: &HashSet<String>,
-) -> HashMap<SlotKey, (u128, u128)> {
-    let mut index: HashMap<SlotKey, usize> = HashMap::new();
-    let mut nodes: Vec<SlotKey> = Vec::new();
+) -> HashMap<SlotKeyId, (u128, u128)> {
+    let mut index: HashMap<SlotKeyId, usize> = HashMap::new();
+    let mut nodes: Vec<SlotKeyId> = Vec::new();
     let mut adj: Vec<Vec<(usize, bool)>> = Vec::new();
-    let mut intern = |k: &SlotKey, nodes: &mut Vec<SlotKey>, adj: &mut Vec<Vec<_>>| {
-        *index.entry(k.clone()).or_insert_with(|| {
-            nodes.push(k.clone());
+    let mut intern = |k: SlotKeyId, nodes: &mut Vec<SlotKeyId>, adj: &mut Vec<Vec<_>>| {
+        *index.entry(k).or_insert_with(|| {
+            nodes.push(k);
             adj.push(Vec::new());
             nodes.len() - 1
         })
     };
-    let mut deps_of: HashMap<SlotKey, Vec<SlotKey>> = HashMap::new();
+    let mut deps_of: HashMap<SlotKeyId, Vec<SlotKeyId>> = HashMap::new();
     for (t, ws) in writes {
-        let deps = deps_of.entry(t.clone()).or_default();
+        let deps = deps_of.entry(*t).or_default();
         ws.iter().for_each(|(m, _)| slots_of(m, deps));
     }
     for g in guards.iter().flatten() {
         if writes.contains_key(&g.key) {
-            slots_of(&g.below, deps_of.entry(g.key.clone()).or_default());
+            slots_of(&g.below, deps_of.entry(g.key).or_default());
         }
     }
     for (t, deps) in &deps_of {
-        let ti = intern(t, &mut nodes, &mut adj);
+        let ti = intern(*t, &mut nodes, &mut adj);
         for d in deps {
-            let di = intern(d, &mut nodes, &mut adj);
+            let di = intern(*d, &mut nodes, &mut adj);
             adj[ti].push((di, false));
         }
     }
@@ -164,16 +168,16 @@ fn bound_slots(
     // ascending ids put dependencies first
     let mut bound: Vec<(u128, u128)> = vec![(0, 0); nodes.len()];
     for (c, ms) in members.iter().enumerate() {
-        let outside = |k: &SlotKey| {
+        let outside = |k: &SlotKeyId| {
             let i = index[k];
             (scc_of[i] != c).then(|| bound[i].0)
         };
         let ws = |i: usize| writes.get(&nodes[i]).into_iter().flatten();
         // a binding is written only where the walk sees; anything else
         // may also hold what the runtime hands it
-        let binding = |i: &usize| match &nodes[*i] {
-            SlotKey::Local(..) | SlotKey::Global(_) => true,
-            SlotKey::Param(f, _) => direct.contains(f),
+        let binding = |i: &usize| match keys.data(nodes[*i]) {
+            SlotKeyData::Local(..) | SlotKeyData::Global(_) => true,
+            SlotKeyData::Param(f, _) => direct.contains(&*keys.name(f)),
             _ => false,
         };
         let floor = if ms.iter().all(binding) {
@@ -199,7 +203,7 @@ fn bound_slots(
         };
         if let [i] = ms[..]
             && step > 0
-            && let Some(g) = guarded(&nodes[i], ws(i), guards, &outside)
+            && let Some(g) = guarded(keys, nodes[i], ws(i), guards, &outside)
         {
             b = b.min(entry.max(g.0).saturating_add(g.1));
         }
@@ -214,27 +218,31 @@ fn bound_slots(
 /// holds it below a bound: the largest such bound, and one pass of
 /// every loop's steps.
 fn guarded<'w>(
-    k: &SlotKey,
+    keys: &SlotKeys,
+    k: SlotKeyId,
     ws: impl Iterator<Item = &'w Write>,
     guards: &[Option<Guard>],
-    outside: &impl Fn(&SlotKey) -> Option<u128>,
+    outside: &impl Fn(&SlotKeyId) -> Option<u128>,
 ) -> Option<(u128, u128)> {
-    let own = matches!(k, SlotKey::Local(..) | SlotKey::Param(..));
+    let own = matches!(
+        keys.data(k),
+        SlotKeyData::Local(..) | SlotKeyData::Param(..)
+    );
     let mut passes: HashMap<usize, u128> = HashMap::new();
     for (m, at) in ws {
         if lin(m, outside).x == 0 {
             continue;
         }
         let up = match m {
-            Mag::Slot(s) if s == k => 0,
+            Mag::Slot(s) if *s == k => 0,
             Mag::Sum(x, y) => match (&**x, &**y) {
-                (Mag::Slot(s), Mag::Const(c)) | (Mag::Const(c), Mag::Slot(s)) if s == k => *c,
+                (Mag::Slot(s), Mag::Const(c)) | (Mag::Const(c), Mag::Slot(s)) if *s == k => *c,
                 _ => return None,
             },
             _ => return None,
         };
         let g = guards.get((*at)?)?.as_ref()?;
-        if g.key != *k || !(own || g.fn_name.is_empty()) {
+        if g.key != k || !(own || g.fn_name.is_empty()) {
             return None;
         }
         let pass = passes.entry((*at)?).or_default();

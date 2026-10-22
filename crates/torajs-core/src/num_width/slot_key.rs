@@ -1,4 +1,5 @@
-//! The storage slot identity every number-width table is keyed by.
+//! The storage slot identity every number-width table is keyed by, as
+//! spelled; the analysis works on its interned form (`slot_keys.rs`).
 
 use crate::ast::PropKey;
 

@@ -2,7 +2,7 @@
 //! constraint walk in `walk.rs`.
 
 use super::magnitude::{Flow, MAX_COUNTER_STEP};
-use super::{Analysis, Scope, SlotKey, W, join, literal_is_f64};
+use super::{Analysis, Scope, SlotKeyId, W, join, literal_is_f64};
 use crate::ast::{BinOp, Expr, ExprId, UnaryOp};
 
 /// Mark every slot dependency as reaching the consumer through a
@@ -16,16 +16,13 @@ fn mark_growth(w: W) -> W {
 }
 
 impl<'a> Analysis<'a> {
-    pub(super) fn add_constraint(&mut self, target: SlotKey, (w, m): Flow) {
-        self.record_write(target.clone(), &w, m);
+    pub(super) fn add_constraint(&mut self, target: SlotKeyId, (w, m): Flow) {
+        self.record_write(target, &w, m);
         match w {
             W::F64 => self.seeds.push(target),
             W::Num(deps) => {
                 for (d, growth) in deps {
-                    self.edges
-                        .entry(d)
-                        .or_default()
-                        .push((target.clone(), growth));
+                    self.edges.entry(d).or_default().push((target, growth));
                 }
             }
             W::NotNum => {}
@@ -327,7 +324,7 @@ impl<'a> Analysis<'a> {
     /// through the container lattice.
     fn width_of_call(&self, eid: ExprId, callee: ExprId, args: &[ExprId], scope: &Scope) -> W {
         if let Some(f) = self.direct_callee(eid, callee) {
-            return W::Num(vec![(SlotKey::Ret(f), false)]);
+            return W::Num(vec![(self.keys.ret(&f), false)]);
         }
         match self.ast.get_expr(callee) {
             // Math.* numeric intrinsics are libm-shaped f64
@@ -383,7 +380,7 @@ impl<'a> Analysis<'a> {
                 {
                     // `f.call(t, ...)` / `f.apply(t, ...)` on an fn value
                     // answers what `f` returns, as a plain indirect call
-                    W::Num(vec![(SlotKey::Field(Box::new(k), "__ret".into()), false)])
+                    W::Num(vec![(self.keys.field(k, "__ret"), false)])
                 } else {
                     match self.container_key_lookup(eid, scope) {
                         Some(k) => W::Num(vec![(k, false)]),
@@ -397,7 +394,7 @@ impl<'a> Analysis<'a> {
             // which the flow unions glue onto the residents'
             // Ret keys.
             _ => match self.container_key_lookup(callee, scope) {
-                Some(k) => W::Num(vec![(SlotKey::Field(Box::new(k), "__ret".into()), false)]),
+                Some(k) => W::Num(vec![(self.keys.field(k, "__ret"), false)]),
                 None => W::NotNum,
             },
         }

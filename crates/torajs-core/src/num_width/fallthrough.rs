@@ -10,7 +10,7 @@
 //! when the field set made three of them.
 
 use super::sentinel_tables::{SentinelTables, body_returns_sentinel};
-use super::{Analysis, Scope, SlotKey, let_names};
+use super::{Analysis, Scope, SlotKeyId, let_names};
 use crate::ast::{Ast, Expr, Stmt};
 use std::collections::HashSet;
 
@@ -38,17 +38,17 @@ pub(super) fn seed_and_walk_fn(
     let widen_clone = a.ast.any_widen_clones.contains(name);
     for p in params {
         if let Some(ann) = &p.type_ann {
-            let pk = SlotKey::Param(name.clone(), p.name.clone());
+            let pk = a.keys.param(name, &p.name);
             let holders = !widen_clone
                 && !p.is_rest
                 && super::any_arr_writes::param_written(a.ast, body, &p.name);
-            a.seed_any_face(&pk, ann, holders);
+            a.seed_any_face(pk, ann, holders);
         }
     }
     if let Some(r) = return_type {
-        let rk = SlotKey::Ret(name.clone());
-        a.seed_any_face(&rk, r, !widen_clone);
-        seed_returned_values(a, &rk, r, body);
+        let rk = a.keys.ret(name);
+        a.seed_any_face(rk, r, !widen_clone);
+        seed_returned_values(a, rk, r, body);
         a.promise_getter_unions(name, r);
         seed_fallthrough_return(a, rk, r, name, body, tables, fallthrough_fns);
     }
@@ -72,7 +72,7 @@ pub(super) fn seed_and_walk_fn(
 /// are cast into it: an `any` one seeds the faces of `r` it reaches
 /// (`any_object_seed`), any other one those its `any` parts reach
 /// (`any_member_seed`).
-fn seed_returned_values(a: &mut Analysis<'_>, rk: &SlotKey, r: &str, body: &[Stmt]) {
+fn seed_returned_values(a: &mut Analysis<'_>, rk: SlotKeyId, r: &str, body: &[Stmt]) {
     let mut any_rets = Vec::new();
     let mut lit_rets = Vec::new();
     crate::ast::walk_stmts(body, &mut |s| match s {
@@ -156,7 +156,7 @@ pub(super) fn alias_fallthrough_closures(ast: &Ast, out: &mut HashSet<String>) {
 /// function on one table.
 pub(super) fn seed_fallthrough_return(
     a: &mut Analysis<'_>,
-    rk: SlotKey,
+    rk: SlotKeyId,
     return_ann: &str,
     fn_name: &str,
     body: &[Stmt],

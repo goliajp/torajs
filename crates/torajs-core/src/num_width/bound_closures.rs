@@ -17,7 +17,7 @@
 //! return slots are joined so that wiring the first one wires them all.
 
 use super::captures::{Body, CaptureMap};
-use super::{Analysis, SlotKey};
+use super::{Analysis, SlotKeyData, SlotKeyId, SlotKeys};
 use crate::ast::{Ast, Expr, ExprId, Stmt};
 use std::collections::{BTreeSet, HashMap, HashSet};
 
@@ -43,12 +43,13 @@ pub(super) fn collect(
     bodies: &[Body<'_>],
     toplevel_lets: &HashSet<String>,
     captures: &CaptureMap,
+    keys: &SlotKeys,
 ) -> (BoundClosures, HashSet<ExprId>) {
     // binding key → its declarations; `None` = a binding that is not a
     // `let` / `const` (a for-of element, a catch param)
-    let mut decls: HashMap<SlotKey, Vec<Option<(ExprId, bool)>>> = HashMap::new();
+    let mut decls: HashMap<SlotKeyId, Vec<Option<(ExprId, bool)>>> = HashMap::new();
     // read → the binding it resolves to; `None` once two bodies disagree
-    let mut reads: HashMap<ExprId, Option<SlotKey>> = HashMap::new();
+    let mut reads: HashMap<ExprId, Option<SlotKeyId>> = HashMap::new();
     for b in bodies {
         b.each_binding(&mut |n, decl| {
             let d = match decl {
@@ -60,14 +61,14 @@ pub(super) fn collect(
                 }) => Some((*init, !*mutable && !*is_var)),
                 _ => None,
             };
-            decls.entry(b.binding_key(n)).or_default().push(d);
+            decls.entry(b.binding_key(keys, n)).or_default().push(d);
         });
         b.each_expr(ast, &mut |eid| {
             if let Expr::Ident(n) = ast.get_expr(eid)
-                && let Some(k) = b.resolve(toplevel_lets, captures, n)
+                && let Some(k) = b.resolve(keys, toplevel_lets, captures, n)
             {
-                let e = reads.entry(eid).or_insert_with(|| Some(k.clone()));
-                if e.as_ref() != Some(&k) {
+                let e = reads.entry(eid).or_insert(Some(k));
+                if *e != Some(k) {
                     *e = None;
                 }
             }
@@ -79,7 +80,7 @@ pub(super) fn collect(
     let mut out = BoundClosures::new();
     for pass in 0.. {
         debug_assert!(pass <= decls.len() + 1, "bound-closure fixpoint diverged");
-        let mut by_key: HashMap<&SlotKey, Candidates> = HashMap::new();
+        let mut by_key: HashMap<SlotKeyId, Candidates> = HashMap::new();
         for (k, ds) in &decls {
             let mut fns = BTreeSet::new();
             let mut exact = true;
@@ -102,19 +103,19 @@ pub(super) fn collect(
             }
             if !fns.is_empty() {
                 let fns = fns.into_iter().collect();
-                by_key.insert(k, Candidates { fns, exact });
+                by_key.insert(*k, Candidates { fns, exact });
             }
         }
         let next: BoundClosures = reads
             .iter()
-            .filter_map(|(eid, k)| Some((*eid, by_key.get(k.as_ref()?)?.clone())))
+            .filter_map(|(eid, k)| Some((*eid, by_key.get(&(*k)?)?.clone())))
             .collect();
         if next == out {
             break;
         }
         out = next;
     }
-    (out, shadowing_reads(ast, &reads))
+    (out, shadowing_reads(ast, keys, &reads))
 }
 
 /// The reads of a function declaration's name that resolve to a binding
@@ -124,7 +125,11 @@ pub(super) fn collect(
 /// `let` keeps the declaration's reading, as the lowering's identifier
 /// read does (`ssa_lower_ident::lower` takes the function before a
 /// top-level data slot).
-fn shadowing_reads(ast: &Ast, reads: &HashMap<ExprId, Option<SlotKey>>) -> HashSet<ExprId> {
+fn shadowing_reads(
+    ast: &Ast,
+    keys: &SlotKeys,
+    reads: &HashMap<ExprId, Option<SlotKeyId>>,
+) -> HashSet<ExprId> {
     let decls: HashSet<&str> = ast
         .stmts
         .iter()
@@ -136,7 +141,7 @@ fn shadowing_reads(ast: &Ast, reads: &HashMap<ExprId, Option<SlotKey>>) -> HashS
     reads
         .iter()
         .filter(|(eid, k)| {
-            !matches!(k, Some(SlotKey::Global(_)))
+            !matches!(k.map(|k| keys.data(k)), Some(SlotKeyData::Global(_)))
                 && matches!(ast.get_expr(**eid), Expr::Ident(n) if decls.contains(n.as_str()))
         })
         .map(|(eid, _)| *eid)
@@ -212,11 +217,11 @@ impl Analysis<'_> {
             let first = &fns[0];
             let ps0 = self.callback_params(first);
             for f in &fns[1..] {
-                self.uf
-                    .union(&SlotKey::Ret(first.clone()), &SlotKey::Ret(f.clone()));
+                let (r0, r) = (self.keys.ret(first), self.keys.ret(f));
+                self.uf.union(&self.keys, r0, r);
                 for (p0, p) in ps0.iter().zip(self.callback_params(f)) {
-                    let a = SlotKey::Param(first.clone(), p0.clone());
-                    self.uf.union(&a, &SlotKey::Param(f.clone(), p));
+                    let (a, b) = (self.keys.param(first, p0), self.keys.param(f, &p));
+                    self.uf.union(&self.keys, a, b);
                 }
             }
         }

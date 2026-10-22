@@ -1,10 +1,10 @@
 //! W-ESC — closing the escape seeds over the container alias classes
 //! (`escape.rs` collects them).
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::VecDeque;
 
-use super::SlotKey;
 use super::container::{UnionFind, canon_key_frozen};
+use super::{KeySet, SlotKeyData, SlotKeyId, SlotKeys};
 
 /// A key the desugar spelled, not the program: a synthetic binding,
 /// class, field or return slot (`__cprologue`'s class registry, an
@@ -13,18 +13,17 @@ use super::container::{UnionFind, canon_key_frozen};
 /// slots — no program write reaches a container through them. A
 /// program-named binding inside a synthetic fn (a hoisted local of an
 /// async body, the parameter of an any-widened twin) is the program's.
-pub(super) fn synthetic(k: &SlotKey) -> bool {
-    let dunder = |s: &str| s.starts_with("__");
-    match k {
-        SlotKey::Global(n)
-        | SlotKey::Captured(n)
-        | SlotKey::Ret(n)
-        | SlotKey::Class(n)
-        | SlotKey::Local(_, n)
-        | SlotKey::Param(_, n) => dunder(n),
-        SlotKey::Elem(x) => synthetic(x),
-        SlotKey::Field(x, name) => dunder(&name.lossy()) || synthetic(x),
-        SlotKey::Anon(_) | SlotKey::Thrown => false,
+pub(super) fn synthetic(keys: &SlotKeys, k: SlotKeyId) -> bool {
+    match keys.data(k) {
+        SlotKeyData::Global(n)
+        | SlotKeyData::Captured(n)
+        | SlotKeyData::Ret(n)
+        | SlotKeyData::Class(n)
+        | SlotKeyData::Local(_, n)
+        | SlotKeyData::Param(_, n) => keys.dunder(n),
+        SlotKeyData::Elem(x) => synthetic(keys, x),
+        SlotKeyData::Field(x, name) => keys.dunder(name) || synthetic(keys, x),
+        SlotKeyData::Anon(_) | SlotKeyData::Thrown => false,
     }
 }
 
@@ -34,14 +33,15 @@ pub(super) fn synthetic(k: &SlotKey) -> bool {
 /// and an unrepresented Elem key canonicalizes to itself, so the chain
 /// would otherwise walk forever.
 fn drain_elem_chain(
-    work: &mut VecDeque<(SlotKey, usize)>,
-    out: &mut HashSet<SlotKey>,
+    work: &mut VecDeque<(SlotKeyId, usize)>,
+    out: &mut KeySet,
     uf: &UnionFind,
+    keys: &SlotKeys,
 ) {
     const ELEM_DEPTH_CAP: usize = 8;
     while let Some((k, d)) = work.pop_front() {
-        if out.insert(k.clone()) && d < ELEM_DEPTH_CAP {
-            let ek = canon_key_frozen(uf, &SlotKey::Elem(Box::new(k)));
+        if out.insert(k) && d < ELEM_DEPTH_CAP {
+            let ek = canon_key_frozen(uf, keys, keys.elem(k));
             if !out.contains(&ek) {
                 work.push_back((ek, d + 1));
             }
@@ -62,41 +62,36 @@ fn drain_elem_chain(
 /// locals are compiler slots, and crossing from them demoted every
 /// class field array and every split product in the program.
 pub(super) fn propagate(
-    seeds: &[SlotKey],
+    seeds: &[SlotKeyId],
     uf: &UnionFind,
-    containerish: &HashSet<SlotKey>,
-) -> HashSet<SlotKey> {
-    let mut out: HashSet<SlotKey> = HashSet::new();
-    let mut work: VecDeque<(SlotKey, usize)> = seeds
-        .iter()
-        .map(|k| (canon_key_frozen(uf, k), 0usize))
+    keys: &SlotKeys,
+    containerish: &KeySet,
+) -> KeySet {
+    let mut out = KeySet::default();
+    let mut work: VecDeque<(SlotKeyId, usize)> = (seeds.iter())
+        .map(|k| (canon_key_frozen(uf, keys, *k), 0usize))
         .collect();
-    drain_elem_chain(&mut work, &mut out, uf);
-    let held: HashSet<SlotKey> = containerish
-        .iter()
-        .map(|k| canon_key_frozen(uf, k))
+    drain_elem_chain(&mut work, &mut out, uf, keys);
+    let held: KeySet = (containerish.iter())
+        .map(|k| canon_key_frozen(uf, keys, *k))
         .collect();
-    let projections: Vec<&SlotKey> = uf
-        .keys()
-        .filter(|k| {
-            matches!(k, SlotKey::Field(_, name) if !name.lossy().starts_with("__"))
-                && held.contains(&canon_key_frozen(uf, k))
+    let projections: Vec<(SlotKeyId, SlotKeyId)> = (uf.keys())
+        .filter_map(|k| match keys.data(k) {
+            SlotKeyData::Field(base, name) if !keys.dunder(name) => Some((k, base)),
+            _ => None,
         })
+        .filter(|(k, _)| held.contains(&canon_key_frozen(uf, keys, *k)))
         .collect();
-    let mut reach: HashSet<SlotKey> = HashSet::new();
-    let mut work: VecDeque<(SlotKey, usize)> = seeds
-        .iter()
-        .filter(|k| !synthetic(k))
-        .map(|k| (canon_key_frozen(uf, k), 0usize))
+    let mut reach = KeySet::default();
+    let mut work: VecDeque<(SlotKeyId, usize)> = (seeds.iter())
+        .filter(|k| !synthetic(keys, **k))
+        .map(|k| (canon_key_frozen(uf, keys, *k), 0usize))
         .collect();
     loop {
-        drain_elem_chain(&mut work, &mut reach, uf);
-        for p in &projections {
-            let SlotKey::Field(base, _) = p else {
-                continue;
-            };
-            let ck = canon_key_frozen(uf, p);
-            if !reach.contains(&ck) && reach.contains(&canon_key_frozen(uf, base)) {
+        drain_elem_chain(&mut work, &mut reach, uf, keys);
+        for &(p, base) in &projections {
+            let ck = canon_key_frozen(uf, keys, p);
+            if !reach.contains(&ck) && reach.contains(&canon_key_frozen(uf, keys, base)) {
                 work.push_back((ck, 0));
             }
         }
@@ -107,7 +102,7 @@ pub(super) fn propagate(
     out.extend(reach);
     // TORAJS_NUM_WIDTH_STATS=1 — one line per escaped representative.
     if std::env::var_os("TORAJS_NUM_WIDTH_STATS").is_some() {
-        let mut lines: Vec<String> = out.iter().map(|k| format!("{k:?}")).collect();
+        let mut lines: Vec<String> = out.iter().map(|k| keys.debug(*k)).collect();
         lines.sort();
         for l in &lines {
             eprintln!("[num_width] any-escape class: {l}");

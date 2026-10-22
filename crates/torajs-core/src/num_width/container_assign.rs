@@ -1,8 +1,7 @@
 //! W4 — element / field assignment constraints for the container
 //! face (`xs[i] = e`, `o.x = e`), split from `container_walk.rs`.
 
-use super::{Analysis, Scope, SlotKey};
-use crate::ast::PropKey;
+use super::{Analysis, Scope};
 use crate::ast::{Expr, ExprId};
 
 impl<'a> Analysis<'a> {
@@ -14,15 +13,15 @@ impl<'a> Analysis<'a> {
         match &t {
             Expr::Index { obj, .. } => match self.container_key_of(*obj, scope) {
                 Some(rk) => {
-                    self.mark_containerish(&rk);
-                    let ek = SlotKey::Elem(Box::new(rk));
+                    self.mark_containerish(rk);
+                    let ek = self.keys.elem(rk);
                     let w = self.flow(value, scope);
-                    self.add_container_constraint(ek.clone(), w);
+                    self.add_container_constraint(ek, w);
                     // A function value assigned into an element: same
                     // projection wiring as a `push` (638-13).
-                    self.fn_value_flow(&ek, value, scope);
+                    self.fn_value_flow(ek, value, scope);
                     if let Some(vk) = self.container_key_of(value, scope) {
-                        self.uf.union(&ek, &vk);
+                        self.uf.union(&self.keys, ek, vk);
                     }
                 }
                 None => self.container_poison = true,
@@ -38,8 +37,8 @@ impl<'a> Analysis<'a> {
                     self.seed_index_read_elem(*obj, scope, false);
                 }
                 if let Some(rk) = self.container_key_of(*obj, scope) {
-                    self.mark_containerish(&rk);
-                    let fk = SlotKey::Field(Box::new(rk), PropKey::from(name));
+                    self.mark_containerish(rk);
+                    let fk = self.keys.field(rk, name);
                     if self.expr_types.get(&value) == Some(&crate::check::Type::Any)
                         && let Some(ann) = crate::ast_throw_info::class_field_ann(
                             self.ast,
@@ -48,17 +47,17 @@ impl<'a> Analysis<'a> {
                             name,
                         )
                     {
-                        self.any_object_seed(value, &fk, &ann);
+                        self.any_object_seed(value, fk, &ann);
                     } else if let Some(ann) = self.member_field_ann(*obj, name, scope) {
-                        self.any_member_seed(value, &fk, &ann);
+                        self.any_member_seed(value, fk, &ann);
                     }
                     let w = self.flow(value, scope);
-                    self.add_container_constraint(fk.clone(), w);
+                    self.add_container_constraint(fk, w);
                     // F5 — fn value assigned into a field: same sig
                     // projection wiring as the struct-literal fill.
-                    self.fn_value_flow(&fk, value, scope);
+                    self.fn_value_flow(fk, value, scope);
                     if let Some(vk) = self.container_key_of(value, scope) {
-                        self.uf.union(&fk, &vk);
+                        self.uf.union(&self.keys, fk, vk);
                     }
                 }
                 self.feed_setter_value(*obj, name, value, scope);

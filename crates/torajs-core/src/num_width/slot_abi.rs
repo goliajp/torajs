@@ -6,7 +6,7 @@
 //! stub (single-chain names) and the bare `method_index` slot (every
 //! overridden name, dispatcher or not).
 
-use super::{Analysis, SlotKey};
+use super::{Analysis, SlotKeyId};
 
 /// F5 — vtable-slot ABI hookups: the synthetic `__dispatch_<M>` fn is
 /// lowered as a tag-switch over every owner's `__cm_<C>__<M>`, so the
@@ -42,14 +42,11 @@ pub(super) fn dispatch_unions(a: &mut Analysis) {
                 let Some(cm_params) = a.fn_params.get(&cm).cloned() else {
                     continue;
                 };
-                a.uf.union(&SlotKey::Ret(f.clone()), &SlotKey::Ret(cm.clone()));
+                a.uf.union(&a.keys, a.keys.ret(f), a.keys.ret(&cm));
                 // Positional params align 1:1 (both lists start with
                 // `__this`, which stays out of the width domain).
                 for (dp, cp) in d_params.iter().zip(cm_params.iter()).skip(1) {
-                    a.uf.union(
-                        &SlotKey::Param(f.clone(), dp.clone()),
-                        &SlotKey::Param(cm.clone(), cp.clone()),
-                    );
+                    a.uf.union(&a.keys, a.keys.param(f, dp), a.keys.param(&cm, cp));
                 }
             }
         }
@@ -79,12 +76,9 @@ fn iface_unions(a: &mut Analysis) {
             let Some(ps) = a.fn_params.get(&row).cloned() else {
                 continue;
             };
-            a.uf.union(&SlotKey::Ret(lit.clone()), &SlotKey::Ret(row.clone()));
+            a.uf.union(&a.keys, a.keys.ret(&lit), a.keys.ret(&row));
             for (hp, rp) in head.iter().zip(ps.iter()).skip(1) {
-                a.uf.union(
-                    &SlotKey::Param(lit.clone(), hp.clone()),
-                    &SlotKey::Param(row.clone(), rp.clone()),
-                );
+                a.uf.union(&a.keys, a.keys.param(&lit, hp), a.keys.param(&row, rp));
             }
         }
         let (key, kind) = face_kind(face);
@@ -93,35 +87,33 @@ fn iface_unions(a: &mut Analysis) {
         };
         let point = match kind {
             FaceKind::Call => match super::fn_type_canon(&ann) {
-                Some(canon) => SlotKey::Class(canon),
+                Some(canon) => a.keys.class(&canon),
                 None => continue,
             },
-            FaceKind::Get | FaceKind::Set => {
-                SlotKey::Field(Box::new(SlotKey::Class(iface.clone())), key.into())
-            }
+            FaceKind::Get | FaceKind::Set => a.keys.field(a.keys.class(iface), key),
             FaceKind::Has => continue,
         };
-        let mut pairs: Vec<(SlotKey, SlotKey)> = Vec::new();
+        let mut pairs: Vec<(SlotKeyId, SlotKeyId)> = Vec::new();
         match kind {
             FaceKind::Call => {
-                let proj = |p: &str| SlotKey::Field(Box::new(point.clone()), p.into());
-                pairs.push((proj("__ret"), SlotKey::Ret(lit.clone())));
+                let proj = |p: &str| a.keys.field(point, p);
+                pairs.push((proj("__ret"), a.keys.ret(&lit)));
                 for (i, p) in head.iter().enumerate().skip(1) {
                     let k = proj(&format!("__p{}", i - 1));
-                    pairs.push((k, SlotKey::Param(lit.clone(), p.clone())));
+                    pairs.push((k, a.keys.param(&lit, p)));
                 }
             }
-            FaceKind::Get => pairs.push((point, SlotKey::Ret(lit.clone()))),
+            FaceKind::Get => pairs.push((point, a.keys.ret(&lit))),
             FaceKind::Has => {}
             FaceKind::Set => {
                 if let Some(v) = head.get(1) {
-                    pairs.push((point, SlotKey::Param(lit.clone(), v.clone())));
+                    pairs.push((point, a.keys.param(&lit, v)));
                 }
             }
         }
         for (x, y) in pairs {
-            a.mark_containerish(&x);
-            a.uf.union(&x, &y);
+            a.mark_containerish(x);
+            a.uf.union(&a.keys, x, y);
         }
     }
 }
@@ -156,7 +148,7 @@ fn member_ann(ast: &crate::ast::Ast, iface: &str, key: &str) -> Option<String> {
 /// returns union too.
 pub(super) fn relay_unions(a: &mut Analysis) {
     use crate::ast::{Expr, Stmt};
-    let mut pairs: Vec<(SlotKey, SlotKey)> = Vec::new();
+    let mut pairs: Vec<(SlotKeyId, SlotKeyId)> = Vec::new();
     for s in &a.ast.stmts {
         let Stmt::FnDecl { name, body, .. } = s else {
             continue;
@@ -182,7 +174,7 @@ pub(super) fn relay_unions(a: &mut Analysis) {
             .iter()
             .filter(|p| p.as_str() != "__torajs_argv")
             .collect();
-        pairs.push((SlotKey::Ret(name.clone()), SlotKey::Ret(target.clone())));
+        pairs.push((a.keys.ret(name), a.keys.ret(target)));
         for (arg, tp) in args.iter().zip(visible.iter()) {
             // A rest param forwards as `...xs` (`forwarder_synth`);
             // it shares the target's rest slot the same way — left
@@ -202,14 +194,11 @@ pub(super) fn relay_unions(a: &mut Analysis) {
             if !relay_params.contains(p) {
                 continue;
             }
-            pairs.push((
-                SlotKey::Param(name.clone(), p.clone()),
-                SlotKey::Param(target.clone(), (*tp).clone()),
-            ));
+            pairs.push((a.keys.param(name, p), a.keys.param(target, tp)));
         }
     }
     for (x, y) in pairs {
-        a.uf.union(&x, &y);
+        a.uf.union(&a.keys, x, y);
     }
 }
 
@@ -251,14 +240,11 @@ fn slot_unions(a: &mut Analysis) {
         }
     }
     for (x, y) in unions {
-        a.uf.union(&SlotKey::Ret(x.clone()), &SlotKey::Ret(y.clone()));
+        a.uf.union(&a.keys, a.keys.ret(&x), a.keys.ret(&y));
         let xp = a.fn_params[&x].clone();
         let yp = a.fn_params[&y].clone();
         for (dp, cp) in xp.iter().zip(yp.iter()).skip(1) {
-            a.uf.union(
-                &SlotKey::Param(x.clone(), dp.clone()),
-                &SlotKey::Param(y.clone(), cp.clone()),
-            );
+            a.uf.union(&a.keys, a.keys.param(&x, dp), a.keys.param(&y, cp));
         }
     }
 }

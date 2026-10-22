@@ -7,7 +7,7 @@ use super::traced;
 use crate::ast::{BinOp, Expr, ExprId};
 use crate::check::Type;
 use crate::num_width::hidden_any::{Graph, Node, Ref};
-use crate::num_width::{Analysis, Scope, SlotKey};
+use crate::num_width::{Analysis, Scope};
 
 impl Graph<'_> {
     /// Every value a direct call of `f` hands its parameter `p`, and
@@ -75,15 +75,15 @@ impl Graph<'_> {
                 out.push(Node::RetAny(fn_name.clone()));
                 true
             }
-            Expr::Ident(n) => match self.resolve(a, n, sc) {
-                Ref::At(Node::Decl(i)) => match self.values(a, n, self.origin(i)) {
+            Expr::Ident(n) => match self.resolve(a, n, sc).with_param(&a.keys) {
+                (Ref::At(Node::Decl(i)), _) => match self.values(a, n, self.origin(i)) {
                     Some(vs) => vs.into_iter().fold(true, |h, v| go(v, out) & h),
                     None => false,
                 },
-                Ref::At(Node::Read(SlotKey::Param(f, p))) if declared_face(a, e, &f, &p) => true,
+                (_, Some((f, p))) if declared_face(a, e, &f, &p) => true,
                 // the arguments sit in the callers' scopes: only a value
                 // that names no binding is read there
-                Ref::At(Node::Read(SlotKey::Param(f, p))) => match self.param_stores(a, &f, &p) {
+                (_, Some((f, p))) => match self.param_stores(a, &f, &p) {
                     Some(stores) => stores.into_iter().all(|s| scope_free(a, s, out)),
                     None => false,
                 },
@@ -91,7 +91,7 @@ impl Graph<'_> {
                     out.push(Node::RetAny(n.clone()));
                     true
                 }
-                Ref::Keyed(_) => {
+                (Ref::Keyed(_), _) => {
                     let origins = self.lookups(a).decls.get(n).cloned().unwrap_or_default();
                     let vs: Option<Vec<ExprId>> = (origins.into_iter())
                         .map(|o| self.values(a, n, o))

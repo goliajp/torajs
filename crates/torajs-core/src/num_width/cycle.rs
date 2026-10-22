@@ -17,24 +17,23 @@
 //! constraint edges, then every SCC containing an internal growth
 //! edge (including a growth self-loop) seeds all its members F64.
 
-use super::{Dep, SlotKey};
-use std::collections::HashMap;
+use super::{Dep, KeyMap, SlotKeyId};
 
 /// Append every slot that sits on an assignment cycle containing a
 /// growth edge to `seeds`. Called once, before the poison fixpoint.
-pub(super) fn seed_growth_cycles(edges: &HashMap<SlotKey, Vec<Dep>>, seeds: &mut Vec<SlotKey>) {
+pub(super) fn seed_growth_cycles(edges: &KeyMap<Vec<Dep>>, seeds: &mut Vec<SlotKeyId>) {
     // Index the node set: every key plus every edge destination.
-    let mut index_of: HashMap<&SlotKey, usize> = HashMap::new();
-    let mut nodes: Vec<&SlotKey> = Vec::new();
+    let mut index_of: KeyMap<usize> = KeyMap::default();
+    let mut nodes: Vec<SlotKeyId> = Vec::new();
     for (src, dsts) in edges {
         if !index_of.contains_key(src) {
-            index_of.insert(src, nodes.len());
-            nodes.push(src);
+            index_of.insert(*src, nodes.len());
+            nodes.push(*src);
         }
         for (d, _) in dsts {
             if !index_of.contains_key(d) {
-                index_of.insert(d, nodes.len());
-                nodes.push(d);
+                index_of.insert(*d, nodes.len());
+                nodes.push(*d);
             }
         }
     }
@@ -61,7 +60,7 @@ pub(super) fn seed_growth_cycles(edges: &HashMap<SlotKey, Vec<Dep>>, seeds: &mut
     }
     for (i, node) in nodes.iter().enumerate() {
         if poisoned[scc_of[i]] {
-            seeds.push((*node).clone());
+            seeds.push(*node);
         }
     }
 }

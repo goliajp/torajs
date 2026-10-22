@@ -16,7 +16,7 @@ use std::collections::HashSet;
 use super::bound_closures::callback_fn_name;
 use super::container::canon_key_frozen;
 use super::sentinel_hof::taint_param;
-use super::{Analysis, Scope, SlotKey};
+use super::{Analysis, KeySet, Scope, SlotKeyId};
 use crate::ast::{Ast, Expr, ExprId};
 use crate::check::Type;
 use crate::check_monomorph_any_widen::struct_escape::twin_name;
@@ -80,7 +80,7 @@ pub(crate) fn iterated_array(ast: &Ast, callee: ExprId, args: &[ExprId]) -> Opti
 pub(super) fn settle(
     a: &Analysis<'_>,
     undef_params: &mut HashSet<(String, String)>,
-) -> (HashSet<SlotKey>, HashSet<ExprId>, super::HiddenAny) {
+) -> (KeySet, HashSet<ExprId>, super::HiddenAny) {
     let mut seeds = [&a.any_seeds[..], &a.escape_only_seeds[..]].concat();
     loop {
         let (any_escaped, escaped) = close_products(a, &mut seeds);
@@ -98,24 +98,22 @@ pub(super) fn settle(
 
 /// Propagate `seeds` until no iteration product joins them; answers the
 /// escaped classes and the recorded arrays among them.
-fn close_products(
-    a: &Analysis<'_>,
-    seeds: &mut Vec<SlotKey>,
-) -> (HashSet<SlotKey>, HashSet<ExprId>) {
+fn close_products(a: &Analysis<'_>, seeds: &mut Vec<SlotKeyId>) -> (KeySet, HashSet<ExprId>) {
     loop {
-        let any_escaped = super::escape_propagate::propagate(seeds, &a.uf, &a.containerish);
+        let any_escaped =
+            super::escape_propagate::propagate(seeds, &a.uf, &a.keys, &a.containerish);
         let escaped: HashSet<ExprId> = a
             .hof_receivers
             .iter()
-            .filter(|(_, _, k)| any_escaped.contains(&canon_key_frozen(&a.uf, k)))
+            .filter(|(_, _, k)| any_escaped.contains(&canon_key_frozen(&a.uf, &a.keys, *k)))
             .map(|(_, recv, _)| *recv)
             .collect();
-        let products: Vec<SlotKey> = a
+        let products: Vec<SlotKeyId> = a
             .hof_receivers
             .iter()
             .filter(|(call, recv, _)| any_elems(a, &escaped, *recv) && fills_any(a, *call))
-            .map(|(call, _, _)| SlotKey::Anon(call.0))
-            .filter(|k| !any_escaped.contains(&canon_key_frozen(&a.uf, k)))
+            .map(|(call, _, _)| a.keys.anon(call.0))
+            .filter(|k| !any_escaped.contains(&canon_key_frozen(&a.uf, &a.keys, *k)))
             .collect();
         if products.is_empty() {
             return (any_escaped, escaped);

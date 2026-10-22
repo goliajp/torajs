@@ -7,28 +7,29 @@
 //! guarded-edge activation and the canonicalization — and this one
 //! keeps what survives it.
 
-use super::SlotKey;
-use super::container::{UnionFind, canon_key_frozen};
+use super::container::{UnionFind, canon_spelling};
+use super::{ByName, KeySet, SlotKey, SlotKeyData, SlotKeyId, SlotKeys};
 use crate::ast::ExprId;
 use crate::ast::PropKey;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 /// Frozen analysis result: the poison fixpoint over canonical alias
 /// classes (scalar slots and container elem/field points in one
 /// lattice), queried through the frozen union-find so any spelling of
 /// a key resolves to its class representative.
 pub(crate) struct WidthTable {
-    canon: HashSet<SlotKey>,
+    canon: KeySet,
     /// W-ESC — frozen class reps whose containers flow into `any`-
     /// annotated slots (escape.rs); the widen site re-interns their
     /// Arr elems as Type::Any.
-    any_escaped: HashSet<SlotKey>,
+    any_escaped: KeySet,
     /// The arrays of callback-taking iterations whose class is in
     /// `any_escaped` (`hof_receivers.rs`).
     escaped_hof_receivers: HashSet<ExprId>,
     /// The declarations to retype `any` and the call arguments to
     /// widen (`hidden_any.rs`).
     pub(crate) hidden_any: super::HiddenAny,
+    keys: SlotKeys,
     uf: UnionFind,
     container_poison: bool,
     /// The classes a promise can reach unseen (`promise_taint`): a
@@ -100,7 +101,7 @@ pub(crate) struct WidthTable {
     /// way, so a reader asks for the very key the analysis populated
     /// rather than guessing from its own slot table (where a captured
     /// top-level name sits at prologue depth like a param).
-    by_name: HashMap<String, Vec<SlotKey>>,
+    by_name: ByName,
     /// The bindings each lifted closure's captures resolved to — the
     /// walk's `resolve` consults it ahead of the top-level spelling, so
     /// [`WidthTable::ident_keys`] has to as well.
@@ -111,9 +112,9 @@ pub(crate) struct WidthTable {
 impl WidthTable {
     #[allow(clippy::too_many_arguments)] // frozen-analysis assembly, one call site
     pub(super) fn new(
-        canon: HashSet<SlotKey>,
-        escapes: (HashSet<SlotKey>, HashSet<ExprId>, super::HiddenAny),
-        uf: UnionFind,
+        canon: KeySet,
+        escapes: (KeySet, HashSet<ExprId>, super::HiddenAny),
+        (keys, uf): (SlotKeys, UnionFind),
         container_poison: bool,
         nominal_aliases: HashSet<String>,
         fallthrough_fns: HashSet<String>,
@@ -125,7 +126,7 @@ impl WidthTable {
         char_code_at_proven: HashSet<ExprId>,
         arith_in_window: HashSet<ExprId>,
         nonzero_negs: HashSet<ExprId>,
-        by_name: HashMap<String, Vec<SlotKey>>,
+        by_name: ByName,
         captures: super::captures::CaptureMap,
         bound_closures: super::bound_closures::BoundClosures,
     ) -> Self {
@@ -135,6 +136,7 @@ impl WidthTable {
             any_escaped,
             escaped_hof_receivers,
             hidden_any,
+            keys,
             uf,
             container_poison,
             promise_taint: Default::default(),
@@ -162,29 +164,28 @@ impl WidthTable {
     /// same-named slot onto. Empty when the analysis never saw the
     /// name — no class to ask.
     pub(crate) fn ident_keys(&self, fn_name: &str, n: &str) -> Vec<SlotKey> {
-        let Some(spellings) = self.by_name.get(n) else {
+        let keys = &self.keys;
+        let Some(an) = keys.find_atom(torajs_wtf8::Wtf8::new(n)) else {
             return Vec::new();
         };
-        let has = |k: &SlotKey| spellings.contains(k);
+        let Some(spellings) = self.by_name.get(&an) else {
+            return Vec::new();
+        };
+        let has = |d: SlotKeyData| keys.get(&d).filter(|k| spellings.contains(k));
         if !fn_name.is_empty() {
-            let param = SlotKey::Param(fn_name.to_string(), n.to_string());
-            if has(&param) {
-                return vec![param];
-            }
-            let local = SlotKey::Local(fn_name.to_string(), n.to_string());
-            if has(&local) {
-                return vec![local];
+            if let Some(af) = keys.find_atom(torajs_wtf8::Wtf8::new(fn_name)) {
+                let own =
+                    has(SlotKeyData::Param(af, an)).or_else(|| has(SlotKeyData::Local(af, an)));
+                if let Some(k) = own {
+                    return vec![keys.spell(k)];
+                }
             }
             if let Some(c) = self.captures.get(fn_name).and_then(|m| m.get(n)) {
-                return vec![
-                    c.clone()
-                        .unwrap_or_else(|| SlotKey::Captured(n.to_string())),
-                ];
+                return vec![c.map_or_else(|| SlotKey::Captured(n.to_string()), |k| keys.spell(k))];
             }
         }
-        let global = SlotKey::Global(n.to_string());
-        if has(&global) {
-            return vec![global];
+        if let Some(k) = has(SlotKeyData::Global(an)) {
+            return vec![keys.spell(k)];
         }
         if fn_name.starts_with("__") {
             return vec![SlotKey::Captured(n.to_string())];
@@ -259,14 +260,33 @@ impl WidthTable {
         self.fallthrough_fns.contains(name)
     }
 
+    /// The class of the spelling `k`; `None` when the analysis never
+    /// interned it, a class of its own that no table holds.
+    fn class_of(&self, k: &SlotKey) -> Option<SlotKeyId> {
+        canon_spelling(&self.uf, &self.keys, k)
+    }
+
+    /// [`Self::class_of`] the point `d` builds over `holder`'s class.
+    fn class_under(
+        &self,
+        holder: &SlotKey,
+        d: impl FnOnce(SlotKeyId) -> SlotKeyData,
+    ) -> Option<SlotKeyId> {
+        let k = self.keys.get(&d(self.class_of(holder)?))?;
+        Some(self.uf.find_frozen(k))
+    }
+
     pub(crate) fn slot_is_f64(&self, k: &SlotKey) -> bool {
-        self.canon.contains(&canon_key_frozen(&self.uf, k))
+        self.class_of(k).is_some_and(|c| self.canon.contains(&c))
     }
 
     /// W-ESC — true when the container held in slot `k` flows into
     /// the `any` world (its frozen class rep carries an escape face).
     pub(crate) fn slot_escapes_any(&self, k: &SlotKey) -> bool {
-        !self.any_escaped.is_empty() && self.any_escaped.contains(&canon_key_frozen(&self.uf, k))
+        !self.any_escaped.is_empty()
+            && self
+                .class_of(k)
+                .is_some_and(|c| self.any_escaped.contains(&c))
     }
 
     /// Is `recv`, the array of a callback-taking iteration, one whose
@@ -276,25 +296,40 @@ impl WidthTable {
     }
 
     pub(crate) fn elem_is_f64(&self, holder: &SlotKey) -> bool {
-        self.container_poison || self.slot_is_f64(&SlotKey::Elem(Box::new(holder.clone())))
+        self.container_poison
+            || (self.class_under(holder, SlotKeyData::Elem))
+                .is_some_and(|c| self.canon.contains(&c))
     }
 
     /// Is the value point of the promise slot `holder` f64: widened by
     /// a writer, or one a promise can reach unseen (the predicate the
-    /// analysis seeded by, `PromiseTaint::widens`)?
+    /// analysis seeded by, `PromiseTaint::widens`)? The taint walks
+    /// the holders of a point the analysis may never have spelled, so
+    /// the point is interned for it: a new key is a class of its own.
     pub(crate) fn promise_value_is_f64(&self, holder: &SlotKey) -> bool {
-        let point = SlotKey::Field(Box::new(holder.clone()), "value".into());
-        self.field_is_f64(holder, "value") || self.promise_taint.widens(&self.uf, &point)
+        if self.field_is_f64(holder, "value") {
+            return true;
+        }
+        let point = self.keys.field(self.keys.intern(holder), "value");
+        self.promise_taint.widens(&self.uf, &self.keys, point)
     }
 
     /// [`super::promise_taint::PromiseTaint::await_point_agrees`] here.
     #[cfg(torajs_checks)]
-    pub(crate) fn await_point_agrees(&self, obj: ExprId, keys: &[SlotKey]) -> bool {
-        self.promise_taint.await_point_agrees(&self.uf, obj, keys)
+    pub(crate) fn await_point_agrees(&self, obj: ExprId, holders: &[SlotKey]) -> bool {
+        let ids: Vec<SlotKeyId> = holders.iter().map(|k| self.keys.intern(k)).collect();
+        (self.promise_taint).await_point_agrees(&self.uf, &self.keys, obj, &ids)
     }
 
     pub(crate) fn field_is_f64(&self, holder: &SlotKey, name: impl Into<PropKey>) -> bool {
-        self.container_poison
-            || self.slot_is_f64(&SlotKey::Field(Box::new(holder.clone()), name.into()))
+        if self.container_poison {
+            return true;
+        }
+        let name: PropKey = name.into();
+        let Some(n) = self.keys.find_atom(&name) else {
+            return false;
+        };
+        (self.class_under(holder, |h| SlotKeyData::Field(h, n)))
+            .is_some_and(|c| self.canon.contains(&c))
     }
 }

@@ -5,10 +5,9 @@
 //! 500). Side-effect wiring (`member_call_effects`) stays in the
 //! parent file.
 
-use super::{Analysis, Scope, SlotKey};
+use super::{Analysis, Scope, SlotKeyId};
 use crate::ast::Expr;
 use crate::ast::ExprId;
-use crate::ast::PropKey;
 
 impl<'a> Analysis<'a> {
     /// Result container key of a member call, for flows consuming it.
@@ -21,7 +20,7 @@ impl<'a> Analysis<'a> {
         name: &str,
         args: &[ExprId],
         scope: &Scope,
-    ) -> Option<SlotKey> {
+    ) -> Option<SlotKeyId> {
         // ②.6b — `Promise.<static>(..)` has an untrackable receiver
         // (the global namespace ident); key the result by its Anon
         // origin (wiring fires from member_call_effects).
@@ -29,8 +28,8 @@ impl<'a> Analysis<'a> {
             && ns == "Promise"
             && self.resolve(ns, scope).is_none()
         {
-            let anon = SlotKey::Anon(eid.0);
-            self.mark_containerish(&anon);
+            let anon = self.keys.anon(eid.0);
+            self.mark_containerish(anon);
             return Some(anon);
         }
         // RFC 20260726-array-elem-width — `Array.from(src)` has the same
@@ -51,26 +50,24 @@ impl<'a> Analysis<'a> {
             if name != "from" {
                 return None;
             }
-            let anon = SlotKey::Anon(eid.0);
-            self.mark_containerish(&anon);
+            let anon = self.keys.anon(eid.0);
+            self.mark_containerish(anon);
             if let Some(ak) = args.first().and_then(|a| self.container_key_of(*a, scope)) {
-                self.uf.union(
-                    &SlotKey::Elem(Box::new(anon.clone())),
-                    &SlotKey::Elem(Box::new(ak.clone())),
-                );
-                self.uf.union(&anon, &ak);
+                self.uf
+                    .union(&self.keys, self.keys.elem(anon), self.keys.elem(ak));
+                self.uf.union(&self.keys, anon, ak);
             }
             return Some(anon);
         }
         let recv = self.container_key_of(obj, scope)?;
-        self.mark_containerish(&recv);
-        let ek = SlotKey::Elem(Box::new(recv.clone()));
+        self.mark_containerish(recv);
+        let ek = self.keys.elem(recv);
         match name {
             "slice" | "filter" | "reverse" | "sort" | "toReversed" | "toSorted" | "splice"
             | "toSpliced" | "with" | "fill" | "copyWithin" => {
-                let anon = SlotKey::Anon(eid.0);
-                self.mark_containerish(&anon);
-                self.uf.union(&SlotKey::Elem(Box::new(anon.clone())), &ek);
+                let anon = self.keys.anon(eid.0);
+                self.mark_containerish(anon);
+                self.uf.union(&self.keys, self.keys.elem(anon), ek);
                 // RFC 20260713-array-proto-residual B1b — the product
                 // memcpys the receiver's slot bits verbatim (reverse /
                 // sort / fill / copyWithin mutate in place and answer
@@ -79,28 +76,27 @@ impl<'a> Analysis<'a> {
                 // face on either side must demote both, or the
                 // escaped side stores NaN-boxes that the typed side
                 // reads raw (appeared-4 sweep regression).
-                self.uf.union(&anon, &recv);
+                self.uf.union(&self.keys, anon, recv);
                 Some(anon)
             }
             "concat" => {
-                let anon = SlotKey::Anon(eid.0);
-                self.mark_containerish(&anon);
-                let aek = SlotKey::Elem(Box::new(anon.clone()));
-                self.uf.union(&aek, &ek);
+                let anon = self.keys.anon(eid.0);
+                self.mark_containerish(anon);
+                let aek = self.keys.elem(anon);
+                self.uf.union(&self.keys, aek, ek);
                 // B1b — product bits memcpy from the receiver (and
                 // container args below): one repr class each.
-                self.uf.union(&anon, &recv);
+                self.uf.union(&self.keys, anon, recv);
                 for a in args.iter().copied() {
                     // F2-fix — `concat` accepts scalars too; alias the
                     // arg's element class only with candidate-side
                     // container evidence, and feed its scalar width
                     // either way.
                     let w = self.flow(a, scope);
-                    self.add_container_constraint(aek.clone(), w);
+                    self.add_container_constraint(aek, w);
                     if let Some(ak) = self.container_key_of(a, scope) {
-                        self.uf.union(&anon, &ak);
-                        self.nested_unions
-                            .push((aek.clone(), SlotKey::Elem(Box::new(ak))));
+                        self.uf.union(&self.keys, anon, ak);
+                        self.nested_unions.push((aek, self.keys.elem(ak)));
                     }
                 }
                 Some(anon)
@@ -133,16 +129,13 @@ impl<'a> Analysis<'a> {
                 Some(ek)
             }
             "map" => {
-                let anon = SlotKey::Anon(eid.0);
-                self.mark_containerish(&anon);
-                let aek = SlotKey::Elem(Box::new(anon.clone()));
+                let anon = self.keys.anon(eid.0);
+                self.mark_containerish(anon);
+                let aek = self.keys.elem(anon);
                 match args.first().and_then(|a| self.callee_fn_name(*a)) {
                     Some(cb) => {
-                        let rk = SlotKey::Ret(cb);
-                        self.c_edges
-                            .entry(rk.clone())
-                            .or_default()
-                            .push((aek.clone(), false));
+                        let rk = self.keys.ret(&cb);
+                        self.c_edges.entry(rk).or_default().push((aek, false));
                         self.guarded_unions.push((aek, rk));
                     }
                     // Opaque callback — element width unprovable.
@@ -154,14 +147,14 @@ impl<'a> Analysis<'a> {
             "reduce" | "reduceRight" => args
                 .first()
                 .and_then(|a| self.callee_fn_name(*a))
-                .map(SlotKey::Ret),
+                .map(|f| self.keys.ret(&f)),
             // ②.6b — promise chain result keys by its Anon origin
             // (wiring fires from member_call_effects). The `value`
             // spelling matches the parser's `await p` → `p.value`
             // desugar, so await reads need no extra wiring.
             "then" | "catch" | "finally" => {
-                let anon = SlotKey::Anon(eid.0);
-                self.mark_containerish(&anon);
+                let anon = self.keys.anon(eid.0);
+                self.mark_containerish(anon);
                 Some(anon)
             }
             _ => {
@@ -170,11 +163,11 @@ impl<'a> Analysis<'a> {
                 // the analysis doesn't have, so the result joins every
                 // owner's ret through the Anon key.
                 let mut any = false;
-                let anon = SlotKey::Anon(eid.0);
+                let anon = self.keys.anon(eid.0);
                 for c in self.classes.clone() {
                     let f = format!("__cm_{c}__{name}");
                     if self.fn_params.contains_key(&f) {
-                        self.guarded_unions.push((anon.clone(), SlotKey::Ret(f)));
+                        self.guarded_unions.push((anon, self.keys.ret(&f)));
                         any = true;
                     }
                 }
@@ -186,10 +179,7 @@ impl<'a> Analysis<'a> {
                     // projection (glued onto the resident fn's Ret by
                     // the fill site's `fn_value_flow`); keys nobody
                     // populated stay narrow.
-                    Some(SlotKey::Field(
-                        Box::new(SlotKey::Field(Box::new(recv), PropKey::from(name))),
-                        "__ret".into(),
-                    ))
+                    Some(self.keys.field(self.keys.field(recv, name), "__ret"))
                 }
             }
         }
@@ -212,22 +202,20 @@ impl<'a> Analysis<'a> {
     /// A bare `flat()` and a computed depth both keep the one-layer
     /// join: the checker requires a literal to peel `Array<>` layers
     /// statically, so a non-literal never reaches a typed lane.
-    fn flat_result_key(&mut self, eid: ExprId, args: &[ExprId], recv: SlotKey) -> SlotKey {
-        let anon = SlotKey::Anon(eid.0);
-        self.mark_containerish(&anon);
+    fn flat_result_key(&mut self, eid: ExprId, args: &[ExprId], recv: SlotKeyId) -> SlotKeyId {
+        let anon = self.keys.anon(eid.0);
+        self.mark_containerish(anon);
         let depth = match args.first().map(|a| self.ast.get_expr(*a)) {
             Some(Expr::Number(d)) if *d >= 0.0 && d.fract() == 0.0 && *d <= 16.0 => *d as usize,
             _ => 1,
         };
         let mut layer = recv;
         for _ in 0..depth {
-            layer = SlotKey::Elem(Box::new(layer));
+            layer = self.keys.elem(layer);
         }
-        self.uf.union(
-            &SlotKey::Elem(Box::new(anon.clone())),
-            &SlotKey::Elem(Box::new(layer.clone())),
-        );
-        self.uf.union(&anon, &layer);
+        self.uf
+            .union(&self.keys, self.keys.elem(anon), self.keys.elem(layer));
+        self.uf.union(&self.keys, anon, layer);
         anon
     }
 
@@ -240,13 +228,13 @@ impl<'a> Analysis<'a> {
     /// Spelling that case the array way named the element of a scalar,
     /// a class nothing else is in, so the product never joined the
     /// binding that received it and the two disagreed on width.
-    fn flat_map_result_key(&mut self, eid: ExprId, args: &[ExprId]) -> SlotKey {
-        let anon = SlotKey::Anon(eid.0);
-        self.mark_containerish(&anon);
-        let aek = SlotKey::Elem(Box::new(anon.clone()));
+    fn flat_map_result_key(&mut self, eid: ExprId, args: &[ExprId]) -> SlotKeyId {
+        let anon = self.keys.anon(eid.0);
+        self.mark_containerish(anon);
+        let aek = self.keys.elem(anon);
         match args.first().and_then(|a| self.callee_fn_name(*a)) {
             Some(cb) => {
-                let rk = SlotKey::Ret(cb);
+                let rk = self.keys.ret(&cb);
                 let elem_src = if self.cb_returns_array(args[0]) {
                     // Walking the returned array's elements IS container
                     // evidence on the callback's ret point. Without the
@@ -256,12 +244,12 @@ impl<'a> Analysis<'a> {
                     // class never reached the receiver's inner blocks,
                     // and the inner walk f64-read their i64 slots as
                     // denormals.
-                    self.mark_containerish(&rk);
-                    SlotKey::Elem(Box::new(rk))
+                    self.mark_containerish(rk);
+                    self.keys.elem(rk)
                 } else {
                     rk
                 };
-                self.uf.union(&aek, &elem_src);
+                self.uf.union(&self.keys, aek, elem_src);
             }
             None => self.c_seeds.push(aek),
         }

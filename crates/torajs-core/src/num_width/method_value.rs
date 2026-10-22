@@ -16,7 +16,7 @@ use std::collections::HashSet;
 use crate::ast::{Expr, ExprId, Param, PropKey, Stmt};
 use crate::check::Type;
 
-use super::{Analysis, SlotKey};
+use super::Analysis;
 
 impl<'a> Analysis<'a> {
     /// `obj.name` in value position, `obj` a class instance: the
@@ -30,8 +30,7 @@ impl<'a> Analysis<'a> {
             if p.name != "__this"
                 && matches!(p.type_ann.as_deref(), None | Some("number" | "i64" | "f64"))
             {
-                self.seeds
-                    .push(SlotKey::Param(fname.clone(), p.name.clone()));
+                self.seeds.push(self.keys.param(&fname, &p.name));
             }
         }
     }

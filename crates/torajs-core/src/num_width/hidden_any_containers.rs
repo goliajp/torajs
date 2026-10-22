@@ -18,7 +18,7 @@
 
 use super::container::canon_key_frozen;
 use super::hidden_any::{Graph, Node};
-use super::{Analysis, Scope, SlotKey};
+use super::{Analysis, Scope, SlotKeyData};
 use crate::ast::{Expr, ExprId};
 use crate::check::Type;
 
@@ -30,7 +30,7 @@ impl Graph<'_> {
                 Expr::Index { obj, .. } => self.store_into(a, sc, *obj, *value),
                 Expr::Member { .. } => {
                     if let Some(f) = a.container_key_lookup(*target, sc) {
-                        let f = canon_key_frozen(&a.uf, &f);
+                        let f = canon_key_frozen(&a.uf, &a.keys, f);
                         self.flow(a, &[Node::Read(f)], *value, sc);
                     }
                 }
@@ -63,8 +63,8 @@ impl Graph<'_> {
                     return;
                 };
                 for (name, v) in fields {
-                    let f = SlotKey::Field(Box::new(k.clone()), name.clone());
-                    let n = Node::Read(canon_key_frozen(&a.uf, &f));
+                    let f = a.keys.field(k, name);
+                    let n = Node::Read(canon_key_frozen(&a.uf, &a.keys, f));
                     self.flow(a, std::slice::from_ref(&n), *v, sc);
                     self.lit_fields.push((n, *v));
                 }
@@ -79,7 +79,7 @@ impl Graph<'_> {
         let Some(k) = a.container_key_lookup(obj, sc) else {
             return;
         };
-        let k = canon_key_frozen(&a.uf, &k);
+        let k = canon_key_frozen(&a.uf, &a.keys, k);
         if !self.any_escaped.contains(&k) {
             self.flow(a, &[Node::Into(k)], value, sc);
         }
@@ -94,16 +94,16 @@ impl Graph<'_> {
         sc: &Scope,
     ) -> Option<Node> {
         let k = a.container_key_lookup(eid, sc)?;
-        match &k {
-            SlotKey::Field(..) if matches!(a.ast.get_expr(eid), Expr::Member { .. }) => {
-                Some(Node::Read(canon_key_frozen(&a.uf, &k)))
+        match a.keys.data(k) {
+            SlotKeyData::Field(..) if matches!(a.ast.get_expr(eid), Expr::Member { .. }) => {
+                Some(Node::Read(canon_key_frozen(&a.uf, &a.keys, k)))
             }
-            SlotKey::Elem(recv) if matches!(a.ast.get_expr(eid), Expr::Call { .. }) => {
-                let recv = canon_key_frozen(&a.uf, recv);
+            SlotKeyData::Elem(recv) if matches!(a.ast.get_expr(eid), Expr::Call { .. }) => {
+                let recv = canon_key_frozen(&a.uf, &a.keys, recv);
                 if !self.any_escaped.contains(&recv) {
                     return None;
                 }
-                let n = Node::Read(SlotKey::Elem(Box::new(recv)));
+                let n = Node::Read(a.keys.elem(recv));
                 self.seeds.push(n.clone());
                 Some(n)
             }

@@ -69,6 +69,7 @@ mod sentinel_member_reads;
 mod sentinel_tables;
 mod slot_abi;
 mod slot_key;
+mod slot_keys;
 mod variadic_short;
 mod walk;
 mod walk_call;
@@ -81,6 +82,7 @@ pub(crate) use hidden_any::HiddenAny;
 pub(crate) use magnitude::EXACT_INT_MAX;
 pub(crate) use mono::{NumWidth, compute_typevar_widths};
 pub(crate) use slot_key::SlotKey;
+use slot_keys::{Atom, KeyMap, KeySet, SlotKeyData, SlotKeyId, SlotKeys};
 pub(crate) use width_table::WidthTable;
 
 use crate::ast::{Ast, ExprId, GenericStructDecls, Stmt};
@@ -131,28 +133,28 @@ pub(super) struct Analysis<'a> {
     /// counter carve-out reads it so `const step = 3; t += step`
     /// stays the small-step counter the literal form is (506-06);
     /// the magnitude rule applies to both spellings alike.
-    pub(super) const_ints: HashMap<SlotKey, f64>,
+    pub(super) const_ints: KeyMap<f64>,
     /// Every slot key per name, for a synthetic body's unresolved names (`captures.rs`).
-    pub(super) by_name: HashMap<String, Vec<SlotKey>>,
+    pub(super) by_name: ByName,
     pub(super) captures: captures::CaptureMap,
-    pub(super) seeds: Vec<SlotKey>,
-    pub(super) edges: HashMap<SlotKey, Vec<Dep>>,
+    pub(super) seeds: Vec<SlotKeyId>,
+    pub(super) edges: KeyMap<Vec<Dep>>,
     /// W4 — container-channel constraints (element / field writes,
     /// callback wiring through transform methods). Kept out of the
     /// W1 seeds/edges so the scalar fixpoint pre-W4 consumers read
     /// stays bit-identical; merged in only for the canonical fixpoint
     /// the D2/D3 lowering wiring will consume.
-    pub(super) c_seeds: Vec<SlotKey>,
+    pub(super) c_seeds: Vec<SlotKeyId>,
     /// W-ESC — any-annotated slot keys collected during the walk
     /// (escape sinks; see escape.rs).
-    pub(super) any_seeds: Vec<SlotKey>,
+    pub(super) any_seeds: Vec<SlotKeyId>,
     /// W-ESC — escape sinks that are not number slots of the
     /// program's: the any faces found inside struct annotations (a
     /// field declared `any`) and the operands of casts to the any
     /// world. They demote the containers reaching them and never seed
     /// the F64 fixpoint (`escape.rs` `push_any_seed`, `walk_cast`).
-    pub(super) escape_only_seeds: Vec<SlotKey>,
-    pub(super) c_edges: HashMap<SlotKey, Vec<Dep>>,
+    pub(super) escape_only_seeds: Vec<SlotKeyId>,
+    pub(super) c_edges: KeyMap<Vec<Dep>>,
     /// W4 — container alias classes. Unconditional unions (element
     /// writes, literal/method plumbing, nominal class hookups) land
     /// here directly during the walk.
@@ -162,7 +164,7 @@ pub(super) struct Analysis<'a> {
     /// endpoint shows container evidence, so scalar copy chains
     /// (`let v = xs[0]; v = v / 2`) don't glue the copy's width back
     /// onto the source class.
-    pub(super) guarded_unions: Vec<(SlotKey, SlotKey)>,
+    pub(super) guarded_unions: Vec<(SlotKeyId, SlotKeyId)>,
     /// F2-fix — nested-container alias edges: (element point,
     /// candidate). `ys.push(xs)` makes xs alias ys's element class,
     /// and a map-family callback's param aliases the receiver's
@@ -172,10 +174,10 @@ pub(super) struct Analysis<'a> {
     /// either-endpoint rule would always fire and glue scalars into
     /// the element class — `xs.push(k)` + `xs.push(k*10)` closed a
     /// growth cycle through Param(k) and floated int arrays).
-    pub(super) nested_unions: Vec<(SlotKey, SlotKey)>,
+    pub(super) nested_unions: Vec<(SlotKeyId, SlotKeyId)>,
     /// W4 — slots with container evidence (write receivers, literal
     /// origins, class keys); the activation worklist grows it.
-    pub(super) containerish: HashSet<SlotKey>,
+    pub(super) containerish: KeySet,
     /// Class names post-desugar (`ast.class_parents` keys), sorted for
     /// deterministic union order.
     pub(super) classes: Vec<String>,
@@ -203,7 +205,7 @@ pub(super) struct Analysis<'a> {
     pub(super) container_poison: bool,
     /// The keys of the values the walk keyed while their type held
     /// `any`: sources of promises it does not follow (`promise_entry`).
-    pub(super) untracked_values: crate::ssa::id_hash::HashSet<SlotKey>,
+    pub(super) untracked_values: KeySet,
     /// The promise reads the walk noted: faces, and await keys (`promise_entry`).
     pub(super) promise_reads: promise_entry::PromiseReads,
     /// Does the program read a number out of a promise? Gates the two
@@ -242,16 +244,29 @@ pub(super) struct Analysis<'a> {
     pub(super) nonzero_negs: HashSet<ExprId>,
     /// Each callback-taking iteration with the array it walks and that
     /// array's key (`hof_receivers`).
-    pub(super) hof_receivers: Vec<(ExprId, ExprId, SlotKey)>,
+    pub(super) hof_receivers: Vec<(ExprId, ExprId, SlotKeyId)>,
     /// Each call that may leave a parameter unfilled: the callee's key,
     /// that position, whether later arguments are unknown (`variadic_short`).
-    pub(super) variadic_calls: Vec<(SlotKey, usize, bool)>,
+    pub(super) variadic_calls: Vec<(SlotKeyId, usize, bool)>,
     /// Each function value stored into a slot, with the parameters
     /// that slot's argument positions reach (`fn_value_flow`).
-    pub(super) fn_flows: Vec<(SlotKey, String, Vec<String>)>,
+    pub(super) fn_flows: Vec<(SlotKeyId, String, Vec<String>)>,
     /// The expressions that never run (`idle_bodies`), settled at the
     /// first `any` cast that asks.
     idle: std::cell::OnceCell<idle_bodies::IdleBodies>,
+    /// The compilation's slot keys; every id above indexes it.
+    pub(super) keys: SlotKeys,
+}
+
+/// Every slot key per name (`collect_slot_registry`).
+pub(super) type ByName = crate::ssa::id_hash::HashMap<Atom, Vec<SlotKeyId>>;
+
+impl Analysis<'_> {
+    /// The slot keys the registry filed under the name `n`.
+    pub(super) fn named(&self, n: &str) -> Option<&Vec<SlotKeyId>> {
+        let a = self.keys.find_atom(torajs_wtf8::Wtf8::new(n))?;
+        self.by_name.get(&a)
+    }
 }
 
 /// Full analysis result — the F64 slot classes plus the container
@@ -265,12 +280,13 @@ pub(crate) fn analyze(
     expr_types: &HashMap<ExprId, crate::check::Type>,
     union_types: &HashMap<ExprId, crate::check::Type>,
 ) -> WidthTable {
+    let keys = SlotKeys::default();
     let (fn_params, toplevel_lets, by_name, const_ints) =
-        analyze_tables::collect_slot_registry(ast);
+        analyze_tables::collect_slot_registry(ast, &keys);
     let bodies = captures::bodies(ast);
-    let captures = captures::collect_captures(ast, &bodies, &toplevel_lets);
+    let captures = captures::collect_captures(ast, &bodies, &toplevel_lets, &keys);
     let (bound_closures, shadowing_reads) =
-        bound_closures::collect(ast, &bodies, &toplevel_lets, &captures);
+        bound_closures::collect(ast, &bodies, &toplevel_lets, &captures, &keys);
     let nonzero_negs = nonzero_neg::collect(ast, &bodies, &toplevel_lets, expr_types);
 
     let mut classes: Vec<String> = ast.class_parents.keys().cloned().collect();
@@ -292,15 +308,15 @@ pub(crate) fn analyze(
         by_name,
         captures,
         seeds: Vec::new(),
-        edges: HashMap::new(),
+        edges: KeyMap::default(),
         c_seeds: Vec::new(),
-        c_edges: HashMap::new(),
+        c_edges: KeyMap::default(),
         any_seeds: Vec::new(),
         escape_only_seeds: Vec::new(),
         uf: container::UnionFind::default(),
         guarded_unions: Vec::new(),
         nested_unions: Vec::new(),
-        containerish: HashSet::new(),
+        containerish: KeySet::default(),
         classes,
         nominal_aliases,
         generic_decls,
@@ -321,6 +337,7 @@ pub(crate) fn analyze(
         variadic_calls: Vec::new(),
         fn_flows: Vec::new(),
         idle: std::cell::OnceCell::new(),
+        keys,
     };
 
     // Top-level statements walk under the "" scope; fn bodies under
@@ -362,7 +379,7 @@ pub(crate) fn analyze(
     analyze_tables::seed_any_and_poison(&mut a);
     variadic_short::seed(&mut a, &mut tables.params);
     let canon_out = fixpoint(std::mem::take(&mut a.seeds), &a.edges);
-    dump_f64_classes(&canon_out);
+    dump_f64_classes(&a.keys, &canon_out);
 
     // W-ESC — escape faces on frozen class reps, Elem chains included
     let escapes = hof_receivers::settle(&a, &mut tables.params);
@@ -371,7 +388,7 @@ pub(crate) fn analyze(
     let mut table = WidthTable::new(
         canon_out,
         escapes,
-        a.uf,
+        (a.keys, a.uf),
         a.container_poison,
         a.nominal_aliases,
         fallthrough_fns,

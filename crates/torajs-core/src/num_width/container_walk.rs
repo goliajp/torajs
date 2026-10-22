@@ -4,8 +4,7 @@
 //! activation / congruence machinery these feed lives in
 //! `container.rs`.
 
-use super::{Analysis, Scope, SlotKey, W};
-use crate::ast::PropKey;
+use super::{Analysis, Scope, SlotKeyId, W};
 use crate::ast::{BinOp, Expr, ExprId};
 
 impl<'a> Analysis<'a> {
@@ -15,18 +14,15 @@ impl<'a> Analysis<'a> {
     /// bit-identical until D2/D3 wire the consuming lowering sites.
     pub(super) fn add_container_constraint(
         &mut self,
-        target: SlotKey,
+        target: SlotKeyId,
         (w, m): super::magnitude::Flow,
     ) {
-        self.record_write(target.clone(), &w, m);
+        self.record_write(target, &w, m);
         match w {
             W::F64 => self.c_seeds.push(target),
             W::Num(deps) => {
                 for (d, growth) in deps {
-                    self.c_edges
-                        .entry(d)
-                        .or_default()
-                        .push((target.clone(), growth));
+                    self.c_edges.entry(d).or_default().push((target, growth));
                 }
             }
             W::NotNum => {}
@@ -35,20 +31,18 @@ impl<'a> Analysis<'a> {
 
     /// Mark a key (and the receivers it nests in) as container
     /// evidence for the guarded-union activation.
-    pub(super) fn mark_containerish(&mut self, k: &SlotKey) {
-        if self.containerish.insert(k.clone()) {
-            match k {
-                SlotKey::Elem(x) | SlotKey::Field(x, _) => {
-                    let inner = (**x).clone();
-                    self.mark_containerish(&inner);
-                }
-                _ => {}
+    pub(super) fn mark_containerish(&mut self, k: SlotKeyId) {
+        let mut k = k;
+        while self.containerish.insert(k) {
+            match self.keys.inner(k) {
+                Some(x) => k = x,
+                None => break,
             }
         }
     }
 
     /// Guarded alias edge from a value-copy site.
-    pub(super) fn alias_guarded(&mut self, dst: SlotKey, src_eid: ExprId, scope: &Scope) {
+    pub(super) fn alias_guarded(&mut self, dst: SlotKeyId, src_eid: ExprId, scope: &Scope) {
         if let Some(k) = self.container_key_of(src_eid, scope) {
             self.guarded_unions.push((dst, k));
         }
@@ -60,14 +54,14 @@ impl<'a> Analysis<'a> {
     /// revisits re-push identical constraints, which the set-based
     /// fixpoint absorbs. A value whose type holds `any` is noted as a
     /// source of promises the walk does not follow (`promise_entry`).
-    pub(super) fn container_key_of(&mut self, eid: ExprId, scope: &Scope) -> Option<SlotKey> {
+    pub(super) fn container_key_of(&mut self, eid: ExprId, scope: &Scope) -> Option<SlotKeyId> {
         let k = self.container_key_shape(eid, scope)?;
-        self.note_untracked_value(eid, &k, scope);
+        self.note_untracked_value(eid, k, scope);
         Some(k)
     }
 
     /// [`Self::container_key_of`] before the value is noted as a source.
-    fn container_key_shape(&mut self, eid: ExprId, scope: &Scope) -> Option<SlotKey> {
+    fn container_key_shape(&mut self, eid: ExprId, scope: &Scope) -> Option<SlotKeyId> {
         let e = self.ast.get_expr(eid).clone();
         match &e {
             Expr::Ident(n) => {
@@ -79,11 +73,11 @@ impl<'a> Analysis<'a> {
                 // a shared key (conservative merge, width-only cost,
                 // mirrors the scalar by_name broadcast).
                 if scope.fn_name.starts_with("__")
-                    && let Some(keys) = self.by_name.get(n).cloned()
+                    && let Some(keys) = self.named(n).cloned()
                 {
-                    let ck = SlotKey::Captured(n.clone());
-                    for k in &keys {
-                        self.uf.union(&ck, k);
+                    let ck = self.keys.captured(n);
+                    for k in keys {
+                        self.uf.union(&self.keys, ck, k);
                     }
                     return Some(ck);
                 }
@@ -98,20 +92,20 @@ impl<'a> Analysis<'a> {
                 // (`arr-promise-elem-width-001`, un-moved until now).
                 if let Some(origin) = self.ast.yield_into_await_origins.get(&eid).copied() {
                     let base = self.container_key_of(origin, scope)?;
-                    return Some(SlotKey::Field(Box::new(base), "value".into()));
+                    return Some(self.keys.field(base, "value"));
                 }
                 let base = self.container_key_of(*obj, scope)?;
-                Some(SlotKey::Field(Box::new(base), PropKey::from(name)))
+                Some(self.keys.field(base, name))
             }
             Expr::OptIndex { obj, .. } | Expr::Index { obj, .. } => {
                 let base = self.container_key_of(*obj, scope)?;
-                Some(SlotKey::Elem(Box::new(base)))
+                Some(self.keys.elem(base))
             }
             Expr::Call { callee, args } => {
                 if let Some(f) = self.direct_callee(eid, *callee)
                     && self.fn_params.contains_key(&f)
                 {
-                    return Some(SlotKey::Ret(f));
+                    return Some(self.keys.ret(&f));
                 }
                 // Not a lifted fn's own name — an fn-valued binding
                 // (`const a = (n) => …; a(1)`, or a parameter that
@@ -135,12 +129,12 @@ impl<'a> Analysis<'a> {
                 // a reassignment died on the slot-fit mismatch while
                 // the init form bit-punned f64 slots as integers.
                 self.container_key_of(*callee, scope)
-                    .map(|k| SlotKey::Field(Box::new(k), "__ret".into()))
+                    .map(|k| self.keys.field(k, "__ret"))
             }
             Expr::Array(els) => {
-                let anon = SlotKey::Anon(eid.0);
-                self.mark_containerish(&anon);
-                let ek = SlotKey::Elem(Box::new(anon.clone()));
+                let anon = self.keys.anon(eid.0);
+                self.mark_containerish(anon);
+                let ek = self.keys.elem(anon);
                 for el in els.clone() {
                     if let Expr::Spread { expr } = self.ast.get_expr(el) {
                         let inner = *expr;
@@ -151,45 +145,47 @@ impl<'a> Analysis<'a> {
                                 // references alias, so the elem
                                 // classes merge (conservative for the
                                 // scalar case: width-only cost).
-                                self.uf.union(&ek, &SlotKey::Elem(Box::new(sk)));
+                                let se = self.keys.elem(sk);
+                                self.uf.union(&self.keys, ek, se);
                             }
-                            None => self.c_seeds.push(ek.clone()),
+                            None => self.c_seeds.push(ek),
                         }
                         continue;
                     }
                     let w = self.flow(el, scope);
-                    self.add_container_constraint(ek.clone(), w);
+                    self.add_container_constraint(ek, w);
                     // A function value as a literal element: same
                     // projection wiring as a `push` (638-13).
-                    self.fn_value_flow(&ek, el, scope);
+                    self.fn_value_flow(ek, el, scope);
                     if let Some(ik) = self.container_key_of(el, scope) {
                         // F2-fix — a container stored as an element is
                         // aliased by the slot; a scalar element keeps
                         // the one-way width edge above (gluing it in
                         // closed growth cycles through literal elems —
                         // `[n, n*10]` floated the cb param).
-                        self.nested_unions.push((ek.clone(), ik));
+                        self.nested_unions.push((ek, ik));
                     }
                 }
                 Some(anon)
             }
             Expr::ObjectLit { fields } => {
-                let anon = SlotKey::Anon(eid.0);
-                self.mark_containerish(&anon);
+                let anon = self.keys.anon(eid.0);
+                self.mark_containerish(anon);
                 for (fname, fe) in fields.clone() {
-                    let fk = SlotKey::Field(Box::new(anon.clone()), fname.clone());
-                    self.add_container_constraint(fk.clone(), self.flow(fe, scope));
+                    let fk = self.keys.field(anon, &fname);
+                    let w = self.flow(fe, scope);
+                    self.add_container_constraint(fk, w);
                     // F5 — a function value stored in a struct-literal
                     // field wires the field's `__ret` / `__p{i}`
                     // projections onto the function's Ret / Param keys,
                     // so the struct-field-fn dispatch face answers
                     // width queries from the resident's own class.
-                    self.fn_value_flow(&fk, fe, scope);
-                    self.objlit_promise_getter(&anon, &fname, &fk, fe);
+                    self.fn_value_flow(fk, fe, scope);
+                    self.objlit_promise_getter(anon, &fname, fk, fe);
                     if let Some(ik) = self.container_key_of(fe, scope) {
                         // F2-fix — same candidate-side gate as the
                         // ArrayLit elems above.
-                        self.nested_unions.push((fk.clone(), ik));
+                        self.nested_unions.push((fk, ik));
                     }
                 }
                 Some(anon)
@@ -207,10 +203,10 @@ impl<'a> Analysis<'a> {
                 left: lhs,
                 right: rhs,
             } => {
-                let anon = SlotKey::Anon(eid.0);
+                let anon = self.keys.anon(eid.0);
                 for arm in [*lhs, *rhs] {
                     if let Some(k) = self.container_key_of(arm, scope) {
-                        self.guarded_unions.push((anon.clone(), k));
+                        self.guarded_unions.push((anon, k));
                     }
                 }
                 Some(anon)
@@ -254,9 +250,10 @@ impl<'a> Analysis<'a> {
             return;
         }
         if let Some(rk) = self.container_key_of(obj, scope) {
-            self.mark_containerish(&rk);
+            self.mark_containerish(rk);
             if number_elems && !in_bounds {
-                self.c_seeds.push(SlotKey::Elem(Box::new(rk)));
+                let ek = self.keys.elem(rk);
+                self.c_seeds.push(ek);
             }
         }
     }

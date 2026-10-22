@@ -7,7 +7,7 @@
 //! through a settle rather than about elements, and they were the
 //! largest block that says so.
 
-use super::{Analysis, Scope, SlotKey};
+use super::{Analysis, Scope, SlotKeyId};
 use crate::ast::{Ast, Expr, ExprId, PropKey};
 use crate::check::Type;
 use std::collections::HashMap;
@@ -96,14 +96,14 @@ impl Analysis<'_> {
         args: &[ExprId],
         scope: &Scope,
     ) {
-        let anon = SlotKey::Anon(eid.0);
-        self.mark_containerish(&anon);
-        let pv = SlotKey::Field(Box::new(anon.clone()), "value".into());
+        let anon = self.keys.anon(eid.0);
+        self.mark_containerish(anon);
+        let pv = self.keys.field(anon, "value");
         if matches!(name, "resolve" | "reject")
             && let Some(a0) = args.first()
         {
             let w = self.flow(*a0, scope);
-            self.add_container_constraint(pv.clone(), w);
+            self.add_container_constraint(pv, w);
             // a rejection's reason shares the slot (a number reason is
             // read at the point's width), but no reader of the value
             // reads it as the value's container: joining it there
@@ -128,10 +128,9 @@ impl Analysis<'_> {
                     self.expr_types.get(a0),
                     Some(crate::check::Type::Promise(_))
                 ) {
-                    self.uf
-                        .union(&pv, &SlotKey::Field(Box::new(ak), "value".into()));
+                    self.uf.union(&self.keys, pv, self.keys.field(ak, "value"));
                 } else {
-                    self.uf.union(&pv, &ak);
+                    self.uf.union(&self.keys, pv, ak);
                 }
             }
         }
@@ -139,20 +138,20 @@ impl Analysis<'_> {
             && let Some(a0) = args.first()
             && let Some(ak) = self.container_key_of(*a0, scope)
         {
-            let src_elem_pv = SlotKey::Field(Box::new(SlotKey::Elem(Box::new(ak))), "value".into());
-            self.combinator_wiring(name, &pv, &src_elem_pv);
+            let src_elem_pv = self.keys.field(self.keys.elem(ak), "value");
+            self.combinator_wiring(name, pv, src_elem_pv);
         }
     }
 
     /// A combinator call's result value point `pv` against the source
     /// elements' value point.
-    fn combinator_wiring(&mut self, name: &str, pv: &SlotKey, src_elem_pv: &SlotKey) {
+    fn combinator_wiring(&mut self, name: &str, pv: SlotKeyId, src_elem_pv: SlotKeyId) {
         if name == "allSettled" {
             self.mark_containerish(pv);
-            let rec = SlotKey::Elem(Box::new(pv.clone()));
-            self.mark_containerish(&rec);
+            let rec = self.keys.elem(pv);
+            self.mark_containerish(rec);
             self.uf
-                .union(&SlotKey::Field(Box::new(rec), "value".into()), src_elem_pv);
+                .union(&self.keys, self.keys.field(rec, "value"), src_elem_pv);
         } else if name == "all" {
             // The result's value is a fresh array the runtime fills
             // from each source promise's raw value slot — container
@@ -160,10 +159,9 @@ impl Analysis<'_> {
             // `let r = await Promise.all(...)` guarded copy edge
             // activates.
             self.mark_containerish(pv);
-            self.uf
-                .union(&SlotKey::Elem(Box::new(pv.clone())), src_elem_pv);
+            self.uf.union(&self.keys, self.keys.elem(pv), src_elem_pv);
         } else {
-            self.uf.union(pv, src_elem_pv);
+            self.uf.union(&self.keys, pv, src_elem_pv);
         }
     }
 
@@ -184,16 +182,16 @@ impl Analysis<'_> {
     pub(super) fn promise_chain_wiring(
         &mut self,
         eid: ExprId,
-        recv: &SlotKey,
+        recv: SlotKeyId,
         name: &str,
         args: &[ExprId],
         scope: &Scope,
     ) {
-        let anon = SlotKey::Anon(eid.0);
-        self.mark_containerish(&anon);
-        let src_pv = SlotKey::Field(Box::new(recv.clone()), "value".into());
-        let res_pv = SlotKey::Field(Box::new(anon), "value".into());
-        self.uf.union(&res_pv, &src_pv);
+        let anon = self.keys.anon(eid.0);
+        self.mark_containerish(anon);
+        let src_pv = self.keys.field(recv, "value");
+        let res_pv = self.keys.field(anon, "value");
+        self.uf.union(&self.keys, res_pv, src_pv);
         if name != "finally" {
             // `.then(onOk, onErr)` — both handlers read the same
             // source slot and resolve the same result.
@@ -201,18 +199,17 @@ impl Analysis<'_> {
                 if let Some(cb) = self.callee_fn_name(*a) {
                     let (p_num, r_num) = self.fn_number_faces(&cb);
                     if p_num && let Some(p0) = self.callback_params(&cb).first() {
-                        self.uf
-                            .union(&src_pv, &SlotKey::Param(cb.clone(), p0.clone()));
+                        self.uf.union(&self.keys, src_pv, self.keys.param(&cb, p0));
                         if let Some(Type::Function(ps, _)) = self.expr_types.get(a)
                             && ps.first() == Some(&Type::Number)
                         {
                             self.promise_reads
                                 .faces
-                                .insert(SlotKey::Field(Box::new(recv.clone()), "value".into()));
+                                .insert(self.keys.field(recv, "value"));
                         }
                     }
                     if r_num {
-                        self.uf.union(&res_pv, &SlotKey::Ret(cb));
+                        self.uf.union(&self.keys, res_pv, self.keys.ret(&cb));
                     }
                 } else if let Some(pk) = self.callback_projection(*a, "__p0", scope) {
                     // a handler read out of a slot: only the any lane
@@ -223,9 +220,9 @@ impl Analysis<'_> {
                     // Edges rather than a union: the slot's projection
                     // class may hold handlers whose faces are not
                     // numbers, which must not join the value class.
-                    self.both_ways(&src_pv, &pk);
+                    self.both_ways(src_pv, pk);
                     if let Some(rk) = self.callback_projection(*a, "__ret", scope) {
-                        self.both_ways(&res_pv, &rk);
+                        self.both_ways(res_pv, rk);
                     }
                 }
             }
@@ -241,8 +238,8 @@ impl Analysis<'_> {
         }
         let ast = self.ast;
         for ((class, prop), _) in ast.accessor_getters.iter().filter(|(_, f)| *f == fname) {
-            let ret = SlotKey::Ret(fname.to_string());
-            self.promise_getter_union(&SlotKey::Class(class.clone()), prop.clone(), ret);
+            let ret = self.keys.ret(fname);
+            self.promise_getter_union(self.keys.class(class), prop.clone(), ret);
         }
     }
 
@@ -251,16 +248,16 @@ impl Analysis<'_> {
     /// returning a promise: see [`Self::promise_getter_union`].
     pub(super) fn objlit_promise_getter(
         &mut self,
-        lit: &SlotKey,
+        lit: SlotKeyId,
         fname: &PropKey,
-        fk: &SlotKey,
+        fk: SlotKeyId,
         fe: ExprId,
     ) {
         if let Some(prop) = fname.lossy().strip_prefix("__getter_")
             && let Some(Type::Function(_, r)) = self.expr_types.get(&fe)
             && matches!(**r, Type::Promise(_))
         {
-            let ret = SlotKey::Field(Box::new(fk.clone()), "__ret".into());
+            let ret = self.keys.field(fk, "__ret");
             self.promise_getter_union(lit, prop.into(), ret);
         }
     }
@@ -269,24 +266,23 @@ impl Analysis<'_> {
     /// returns settles the value point those reads await: `ret` (the
     /// getter's result) joins the property `prop` of `holder` (its
     /// class, or the object literal that holds it).
-    pub(super) fn promise_getter_union(&mut self, holder: &SlotKey, prop: PropKey, ret: SlotKey) {
-        let fk = SlotKey::Field(Box::new(holder.clone()), prop);
+    pub(super) fn promise_getter_union(
+        &mut self,
+        holder: SlotKeyId,
+        prop: PropKey,
+        ret: SlotKeyId,
+    ) {
+        let fk = self.keys.field(holder, &prop);
         self.mark_containerish(holder);
-        self.mark_containerish(&fk);
-        self.mark_containerish(&ret);
-        self.uf.union(&fk, &ret);
+        self.mark_containerish(fk);
+        self.mark_containerish(ret);
+        self.uf.union(&self.keys, fk, ret);
     }
 
     /// Width edges `a → b` and `b → a`, neither marked growth: a value
     /// handed across unchanged cannot close a growth cycle.
-    fn both_ways(&mut self, a: &SlotKey, b: &SlotKey) {
-        self.c_edges
-            .entry(a.clone())
-            .or_default()
-            .push((b.clone(), false));
-        self.c_edges
-            .entry(b.clone())
-            .or_default()
-            .push((a.clone(), false));
+    fn both_ways(&mut self, a: SlotKeyId, b: SlotKeyId) {
+        self.c_edges.entry(a).or_default().push((b, false));
+        self.c_edges.entry(b).or_default().push((a, false));
     }
 }

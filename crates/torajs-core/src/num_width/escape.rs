@@ -22,7 +22,7 @@
 use std::collections::HashMap;
 
 use super::alias::named_ref;
-use super::{Analysis, Scope, SlotKey};
+use super::{Analysis, Scope, SlotKeyId};
 use crate::ast::{Ast, Expr, ExprId, PropKey, Stmt};
 
 /// Non-generic `type` / `interface` / class bodies by name — the
@@ -64,7 +64,7 @@ impl<'a> Analysis<'a> {
     /// any-widened clone's `any[]` parameter, a rest parameter): its
     /// arrays are the program's typed ones re-viewed, not handed to a
     /// slot the program declared writable with any value.
-    pub(super) fn seed_any_face(&mut self, key: &SlotKey, ann: &str, holders: bool) {
+    pub(super) fn seed_any_face(&mut self, key: SlotKeyId, ann: &str, holders: bool) {
         self.seed_any_face_on_path(key, ann, &mut Vec::new(), false, holders);
     }
 
@@ -74,7 +74,7 @@ impl<'a> Analysis<'a> {
     /// field, but it is not a number slot of the program's and must
     /// not seed the F64 fixpoint (a generator's `value: any` step
     /// field would otherwise widen every yielded integer).
-    fn push_any_seed(&mut self, k: SlotKey, field: bool) {
+    fn push_any_seed(&mut self, k: SlotKeyId, field: bool) {
         if field {
             self.escape_only_seeds.push(k);
         } else {
@@ -84,18 +84,18 @@ impl<'a> Analysis<'a> {
 
     fn seed_any_face_on_path(
         &mut self,
-        key: &SlotKey,
+        key: SlotKeyId,
         ann: &str,
         path: &mut Vec<String>,
         field: bool,
         holders: bool,
     ) {
         if holds_undefined_number(ann) {
-            self.seeds.push(key.clone());
+            self.seeds.push(key);
             return;
         }
         if map_value_escapes(ann) {
-            self.push_any_seed(key.clone(), field);
+            self.push_any_seed(key, field);
             return;
         }
         if let Some(fields) = crate::ast_collect_fn_closure_init::parse_inlobj_field_anns(ann) {
@@ -120,9 +120,9 @@ impl<'a> Analysis<'a> {
         // to it takes the other kinds through it, as through `any[]`.
         if let Some(depth) = union_elem_depth(ann) {
             if holders {
-                let mut h = key.clone();
+                let mut h = key;
                 for _ in 1..depth {
-                    h = SlotKey::Elem(Box::new(h));
+                    h = self.keys.elem(h);
                 }
                 self.escape_only_seeds.push(h);
             }
@@ -131,11 +131,11 @@ impl<'a> Analysis<'a> {
         let Some((base, depth)) = named_ref(ann) else {
             return;
         };
-        let mut k = key.clone();
+        let mut k = key;
         let mut holder = None;
         for _ in 0..depth {
-            holder = Some(k.clone());
-            k = SlotKey::Elem(Box::new(k));
+            holder = Some(k);
+            k = self.keys.elem(k);
         }
         if is_any_face(base) {
             self.push_any_seed(k, field);
@@ -171,23 +171,23 @@ impl<'a> Analysis<'a> {
         path.push(base.to_string());
         match fields.as_slice() {
             [(f, target)] if f.lossy() == "__alias__" => {
-                self.seed_any_face_on_path(&k, target, path, field, holders)
+                self.seed_any_face_on_path(k, target, path, field, holders)
             }
-            _ => self.seed_field_faces(&k, &fields, path, holders),
+            _ => self.seed_field_faces(k, &fields, path, holders),
         }
         path.pop();
     }
 
     fn seed_field_faces(
         &mut self,
-        key: &SlotKey,
+        key: SlotKeyId,
         fields: &[(PropKey, String)],
         path: &mut Vec<String>,
         holders: bool,
     ) {
         for (f, fann) in fields {
-            let fk = SlotKey::Field(Box::new(key.clone()), f.clone());
-            self.seed_any_face_on_path(&fk, fann, path, true, holders);
+            let fk = self.keys.field(key, f);
+            self.seed_any_face_on_path(fk, fann, path, true, holders);
         }
     }
 
@@ -206,7 +206,7 @@ impl<'a> Analysis<'a> {
             }
             if let Some(fields) = self.struct_decls.get(&n).cloned() {
                 let mut path = vec![n.clone()];
-                self.seed_field_faces(&SlotKey::Class(n), &fields, &mut path, true);
+                self.seed_field_faces(self.keys.class(&n), &fields, &mut path, true);
             }
         }
     }
@@ -262,7 +262,7 @@ impl<'a> Analysis<'a> {
             if any_target {
                 self.escape_only_seeds.push(k);
             } else {
-                self.seed_any_face_on_path(&k, ann, &mut Vec::new(), true, true);
+                self.seed_any_face_on_path(k, ann, &mut Vec::new(), true, true);
             }
         }
         self.walk_expr(inner, scope);

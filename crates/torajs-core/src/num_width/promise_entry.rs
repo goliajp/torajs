@@ -37,7 +37,7 @@
 //! faces it holds true for, and lowering's `await` asks it for the
 //! keys it reads through.
 
-use super::{Analysis, SlotKey};
+use super::{Analysis, SlotKeyId, SlotKeys};
 use crate::ast::{Ast, Expr, ExprId};
 use crate::check::Type;
 use std::collections::HashMap;
@@ -47,9 +47,9 @@ use std::collections::HashMap;
 /// through, by the operand: lowering must read the same value point.
 #[derive(Default)]
 pub(crate) struct PromiseReads {
-    pub(super) faces: crate::ssa::id_hash::HashSet<SlotKey>,
+    pub(super) faces: crate::ssa::id_hash::HashSet<SlotKeyId>,
     #[cfg(torajs_checks)]
-    pub(super) awaits: crate::ssa::id_hash::HashMap<ExprId, SlotKey>,
+    pub(super) awaits: crate::ssa::id_hash::HashMap<ExprId, SlotKeyId>,
 }
 
 /// Does a value of type `t` come from, or hold, a value whose type the
@@ -70,25 +70,15 @@ fn untracked(t: &Type) -> bool {
 /// The number faces a value of type `t` held at `k` has under a
 /// promise's value point (`under`: `k` is already under one), pushed
 /// onto `out`.
-fn number_faces(t: &Type, k: &SlotKey, under: bool, out: &mut Vec<SlotKey>) {
+fn number_faces(keys: &SlotKeys, t: &Type, k: SlotKeyId, under: bool, out: &mut Vec<SlotKeyId>) {
     match t {
-        Type::Number if under => out.push(k.clone()),
-        Type::Promise(e) => number_faces(
-            e,
-            &SlotKey::Field(Box::new(k.clone()), "value".into()),
-            true,
-            out,
-        ),
-        Type::Array(e) => number_faces(e, &SlotKey::Elem(Box::new(k.clone())), under, out),
-        Type::Nullable(e) => number_faces(e, k, under, out),
+        Type::Number if under => out.push(k),
+        Type::Promise(e) => number_faces(keys, e, keys.field(k, "value"), true, out),
+        Type::Array(e) => number_faces(keys, e, keys.elem(k), under, out),
+        Type::Nullable(e) => number_faces(keys, e, k, under, out),
         Type::Struct(fs) => {
             for (n, ft) in fs.iter() {
-                number_faces(
-                    ft,
-                    &SlotKey::Field(Box::new(k.clone()), n.clone()),
-                    under,
-                    out,
-                );
+                number_faces(keys, ft, keys.field(k, n), under, out);
             }
         }
         _ => {}
@@ -132,14 +122,14 @@ impl Analysis<'_> {
     /// and its number faces under a promise. `Promise.reject(r)` is no
     /// source: its `Promise<any>` stands for `never`, as it never
     /// fulfills (§27.2.4.6).
-    pub(super) fn note_untracked_value(&mut self, eid: ExprId, k: &SlotKey, scope: &super::Scope) {
+    pub(super) fn note_untracked_value(&mut self, eid: ExprId, k: SlotKeyId, scope: &super::Scope) {
         if !self.promises {
             return;
         }
         let unions = |e| self.union_types.get(e).is_some_and(untracked);
         let ty = self.expr_types.get(&eid);
         if (ty.is_some_and(untracked) || unions(&eid)) && !self.is_promise_reject(eid, scope) {
-            self.untracked_values.insert(k.clone());
+            self.untracked_values.insert(k);
         }
         if let Some(t) = ty {
             self.note_number_faces(t, k);
@@ -156,12 +146,12 @@ impl Analysis<'_> {
 
     /// Note the number faces a value of type `t` held at `k` has under
     /// a promise's value point.
-    pub(super) fn note_number_faces(&mut self, t: &Type, k: &SlotKey) {
+    pub(super) fn note_number_faces(&mut self, t: &Type, k: SlotKeyId) {
         if !has_number_face(t, false) {
             return;
         }
         let mut out = Vec::new();
-        number_faces(t, k, false, &mut out);
+        number_faces(&self.keys, t, k, false, &mut out);
         self.promise_reads.faces.extend(out);
     }
 
@@ -191,7 +181,7 @@ impl Analysis<'_> {
             && has_number_face(t, false)
             && let Some(k) = self.container_key_lookup(obj, scope)
         {
-            self.note_number_faces(t, &k);
+            self.note_number_faces(t, k);
             #[cfg(torajs_checks)]
             self.promise_reads.awaits.insert(obj, k);
         }

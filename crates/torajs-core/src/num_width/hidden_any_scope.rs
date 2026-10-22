@@ -9,7 +9,7 @@ use std::collections::HashMap;
 
 use super::captures::Body;
 use super::hidden_any::{Decl, Graph, Node, Origin, candidate};
-use super::{Analysis, Scope, SlotKey};
+use super::{Analysis, Scope};
 use crate::ast::desugar_async_sm_walk::visit_expr_children;
 use crate::ast::{Expr, ExprId, Stmt};
 
@@ -22,12 +22,7 @@ impl Graph<'_> {
             locals: b.locals.clone(),
         };
         let params = (b.params.iter())
-            .map(|p| {
-                (
-                    p.clone(),
-                    Node::Read(SlotKey::Param(b.name.clone(), p.clone())),
-                )
-            })
+            .map(|p| (p.clone(), Node::Read(a.keys.param(&b.name, p))))
             .collect();
         self.frames = vec![params];
         let stmts: Vec<&Stmt> = b.stmts().collect();
@@ -82,9 +77,9 @@ impl Graph<'_> {
     fn declare(&mut self, sc: &Scope, n: &str, held: (Option<ExprId>, Origin), at: usize) -> Node {
         let (init, origin) = held;
         let key = if sc.fn_name.is_empty() {
-            SlotKey::Global(n.to_string())
+            self.keys.global(n)
         } else {
-            SlotKey::Local(sc.fn_name.to_string(), n.to_string())
+            self.keys.local(sc.fn_name, n)
         };
         let node = Node::Decl(self.decls.len());
         self.decls.push(Decl { key, init, origin });
