@@ -19,8 +19,8 @@
 //!     (literals + BinOp + Ident + Call/Member method whitelist +
 //!     Ternary + Array + Member/length + Index + ObjectLit).
 //!
-//! Private helpers: `collect_let_binding_anns(_stmt)`,
-//! `collect_return_anns(_stmt)`, `is_typevar_ann`.
+//! Private helpers: `collect_return_anns(_stmt)`, `is_typevar_ann`;
+//! the binding map a return reads is built in the `let_binds` child.
 //!
 //! `body_has_value_return` — the control-flow question of whether an
 //! inferred return type is wanted at all — lives in the
@@ -28,6 +28,7 @@
 
 use super::{Expr, ExprId, Param, Stmt, UnaryOp, retag_field_fn_ann};
 
+mod let_binds;
 mod ternary;
 
 /// Borrow-shaped view of `Ast.exprs` for the inference helper. Defined
@@ -85,96 +86,13 @@ pub(crate) fn infer_return_ann_seeded(
             binds.insert(p.name.clone(), ann.clone());
         }
     }
-    collect_let_binding_anns(exprs, body, &mut binds, fn_sigs);
+    let_binds::collect_let_binding_anns(exprs, body, &mut binds, fn_sigs);
     super::implicit_generics_infer_rebind::drop_rebound(exprs, body, &mut binds, fn_sigs);
     let mut acc: Option<String> = None;
     if !collect_return_anns(exprs, body, &binds, fn_sigs, &mut acc) {
         return None;
     }
     acc
-}
-
-/// Walk `body` and for each `let x = INIT;` whose `INIT` we can
-/// statically annotate, register `x → ann` in `binds`. Inner
-/// FnDecls / nested classes etc. are skipped — we only care about
-/// the immediate fn's binding scope. Idempotent over re-runs since
-/// later let-decls in the same scope shadow earlier ones.
-fn collect_let_binding_anns(
-    exprs: AstExprsView,
-    body: &[Stmt],
-    binds: &mut std::collections::HashMap<String, String>,
-    fn_sigs: &std::collections::HashMap<String, String>,
-) {
-    for s in body {
-        collect_let_binding_anns_stmt(exprs, s, binds, fn_sigs);
-    }
-}
-
-fn collect_let_binding_anns_stmt(
-    exprs: AstExprsView,
-    s: &Stmt,
-    binds: &mut std::collections::HashMap<String, String>,
-    fn_sigs: &std::collections::HashMap<String, String>,
-) {
-    match s {
-        Stmt::LetDecl {
-            name,
-            type_ann,
-            init,
-            ..
-        } => {
-            // Explicit annotation wins.
-            if let Some(ann) = type_ann {
-                binds.insert(name.clone(), ann.clone());
-                return;
-            }
-            // Else infer from init shape — using the binds map we've
-            // built up to here, so `let x = 3; let y = x + 1;` chains
-            // correctly.
-            let bs: Vec<Param> = binds_to_params(binds);
-            if let Some(ann) = infer_expr_ann_with(exprs, *init, &bs, binds, fn_sigs) {
-                binds.insert(name.clone(), ann);
-            }
-        }
-        Stmt::If {
-            then_branch,
-            else_branch,
-            ..
-        } => {
-            collect_let_binding_anns_stmt(exprs, then_branch, binds, fn_sigs);
-            if let Some(eb) = else_branch {
-                collect_let_binding_anns_stmt(exprs, eb, binds, fn_sigs);
-            }
-        }
-        Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
-            collect_let_binding_anns_stmt(exprs, body, binds, fn_sigs);
-        }
-        Stmt::Labeled { body, .. } => {
-            collect_let_binding_anns_stmt(exprs, body, binds, fn_sigs);
-        }
-        Stmt::For { init, body, .. } => {
-            if let Some(i) = init {
-                collect_let_binding_anns_stmt(exprs, i, binds, fn_sigs);
-            }
-            collect_let_binding_anns_stmt(exprs, body, binds, fn_sigs);
-        }
-        Stmt::Block(stmts) | Stmt::Multi(stmts) => {
-            collect_let_binding_anns(exprs, stmts, binds, fn_sigs);
-        }
-        Stmt::Try {
-            body,
-            catch_body,
-            finally_body,
-            ..
-        } => {
-            collect_let_binding_anns(exprs, body, binds, fn_sigs);
-            collect_let_binding_anns(exprs, catch_body, binds, fn_sigs);
-            if let Some(fb) = finally_body {
-                collect_let_binding_anns(exprs, fb, binds, fn_sigs);
-            }
-        }
-        _ => {}
-    }
 }
 
 pub(crate) fn binds_to_params(binds: &std::collections::HashMap<String, String>) -> Vec<Param> {
