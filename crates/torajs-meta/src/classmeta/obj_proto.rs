@@ -49,6 +49,20 @@ pub unsafe extern "C" fn __torajs_obj_proto_borrowed(cell: *const c_void) -> u64
 /// `torajs_rc::FLAG_OBJ_USER_PROTO` mirror (flags bit 6, Tag::Obj).
 pub(crate) const FLAG_OBJ_USER_PROTO: u16 = 1 << 6;
 
+/// Raise `FLAG_OBJ_USER_PROTO` on a struct instance whose user link was
+/// just written. The flag's one writer: its text liveness is the link
+/// judgment's evidence that a struct can carry a user [[Prototype]]
+/// (`__torajs_struct_lacks_in_user_proto_slow`), so it is never inlined.
+///
+/// # Safety
+/// `cell` is a live `Tag::Obj` cell whose props dict holds the link.
+#[unsafe(no_mangle)]
+#[inline(never)]
+pub unsafe extern "C" fn __torajs_struct_user_proto_raise(cell: *mut c_void) {
+    let flags = unsafe { cell.cast::<u8>().add(6).cast::<u16>() };
+    unsafe { flags.write(flags.read() | FLAG_OBJ_USER_PROTO) };
+}
+
 /// Props dynobj slot of a `Tag::Obj` cell — mirror of torajs-core
 /// `ssa_lower.rs::OBJ_PROPS_OFF`.
 pub(crate) const OBJ_PROPS_OFF: usize = 24;

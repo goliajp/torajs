@@ -64,6 +64,23 @@ pub(crate) unsafe fn proto_chain_expando_owns(tag: i64, key: *const c_void) -> b
     false
 }
 
+/// [`proto_chain_expando_owns`] from %Object.prototype%, the chain's
+/// root, without minting it: a singleton nothing has minted holds only
+/// what its mint would install, the Annex B `__proto__` accessor, so
+/// the probe allocates nothing and the mint, with every install it
+/// pulls in, stays out of a program that never touches the root.
+///
+/// # Safety
+/// `key` is a live Str cell.
+pub(crate) unsafe fn object_root_expando_owns(key: *const c_void) -> bool {
+    let root = torajs_rc::builtin_proto::OBJECT_PROTO_TAG as i64;
+    let proto = unsafe { torajs_rc::builtin_proto::__torajs_peek_builtin_prototype(root) };
+    if proto.is_null() {
+        return unsafe { crate::prop_has::key_bytes(key) }.as_bytes() == b"__proto__";
+    }
+    unsafe { __torajs_dynobj_has(proto, key) != 0 }
+}
+
 /// ONE level's singleton expando own-key probe — the interned
 /// method tables only cover mid-named entries; anything else a user
 /// installed on `<Ctor>.prototype` lives in the singleton's expando

@@ -4,7 +4,7 @@
 /// entries whose text liveness un-assumes the stub, landing-pad fam
 /// id). The join seam's enabler is the exotic-flag writer; the
 /// species probe's enablers are the two props-bag creators.
-pub(super) const SYMBOL_STUBS: [(&str, &[&str], u32); 19] = [
+pub(super) const SYMBOL_STUBS: [(&str, &[&str], u32); 20] = [
     (
         "___torajs_arr_join_exotic",
         &["___torajs_arr_flag_exotic"],
@@ -147,6 +147,13 @@ pub(super) const SYMBOL_STUBS: [(&str, &[&str], u32); 19] = [
             "___torajs_then_twin_run",
         ],
         63,
+    ),
+    // `in` along a re-parented struct's user link: only the flag's one
+    // writer makes a struct cell carry one.
+    (
+        "___torajs_struct_lacks_in_user_proto_slow",
+        &["___torajs_struct_user_proto_raise"],
+        64,
     ),
 ];
 

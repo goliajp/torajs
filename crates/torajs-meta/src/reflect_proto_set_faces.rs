@@ -7,7 +7,7 @@
 
 use core::ffi::{c_char, c_void};
 
-use crate::classmeta::obj_proto::{FLAG_OBJ_USER_PROTO, OBJ_PROPS_OFF};
+use crate::classmeta::obj_proto::OBJ_PROPS_OFF;
 use crate::reflect::{
     PROTO_SLOT_KEY, TAG_CLOSURE, TAG_DYNOBJ, TAG_OBJ, VALUE_NULL_IMM, alloc_str_key, heap_type_tag,
     is_cell_imm,
@@ -110,8 +110,7 @@ unsafe fn struct_set_prototype_of(
             __torajs_obj_props_attach(cell.cast::<u8>(), __torajs_dynobj_alloc());
         }
         link_carrier(*slot, proto, cell_flags(cell))?;
-        let flags = cell.cast::<u8>().add(6).cast::<u16>();
-        flags.write(flags.read() | FLAG_OBJ_USER_PROTO);
+        crate::classmeta::obj_proto::__torajs_struct_user_proto_raise(cell);
     }
     Ok(())
 }

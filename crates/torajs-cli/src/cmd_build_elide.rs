@@ -445,7 +445,17 @@ mod tests {
     #[test]
     fn exotic_slow_path_stubs_are_symbol_guarded_loud_rejects() {
         let stubs = guarded_stubs();
-        assert_eq!(stubs.len(), 20);
+        assert_eq!(stubs.len(), 21);
+        let reparented = &stubs[20];
+        assert_eq!(reparented.sym, "___torajs_struct_lacks_in_user_proto_slow");
+        assert_eq!(
+            reparented.guard.to_string(),
+            "syms:___torajs_struct_user_proto_raise"
+        );
+        assert_eq!(
+            &reparented.bytes[..4],
+            &(0xD280_0000u32 | (64 << 5) | 7).to_le_bytes()
+        );
         let thenable = &stubs[19];
         assert_eq!(thenable.sym, "___torajs_promise_settle_thenable_slow");
         assert_eq!(
