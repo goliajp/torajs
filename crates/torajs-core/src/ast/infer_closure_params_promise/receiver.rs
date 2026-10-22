@@ -4,6 +4,7 @@
 
 use super::super::infer_closure_params::SoleBindings;
 use super::super::{Ast, Stmt};
+use crate::ast_desugar_builtin_new::promise_context::{promise_inner, settled};
 use std::collections::HashMap;
 
 /// What a receiver's inner type is read from.
@@ -21,38 +22,25 @@ impl PromiseTables<'_> {
     /// not the flat table, which keeps the last of several same-named
     /// declarations.
     pub(super) fn binding_inner(&self, name: &str) -> Option<String> {
-        let inner = promise_inner(self.bindings.sole(name)?.ann?)?;
-        (!self.bindings.names_type_param(&inner, &[])).then_some(inner)
+        promise_inner(self.bindings.sole(name)?.ann?).filter(|i| primitive(i))
     }
 
     /// A call of a function whose return type is written `Promise<T>`.
     pub(super) fn call_inner(&self, ast: &Ast, f: &str) -> Option<String> {
-        let inner = declared_return(ast, f).and_then(promise_inner)?;
-        (!self.bindings.names_type_param(&inner, &[])).then_some(inner)
+        declared_return(ast, f)
+            .and_then(promise_inner)
+            .filter(|i| primitive(i))
     }
 }
 
-/// `T` of an annotation spelled exactly `Promise<T>`; `None` for a
-/// union of promises, a subclass, or anything else whose settled value
-/// the spelling does not name.
-fn promise_inner(ann: &str) -> Option<String> {
-    let inner = ann.trim().strip_prefix("Promise<")?.strip_suffix('>')?;
-    // the `>` stripped must close the `Promise<` itself:
-    // `Promise<A> | Promise<B>` ends in `>` too
-    let mut depth = 0i32;
-    for c in inner.chars() {
-        match c {
-            '<' | '(' | '[' | '{' => depth += 1,
-            '>' | ')' | ']' | '}' => {
-                depth -= 1;
-                if depth < 0 {
-                    return None;
-                }
-            }
-            _ => {}
-        }
-    }
-    (depth == 0).then(|| inner.trim().to_string())
+/// Is `inner` a type a handler can be seeded with from a binding's or a
+/// return's annotation? Only a primitive: an object or array element
+/// type reaches the handler with the widths of whatever built the
+/// value, which the handler's own typed parameter does not follow —
+/// `v[0].right` on a `Promise<{ right: number }[]>` read the raw bits
+/// of 0.25.
+fn primitive(inner: &str) -> bool {
+    settled(inner).is_some()
 }
 
 /// The written return type of the program's one non-generic function

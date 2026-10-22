@@ -8,23 +8,48 @@
 //!   the cb's user params AND its return annotation (guarded by
 //!   `body_returns_value`, since a Void-body cb must not be
 //!   promoted to a value-returning signature).
-//! - `param_only_updates` — Promise `.then/.catch` arm; seeds only
+//! - `param_only` — Promise `.then/.catch` arm; seeds only
 //!   the cb's user params from the source promise inner. Ret ann
 //!   stays for the up-front sniff / `desugar_lifted_closure_fn`
 //!   fallback, so the cb's actual return face isn't clobbered by a
 //!   promise-inner guess that only fits the param position.
 
+use super::infer_closure_typevars::UserFnHintSinks;
 use super::{Ast, Param, Stmt, infer_return_ann};
+use std::collections::HashMap;
+
+/// What the call-site walk decides for each lifted closure, keyed by
+/// its name.
+#[derive(Default)]
+pub(super) struct Seeds {
+    /// param annotations and return annotation
+    pub updates: HashMap<String, (Vec<String>, String)>,
+    /// param annotations only (see the module doc)
+    pub param_only: HashMap<String, Vec<String>>,
+    /// srcArray-slot view promotion — (user-slot index, receiver elem
+    /// ann); a receiver-matching user annotation on that slot is
+    /// normalized to `any[]` (rationale in the apply walk below)
+    pub view_promotes: HashMap<String, (usize, String)>,
+}
+
+impl Seeds {
+    pub(super) fn hint_sinks(&mut self) -> UserFnHintSinks<'_> {
+        UserFnHintSinks {
+            updates: &mut self.updates,
+            param_only: &mut self.param_only,
+        }
+    }
+}
 
 /// Apply the deferred updates: mutate each lifted FnDecl's params +
 /// return type (deferred so the call-site walk doesn't mutate
 /// ast.stmts mid-walk).
-pub(super) fn apply_closure_ann_updates(
-    ast: &mut Ast,
-    updates: &std::collections::HashMap<String, (Vec<String>, String)>,
-    param_only_updates: &std::collections::HashMap<String, Vec<String>>,
-    view_promotes: &std::collections::HashMap<String, (usize, String)>,
-) {
+pub(super) fn apply_closure_ann_updates(ast: &mut Ast, seeds: &Seeds) {
+    let Seeds {
+        updates,
+        param_only: param_only_updates,
+        view_promotes,
+    } = seeds;
     if updates.is_empty() && param_only_updates.is_empty() && view_promotes.is_empty() {
         return;
     }

@@ -2,7 +2,9 @@
 //! file verbatim (rotation 283; the parent sat on the file-size
 //! known-debt list at 516 and a new pass had to land there).
 
-use crate::ast::{Ast, Expr};
+use super::promise_context::{EXECUTOR_HELPER, executor_contexts, helper_name, settled};
+use crate::ast::{Ast, Expr, ExprId};
+use std::collections::BTreeSet;
 
 /// `new Promise(executor)` — §27.2.3.1 (rotation 234). The runtime
 /// already owns the whole mechanism as `Promise.withResolvers()`
@@ -32,6 +34,11 @@ use crate::ast::{Ast, Expr};
 /// is `undefined` and takes that same throw, and trailing arguments are
 /// passed on so they are evaluated in order and then ignored, as a
 /// direct call with extra arguments already is.
+///
+/// Where the context names a primitive `T` (`promise_context.rs`), the
+/// call goes to a twin `__promise_from_executor__<T>` that returns
+/// `Promise<T>`; each helper is made once, and only when some call
+/// names it.
 pub(super) fn rewrite_promise_new(ast: &mut Ast) {
     // P4.6 stdlib-override — a user `class Promise` (or any user
     // binding of the name) owns every `new Promise(...)` in the
@@ -47,12 +54,14 @@ pub(super) fn rewrite_promise_new(ast: &mut Ast) {
         return;
     }
     let n_exprs = ast.exprs.len();
-    let mut synthesized = false;
+    let mut callees = Vec::new();
     for i in 0..n_exprs {
-        let executor = match &ast.exprs[i] {
+        let (executor, type_args) = match &ast.exprs[i] {
             Expr::New {
-                class_name, args, ..
-            } if class_name == "Promise" => args.clone(),
+                class_name,
+                args,
+                type_args,
+            } if class_name == "Promise" => (args.clone(), type_args.clone()),
             _ => continue,
         };
         let executor = if executor.is_empty() {
@@ -60,19 +69,68 @@ pub(super) fn rewrite_promise_new(ast: &mut Ast) {
         } else {
             executor
         };
-        if !synthesized {
-            synthesize_promise_executor_helper(ast);
-            synthesized = true;
-        }
-        let callee = ast.add_expr(Expr::Ident("__promise_from_executor".into()));
+        let callee = ast.add_expr(Expr::Ident(EXECUTOR_HELPER.into()));
+        callees.push((ExprId(i as u32), callee));
         ast.exprs[i] = Expr::Call {
             callee,
             args: executor,
         };
+        // `new Promise<T>(…)` states what the executor's `resolve`
+        // takes; the helper is not generic, so only that reads it
+        if !type_args.is_empty() {
+            ast.call_type_args.insert(ExprId(i as u32), type_args);
+        }
+    }
+    // a promise whose `T` the context names is made by a helper that
+    // returns `Promise<T>`, so the expression is typed where it sits
+    let contexts = executor_contexts(ast, |t| settled(t).is_some());
+    let mut helpers = BTreeSet::new();
+    for (call, callee) in callees {
+        let t = contexts.get(&call).and_then(|t| settled(t));
+        ast.exprs[callee.0 as usize] = Expr::Ident(helper_name(t));
+        helpers.insert(t);
+    }
+    // one helper is written out whole; several share the `any` one,
+    // each typed twin a call of it
+    match helpers.iter().copied().collect::<Vec<_>>().as_slice() {
+        [] => {}
+        [only] => synthesize_promise_executor_helper(ast, *only),
+        _ => {
+            synthesize_promise_executor_helper(ast, None);
+            for t in helpers.into_iter().flatten() {
+                synthesize_settled_twin(ast, t);
+            }
+        }
     }
 }
 
-fn synthesize_promise_executor_helper(ast: &mut Ast) {
+/// `function __promise_from_executor__<T>(__ex: any): Promise<T> {
+///   return __promise_from_executor(__ex); }`
+fn synthesize_settled_twin(ast: &mut Ast, settles: &str) {
+    use crate::ast::{Param, Stmt};
+    let callee = ast.add_expr(Expr::Ident(EXECUTOR_HELPER.into()));
+    let ex = ast.add_expr(Expr::Ident("__ex".into()));
+    let call = ast.add_expr(Expr::Call {
+        callee,
+        args: vec![ex],
+    });
+    ast.stmts.push(Stmt::FnDecl {
+        name: helper_name(Some(settles)),
+        type_params: Vec::new(),
+        params: vec![Param {
+            name: "__ex".into(),
+            type_ann: Some("any".into()),
+            default: None,
+            is_rest: false,
+        }],
+        return_type: Some(format!("Promise<{settles}>")),
+        body: vec![Stmt::Return(Some(call))],
+        is_generator: false,
+        span: crate::lexer::Span { start: 0, end: 0 },
+    });
+}
+
+fn synthesize_promise_executor_helper(ast: &mut Ast, settles: Option<&str>) {
     use crate::ast::{Param, Stmt};
 
     // if (typeof __ex !== "function") throw __new_TypeError(…);
@@ -161,7 +219,7 @@ fn synthesize_promise_executor_helper(ast: &mut Ast) {
     });
 
     ast.stmts.push(Stmt::FnDecl {
-        name: "__promise_from_executor".into(),
+        name: helper_name(settles),
         type_params: Vec::new(),
         params: vec![Param {
             name: "__ex".into(),
@@ -169,7 +227,7 @@ fn synthesize_promise_executor_helper(ast: &mut Ast) {
             default: None,
             is_rest: false,
         }],
-        return_type: Some("any".into()),
+        return_type: Some(settles.map_or("any".into(), |t| format!("Promise<{t}>"))),
         body: vec![guard, let_pr, try_stmt, Stmt::Return(Some(promise_field))],
         is_generator: false,
         span: crate::lexer::Span { start: 0, end: 0 },

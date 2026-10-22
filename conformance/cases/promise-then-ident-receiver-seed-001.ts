@@ -49,3 +49,11 @@ b();
 half
   .then((v) => v + 1)
   .then((v) => console.log("chain", v));
+
+type Edge = { right: number };
+const edges: Promise<Edge[]> = Promise.resolve([{ right: 0.75 }]);
+edges.then((v) => console.log("edges", v[0].right));
+async function more(): Promise<Edge[]> {
+  return [{ right: 0.25 }];
+}
+more().then((v) => console.log("more", v[0].right));

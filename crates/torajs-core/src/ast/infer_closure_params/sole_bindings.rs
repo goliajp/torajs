@@ -10,13 +10,37 @@
 //! one declaration to read, wherever it is used.
 
 use super::super::desugar_with::walk::stmt_children_ref;
-use super::super::{Ast, Stmt};
+use super::super::{Ast, ExprId, Stmt};
 use std::collections::{HashMap, HashSet};
 
-/// The one declaration of a name.
+/// The program-wide tables only some call sites need, each walked when
+/// the first site asks rather than for every program.
+#[derive(Default)]
+pub(super) struct Lazy<'a> {
+    sole: Option<SoleBindings<'a>>,
+    executor: Option<HashMap<ExprId, String>>,
+}
+
+impl<'a> Lazy<'a> {
+    pub(super) fn sole(&mut self, ast: &'a Ast) -> &SoleBindings<'a> {
+        self.sole.get_or_insert_with(|| SoleBindings::collect(ast))
+    }
+
+    pub(super) fn executor_contexts(&mut self, ast: &'a Ast) -> &HashMap<ExprId, String> {
+        let Lazy { sole, executor } = self;
+        executor.get_or_insert_with(|| {
+            let sole = sole.get_or_insert_with(|| SoleBindings::collect(ast));
+            super::executor_cb::executor_contexts(ast, sole)
+        })
+    }
+}
+
+/// The one declaration of a name: its annotation, and the initializer
+/// when it is a `let` / `const` / `var`.
 #[derive(Clone, Copy)]
 pub(in crate::ast) struct SoleDecl<'a> {
     pub ann: Option<&'a str>,
+    pub init: Option<ExprId>,
 }
 
 pub(in crate::ast) struct SoleBindings<'a> {
@@ -52,9 +76,10 @@ impl<'a> SoleBindings<'a> {
             .any(|w| self.type_params.contains(w) && !own.iter().any(|t| t == w))
     }
 
-    fn bind(&mut self, name: &'a str, ann: Option<&'a String>) {
+    fn bind(&mut self, name: &'a str, ann: Option<&'a String>, init: Option<ExprId>) {
         let d = SoleDecl {
             ann: ann.map(String::as_str),
+            init,
         };
         let e = self.seen.entry(name).or_insert((0, d));
         e.0 += 1;
@@ -63,16 +88,21 @@ impl<'a> SoleBindings<'a> {
 
     fn count_stmt(&mut self, s: &'a Stmt) {
         match s {
-            Stmt::LetDecl { name, type_ann, .. } => self.bind(name, type_ann.as_ref()),
-            Stmt::UsingDecl { name, .. } => self.bind(name, None),
+            Stmt::LetDecl {
+                name,
+                type_ann,
+                init,
+                ..
+            } => self.bind(name, type_ann.as_ref(), Some(*init)),
+            Stmt::UsingDecl { name, .. } => self.bind(name, None, None),
             Stmt::ForOf { var_name, .. } | Stmt::ForOfSplitIter { var_name, .. } => {
-                self.bind(var_name, None)
+                self.bind(var_name, None, None)
             }
-            Stmt::YieldInto { var, .. } => self.bind(var, None),
+            Stmt::YieldInto { var, .. } => self.bind(var, None, None),
             Stmt::Try {
                 catch_param: Some(p),
                 ..
-            } => self.bind(p, None),
+            } => self.bind(p, None, None),
             Stmt::FnDecl {
                 name,
                 type_params,
@@ -80,11 +110,11 @@ impl<'a> SoleBindings<'a> {
                 body,
                 ..
             } => {
-                self.bind(name, None);
+                self.bind(name, None, None);
                 self.type_params
                     .extend(type_params.iter().map(String::as_str));
                 for p in params {
-                    self.bind(&p.name, p.type_ann.as_ref());
+                    self.bind(&p.name, p.type_ann.as_ref(), None);
                 }
                 for b in body {
                     self.count_stmt(b);
@@ -93,7 +123,7 @@ impl<'a> SoleBindings<'a> {
             Stmt::ClassDecl {
                 name, type_params, ..
             } => {
-                self.bind(name, None);
+                self.bind(name, None, None);
                 self.type_params
                     .extend(type_params.iter().map(String::as_str));
             }
@@ -104,10 +134,10 @@ impl<'a> SoleBindings<'a> {
                 namespace, named, ..
             } => {
                 if let Some(ns) = namespace {
-                    self.bind(ns, None);
+                    self.bind(ns, None, None);
                 }
                 for (orig, alias) in named {
-                    self.bind(alias.as_ref().unwrap_or(orig), None);
+                    self.bind(alias.as_ref().unwrap_or(orig), None, None);
                 }
             }
             _ => {}

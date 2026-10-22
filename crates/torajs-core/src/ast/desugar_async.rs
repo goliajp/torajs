@@ -20,6 +20,7 @@
 //! access path unchanged.
 
 mod resolve;
+mod sniff;
 
 use super::{Ast, Expr, ExprId, Stmt, default_init_for_type};
 use resolve::{build_async_resolve, fallthrough_undefined_for};
@@ -96,8 +97,12 @@ fn rewrite_async_decls(ast: &mut Ast, s: &mut Stmt) {
     // happens inside `rewrite_returns_for_async` when
     // inner_ty == "any"). `Promise.resolve` accepts Any at
     // `check/promise_static.rs`; `.then` / `.catch` accept
-    // `Promise<Any>` at `check.rs:5008` / `:5054`.
-    let declared_ty = return_type.unwrap_or_else(|| "any".into());
+    // `Promise<Any>` at `check.rs:5008` / `:5054`. A body whose every
+    // path returns one primitive the sniff can name settles with that
+    // (`sniff::sniffed_inner`).
+    let declared_ty = return_type
+        .or_else(|| sniff::sniffed_inner(ast, &body))
+        .unwrap_or_else(|| "any".into());
     let ssa = ast.async_ssa.fns.contains(&name);
     let (wrapped_body, promise_ty) = build_async_body(ast, body, &declared_ty, ssa);
     *s = Stmt::FnDecl {

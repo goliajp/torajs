@@ -18,19 +18,23 @@
 //!   `__fn(P|..)->(R)`-annotated param at a closure arg position
 //!   projects its spellings onto the lifted closure's params/ret.
 
-use super::infer_closure_params_apply::apply_closure_ann_updates;
+use super::infer_closure_params_apply::{Seeds, apply_closure_ann_updates};
 use super::infer_closure_params_helpers::{
     apply_stored_elem_arm, build_ann_table, collect_fn_decl_metadata, mapset_foreach_expected,
     seed_container_arg_hints, seed_let_ann_hints,
 };
 use super::infer_closure_params_hof::apply_hof_param_only_arm;
-use super::infer_closure_typevars::{UserFnHintSinks, apply_user_fn_callee_hint};
+use super::infer_closure_typevars::apply_user_fn_callee_hint;
 use super::{Ast, Expr, ExprId};
 
 mod replace_cb;
 use replace_cb::seed_replace_cb_anns;
 mod sole_bindings;
 pub(super) use sole_bindings::SoleBindings;
+mod executor_cb;
+use crate::ast_desugar_builtin_new::promise_context::executor_helper;
+mod method_cb;
+use method_cb::{MethodSite, seed_method_cb_anns};
 /* Resolve a literal expression's type ann string.
  * - `Array(els)`      → infer `T[]` from els[0]'s shape (literal
  *                       receiver path — `[1,2,3].map(x => ...)`).
@@ -175,30 +179,14 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
 
     let (all_anns, closure_let_hints) = build_ann_table(ast);
 
-    // Map from lifted closure fn_name → (param annotations, return
-    // annotation). Filled by walking call sites; applied at the end
-    // (deferred so we don't mutate ast.stmts mid-walk).
-    let mut updates: HashMap<String, (Vec<String>, String)> = HashMap::new();
+    let mut seeds = Seeds::default();
 
     // `const g: (n: number) => number = (n) => n` — the binding's target
     // type contextually types the arrow, exactly as at a call-arg
     // position (chunk-554's user-fn callee hint, on a let instead).
     // Seeded first so a call-site hint, which knows more about the
     // actual arguments, can still overwrite it.
-    seed_let_ann_hints(ast, &closure_let_hints, &mut updates);
-
-    // Promise `.then(cb)` / `.catch(cb)` arm — updates only the cb's
-    // user params from the source promise inner type. Ret ann stays
-    // for the sniff / desugar_lifted_closure_fn fallback (avoids
-    // clobbering the cb's actual return face with a promise-inner
-    // guess that only fits the param position).
-    let mut param_only_updates: HashMap<String, Vec<String>> = HashMap::new();
-
-    // srcArray-slot view promotion — lifted fn name → (user-slot
-    // index, receiver elem ann); a receiver-matching user annotation
-    // on that slot is normalized to `any[]` at apply time (rationale
-    // in `apply_closure_ann_updates`).
-    let mut view_promotes: HashMap<String, (usize, String)> = HashMap::new();
+    seed_let_ann_hints(ast, &closure_let_hints, &mut seeds.updates);
 
     let (fn_param_pos_anns, fn_type_params, fn_user_param_count, fn_ret_anns) =
         collect_fn_decl_metadata(ast);
@@ -209,7 +197,7 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
             .collect();
 
     // walked on the first site that asks, not for every program
-    let mut sole: Option<SoleBindings> = None;
+    let mut lazy = sole_bindings::Lazy::default();
     let this_anns = super::infer_closure_this_scope::this_anns_by_call(ast);
     let n = ast.exprs.len();
     for i in 0..n {
@@ -225,6 +213,18 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
         // User-fn callee: the callee's fn-typed param at a closure arg
         // position hints the lifted closure (`apply_user_fn_callee_hint`).
         if let Expr::Ident(fname) = ast.get_expr(callee) {
+            if executor_helper(fname).is_some() {
+                let contexts = lazy.executor_contexts(ast);
+                let (call, counts) = (ExprId(i as u32), &fn_user_param_count);
+                executor_cb::seed_executor_params(
+                    call,
+                    &closure_args,
+                    contexts,
+                    counts,
+                    &mut seeds.param_only,
+                );
+                continue;
+            }
             // a fn-typed param of the function the call sits in shadows
             // any top-level function of that name
             let (own, no_tps);
@@ -244,10 +244,7 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
                     &closure_args,
                     callee_anns,
                     tps.get(fname).map(Vec::as_slice),
-                    UserFnHintSinks {
-                        updates: &mut updates,
-                        param_only: &mut param_only_updates,
-                    },
+                    seeds.hint_sinks(),
                 );
             }
             continue;
@@ -260,7 +257,7 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
             let promise_tables = super::infer_closure_params_promise::PromiseTables {
                 all_anns: &all_anns,
                 fn_ret_anns: &fn_ret_anns,
-                bindings: sole.get_or_insert_with(|| SoleBindings::collect(ast)),
+                bindings: lazy.sole(ast),
             };
             super::infer_closure_params_promise::seed_then_catch_params(
                 ast,
@@ -269,20 +266,26 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
                 &promise_tables,
                 &closure_args,
                 &fn_user_param_count,
-                &mut param_only_updates,
+                &mut seeds.param_only,
             );
             continue;
         }
         let this_ann = this_anns.get(&ExprId(i as u32)).map(String::as_str);
         let obj_ann = resolve_receiver_ann(ast, obj, &all_anns, this_ann);
-        let Some(ann) = obj_ann else { continue };
+        // what no container arm below answers is a call of the method
+        // the receiver's type declares
+        let site = MethodSite::new(ExprId(i as u32), obj, &name, &args, &closure_args);
+        let Some(ann) = obj_ann else {
+            seed_method_cb_anns(ast, &site, None, lazy.sole(ast), seeds.hint_sinks());
+            continue;
+        };
         if ann == "string" && matches!(name.as_str(), "replace" | "replaceAll") {
             seed_replace_cb_anns(
                 ast,
                 &args,
                 &closure_args,
                 &fn_user_param_count,
-                &mut updates,
+                &mut seeds.updates,
             );
             continue;
         }
@@ -291,7 +294,7 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
         // positional types are (V, K, Map) / (T, T, Set).
         if let Some(expected) = mapset_foreach_expected(&ann, &name) {
             for (_arg_idx, fn_name) in &closure_args {
-                updates.insert(fn_name.clone(), expected.clone());
+                seeds.updates.insert(fn_name.clone(), expected.clone());
             }
             continue;
         }
@@ -300,7 +303,7 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
         // rather than its element type.
         if name == "concat" {
             for a in &args {
-                seed_container_arg_hints(ast, &ann, *a, &mut updates);
+                seed_container_arg_hints(ast, &ann, *a, &mut seeds.updates);
             }
             continue;
         }
@@ -310,7 +313,7 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
         // typing a literal element already gets, in either spelling of
         // the array type.
         if let Some(elem_ann) = super::infer_closure_lets::array_elem_ann(&ann)
-            && apply_stored_elem_arm(ast, &name, elem_ann, &closure_args, &mut updates)
+            && apply_stored_elem_arm(ast, &name, elem_ann, &closure_args, &mut seeds.updates)
         {
             continue;
         }
@@ -321,6 +324,7 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
         // another face (`any` return) is not reabstracted on the way
         // in, so the typed call would read it wrong.
         let Some(elem_ann) = ann.strip_suffix("[]") else {
+            seed_method_cb_anns(ast, &site, Some(&ann), lazy.sole(ast), seeds.hint_sinks());
             continue;
         };
         let elem_ann = elem_ann.to_string();
@@ -332,22 +336,24 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
             &elem_ann,
             &all_anns,
             &fn_user_param_count,
-            &mut param_only_updates,
-            &mut view_promotes,
+            &mut seeds.param_only,
+            &mut seeds.view_promotes,
         ) {
             continue;
         }
         let expected = super::infer_closure_params_helpers::hof_expected_anns(&name, &elem_ann);
         let Some(expected) = expected else { continue };
         for (_arg_idx, fn_name) in &closure_args {
-            updates.insert(fn_name.clone(), expected.clone());
+            seeds.updates.insert(fn_name.clone(), expected.clone());
             if !matches!(name.as_str(), "sort" | "toSorted") {
-                view_promotes.insert(fn_name.clone(), (2, elem_ann.clone()));
+                seeds
+                    .view_promotes
+                    .insert(fn_name.clone(), (2, elem_ann.clone()));
             }
         }
     }
 
-    apply_closure_ann_updates(ast, &updates, &param_only_updates, &view_promotes);
+    apply_closure_ann_updates(ast, &seeds);
 }
 
 // Promise `.then(cb)` / `.catch(cb)` cb-param inference lives in
