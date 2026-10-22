@@ -94,6 +94,35 @@ fn a_subclass_pins_nothing_in_either_class() {
 }
 
 #[test]
+fn a_parser_without_a_release_fn_test_pins_its_tokens() {
+    let src = include_str!("../../../conformance/cases/tok-pin-014.ts");
+    assert_eq!(pins(src), parser_pin());
+}
+
+#[test]
+fn an_error_thrown_outside_the_methods_leaves_the_tokens_pinned() {
+    let src = include_str!("../../../conformance/cases/tok-pin-015.ts");
+    assert_eq!(pins(src), parser_pin());
+}
+
+#[test]
+fn a_string_thrown_by_a_method_leaves_the_tokens_pinned() {
+    let src = include_str!("../../../conformance/cases/tok-pin-016.ts");
+    assert_eq!(pins(src), parser_pin());
+}
+
+#[test]
+fn a_pop_an_any_receiver_or_an_error_constructor_pins_nothing() {
+    for src in [
+        include_str!("../../../conformance/cases/tok-pin-003.ts"),
+        include_str!("../../../conformance/cases/tok-pin-005.ts"),
+        include_str!("../../../conformance/cases/tok-pin-007.ts"),
+    ] {
+        assert_eq!(pins(src), []);
+    }
+}
+
+#[test]
 fn the_tokenizer_bench_source_has_exactly_one_cluster() {
     let src = include_str!("../../../bench/cases/tokenizer-parser-eval-10k/main.ts");
     assert_eq!(pins(src).len(), 1, "{:?}", pins(src));

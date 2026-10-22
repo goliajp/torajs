@@ -66,7 +66,8 @@ pub(crate) fn settle(
     let envs = env_layouts(module, captures, &ast.widen_clone_origin);
     let unsettled = settle_alloc_sizes_to_rows(module);
     let watch = super::pin_facts::Watch::of(module, &drop_hooks.class_sids);
-    let (open, flow) = match super::drop_proofs::asleep(module, ast, drop_hooks) {
+    let asked = watch.is_some();
+    let (open, flow) = match super::drop_proofs::asleep(module, ast, drop_hooks, asked) {
         Some(asleep) => {
             let Both {
                 all,
@@ -74,8 +75,9 @@ pub(crate) fn settle(
                 widens,
                 skip,
                 pins,
+                scanned,
             } = open_sids_both(module, &envs, &asleep, watch);
-            (all, Some(((open, widens, skip), pins)))
+            (all, Some(((open, widens, skip), pins.zip(scanned))))
         }
         None => (open_sids(module, &envs), None),
     };
@@ -83,15 +85,22 @@ pub(crate) fn settle(
     if disagree.is_empty()
         && let Some((flow, pins)) = flow
     {
-        let asked = pins.as_ref().map_or(Vec::new(), |w| w.sids());
+        let asked = pins.as_ref().map_or(Vec::new(), |(w, _)| w.sids());
         let skip = pins.as_ref().map(|_| flow.2.clone());
         let seals = super::drop_proofs::settle(module, &envs, drop_hooks, flow, &asked);
         // the census reads the release fns once their settled tests'
         // dead legs are gone, so it runs after them; the store bases
         // the scan recorded before still hold, since settling only
         // drops instructions and adds values, never renumbers one
-        if let (Some(w), Some(skip)) = (pins, skip) {
-            super::pin_facts::settle(module, w, &seals, drop_hooks, facts, &skip);
+        match (pins, skip, seals) {
+            (Some((w, _)), Some(skip), Ok(seals)) => {
+                super::pin_facts::settle(module, w, &seals, drop_hooks, facts, &skip);
+            }
+            (Some((w, scanned)), Some(skip), Err(exposed)) => {
+                let first = (w, scanned, skip.as_slice());
+                super::pin_facts::woken::settle(module, &envs, drop_hooks, facts, first, exposed);
+            }
+            _ => {}
         }
     }
     disagree

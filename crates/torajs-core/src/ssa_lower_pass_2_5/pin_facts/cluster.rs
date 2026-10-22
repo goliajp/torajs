@@ -18,7 +18,7 @@ pub(super) struct Clusters<'a> {
     groups: HashMap<StructId, Vec<Vec<FuncId>>>,
     /// Per function reached, the first instruction that can change an
     /// array.
-    sites: HashMap<FuncId, Option<&'static str>>,
+    sites: HashMap<FuncId, Option<String>>,
 }
 
 impl<'a> Clusters<'a> {
@@ -47,23 +47,8 @@ impl<'a> Clusters<'a> {
         arr: ArrId,
         label: &str,
     ) -> Vec<PinFact> {
-        let groups = match self.groups.get(&sid) {
-            Some(g) => g.clone(),
-            None => {
-                let (g, out) = self.group(sid);
-                if stats() && !out.is_empty() {
-                    let sid = sid.0;
-                    eprintln!(
-                        "[pin] sid {sid}: out of every cluster {{{}}}",
-                        self.names(&out)
-                    );
-                }
-                self.groups.insert(sid, g.clone());
-                g
-            }
-        };
         let mut out = Vec::new();
-        for cluster in groups {
+        for cluster in self.groups_of(sid) {
             let names = self.names(&cluster);
             let reads: usize = cluster.iter().map(|m| self.reads(*m, off)).sum();
             let why = if reads == 0 {
@@ -95,6 +80,30 @@ impl<'a> Clusters<'a> {
             });
         }
         out
+    }
+
+    /// Whether some cluster of `sid` reads its array field at `off` and
+    /// changes no array while it runs: what [`Clusters::pins`] asks but
+    /// F1.
+    pub(super) fn any(&mut self, sid: StructId, off: u64) -> bool {
+        (self.groups_of(sid).iter())
+            .any(|c| c.iter().any(|m| self.reads(*m, off) > 0) && self.changes(c).is_none())
+    }
+
+    fn groups_of(&mut self, sid: StructId) -> Vec<Vec<FuncId>> {
+        if let Some(g) = self.groups.get(&sid) {
+            return g.clone();
+        }
+        let (g, out) = self.group(sid);
+        if stats() && !out.is_empty() {
+            let sid = sid.0;
+            eprintln!(
+                "[pin] sid {sid}: out of every cluster {{{}}}",
+                self.names(&out)
+            );
+        }
+        self.groups.insert(sid, g.clone());
+        g
     }
 
     /// F3: the methods of `sid` that pass their own receiver on to the
@@ -180,10 +189,7 @@ impl<'a> Clusters<'a> {
         let mut stack: Vec<FuncId> = cluster.to_vec();
         while let Some(fid) = stack.pop() {
             let f = &module.funcs[fid.0 as usize];
-            let site = *self
-                .sites
-                .entry(fid)
-                .or_insert_with(|| grow::site(module, f));
+            let site = (self.sites.entry(fid)).or_insert_with(|| grow::site(module, f));
             if let Some(why) = site {
                 return Some(format!("{} in {}", why, f.name));
             }

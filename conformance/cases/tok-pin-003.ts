@@ -2,7 +2,7 @@
 // pushes onto it. The push is in a function the methods call, not in
 // a method, and it still changes the array while the methods run.
 // TORAJS_PIN_STATS=1 prints
-//   [pin] sid <n> Parser.toks: none: no verdict
+//   [pin] 0 pins: no field could be pinned
 
 const NUM = 0
 const PLUS = 2

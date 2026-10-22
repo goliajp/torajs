@@ -116,7 +116,10 @@ fn a_runtime_call_off_the_list_changes_arrays_and_a_test_does_not() {
     let sorts = method("m", |f, b, this| {
         f.append_void(b, InstKind::Call(SORT, vec![this]));
     });
-    assert_eq!(site(&m, &sorts), Some("a runtime call"));
+    assert_eq!(
+        site(&m, &sorts).as_deref(),
+        Some("a runtime call to __torajs_arr_sort")
+    );
 }
 
 #[test]
@@ -127,7 +130,7 @@ fn a_store_into_an_array_header_changes_arrays() {
         let toks = Operand::Value(f.append_inst(b, toks, Type::Arr(ArrId(0)), None));
         f.append_void(b, InstKind::Store(Operand::ConstI64(0), toks, 8));
     });
-    assert_eq!(site(&m, &f), Some("a header store"));
+    assert_eq!(site(&m, &f).as_deref(), Some("a header store"));
 }
 
 #[test]
@@ -165,7 +168,10 @@ fn the_species_guard_counts_as_a_change() {
     let f = method("m", |f, b, this| {
         f.append_void(b, InstKind::Call(FuncId(3), vec![this]));
     });
-    assert_eq!(site(&m, &f), Some("a runtime call"));
+    assert_eq!(
+        site(&m, &f).as_deref(),
+        Some("a runtime call to __torajs_arr_species_guard")
+    );
 }
 
 /// `this.toks` parked in a slot and read back as `ty`.
@@ -184,7 +190,7 @@ fn an_array_parked_and_read_back_as_bits_leaves_the_lanes() {
     let m = module();
     assert_eq!(site(&m, &park_toks(Type::Arr(ArrId(0)))), None);
     assert_eq!(
-        site(&m, &park_toks(Type::I64)),
+        site(&m, &park_toks(Type::I64)).as_deref(),
         Some("an array parked untyped")
     );
 }
@@ -202,7 +208,10 @@ fn an_array_returned_as_something_else_leaves_the_lanes() {
         f
     };
     assert_eq!(site(&m, &ret(Type::Arr(ArrId(0)))), None);
-    assert_eq!(site(&m, &ret(Type::Ptr)), Some("an array returned untyped"));
+    assert_eq!(
+        site(&m, &ret(Type::Ptr)).as_deref(),
+        Some("an array returned untyped")
+    );
 }
 
 #[test]

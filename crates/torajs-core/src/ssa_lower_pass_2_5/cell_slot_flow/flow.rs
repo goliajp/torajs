@@ -45,6 +45,27 @@ pub(crate) struct Both {
     pub skip: Vec<bool>,
     /// `watch` with what the functions that run showed it.
     pub pins: Option<Watch>,
+    /// What the scan of the functions that run added up to, when there
+    /// was a `watch` (`open_sids_more`).
+    pub scanned: Option<Scanned>,
+}
+
+/// The openness and the paths a scan added up to before they were
+/// settled: a scan of more functions adds to it. `dead` names the
+/// functions no road reaches (`AnyHolds::is_dead`).
+#[derive(Clone)]
+pub(crate) struct Scanned {
+    open: Vec<bool>,
+    paths: Paths,
+    dead: Vec<bool>,
+}
+
+impl Scanned {
+    fn settled(self) -> (Vec<bool>, Vec<(StructId, StructId)>) {
+        let (mut open, widens) = (self.open, self.paths.widens());
+        self.paths.settle(&mut open);
+        (open, widens)
+    }
 }
 
 pub(crate) fn open_sids_both(
@@ -53,15 +74,66 @@ pub(crate) fn open_sids_both(
     asleep: &[bool],
     watch: Option<Watch>,
 ) -> Both {
-    let holds = AnyHolds::of(module);
-    let skip: Vec<bool> = (asleep.iter().enumerate())
-        .map(|(i, a)| *a || holds.is_dead(FuncId(i as u32)))
+    scan_both(module, envs, asleep, watch)
+}
+
+/// [`open_sids_both`] but `all` (left empty), over the functions that
+/// run once `asleep` names fewer: `scanned` is what the functions that
+/// ran before, those `before` does not rule out, added up to, and
+/// `watch` what they showed it; only the others are scanned, and
+/// nothing is read again when there are none.
+pub(crate) fn open_sids_more(
+    module: &Module,
+    envs: &EnvLayouts,
+    (scanned, before): (Scanned, &[bool]),
+    asleep: &[bool],
+    watch: Watch,
+) -> Both {
+    let skip: Vec<bool> = (asleep.iter().zip(&scanned.dead))
+        .map(|(a, d)| *a || *d)
         .collect();
+    let more = |i: usize| before[i] && !skip[i];
+    let (pins, scanned) = if (0..skip.len()).any(more) {
+        let holds = AnyHolds::of(module);
+        let mut flow = Flow::new(module, envs, &holds);
+        let dead = scanned.dead;
+        (flow.open, flow.pins) = (scanned.open, Some(watch));
+        flow.paths = RefCell::new(scanned.paths);
+        flow.scan(more);
+        let pins = flow.pins.take();
+        let open = flow.open;
+        let paths = flow.paths.into_inner();
+        (pins, Scanned { open, paths, dead })
+    } else {
+        (Some(watch), scanned)
+    };
+    let (open, widens) = scanned.clone().settled();
+    Both {
+        all: Vec::new(),
+        open,
+        widens,
+        skip,
+        pins,
+        scanned: Some(scanned),
+    }
+}
+
+fn scan_both(module: &Module, envs: &EnvLayouts, asleep: &[bool], watch: Option<Watch>) -> Both {
+    let holds = AnyHolds::of(module);
+    let dead: Vec<bool> = (0..asleep.len())
+        .map(|i| holds.is_dead(FuncId(i as u32)))
+        .collect();
+    let skip: Vec<bool> = (asleep.iter().zip(&dead)).map(|(a, d)| *a || *d).collect();
     let mut flow = Flow::new(module, envs, &holds);
     flow.pins = watch;
     flow.scan(|i| !skip[i]);
     let pins = flow.pins.take();
     let (mut open, paths) = (flow.open.clone(), flow.paths.borrow().clone());
+    let scanned = (pins.is_some()).then(|| Scanned {
+        open: open.clone(),
+        paths: paths.clone(),
+        dead,
+    });
     flow.scan(|i| skip[i]);
     let all = flow.settle().0;
     let widens = paths.widens();
@@ -72,6 +144,7 @@ pub(crate) fn open_sids_both(
         widens,
         skip,
         pins,
+        scanned,
     }
 }
 

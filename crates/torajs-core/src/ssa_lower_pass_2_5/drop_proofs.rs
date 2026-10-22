@@ -51,6 +51,8 @@ use crate::ssa_lower::OBJ_CLASS_TAG_OFF;
 use crate::ssa_lower_binop_null_undef::UNDEF_CELL_SYM;
 use crate::ssa_lower_emit_drop_value::class_drop_fill::{DropHooks, Test};
 
+pub(crate) use asleep::woken as asleep_woken;
+
 use super::cell_slot_flow::{EnvLayouts, is_prefix};
 
 /// Names that reach a class, a prototype or a scope by a road the
@@ -71,10 +73,15 @@ fn stats() -> bool {
 }
 
 /// The functions only a class method row enters, when some test is
-/// to be settled: none when no release fn made one, or when a name
-/// wakes the rows (printed under the stats).
-pub(crate) fn asleep(module: &Module, ast: &Ast, hooks: &DropHooks) -> Option<Vec<bool>> {
-    if hooks.hooks.is_empty() {
+/// to be settled or some class sid is `asked` about: none when neither,
+/// or when a name wakes the rows (printed under the stats).
+pub(crate) fn asleep(
+    module: &Module,
+    ast: &Ast,
+    hooks: &DropHooks,
+    asked: bool,
+) -> Option<Vec<bool>> {
+    if hooks.hooks.is_empty() && !asked {
         return None;
     }
     if let Some(why) = wakes_rows(ast) {
@@ -83,7 +90,7 @@ pub(crate) fn asleep(module: &Module, ast: &Ast, hooks: &DropHooks) -> Option<Ve
         }
         return None;
     }
-    Some(asleep::row_only(module))
+    Some(asleep::row_only(module, &[]))
 }
 
 /// The open sids over the functions that run, their prefix paths, and
@@ -91,22 +98,24 @@ pub(crate) fn asleep(module: &Module, ast: &Ast, hooks: &DropHooks) -> Option<Ve
 pub(crate) type Flow = (Vec<bool>, Vec<(StructId, StructId)>, Vec<bool>);
 
 /// Settle every test of `hooks` the module proves. Answers what it
-/// proves of the class sids in `asked` as well (`pin_facts`); nothing
-/// when an instance of some class reaches the runtime.
+/// proves of the class sids in `asked` as well (`pin_facts`). When an
+/// instance of some class reaches the runtime nothing is settled, and
+/// the answer is those classes.
 pub(crate) fn settle(
     module: &mut Module,
     envs: &EnvLayouts,
     hooks: &DropHooks,
     flow: Flow,
     asked: &[u32],
-) -> HashMap<u32, Seal> {
-    let verdicts = match verdicts(module, envs, hooks, flow, asked) {
+) -> Result<HashMap<u32, Seal>, Vec<u32>> {
+    let verdicts = match verdicts(module, envs, hooks, flow, asked, &[]) {
         Ok(v) => v,
-        Err(why) => {
+        Err(exposed) => {
             if stats() {
-                eprintln!("[drop_proof] none: {why}");
+                let s = exposed[0];
+                eprintln!("[drop_proof] none: an instance of class sid {s} reaches the runtime");
             }
-            return HashMap::new();
+            return Err(exposed);
         }
     };
     let n = hooks.settle(module, |sid, test| {
@@ -131,6 +140,26 @@ pub(crate) fn settle(
         }
         eprintln!("[drop_proof] {n} of {} tests settled", hooks.hooks.len());
     }
+    Ok(seals_of(verdicts))
+}
+
+/// What the module proves of the class sids in `asked`, read over the
+/// functions `flow` says run, where those include the rows of the class
+/// sids `woken` names (not empty): an instance of such a class may
+/// reach the runtime. Settles nothing. The answer is the other classes
+/// whose instances reach the runtime, when some do.
+pub(crate) fn seals(
+    module: &Module,
+    envs: &EnvLayouts,
+    hooks: &DropHooks,
+    flow: Flow,
+    asked: &[u32],
+    woken: &[bool],
+) -> Result<HashMap<u32, Seal>, Vec<u32>> {
+    verdicts(module, envs, hooks, flow, asked, woken).map(seals_of)
+}
+
+fn seals_of(verdicts: HashMap<u32, (Verdict, bool)>) -> HashMap<u32, Seal> {
     (verdicts.into_iter())
         .map(|(sid, (v, _))| (sid, v.seal))
         .collect()
@@ -162,16 +191,23 @@ fn verdicts(
     hooks: &DropHooks,
     (open, widens, skip): Flow,
     asked: &[u32],
-) -> Result<HashMap<u32, (Verdict, bool)>, String> {
+    woken: &[bool],
+) -> Result<HashMap<u32, (Verdict, bool)>, Vec<u32>> {
     let exposed = exposed::exposed_sids(module, &skip);
-    let mut classes: Vec<u32> = hooks.class_sids.iter().copied().collect();
-    classes.sort_unstable();
-    if let Some(s) = classes.iter().find(|s| exposed[**s as usize]) {
-        return Err(format!("an instance of class sid {s} reaches the runtime"));
+    let mut classes: Vec<u32> = (hooks.class_sids.iter().copied())
+        .filter(|s| exposed[*s as usize] && !woken.get(*s as usize).copied().unwrap_or(false))
+        .collect();
+    if !classes.is_empty() {
+        classes.sort_unstable();
+        return Err(classes);
     }
     let shared = std::cell::OnceCell::new();
     let shared = || shared.get_or_init(|| undef::Shared::new(module, &skip));
-    let sids: BTreeSet<u32> = hooks.hooks.iter().map(|h| h.sid).collect();
+    // only the asked sids when nothing is settled (`woken`)
+    let sids: BTreeSet<u32> = match woken.is_empty() {
+        true => hooks.hooks.iter().map(|h| h.sid).collect(),
+        false => BTreeSet::new(),
+    };
     let mut out = HashMap::new();
     for sid in sids.iter().copied().chain(asked.iter().copied()) {
         if out.contains_key(&sid) {

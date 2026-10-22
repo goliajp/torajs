@@ -29,6 +29,7 @@ mod names;
 mod roots;
 #[cfg(test)]
 mod tests;
+pub(crate) mod woken;
 
 use std::collections::{HashMap, HashSet};
 
@@ -178,7 +179,8 @@ pub(crate) fn settle(
                 name: &name,
             };
             let only_ctor = match class {
-                Some(c) => only_ctor(module, &watch, seals, facts, alloc, &field, c),
+                Some(c) => sealed(seals, sid)
+                    .and_then(|_| only_ctor(module, &watch, facts, alloc, &field, c)),
                 None => Err("no class name of its own".to_string()),
             };
             if let Err(why) = only_ctor {
@@ -207,23 +209,27 @@ struct Field<'a> {
     name: &'a str,
 }
 
-/// F1 for `field`, a field of the class named `class`.
-fn only_ctor(
-    module: &Module,
-    watch: &Watch,
-    seals: &HashMap<u32, Seal>,
-    facts: &ProgramFacts,
-    alloc: Option<FuncId>,
-    field: &Field,
-    class: &str,
-) -> Result<(), String> {
-    let seal = seals.get(&field.sid).copied().ok_or("no verdict")?;
+/// The seal F1 asks of class sid `sid`.
+fn sealed(seals: &HashMap<u32, Seal>, sid: u32) -> Result<(), String> {
+    let seal = seals.get(&sid).copied().ok_or("no verdict")?;
     if !(seal.sealed && seal.closed && seal.unwidened) {
         return Err(format!(
             "sealed {} closed {} unwidened {}",
             seal.sealed, seal.closed, seal.unwidened
         ));
     }
+    Ok(())
+}
+
+/// F1 for `field`, a field of the class named `class`, but the seal.
+fn only_ctor(
+    module: &Module,
+    watch: &Watch,
+    facts: &ProgramFacts,
+    alloc: Option<FuncId>,
+    field: &Field,
+    class: &str,
+) -> Result<(), String> {
     if !facts
         .live
         .fields

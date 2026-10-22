@@ -178,16 +178,19 @@ fn what_only_a_method_row_enters_is_asleep() {
     });
     func(&mut m, "helper", Type::Void, |_, _| {});
     m.class_layouts.push(row(4, Some(5)));
-    let asleep = row_only(&m);
+    let asleep = row_only(&m, &[]);
     assert_eq!(
         asleep,
         vec![false, false, false, false, true, true, true, true]
     );
+    // a woken row enters its adapters and what they call
+    let woken = row_only(&m, &[true]);
+    assert_eq!(&woken[4..8], &[false; 4]);
     // an instruction that takes the adapter's address wakes it
     func(&mut m, "reify", Type::Void, |f, b| {
         f.append_inst(b, InstKind::BoxedEntryAddr(FuncId(5)), Type::Ptr, None);
     });
-    let asleep = row_only(&m);
+    let asleep = row_only(&m, &[]);
     assert_eq!(&asleep[4..8], &[true, false, false, false]);
 }
 

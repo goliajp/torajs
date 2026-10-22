@@ -42,7 +42,12 @@ const ARR_HEAD_OFF: u64 = ARR_CAP_HEAD_OFF + 4;
 /// pointer as they are and run no user code: they test and throw,
 /// allocate and free cells, mark an array's element kind in its flags,
 /// release a reference (which frees only what died, never an array a
-/// live field holds), or read the header (`load_licm`'s list).
+/// live field holds), or read the header (`load_licm`'s list). A
+/// release fn's own calls are among them: the expando bag's release,
+/// the weak observers' notice (a finalization callback is queued, not
+/// run), the cycle buffer (whose collection frees only garbage and
+/// marks colours in the header), the untyped release. So are the
+/// pieces of a throw: building its message, boxing it, recording it.
 const READ_ONLY: &[&str] = &[
     "__torajs_heap_nullish_check",
     "__torajs_arr_null_check",
@@ -53,26 +58,44 @@ const READ_ONLY: &[&str] = &[
     "__torajs_obj_free_cell",
     "__torajs_drop_release",
     "__torajs_arr_delete_tail_guard",
+    "__torajs_obj_props_drop_slow",
+    "__torajs_obj_buffer_slow",
+    "__torajs_obj_drop_rc",
+    "__torajs_cycle_buffer",
+    "__torajs_weakref_target_dying",
+    "__torajs_i64_to_str",
+    "__torajs_str_concat",
+    "__torajs_str_drop",
+    "__torajs_anyv_box_str_slot",
+    "__torajs_throw_set",
 ];
 /// The array releases.
 const DROP_PREFIX: &str = "__torajs_arr_drop";
 
-/// The first instruction of `f` that can change an array, by name.
-pub(super) fn site(module: &Module, f: &Function) -> Option<&'static str> {
+/// The first instruction of `f` that can change an array, by name
+/// (a runtime call's with its callee).
+pub(super) fn site(module: &Module, f: &Function) -> Option<String> {
     let slots = Slots::of(f);
     let site = f.blocks.iter().flat_map(|b| &b.insts).find_map(|inst| {
         let why = inst_site(module, f, &slots, &inst.kind, inst.result);
-        (!why.is_empty()).then_some(why)
+        match &inst.kind {
+            InstKind::Call(t, _) if why == RUNTIME_CALL => {
+                Some(format!("{why} to {}", module.funcs[t.0 as usize].name))
+            }
+            _ => (!why.is_empty()).then(|| why.to_string()),
+        }
     });
     site.or_else(|| {
         f.blocks.iter().find_map(|b| match &b.term {
             Terminator::Ret(Some(v)) if is_arr(f, v) && !matches!(f.ret, Type::Arr(_)) => {
-                Some("an array returned untyped")
+                Some("an array returned untyped".to_string())
             }
             _ => None,
         })
     })
 }
+
+const RUNTIME_CALL: &str = "a runtime call";
 
 fn is_arr(f: &Function, op: &Operand) -> bool {
     matches!(op, Operand::Value(v) if matches!(f.value_type(*v), Type::Arr(_)))
@@ -114,7 +137,7 @@ fn inst_site(
                 if READ_ONLY.contains(&name) || name.starts_with(DROP_PREFIX) {
                     ""
                 } else {
-                    "a runtime call"
+                    RUNTIME_CALL
                 }
             } else if (callee.params.iter().zip(args))
                 .any(|(p, a)| arr(a) && !matches!(callee.value_type(*p), Type::Arr(_)))

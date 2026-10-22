@@ -2,8 +2,10 @@
 // catches, and parses the next line with a new parser over a new token
 // array. Each parse reads its own array's length and storage once per
 // method call, and a throw out of the methods leaves nothing behind.
+// The `Error` constructor reads its message and options as any values,
+// which can run a user getter or `toString`, so nothing is pinned here.
 // TORAJS_PIN_STATS=1 prints
-//   [pin] sid <n> Parser.toks: none: no verdict
+//   [pin] 0 pins: no field could be pinned
 
 const NUM = 0
 const PLUS = 2

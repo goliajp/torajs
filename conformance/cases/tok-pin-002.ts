@@ -2,7 +2,7 @@
 // moves the array's storage. The array's length and storage change
 // while the methods run, so every read sees the array as it is then.
 // TORAJS_PIN_STATS=1 prints
-//   [pin] sid <n> Parser.toks: cluster {expr term factor}: none: a runtime call in __cm_Parser__factor
+//   [pin] sid <n> Parser.toks: cluster {expr term factor}: none: a runtime call to __torajs_arr_push in __cm_Parser__factor
 
 const NUM = 0
 const PLUS = 2

@@ -15,6 +15,7 @@
 //! it by address.
 
 use crate::ssa::{FuncId, InstKind, Module};
+use crate::ssa_lower_emit_drop_value::class_drop_fill::DropHooks;
 
 const ADAPTER_PREFIX: &str = "__boxed_";
 
@@ -27,18 +28,26 @@ fn named(module: &Module, i: usize) -> impl Iterator<Item = FuncId> + '_ {
     })
 }
 
-/// Per function, whether it runs only through a class method row.
-pub(super) fn row_only(module: &Module) -> Vec<bool> {
+/// Per function, whether it runs only through a class method row,
+/// where the rows `woken` marks (by index) are entered.
+pub(super) fn row_only(module: &Module, woken: &[bool]) -> Vec<bool> {
     let n = module.funcs.len();
     let mut referenced = vec![false; n];
     for i in 0..n {
         named(module, i).for_each(|t| referenced[t.0 as usize] = true);
     }
     let mut row_held = vec![false; n];
-    for m in module.class_layouts.iter().flat_map(|c| &c.methods) {
-        row_held[m.adapter_fid.0 as usize] = true;
-        if let Some(t) = m.twin_adapter_fid {
-            row_held[t.0 as usize] = true;
+    let mut entered = Vec::new();
+    for (row, c) in module.class_layouts.iter().enumerate() {
+        let on = woken.get(row).copied().unwrap_or(false);
+        for m in &c.methods {
+            for a in std::iter::once(m.adapter_fid).chain(m.twin_adapter_fid) {
+                if on {
+                    entered.push(a);
+                } else {
+                    row_held[a.0 as usize] = true;
+                }
+            }
         }
     }
     let entry = |i: usize| {
@@ -54,7 +63,8 @@ pub(super) fn row_only(module: &Module) -> Vec<bool> {
     stack.extend(
         vtables
             .chain(frames)
-            .chain(module.class_drop_fns.iter().copied()),
+            .chain(module.class_drop_fns.iter().copied())
+            .chain(entered),
     );
     let mut runs = vec![false; n];
     while let Some(fid) = stack.pop() {
@@ -67,4 +77,19 @@ pub(super) fn row_only(module: &Module) -> Vec<bool> {
     (module.funcs.iter().zip(runs))
         .map(|(f, r)| !r && !f.blocks.is_empty())
         .collect()
+}
+
+/// The functions only a class method row enters once the rows of the
+/// class sids `woken` names are counted as entered too.
+pub(crate) fn woken(module: &Module, hooks: &DropHooks, woken: &[bool]) -> Vec<bool> {
+    let mut rows = vec![false; module.class_layouts.len()];
+    for (sid, tags) in &hooks.tags {
+        if woken.get(*sid as usize).copied().unwrap_or(false) {
+            // a row is indexed by its tag less one; tag 0 is no class
+            for t in tags.iter().filter(|t| **t > 0) {
+                rows[*t as usize - 1] = true;
+            }
+        }
+    }
+    row_only(module, &rows)
 }

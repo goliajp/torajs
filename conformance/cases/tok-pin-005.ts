@@ -2,7 +2,7 @@
 // onto it; after the array is frozen, that push throws a TypeError.
 // Both change or guard the array outside the typed path.
 // TORAJS_PIN_STATS=1 prints
-//   [pin] sid <n> Parser.toks: none: no verdict
+//   [pin] 0 pins: no field could be pinned
 
 const NUM = 0
 const PLUS = 2

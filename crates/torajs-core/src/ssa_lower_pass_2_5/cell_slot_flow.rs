@@ -50,7 +50,7 @@ mod paths;
 
 use super::any_holds::AnyHolds;
 pub(crate) use env::{EnvLayouts, env_layouts};
-pub(crate) use flow::{Both, open_sids, open_sids_both};
+pub(crate) use flow::{Both, Scanned, open_sids, open_sids_both, open_sids_more};
 use paths::Paths;
 pub(super) use paths::elem_obj;
 
