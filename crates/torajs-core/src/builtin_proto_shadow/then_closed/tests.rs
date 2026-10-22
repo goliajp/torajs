@@ -102,7 +102,6 @@ fn a_computed_key_clears_only_by_its_spelled_value() {
     // a binding's value is not spelled at the key, whatever its type
     assert!(why("const o: any = {}; const k = \"a\"; o[k] = 1;").is_some());
     assert!(why("const o: any = {}; const k = \"a\" as \"a\"; o[k] = 1;").is_some());
-    assert!(why("const xs = [1]; for (let i = 0; i < 1; i++) xs[i] = 2;").is_some());
     let m = "const o: any = {}; const m = \"__defineGetter__\"; o[m](\"x\", () => 1);";
     assert!(why(m).is_some());
     // literals fold
@@ -178,6 +177,47 @@ fn a_global_read_off_some_object_opens() {
         "const G: any = {}; G[\"Reflect\"].set({}, \"a\", 1);",
         "const G: any = {}; const P = G.Promise;",
         "const G: any = {}; G[\"Fun\" + \"ction\"](\"return 1\");",
+    ] {
+        assert!(why(src).is_some(), "closed: {src}");
+    }
+}
+
+#[test]
+fn a_loop_counter_only_numbers_reach_clears() {
+    for src in [
+        "const xs = [1]; for (let i = 0; i < 1; i++) xs[i] = 2;",
+        "const xs = [1]; for (let i = 0; i < 1; i = i + 1) xs[i] = xs[i + 1];",
+        "const xs = [1]; for (let i = 3; i > 0; i -= 1) { const f = () => xs[i - 1]; f(); }",
+        "const o: any = {}; for (let i = -1; i < 9; i = (i * 2) | 0) { o[i] = i; }",
+        "const xs = [1, 2]; let t = 0; for (const x of xs) t += x;",
+        // an operator that never answers a string, whatever it reads
+        "const o: any = {}; const k: any = \"x\"; o[k - 1] = 1; o[-k] = 2; o[k < 1] = 3;",
+    ] {
+        assert_eq!(why(src), None, "{src}");
+    }
+}
+
+#[test]
+fn a_loop_counter_a_string_can_reach_opens() {
+    for src in [
+        // a write of a value not numeric by its form
+        "const o: any = {}; const s: any = \"then\"; for (let i = 0; i < 1; i++) { i = s; o[i] = 1; }",
+        "const o: any = {}; const s: any = 1; for (let i = 0; i < 1; i++) { i += s; o[i] = 1; }",
+        "const o: any = {}; const s: any = 1; for (let i = 0; i < 1; i = i + s) o[i] = 1;",
+        // a destructuring write, its default included
+        "const o: any = {}; const a: any = [\"then\"]; for (let i = 0; i < 1; i++) { [i] = a; o[i] = 1; }",
+        "const o: any = {}; const a: any = []; for (let i = 0; i < 1; i++) { [i = 0] = a; o[i] = 1; }",
+        "const o: any = {}; const a: any = {}; for (let i = 0; i < 1; i++) { ({ k: i } = a); o[i] = 1; }",
+        // an initializer not numeric by its form
+        "const o: any = {}; const s: any = 0; for (let i = s; i < 1; i++) o[i] = 1;",
+        // a closure writes it
+        "const o: any = {}; const s: any = 0; for (let i = 0; i < 1; i++) { const f = () => { i = s; }; f(); o[i] = 1; }",
+        // the key is another binding of the same name
+        "const o: any = {}; const s: any = 0; for (let i = 0; i < 1; i++) { { let i = s; o[i] = 1; } }",
+        "const o: any = {}; let i: any = 0; for (let j = 0; j < 1; j++) {} o[i] = 1;",
+        // a `+` with a string operand, `&&` and `||` stay unfolded
+        "const o: any = {}; const k: any = 1; o[k + 1] = 1;",
+        "const xs = [1]; for (let i = 0; i < 1; i++) xs[i || 0] = 1;",
     ] {
         assert!(why(src).is_some(), "closed: {src}");
     }

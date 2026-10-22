@@ -88,3 +88,40 @@ fn expr_assigns(ast: &Ast, e: ExprId, name: &str) -> bool {
             .any(|c| expr_assigns(ast, c, name)),
     }
 }
+
+/// The sites in `parts` that reference `name` with no frame inside
+/// them binding it, or `None` when a lifted closure among them captures
+/// `name`: that closure's body lies elsewhere in the arena and may
+/// read or write the binding out of the caller's sight.
+pub(crate) fn unbound_sites(ast: &Ast, parts: &[&Stmt], name: &str) -> Option<Vec<ExprId>> {
+    struct Sites<'a> {
+        name: &'a str,
+        out: Vec<ExprId>,
+        captured: bool,
+    }
+    impl FreeSink for Sites<'_> {
+        fn free(&mut self, name: &str, site: Option<ExprId>, _bound: &[String]) {
+            if name != self.name {
+                return;
+            }
+            match site {
+                Some(site) => self.out.push(site),
+                None => self.captured = true,
+            }
+        }
+    }
+    let rebound = [name.to_string()];
+    let mut sites = Sites {
+        name,
+        out: Vec::new(),
+        captured: false,
+    };
+    for s in parts {
+        let mut bound = Bound {
+            names: Vec::new(),
+            rebound_globals: &rebound,
+        };
+        walk_stmt(ast, s, &mut bound, &mut sites);
+    }
+    (!sites.captured).then_some(sites.out)
+}

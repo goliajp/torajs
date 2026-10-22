@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 
+use super::counters::Counters;
 use super::forms::{
     builtin_global, danger_member, danger_string, global_member, helper_defines_nothing,
     ident_opens,
@@ -20,6 +21,7 @@ pub(super) fn expr_opening(
     eid: ExprId,
     e: &Expr,
     vetted: &HashSet<ExprId>,
+    counters: &Counters,
     types: Option<&HashMap<ExprId, Type>>,
 ) -> Option<Opening> {
     match e {
@@ -28,9 +30,11 @@ pub(super) fn expr_opening(
         Expr::Member { obj, name } | Expr::OptChain { obj, name } => {
             member_opening(ast, *obj, name)
         }
-        Expr::Index { index, .. } | Expr::OptIndex { index, .. } => key_opening(ast, *index),
+        Expr::Index { index, .. } | Expr::OptIndex { index, .. } => {
+            key_opening(ast, *index, counters)
+        }
         Expr::Call { callee, args } | Expr::OptCall { callee, args } => {
-            call_opening(ast, *callee, args)
+            call_opening(ast, *callee, args, counters)
         }
         Expr::Assign { target, .. } | Expr::PostIncr { target, .. } => write_opening(ast, *target),
         Expr::ObjectLit { fields } => fields

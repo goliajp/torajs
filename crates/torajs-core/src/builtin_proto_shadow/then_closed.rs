@@ -10,11 +10,13 @@
 //! put a `then` on an object, and "open" for anything it does not
 //! recognise. A program is closed when
 //! - every property key it writes, defines or reads under a computed
-//!   name is spelled: a literal, or literals the walk folds into one
-//!   (`"a" + "b"`, `-1`), and none of them is `then` or a key that
-//!   reaches %Object.prototype%'s `__proto__` accessor or its Annex B
-//!   definers (B.2.2). A key's type does not count: an `as` or an `any`
-//!   puts a string built at run time under any type;
+//!   name is spelled: a literal, literals the walk folds into one
+//!   (`"a" + "b"`, `-1`), a loop counter only numbers reach, or an
+//!   operator that never answers a string (`i - 1`), and none of them
+//!   is `then` or a key that reaches %Object.prototype%'s `__proto__`
+//!   accessor or its Annex B definers (B.2.2). A key's type does not
+//!   count: an `as` or an `any` puts a string built at run time under
+//!   any type;
 //! - it spells no `then` at all: no string `"then"`, no binding,
 //!   function, class member or export of that name, no write to a
 //!   member named `then` (reading one, as `p.then(f)` does, is fine);
@@ -50,6 +52,7 @@ use std::collections::HashMap;
 use crate::ast::{Ast, ExprId};
 use crate::check::Type;
 
+mod counters;
 mod exprs;
 mod forms;
 mod keys;
@@ -93,9 +96,10 @@ pub(crate) fn then_opening(ast: &Ast, types: Option<&HashMap<ExprId, Type>>) -> 
         return open("with or dynamic import", "");
     }
     let vetted = forms::vetted_roots(ast);
+    let counters = counters::Counters::new(ast);
     for (i, e) in ast.exprs.iter().enumerate() {
         let eid = ExprId(i as u32);
-        if let Some(o) = exprs::expr_opening(ast, eid, e, &vetted, types) {
+        if let Some(o) = exprs::expr_opening(ast, eid, e, &vetted, &counters, types) {
             return Some(o);
         }
     }
