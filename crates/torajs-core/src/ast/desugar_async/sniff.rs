@@ -18,7 +18,14 @@
 
 use super::super::{Ast, Stmt, body_always_terminates, infer_return_ann};
 
-pub(super) fn sniffed_inner(ast: &Ast, body: &[Stmt]) -> Option<String> {
+/// The written return type, else the sniffed primitive, else `any`.
+pub(super) fn declared_or_sniffed(ast: &Ast, written: Option<String>, body: &[Stmt]) -> String {
+    written
+        .or_else(|| sniffed_inner(ast, body))
+        .unwrap_or_else(|| "any".into())
+}
+
+fn sniffed_inner(ast: &Ast, body: &[Stmt]) -> Option<String> {
     if !body_always_terminates(body) {
         return None;
     }
