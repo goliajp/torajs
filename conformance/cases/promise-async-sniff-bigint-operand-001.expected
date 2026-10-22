@@ -1,0 +1,9 @@
+sync sub bigint 5n
+sync sub number 5
+scaled number 6
+scaled bigint true
+then sub bigint 3n
+then neg bigint -5n
+then sub number number 3
+await sub bigint 8n
+await neg number number -4

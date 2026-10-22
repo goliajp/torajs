@@ -271,6 +271,7 @@ pub(crate) fn infer_expr_ann_with(
         } => match recur(*expr) {
             Some(t) if t == "bigint" => Some("bigint".into()),
             Some(t) if unnameable_arith_operand(&t) => None,
+            None => None,
             _ => Some("number".into()),
         },
         Expr::Unary { .. } => Some("number".into()),

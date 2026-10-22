@@ -74,6 +74,12 @@ pub(crate) fn binop_ann(
             (Some(l), Some(r)) if unnameable_arith_operand(&l) || unnameable_arith_operand(&r) => {
                 None
             }
+            // an operand the sniff cannot name (`x.a` on `x: any`) may
+            // be a BigInt as much as an `any` one; beside a number, a
+            // string or a boolean it answers a Number or throws, since
+            // a BigInt does not mix (§13.15.3)
+            (Some(k), None) | (None, Some(k)) if never_bigint(&k) => Some("number".into()),
+            (None, _) | (_, None) => None,
             _ => Some("number".into()),
         },
         // `+`: string-propagates / num+num=num / TypeVar+num=`any` (else Void).
@@ -87,4 +93,9 @@ pub(crate) fn binop_ann(
             }
         }
     }
+}
+
+/// A value whose numeric conversion is never a BigInt.
+fn never_bigint(ann: &str) -> bool {
+    matches!(ann, "number" | "string" | "boolean")
 }
