@@ -3,12 +3,14 @@
 use torajs_core::ssa::{InstKind, Module};
 
 pub(super) mod promise_drop;
+pub(super) mod promise_then;
 pub(super) mod str_append_substr;
 
 use super::arr_push::ArrPush;
 use super::substr_drop::SubstrDrop;
 use super::{CellOps, StrAppendLit};
 use promise_drop::PromiseDrop;
+use promise_then::PromiseThen;
 use str_append_substr::StrAppendSubstr;
 
 /// The intrinsics whose calls `compile` opens inline: an inline arm
@@ -29,6 +31,8 @@ pub struct InlineSites {
     pub(crate) arr_push: Option<ArrPush>,
     /// Typed promise release ([`PromiseDrop`]).
     pub(crate) promise_drop: Option<PromiseDrop>,
+    /// Plain-handler `then` on a pending source ([`PromiseThen`]).
+    pub(crate) promise_then: Option<PromiseThen>,
 }
 
 impl InlineSites {
@@ -40,6 +44,7 @@ impl InlineSites {
             substr_drop: SubstrDrop::of_module(module),
             arr_push: ArrPush::of_module(module),
             promise_drop: PromiseDrop::of_module(module),
+            promise_then: PromiseThen::of_module(module),
         }
     }
 
@@ -59,14 +64,16 @@ impl InlineSites {
             || self.substr_drop.is_some_and(|d| d.matches(kind))
             || self.arr_push.is_some_and(|p| p.matches(kind))
             || self.promise_drop.is_some_and(|d| d.matches(kind))
+            || self.promise_then.is_some_and(|t| t.matches(kind))
     }
 }
 
 /// Open an inline site at a call that saves `saves` around it: a cell
 /// allocation or free served by the thread cache, an append that lands
 /// in the accumulator's slack (a short literal or a substring), a push
-/// into spare capacity, a substring or promise release that only takes
-/// a count off. Each arm stores and reloads `saves` on its own slow path.
+/// into spare capacity, a `then` on a pending promise, a substring or
+/// promise release that only takes a count off. Each arm stores and
+/// reloads `saves` on its own slow path.
 pub(super) fn try_emit_saved(
     bytes: &mut Vec<u8>,
     relocs: &mut Vec<crate::reloc::Reloc>,
@@ -90,6 +97,7 @@ pub(super) fn try_emit_saved(
         || sites
             .substr_drop
             .is_some_and(|op| super::substr_drop::try_emit(bytes, relocs, inst, alloc, saves, op))
+        || promise_then::try_emit(bytes, relocs, inst, alloc, saves, facts)
         || sites
             .promise_drop
             .is_some_and(|op| promise_drop::try_emit(bytes, relocs, inst, alloc, saves, op))

@@ -192,6 +192,7 @@ pub(crate) const COMPILER_SOURCE_FILES: &[&str] = &[
     // torajs-codegen call sites opened inline
     "../torajs-codegen/src/compile/str_append.rs",
     "../torajs-codegen/src/compile/inline_sites/promise_drop.rs",
+    "../torajs-codegen/src/compile/inline_sites/promise_then.rs",
     // the cell layout and literal encoding it stores, and the seeds it starts from
     "../torajs-str/src/layout.rs",
     "../torajs-str/src/concat_lit.rs",

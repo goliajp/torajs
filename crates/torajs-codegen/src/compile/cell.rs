@@ -25,7 +25,7 @@ use crate::reloc::{CallTarget, Reloc, RelocKind};
 /// size class, a `{head, len}` stack of free blocks linked through
 /// the blocks, which every sized allocation pops first and every
 /// sized free pushes first.
-const TLAB_SYM: &str = "___torajs_core_tlab";
+pub(super) const TLAB_SYM: &str = "___torajs_core_tlab";
 const ALLOC_NAME: &str = "__torajs_obj_alloc";
 const FREE_NAME: &str = "__torajs_obj_drop_sized";
 
