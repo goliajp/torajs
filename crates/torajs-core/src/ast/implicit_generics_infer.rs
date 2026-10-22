@@ -48,7 +48,8 @@ pub(crate) type AstExprsView<'a> = &'a [Expr];
 /// Beyond literals + boolean-result ops, the helper does a one-pass
 /// scan over let-decl bodies to populate a binding → annotation map
 /// (so `let x = 3; ... return x + 1;` infers `x: number` and bubbles
-/// `number` out as the return). Lookups that fall off the simple-
+/// `number` out as the return; `let_binds` says how a shadowing
+/// declaration is read). Lookups that fall off the simple-
 /// shape grammar (Member / Call / Index / object literal / etc.) bail
 /// to None — the typechecker still owns the deeper analysis.
 pub(crate) fn infer_return_ann(
@@ -72,7 +73,7 @@ pub(crate) fn infer_return_ann(
 /// sniff. The pre-T-19.p path passed only the body's params + body
 /// let-decls — captured idents had no entry in binds and the sniff
 /// bailed to None. Idempotent: explicit body-local lets shadow the
-/// outer seed via collect_let_binding_anns running afterwards.
+/// outer seed via `let_binds::collect` running afterwards.
 pub(crate) fn infer_return_ann_seeded(
     exprs: AstExprsView,
     body: &[Stmt],
@@ -86,7 +87,7 @@ pub(crate) fn infer_return_ann_seeded(
             binds.insert(p.name.clone(), ann.clone());
         }
     }
-    let_binds::collect_let_binding_anns(exprs, body, &mut binds, fn_sigs);
+    let_binds::collect(exprs, body, &mut binds, fn_sigs);
     super::implicit_generics_infer_rebind::drop_rebound(exprs, body, &mut binds, fn_sigs);
     let mut acc: Option<String> = None;
     if !collect_return_anns(exprs, body, &binds, fn_sigs, &mut acc) {

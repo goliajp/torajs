@@ -1,87 +1,127 @@
 //! The binding → annotation map the return sniff reads.
+//!
+//! The map is flat, one entry per name, while `let` and `const` are
+//! block scoped: in `let n = 3; { let n = x; return n; }` the return
+//! reads the inner `n`. So a name keeps its entry only while every
+//! declaration of it the body makes names the same type — counting a
+//! declaration in a nested statement over a name the caller seeded (a
+//! parameter, a capture) — and a declaration whose initializer the
+//! sniff cannot name drops the name for the rest of the body.
+
+use std::collections::{HashMap, HashSet};
 
 use super::{AstExprsView, binds_to_params, infer_expr_ann_with};
-use crate::ast::{Param, Stmt};
+use crate::ast::Stmt;
 
-/// Walk `body` and for each `let x = INIT;` whose `INIT` we can
-/// statically annotate, register `x → ann` in `binds`. Inner
-/// FnDecls / nested classes etc. are skipped — we only care about
-/// the immediate fn's binding scope. Idempotent over re-runs since
-/// later let-decls in the same scope shadow earlier ones.
-pub(super) fn collect_let_binding_anns(
+/// Register in `binds` each binding `body` declares, as above.
+pub(super) fn collect(
     exprs: AstExprsView,
     body: &[Stmt],
-    binds: &mut std::collections::HashMap<String, String>,
-    fn_sigs: &std::collections::HashMap<String, String>,
+    binds: &mut HashMap<String, String>,
+    fn_sigs: &HashMap<String, String>,
 ) {
+    let mut scan = Scan {
+        exprs,
+        fn_sigs,
+        declared: HashSet::new(),
+        dropped: HashSet::new(),
+    };
     for s in body {
-        collect_let_binding_anns_stmt(exprs, s, binds, fn_sigs);
+        scan.stmt(s, 0, binds);
     }
 }
 
-fn collect_let_binding_anns_stmt(
-    exprs: AstExprsView,
-    s: &Stmt,
-    binds: &mut std::collections::HashMap<String, String>,
-    fn_sigs: &std::collections::HashMap<String, String>,
-) {
-    match s {
-        Stmt::LetDecl {
-            name,
-            type_ann,
-            init,
-            ..
-        } => {
-            // Explicit annotation wins.
-            if let Some(ann) = type_ann {
-                binds.insert(name.clone(), ann.clone());
-                return;
+struct Scan<'a> {
+    exprs: AstExprsView<'a>,
+    fn_sigs: &'a HashMap<String, String>,
+    /// the names a declaration of `body` has bound so far
+    declared: HashSet<String>,
+    /// the names whose declarations disagree or resist the sniff
+    dropped: HashSet<String>,
+}
+
+impl Scan<'_> {
+    /// `depth` counts the statements `s` sits in below the body.
+    fn stmt(&mut self, s: &Stmt, depth: u32, binds: &mut HashMap<String, String>) {
+        match s {
+            Stmt::LetDecl {
+                name,
+                type_ann,
+                init,
+                ..
+            } => self.declare(name, type_ann.as_ref(), *init, depth, binds),
+            Stmt::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                self.stmt(then_branch, depth + 1, binds);
+                if let Some(eb) = else_branch {
+                    self.stmt(eb, depth + 1, binds);
+                }
             }
-            // Else infer from init shape — using the binds map we've
-            // built up to here, so `let x = 3; let y = x + 1;` chains
-            // correctly.
-            let bs: Vec<Param> = binds_to_params(binds);
-            if let Some(ann) = infer_expr_ann_with(exprs, *init, &bs, binds, fn_sigs) {
-                binds.insert(name.clone(), ann);
+            Stmt::While { body, .. } | Stmt::DoWhile { body, .. } | Stmt::Labeled { body, .. } => {
+                self.stmt(body, depth + 1, binds)
+            }
+            Stmt::For { init, body, .. } => {
+                if let Some(i) = init {
+                    self.stmt(i, depth + 1, binds);
+                }
+                self.stmt(body, depth + 1, binds);
+            }
+            Stmt::Block(stmts) | Stmt::Multi(stmts) => {
+                let depth = if matches!(s, Stmt::Block(_)) {
+                    depth + 1
+                } else {
+                    depth
+                };
+                for s in stmts {
+                    self.stmt(s, depth, binds);
+                }
+            }
+            Stmt::Try {
+                body,
+                catch_body,
+                finally_body,
+                ..
+            } => {
+                let blocks = [Some(body), Some(catch_body), finally_body.as_ref()];
+                for s in blocks.into_iter().flatten().flatten() {
+                    self.stmt(s, depth + 1, binds);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn declare(
+        &mut self,
+        name: &str,
+        written: Option<&String>,
+        init: crate::ast::ExprId,
+        depth: u32,
+        binds: &mut HashMap<String, String>,
+    ) {
+        if self.dropped.contains(name) {
+            return;
+        }
+        // an explicit annotation wins; else the initializer's shape, read
+        // with the bindings registered so far (`let x = 3; let y = x + 1`)
+        let ann = written.cloned().or_else(|| {
+            let params = binds_to_params(binds);
+            infer_expr_ann_with(self.exprs, init, &params, binds, self.fn_sigs)
+        });
+        let prior = binds.get(name);
+        let shadows = self.declared.contains(name) || (depth > 0 && prior.is_some());
+        self.declared.insert(name.to_string());
+        match ann {
+            Some(a) if !shadows || prior == Some(&a) => {
+                binds.insert(name.to_string(), a);
+            }
+            _ => {
+                binds.remove(name);
+                self.dropped.insert(name.to_string());
             }
         }
-        Stmt::If {
-            then_branch,
-            else_branch,
-            ..
-        } => {
-            collect_let_binding_anns_stmt(exprs, then_branch, binds, fn_sigs);
-            if let Some(eb) = else_branch {
-                collect_let_binding_anns_stmt(exprs, eb, binds, fn_sigs);
-            }
-        }
-        Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
-            collect_let_binding_anns_stmt(exprs, body, binds, fn_sigs);
-        }
-        Stmt::Labeled { body, .. } => {
-            collect_let_binding_anns_stmt(exprs, body, binds, fn_sigs);
-        }
-        Stmt::For { init, body, .. } => {
-            if let Some(i) = init {
-                collect_let_binding_anns_stmt(exprs, i, binds, fn_sigs);
-            }
-            collect_let_binding_anns_stmt(exprs, body, binds, fn_sigs);
-        }
-        Stmt::Block(stmts) | Stmt::Multi(stmts) => {
-            collect_let_binding_anns(exprs, stmts, binds, fn_sigs);
-        }
-        Stmt::Try {
-            body,
-            catch_body,
-            finally_body,
-            ..
-        } => {
-            collect_let_binding_anns(exprs, body, binds, fn_sigs);
-            collect_let_binding_anns(exprs, catch_body, binds, fn_sigs);
-            if let Some(fb) = finally_body {
-                collect_let_binding_anns(exprs, fb, binds, fn_sigs);
-            }
-        }
-        _ => {}
     }
 }

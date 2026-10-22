@@ -55,9 +55,12 @@ pub(super) fn drop_rebound(
 }
 
 /// Drop every `number` / `string` / `boolean` binding of `body` whose
-/// initializer reads an `any` value or casts to `any`: the binding holds
-/// that value as is (`check_stmt_let_decl::any_scalar_slot`), so its
-/// annotation says nothing about what a return of it answers.
+/// initializer does not sniff to that same type: an initializer that
+/// reads an `any` value (`x`, `await Promise.resolve(x)`, `x as any`)
+/// leaves the binding holding that value as is
+/// (`check_stmt_let_decl::any_scalar_slot`), so only an initializer
+/// shown to be of the annotated type lets the annotation say what a
+/// return of it answers.
 fn drop_held(
     exprs: AstExprsView,
     body: &[Stmt],
@@ -75,15 +78,7 @@ fn drop_held(
             ..
         } = s
             && matches!(ann.as_str(), "number" | "string" | "boolean")
-            && matches!(
-                &exprs[init.0 as usize],
-                Expr::Ident(_)
-                    | Expr::Index { .. }
-                    | Expr::Member { .. }
-                    | Expr::Ternary { .. }
-                    | Expr::As { .. }
-            )
-            && infer_expr_ann_with(exprs, *init, &params, binds, fn_sigs).as_deref() == Some("any")
+            && infer_expr_ann_with(exprs, *init, &params, binds, fn_sigs).as_ref() != Some(ann)
         {
             held.push(name.clone());
         }
