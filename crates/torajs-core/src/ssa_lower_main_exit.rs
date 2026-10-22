@@ -59,10 +59,11 @@ pub(crate) fn emit_exit_code(ctx: &mut LowerCtx) -> crate::ssa::ValueId {
 }
 
 /// Leave the process with `exit_code`: `call __torajs_process_exit`
-/// (flush stdout and stderr, census lines under cfg, the exit syscall). It
-/// never returns; the `ret` after it only closes the block. Every way
-/// out of the top level ends here: the fall-through end of `main`,
-/// the uncaught throw, and `process.exit(n)` itself.
+/// (flush stdout and stderr, census lines under cfg, the exit syscall).
+/// It never returns, so the block ends in `unreachable`: a `ret` there
+/// would be dead code that still costs an epilogue at every exit site.
+/// Every way out of the top level ends here: the fall-through end of
+/// `main`, the uncaught throw, and `process.exit(n)` itself.
 pub(crate) fn emit_exit(ctx: &mut LowerCtx, exit_code: crate::ssa::ValueId) {
     let wide = ctx.f.append_inst(
         ctx.cur_block,
@@ -75,8 +76,7 @@ pub(crate) fn emit_exit(ctx: &mut LowerCtx, exit_code: crate::ssa::ValueId) {
         InstKind::Call(ctx.intrinsics.process_exit, vec![Operand::Value(wide)]),
     );
     let cb = ctx.cur_block;
-    ctx.f
-        .set_term(cb, Terminator::Ret(Some(Operand::Value(exit_code))));
+    ctx.f.set_term(cb, Terminator::Unreachable);
 }
 
 /// r505 (A12) — release the class object / prototype cells at exit
