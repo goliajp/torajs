@@ -192,6 +192,8 @@ fn slot_agrees(a: &Type, f: &Type) -> bool {
         // an optional callback param (`i?: number`) takes every value
         // the formal passes
         (Type::Nullable(inner), _) => slot_agrees(inner, f),
+        // a union parameter takes the formal's value when one member does
+        (Type::Union(members), _) => members.iter().any(|m| slot_agrees(m, f)),
         (Type::Map(ak, av), Type::Map(fk, fv)) => slot_agrees(ak, fk) && slot_agrees(av, fv),
         (Type::MapIter(ai), Type::MapIter(fi)) => slot_agrees(ai, fi),
         // parameters are contravariant: a callback declaring a wider
