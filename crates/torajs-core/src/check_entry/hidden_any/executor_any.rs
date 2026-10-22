@@ -115,8 +115,23 @@ fn any_settle(t: Option<&Type>) -> bool {
 
 /// Read each call in `calls` as `Promise<any>`: the call moves to a new
 /// id under an `as Promise<any>`, which converts nothing (an assertion
-/// hands the value on as it is).
+/// hands the value on as it is). A binding the call initializes is
+/// annotated `Promise<any>` too: a top-level one a function body reads
+/// takes its home from its annotation, and an assertion gives it none.
 pub(super) fn retype(r: &mut Ast, calls: &HashSet<ExprId>) {
+    let mut stack: Vec<&mut Stmt> = r.stmts.iter_mut().collect();
+    while let Some(s) = stack.pop() {
+        if let Stmt::LetDecl {
+            init,
+            type_ann: ann @ None,
+            ..
+        } = s
+            && calls.contains(init)
+        {
+            *ann = Some("Promise<any>".to_string());
+        }
+        crate::ast_closure_param_tag_retag::push_child_stmts_mut(s, &mut stack);
+    }
     for c in calls {
         let call = r.exprs[c.0 as usize].clone();
         let span = r.expr_spans[c.0 as usize];
