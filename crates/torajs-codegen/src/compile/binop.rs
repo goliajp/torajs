@@ -237,6 +237,13 @@ pub fn emit_binop(
 
             let d0 = aapcs64::FP_ARG_RET[0];
             let d1 = aapcs64::FP_ARG_RET[1];
+            // a parameter last read here may still be in d0: move it out first
+            let rhs_reg = if rhs_reg == d0 && lhs_reg != d0 {
+                write_u32(bytes, mov_d_reg(FP_SCRATCH_RHS, d0));
+                FP_SCRATCH_RHS
+            } else {
+                rhs_reg
+            };
             if lhs_reg != d0 {
                 write_u32(bytes, mov_d_reg(d0, lhs_reg));
             }

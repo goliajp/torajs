@@ -114,7 +114,7 @@ fn ranges_skip_the_arm_where_the_value_is_dead() {
     assert_eq!(r.of(1), &[(1, 3), (10, 10)]);
     assert_eq!(r.of(2), &[(5, 6)]);
     // a param keeps its hull
-    assert_eq!(r.of(0), &[(0, 13)]);
+    assert_eq!(r.of(0), &[(0, 3)]);
     assert!(!LiveRanges::intersect(r.of(1), r.of(2)));
     // y4 is written by the instruction that reads v1 for the last time
     assert_eq!(r.of(4), &[(11, 12)]);

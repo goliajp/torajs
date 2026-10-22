@@ -68,12 +68,16 @@
 //! invariants (param-derived loads, alloca-addr loads) back over
 //! the body.
 //!
-//! Param ValueIds get the same treatment via the carve-out below —
-//! AAPCS64-arg ValueIds are not stored back to SSA `Store/Load`
-//! pairs in every shape (some lowers consume them in place), so
-//! pinning `func.params` to `[def, function_end]` covers the case
-//! the fix-point can't see (an arg used only after the loop body
-//! still needs to survive its `cset` clobber).
+//! Params need no carve-out: every read of one is an SSA operand, and
+//! a param, defined by no block, is live-in at every block on a path
+//! from the entry to a read, so the fix-point carries it over a loop
+//! that reads it. A param read last before the first call therefore
+//! ends there and keeps its argument register instead of taking a
+//! callee-saved one. The reads that are not operands all happen while
+//! the param is still in its argument register: the cluster entry's
+//! x27 / x28 loads right after the prologue, and the frameless blocks
+//! ahead of a shrink-wrap save point, which `shrink_wrap` keeps from
+//! writing a relocated param's register.
 
 use torajs_core::ssa::id_hash::HashMap;
 
@@ -190,17 +194,11 @@ pub fn compute_liveness(func: &Function) -> (HashMap<u32, Interval>, BlockLivene
     // live interval covering every block where it stays live.
     // See module docs for the full algorithm.
     let blocks = compute_block_liveness(func);
-    extend_intervals_loop_aware(&blocks, &mut out);
+    extend_intervals_loop_aware(&blocks, &mut out, &func.params);
 
-    // Alloca-result + function-param carve-out — see module docs.
-    // Pure data-flow can't always see params (some lowers don't
-    // store-and-reload them, so the param's textual last-use precedes
-    // the loop body that consumes a reloaded copy), so pin both
-    // classes to `[def, last_idx]` regardless.
-    for v in alloca_results
-        .into_iter()
-        .chain(func.params.iter().map(|p| p.0))
-    {
+    // Alloca-result carve-out: a slot address is pinned to
+    // `[def, last_idx]` regardless of its reads.
+    for v in alloca_results {
         if let Some(it) = out[v as usize].as_mut()
             && last_idx > it.end
         {
@@ -226,16 +224,35 @@ pub fn compute_liveness(func: &Function) -> (HashMap<u32, Interval>, BlockLivene
 /// Before, not at: an interval starting at a call's slot means "this
 /// is the call's result", so a value live into a block that opens with
 /// a call would not count as crossing it.
-fn extend_intervals_loop_aware(blocks: &BlockLiveness, out: &mut [Option<Interval>]) {
+///
+/// A param already starts at 0 and its `end` already reaches its last
+/// read anywhere, so a block it is live into but not out of adds
+/// nothing: it dies at its last read there, not at the block's end.
+/// A param keeps the hull as its only range, so the slack would make
+/// it cross a call that follows that read in the same block.
+fn extend_intervals_loop_aware(
+    blocks: &BlockLiveness,
+    out: &mut [Option<Interval>],
+    params: &[ValueId],
+) {
+    let mut is_param = vec![false; out.len()];
+    for p in params {
+        is_param[p.0 as usize] = true;
+    }
     for b in 0..blocks.start.len() {
         let start = blocks.start[b].saturating_sub(1);
         let end = blocks.end[b];
-        let ins = blocks.live_in[b].iter().map(|v| (v, start));
-        let outs = blocks.live_out[b].iter().map(|v| (v, u32::MAX));
-        for (v, from) in ins.chain(outs) {
+        for v in blocks.live_in[b].iter() {
+            if let Some(it) = out[v as usize].as_mut() {
+                it.start = it.start.min(start);
+                if !is_param[v as usize] {
+                    it.end = it.end.max(end);
+                }
+            }
+        }
+        for v in blocks.live_out[b].iter() {
             if let Some(it) = out[v as usize].as_mut() {
                 it.end = it.end.max(end);
-                it.start = it.start.min(from);
             }
         }
     }
@@ -376,6 +393,7 @@ pub(crate) fn visit_terminator_operands(term: &Terminator, mut f: impl FnMut(Val
 #[cfg(test)]
 mod tests {
     mod dead_def;
+    mod params;
 
     use super::*;
     use torajs_core::ssa::{
@@ -786,13 +804,9 @@ mod tests {
             current_origin: None,
         };
         let ivs = compute_intervals(&func);
-        // a and b are function params — the carve-out pins them to
-        // the whole function so a loop-body load after a backedge
-        // can't read from a register the linear walk thought was
-        // free (see module docs). Last idx = 1 here (1 inst slot +
-        // 1 terminator slot, terminator owns slot 1).
-        assert_eq!(ivs[&0], Interval { start: 0, end: 1 });
-        assert_eq!(ivs[&1], Interval { start: 0, end: 1 });
+        // a and b are params read last by the call at slot 0
+        assert_eq!(ivs[&0], Interval { start: 0, end: 0 });
+        assert_eq!(ivs[&1], Interval { start: 0, end: 0 });
         // c def at slot 0, used by Ret at slot 1.
         assert_eq!(ivs[&2], Interval { start: 0, end: 1 });
     }

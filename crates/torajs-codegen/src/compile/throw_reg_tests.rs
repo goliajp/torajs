@@ -324,11 +324,12 @@ fn zeroes_after_take(w: &[u32], relocs: &[Reloc]) -> bool {
 
 /// `r = thrower(1)`, its throw edge a block of coalesced copies into
 /// a catch that takes: the branch lands past that block, so x21 is
-/// zeroed after the take instead.
+/// zeroed after the take instead. `x`, read after the take, takes a
+/// callee-saved register, and the copy shares one with its source.
 fn hollow_catcher() -> Function {
     let mut f = Function::new("hollow_catcher", Type::I64);
     let b = f.add_block();
-    f.add_param(Type::I64, "x");
+    let x = f.add_param(Type::I64, "x");
     let r = call(&mut f, b, THROWER);
     let (caught, catch, cont) = (f.add_block(), f.add_block(), f.add_block());
     probe(&mut f, b, caught, cont);
@@ -340,6 +341,8 @@ fn hollow_catcher() -> Function {
     );
     f.set_term(caught, Terminator::Br(catch));
     f.append_inst(catch, InstKind::Call(TAKE, Vec::new()), Type::I64, None);
+    let keep = InstKind::BinOp(BinOp::Add, Operand::Value(x), Operand::ConstI64(0));
+    f.append_inst(catch, keep, Type::I64, None);
     f.set_term(catch, Terminator::Ret(Some(Operand::Value(j))));
     f.set_term(cont, Terminator::Ret(Some(Operand::Value(r))));
     f
