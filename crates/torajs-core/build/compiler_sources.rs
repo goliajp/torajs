@@ -217,4 +217,7 @@ pub(crate) const COMPILER_SOURCE_FILES: &[&str] = &[
     "src/ssa_lower_emit_throw_check/path.rs",
     "src/ssa_lower_stmt_throw.rs",
     "src/ssa_lower_intrinsics_runtime_misc.rs",
+    // the for-of closes under a pending throw
+    "src/ssa_lower_for_of_teardown.rs",
+    "src/ssa_lower_intrinsics_iterator.rs",
 ];

@@ -606,6 +606,8 @@ pub(crate) fn build(
         any_iter_next_array_like: init_c.any_substrate.any_iter_next_array_like,
         any_iter_close: init_c.any_substrate.any_iter_close,
         iter_close_value: init_c.any_substrate.iter_close_value,
+        any_iter_close_abrupt: init_c.iterator.any_iter_close_abrupt,
+        iter_close_abrupt: init_c.iterator.iter_close_abrupt,
         any_call: init_c.any_substrate.any_call,
         accessor_face_from_any: init_c.any_substrate.accessor_face_from_any,
         closure_call_variadic: init_c.any_substrate.closure_call_variadic,

@@ -66,7 +66,8 @@ unsafe fn with_pending_throw_stashed(close: impl FnOnce()) {
 /// `__torajs_iter_close_abrupt(iter)` — §7.4.9 IteratorClose under
 /// an ABRUPT completion, exported for the promise combinators'
 /// §27.2.4.1 step 8.a (`then` GET/INVOKE threw mid-iteration → close
-/// the iterator, original throw wins). The extern face of
+/// the iterator, original throw wins) and for a typed for-of a throw
+/// leaves (§14.7.5.7 step 5.k). The extern face of
 /// [`iter_close_under_pending_throw`]; the iterator reference stays
 /// the caller's.
 ///
@@ -75,6 +76,17 @@ unsafe fn with_pending_throw_stashed(close: impl FnOnce()) {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_iter_close_abrupt(iter: AnyValue) {
     unsafe { iter_close_under_pending_throw(iter) }
+}
+
+/// `__torajs_any_iter_close_abrupt(recv, iter_slot)` — the slot-shaped
+/// twin of [`__torajs_iter_close_abrupt`], for a for-of a throw leaves
+/// (§14.7.5.7 step 5.k / 5.m: the original throw wins over the close).
+///
+/// # Safety
+/// Same contract as [`__torajs_any_iter_close`]; a throw is pending.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_any_iter_close_abrupt(recv: AnyValue, iter_slot: *mut AnyValue) {
+    unsafe { any_iter_close_under_pending_throw(recv, iter_slot) }
 }
 
 /// `__torajs_any_iter_close(recv, iter_slot)` — ES §7.4.9

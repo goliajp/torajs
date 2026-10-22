@@ -24,6 +24,10 @@ pub(crate) struct IteratorIds {
     pub dstr_park_pending: FuncId,
     pub dstr_drain_rest: FuncId,
     pub dstr_step_one: FuncId,
+    /// The two for-of closes under a pending throw, which they set aside
+    /// and put back (§7.4.9 IteratorClose: the original completion wins).
+    pub any_iter_close_abrupt: FuncId,
+    pub iter_close_abrupt: FuncId,
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> IteratorIds {
@@ -124,6 +128,21 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             "__torajs_dstr_step_one",
             &[Type::Any, Type::Any, Type::Ptr],
             Type::Any,
+        ),
+        // (recv, iterator park slot) → void
+        any_iter_close_abrupt: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_any_iter_close_abrupt",
+            &[Type::Any, Type::Ptr],
+            Type::Void,
+        ),
+        iter_close_abrupt: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_iter_close_abrupt",
+            &[Type::Any],
+            Type::Void,
         ),
     }
 }
