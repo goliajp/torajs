@@ -10,7 +10,8 @@
 //!
 //! A `p` whose `then` the program may have replaced takes the call: a
 //! cell with an own property bag does at run time (the own-`then`
-//! probe of `ssa_lower_promise_chain_own_then`); a call the any-method
+//! probe of `ssa_lower_promise_chain_own_then`, skipped where its
+//! closure proof says no cell can carry one); a call the any-method
 //! lane claims (`ssa_lower_any_method_call::claims`: among others, a
 //! module that may write `then` on `Promise.prototype` or on
 //! `Object.prototype`, `builtin_proto_shadow`) and a module that may
@@ -124,7 +125,10 @@ fn lower_fused(ctx: &mut LowerCtx<'_>, fused: &Fused) -> Operand {
     let boxable = own_then::handler_forwarder(ctx, fused.handler).is_some();
     let slot = ctx.alloca_in_entry(fused.ret, Some("__thenv"));
     let join = ctx.f.add_block();
-    if boxable && !ctx.ast.synth_promise_static_calls.contains(&fused.recv) {
+    if boxable
+        && !ctx.ast.synth_promise_static_calls.contains(&fused.recv)
+        && !own_then::no_cell_overrides(ctx)
+    {
         let patched = ctx.f.add_block();
         let fast = ctx.f.add_block();
         let cb = ctx.cur_block;

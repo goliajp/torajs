@@ -145,7 +145,7 @@ pub(crate) fn lower_chain_with_own_then_probe(
 /// key that could spell them), and nothing program-wide redirects
 /// SpeciesConstructor: the bag a cell may still hold changes neither
 /// §27.2.5.1's Invoke nor §27.2.5.4 steps 3-4, so the probe is dead.
-fn no_cell_overrides(ctx: &LowerCtx<'_>) -> bool {
+pub(crate) fn no_cell_overrides(ctx: &LowerCtx<'_>) -> bool {
     !species_census_written(ctx) && ctx.scans.proto_shadow.then_closed(ctx.ast)
 }
 
