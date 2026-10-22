@@ -122,13 +122,12 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
     // whether the return register holds anything and what form.
     let p_ptr_repr = &[Type::Promise, Type::Ptr, Type::I64][..];
     let ptr1 = &[Type::Ptr][..];
-    // One trailing word the call site alone can supply, since SSA's
-    // `Type::Promise` erases the inner T: for `all` the element form
-    // its result array must hold, for `allSettled` the class tag its
-    // `{status, value}` records must carry.
-    let ptr_repr = &[Type::Ptr, Type::I64][..];
-    // `allSettled` needs a second: the class tags its records carry AND
-    // the form their value slot holds.
+    // Two trailing words the call site alone can supply, since SSA's
+    // `Type::Promise` erases the inner T: for `all` the element form its
+    // result array must hold and the whole-program proofs that let its
+    // kernel skip the own-`then` probe and the patch consult; for
+    // `allSettled` the class tags its records carry AND the form their
+    // value slot holds.
     let ptr_repr2 = &[Type::Ptr, Type::I64, Type::I64][..];
     let i641 = &[Type::I64][..];
     PromiseIds {
@@ -324,7 +323,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             module,
             fn_table,
             "__torajs_promise_all_sync",
-            ptr_repr,
+            ptr_repr2,
             Type::Promise,
         ),
         promise_race_sync: declare_intrinsic(

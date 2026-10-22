@@ -138,6 +138,21 @@ fn all_result_elem_repr(ctx: &mut LowerCtx<'_>, eid: ExprId) -> i64 {
         .unwrap_or(crate::ssa_lower_promise_repr_mark::REPR_ANY)
 }
 
+/// torajs-promise `combinator_all_sync::ALL_NO_OWN_THEN`: no object
+/// holds an own `then`, so no element's own-`then` probe can answer yes.
+const ALL_NO_OWN_THEN: i64 = 1;
+/// torajs-promise `combinator_all_sync::ALL_STATICS_PINNED`:
+/// `Promise.resolve` is pinned, so the patch consult cannot answer yes.
+const ALL_STATICS_PINNED: i64 = 2;
+
+/// What the whole program lets `Promise.all`'s sync kernel skip.
+fn all_proof_flags(ctx: &LowerCtx<'_>) -> i64 {
+    let shadow = &ctx.scans.proto_shadow;
+    let bit = |on: bool, b: i64| if on { b } else { 0 };
+    bit(shadow.then_closed(ctx.ast), ALL_NO_OWN_THEN)
+        | bit(shadow.promise_statics_pinned(ctx.ast), ALL_STATICS_PINNED)
+}
+
 /// Whether the checker settled this `Promise.all`'s result element on
 /// a nullable type. Read off the same per-expression side table
 /// `allsettled_record_tags` uses — the SSA element word is where the
@@ -224,12 +239,15 @@ fn lower_aggregate(ctx: &mut LowerCtx<'_>, eid: ExprId, method: &str, args: &[Ex
         "allSettled" => ctx.intrinsics.promise_allsettled_sync,
         _ => unreachable!(),
     };
-    // `all` and `allSettled` each need one word only the call site can
+    // `all` and `allSettled` each need words only the call site can
     // supply. race / any forward a single settled value, so the
     // awaiting site's own repr decode already covers them.
     let mut call_args = vec![arr_op];
     match method {
-        "all" => call_args.push(Operand::ConstI64(all_result_elem_repr(ctx, eid))),
+        "all" => {
+            call_args.push(Operand::ConstI64(all_result_elem_repr(ctx, eid)));
+            call_args.push(Operand::ConstI64(all_proof_flags(ctx)));
+        }
         "allSettled" => {
             call_args.push(Operand::ConstI64(allsettled_record_tags(ctx, eid)));
             call_args.push(Operand::ConstI64(allsettled_value_repr(ctx, eid)));

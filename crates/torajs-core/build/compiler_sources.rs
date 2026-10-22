@@ -51,6 +51,7 @@ pub(crate) const COMPILER_SOURCE_FILES: &[&str] = &[
     "src/ssa_lower_call_arr_ho_loop/methods.rs",
     "src/ssa_lower_intrinsics_arr_str_etc.rs",
     "src/ssa_lower_intrinsics_object.rs",
+    "src/ssa_lower_intrinsics_promise.rs",
     "src/ssa_lower_dynobj_init_computed.rs",
     "src/ssa_lower_dynobj_init.rs",
     "src/ssa_lower_intrinsics_subclass.rs",
@@ -198,6 +199,8 @@ pub(crate) const COMPILER_SOURCE_FILES: &[&str] = &[
     "../torajs-egraph/src/concat_num_fuse/stack.rs",
     // the Promise.resolve / reject mint and the proof that drops its probe
     "src/ssa_lower_call_promise_resolve.rs",
+    "src/ssa_lower_call_promise_static.rs",
+    "src/ssa_lower_call_promise_static/allsettled.rs",
     "src/ssa_lower_promise_repr_mark.rs",
     "src/builtin_proto_shadow/promise_pinned.rs",
     // the module body that awaits in place and the wrapper main

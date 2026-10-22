@@ -71,11 +71,38 @@ pub(crate) unsafe fn defer_on_then_override(
                 (!p.is_null()).then_some(p as *mut c_void)
             }
         };
-        let overridden =
-            (0..len).any(|i| cell_at(i).is_some_and(|c| __torajs_promise_then_overridden(c) != 0));
-        if !overridden {
-            return None;
-        }
+        let overridden = (0..len).any(|i| cell_at(i).is_some_and(|c| cell_overrides_then(c)));
+        overridden.then(|| defer_overridden(arr, mode, sync))
+    }
+}
+
+/// Does this cell's expando bag hold a `then`? A cell with no bag
+/// cannot, and that answer needs no call.
+///
+/// # Safety
+/// `cell` is a live Promise cell.
+#[inline(always)]
+pub(crate) unsafe fn cell_overrides_then(cell: *mut c_void) -> bool {
+    unsafe {
+        !(*crate::layout::as_promise(cell)).props.is_null()
+            && __torajs_promise_then_overridden(cell) != 0
+    }
+}
+
+/// Run `arr`, some element of which overrides `then`, through the
+/// interleaved lane (see [`defer_on_then_override`]).
+///
+/// # Safety
+/// As [`defer_on_then_override`].
+#[cold]
+pub(crate) unsafe fn defer_overridden(
+    arr: *mut c_void,
+    mode: u8,
+    sync: unsafe extern "C" fn(*mut c_void) -> *mut c_void,
+) -> *mut c_void {
+    unsafe {
+        let len = arr_len(arr);
+        let is_any = crate::combinator_any::arr_is_any(arr);
         // Owned transfer into an any-shape array: each slot takes its
         // own stake (`items_to_any_arr` moves the bits in as owned).
         let mut items: Vec<u64> = Vec::with_capacity(len as usize);
@@ -95,6 +122,6 @@ pub(crate) unsafe fn defer_on_then_override(
         let boxed = __torajs_anyv_box_from_pair(4, any_arr as i64);
         let out = crate::combinator_dyn::dyn_with_builtin_resolve(mode, boxed, sync);
         __torajs_value_drop_heap(any_arr);
-        Some(out)
+        out
     }
 }

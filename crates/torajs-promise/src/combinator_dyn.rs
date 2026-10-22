@@ -100,8 +100,9 @@ pub(crate) unsafe fn items_to_any_arr(items: Vec<u64>) -> *mut c_void {
 /// an any-shape array, which `all_sync` hands to its any-lane sibling
 /// before that form would be consulted, so `0` ("the site could not
 /// name a lane") is the honest word here rather than a lost opportunity.
+/// No proof stands behind the call either, so every flag stays clear.
 pub(crate) unsafe extern "C" fn all_sync_untargeted(arr: *mut c_void) -> *mut c_void {
-    unsafe { crate::combinator_all_sync::__torajs_promise_all_sync(arr, 0) }
+    unsafe { crate::combinator_all_sync::__torajs_promise_all_sync(arr, 0, 0) }
 }
 
 /// The builtin dyn entries' GetPromiseResolve front half —
