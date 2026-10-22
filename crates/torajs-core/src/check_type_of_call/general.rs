@@ -11,6 +11,7 @@ use crate::check::{Checker, Type};
 
 mod arg_admitted;
 mod args;
+mod container_admit;
 mod defaulted_param;
 
 pub(crate) fn general_call(

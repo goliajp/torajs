@@ -29,6 +29,10 @@ pub(crate) enum RetFace {
 pub enum WidenTarget {
     Arr,
     Scalar,
+    /// A `Promise<T>` param handed a promise of `any`: the clone's slot
+    /// is `Promise<any>`, so its awaits and handlers read the settled
+    /// value on the any lanes.
+    Promise,
     Face {
         /// The annotation the clone's param slot is spelled with: the
         /// original param's repr marker around the value's face.
@@ -43,6 +47,7 @@ impl WidenTarget {
         match self {
             WidenTarget::Arr => "any[]",
             WidenTarget::Scalar => "any",
+            WidenTarget::Promise => "Promise<any>",
             WidenTarget::Face { ann, .. } => ann,
         }
     }
@@ -50,6 +55,7 @@ impl WidenTarget {
         match self {
             WidenTarget::Arr => Type::Array(Box::new(Type::Any)),
             WidenTarget::Scalar => Type::Any,
+            WidenTarget::Promise => Type::Promise(Box::new(Type::Any)),
             WidenTarget::Face { ty, .. } => ty.clone(),
         }
     }
@@ -62,6 +68,7 @@ impl WidenTarget {
         match self {
             WidenTarget::Arr => "a".to_string(),
             WidenTarget::Scalar => "s".to_string(),
+            WidenTarget::Promise => "p".to_string(),
             WidenTarget::Face { ann, ty } => format!("f{:016x}", fnv1a(&format!("{ann}|{ty:?}"))),
         }
     }
