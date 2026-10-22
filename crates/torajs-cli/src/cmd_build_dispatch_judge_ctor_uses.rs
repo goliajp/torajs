@@ -24,7 +24,7 @@ use torajs_core::ssa::{
 const GOPD: &str = "__torajs_anyv_get_property_descriptor";
 
 /// Readers whose operand 0 is the receiver and operand 1 the key.
-pub(crate) const KEYED_READERS: [&str; 9] = [
+pub(crate) const KEYED_READERS: [&str; 8] = [
     "__torajs_any_member_get_tag",
     "__torajs_any_member_get_value",
     "__torajs_any_member_get_with_receiver",
@@ -32,7 +32,6 @@ pub(crate) const KEYED_READERS: [&str; 9] = [
     // a number dictionary's keyed read: the pair read and the
     // accessor-or-data answer in one call
     "__torajs_dynobj_dict_get",
-    "__torajs_dynobj_dict_get_entry",
     GOPD,
     "__torajs_any_index_get_keyed",
     // typed array `xs.<name>`: the own expando, then the
@@ -68,12 +67,11 @@ const SINKS: [&str; 9] = [
 /// Calls that may take the `"constructor"` literal (at the given
 /// operand) without reading a property with it: a drop, the `in`
 /// operator's key, and the writes that store a program value under it.
-const KEY_SINKS: [(&str, usize); 8] = [
+const KEY_SINKS: [(&str, usize); 7] = [
     ("__torajs_str_drop", 0),
     ("__torajs_in_op_any_str", 1),
     ("__torajs_any_member_set", 1),
     ("__torajs_dynobj_dict_set", 1),
-    ("__torajs_dynobj_dict_set_entry", 1),
     ("__torajs_dynobj_set_fresh", 1),
     ("__torajs_dynobj_define", 1),
     ("__torajs_arr_define", 1),

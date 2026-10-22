@@ -354,7 +354,7 @@ pub(crate) fn lower_any_index_str_key(
         panic!("ssa-lower: string index key lowered to a non-value operand");
     };
     let out = if number_dict {
-        crate::ssa_lower_index::dict::get_then_settle(ctx, &obj_val, index, key_v, borrowed)
+        crate::ssa_lower_index::dict::get_then_settle(ctx, &obj_val, key_v, borrowed)
     } else {
         emit_any_member_get_pair(ctx, &obj_val, key_v)
     };
