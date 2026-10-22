@@ -122,17 +122,68 @@ fn handler_ret_ann(
         Expr::Null => return pass_through(leg, src),
         Expr::Ident(n) if n == "undefined" => return pass_through(leg, src),
         // a binding of the name shadows the top-level function
-        Expr::Ident(n) if !t.all_anns.contains_key(n) => return fn_ret_anns.get(n)?.clone(),
+        Expr::Ident(n) if !t.all_anns.contains_key(n) => {
+            if typed_lane_handler(ast, n) && src().is_some_and(|s| s == "any") {
+                return Some("any".to_string());
+            }
+            return fn_ret_anns.get(n)?.clone();
+        }
         _ => return None,
+    };
+    // the checker's rule for a typed handler on a promise of `any`
+    // (`typed_lane` in `check_type_of_call_promise_then`): a value
+    // that does not fit the parameter runs the handler's any twin, so
+    // the leg settles a value of any kind, whatever the handler's own
+    // return says; either leg, as the checker reads both
+    let src = if typed_lane_handler(ast, &fn_name) {
+        match src() {
+            Some(s) if s == "any" => return Some(s),
+            s => Lazy::Ready(s),
+        }
+    } else {
+        Lazy::Later(src)
     };
     if let Some(Some(r)) = fn_ret_anns.get(&fn_name) {
         return Some(r.clone());
     }
     let seed = match leg {
-        Leg::Fulfil => src()?,
+        Leg::Fulfil => src.get()?,
         Leg::Reject => "any".to_string(),
     };
     sniff_body_with_param_seed(ast, &fn_name, &seed)
+}
+
+/// Does the function `name` take its first user parameter on a typed
+/// lane: an annotation written on it, other than `any`, `unknown`, a
+/// union or a nullable (which take every value on the any lane)?
+fn typed_lane_handler(ast: &Ast, name: &str) -> bool {
+    let Some(params) = ast.stmts.iter().find_map(|s| match s {
+        Stmt::FnDecl {
+            name: n, params, ..
+        } if n == name => Some(params),
+        _ => None,
+    }) else {
+        return false;
+    };
+    let user = params.iter().find(|p| p.name != "__env");
+    user.and_then(|p| p.type_ann.as_deref()).is_some_and(|a| {
+        !matches!(a, "any" | "unknown") && !a.contains('|') && !a.starts_with("__nullable(")
+    })
+}
+
+/// The source's value annotation, read at most once.
+enum Lazy<F> {
+    Ready(Option<String>),
+    Later(F),
+}
+
+impl<F: FnOnce() -> Option<String>> Lazy<F> {
+    fn get(self) -> Option<String> {
+        match self {
+            Lazy::Ready(s) => s,
+            Lazy::Later(f) => f(),
+        }
+    }
 }
 
 fn pass_through(leg: Leg, src: impl FnOnce() -> Option<String>) -> Option<String> {
