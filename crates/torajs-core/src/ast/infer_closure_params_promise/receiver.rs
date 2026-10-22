@@ -4,7 +4,7 @@
 
 use super::super::infer_closure_params::SoleBindings;
 use super::super::{Ast, Stmt};
-use crate::ast_desugar_builtin_new::promise_context::{promise_inner, settled};
+use crate::ast_desugar_builtin_new::promise::context::{promise_inner, settled};
 use std::collections::HashMap;
 
 /// What a receiver's inner type is read from.

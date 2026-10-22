@@ -7,7 +7,7 @@
 //! of §27.2.1.3, each called with one argument and returning undefined.
 //!
 //! `resolve` takes what TS spells `T | PromiseLike<T>`, `T` read from
-//! the promise's context (`promise_context.rs`, the reading that also
+//! the promise's context (`promise/context.rs`, the reading that also
 //! chose the helper). This lattice has no `PromiseLike`, so a thenable
 //! is admitted as an object with a `then` member. Where `T` is unknown,
 //! `void`, or not spelled so that the union can be written around it,
@@ -19,7 +19,7 @@
 
 use super::super::{Ast, ExprId};
 use super::SoleBindings;
-use crate::ast_desugar_builtin_new::promise_context;
+use crate::ast_desugar_builtin_new::promise::context as promise_context;
 use std::collections::HashMap;
 
 /// Each executor-helper call with a known `T` → `T`; a `T` naming a

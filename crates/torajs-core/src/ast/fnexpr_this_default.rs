@@ -92,7 +92,7 @@
 use super::fnexpr_this_default_slots::{HANDLER_METHODS, no_receiver_slots};
 use super::fnexpr_this_default_writes::SingleWrite;
 use super::{Ast, Expr, ExprId, Stmt};
-use crate::ast_desugar_builtin_new::promise_context::executor_helper;
+use crate::ast_desugar_builtin_new::promise::context::executor_helper;
 
 /// The bindings whose value satisfies `pred` and whose name the
 /// program cannot have re-pointed — the receiver-certainty bar, one
@@ -451,9 +451,8 @@ fn promise_expr(
         return false;
     };
     match &exprs[callee.0 as usize] {
-        // `new Promise(executor)` never survives to this pass as an
-        // `Expr::New`: the prelude's `rewrite_promise_new` turns it
-        // into a call to a synthesized helper, whose return is
+        // `new Promise(executor)` reaches this pass as a call of the
+        // helper `rewrite_promise_new` synthesized, which returns
         // `__pr.promise` (§27.2.4.8's cell).
         Expr::Ident(n) => executor_helper(n).is_some() || async_fns.contains(n),
         Expr::Member { obj, name } if PROMISE_STATICS.contains(&name.as_str()) => {

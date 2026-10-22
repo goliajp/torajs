@@ -2,8 +2,10 @@
 //! file verbatim (rotation 283; the parent sat on the file-size
 //! known-debt list at 516 and a new pass had to land there).
 
-use super::promise_context::{EXECUTOR_HELPER, executor_contexts, helper_name, settled};
+pub(crate) mod context;
+
 use crate::ast::{Ast, Expr, ExprId};
+use context::{EXECUTOR_HELPER, executor_contexts, helper_name, settled};
 use std::collections::BTreeSet;
 
 /// `new Promise(executor)` — §27.2.3.1 (rotation 234). The runtime
@@ -35,7 +37,7 @@ use std::collections::BTreeSet;
 /// passed on so they are evaluated in order and then ignored, as a
 /// direct call with extra arguments already is.
 ///
-/// Where the context names a primitive `T` (`promise_context.rs`), the
+/// Where the context names a primitive `T` (`context.rs`), the
 /// call goes to a twin `__promise_from_executor__<T>` that returns
 /// `Promise<T>`; each helper is made once, and only when some call
 /// names it.

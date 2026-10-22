@@ -385,8 +385,7 @@ fn rewrite_date_new(ast: &mut Ast) {
 }
 
 mod fn_ctor;
-mod promise;
-pub(crate) mod promise_context;
+pub(crate) mod promise;
 
 pub(crate) fn run(ast: &mut Ast) {
     rewrite_array_of(ast);
