@@ -119,21 +119,32 @@ fn count_bulk(s: &[u8], b: u8) -> u64 {
 }
 
 /// Number of bytes of `s` equal to `b`.
-#[inline]
+#[inline(never)]
 pub(super) fn count_byte(s: &[u8], b: u8) -> u64 {
+    count_byte_inline(s, b)
+}
+
+/// [`count_byte`] with the short payloads answered in the caller: the
+/// split-count entries take it so the dominant shape costs no second
+/// call; payloads of sixteen bytes and more go to [`count_long`].
+#[inline(always)]
+pub(super) fn count_byte_inline(s: &[u8], b: u8) -> u64 {
     let needle = LO.wrapping_mul(u64::from(b));
     let n = s.len();
     if n < 8 {
         let valid = HI & ((1u64 << (8 * n)) - 1);
         return lane_sum((eq_bytes(load_short(s), needle) & valid) >> 7);
     }
-    let bulk = n & !15;
-    let head = if bulk == 0 {
-        0
-    } else {
-        count_bulk(&s[..bulk], b)
-    };
-    head + count_rest(s, bulk, needle)
+    if n < 16 {
+        return count_rest(s, 0, needle);
+    }
+    count_long(s, b)
+}
+
+#[inline(never)]
+fn count_long(s: &[u8], b: u8) -> u64 {
+    let bulk = s.len() & !15;
+    count_bulk(&s[..bulk], b) + count_rest(s, bulk, LO.wrapping_mul(u64::from(b)))
 }
 
 #[cfg(test)]

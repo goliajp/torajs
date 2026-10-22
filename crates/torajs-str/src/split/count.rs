@@ -77,6 +77,16 @@ pub fn out_count(s: &[u8], sep: &[u8], stride: usize) -> u64 {
 pub unsafe extern "C" fn __torajs_str_split_count(s: *const u8, sep: *const u8) -> i64 {
     let (s_payload, _, s_latin1) = unsafe { super::ops::str_view(s) };
     let (sep_payload, _, sep_latin1) = unsafe { super::ops::str_view(sep) };
+    // the dominant shape, answered before the general count's frame
+    // (it saves a dozen registers) is set up
+    if s_latin1 && sep_latin1 && sep_payload.len() == 1 {
+        return super::count_byte::count_byte_inline(s_payload, sep_payload[0]) as i64 + 1;
+    }
+    count_general(s_payload, s_latin1, sep_payload, sep_latin1)
+}
+
+#[inline(never)]
+fn count_general(s_payload: &[u8], s_latin1: bool, sep_payload: &[u8], sep_latin1: bool) -> i64 {
     let tokens = match (s_latin1, sep_latin1) {
         (true, false) => 1,
         (false, true) => {
@@ -103,5 +113,43 @@ mod tests {
         assert_eq!(out_count(b"a,,b", b",", 1), 3); // empty token middle
         assert_eq!(out_count(b",abc,", b",", 1), 3); // empty front+back
         assert_eq!(out_count(b"aaaa", b"aa", 1), 3); // non-overlapping
+    }
+
+    fn latin1(bytes: &[u8]) -> *mut u8 {
+        let mut block = crate::block::StrBlock::alloc_with_encoding(bytes.len() as u32, true);
+        unsafe { block.as_bytes_mut(bytes.len() as u32) }.copy_from_slice(bytes);
+        block.into_raw()
+    }
+
+    fn utf16(s: &str) -> *mut u8 {
+        let units: alloc::vec::Vec<u16> = s.encode_utf16().collect();
+        let n = units.len() as u32;
+        let mut block = crate::block::StrBlock::alloc_with_encoding(n, false);
+        let dst = unsafe { block.as_bytes_mut(n * 2) };
+        for (i, u) in units.iter().enumerate() {
+            dst[i * 2..i * 2 + 2].copy_from_slice(&u.to_le_bytes());
+        }
+        block.into_raw()
+    }
+
+    fn count(s: *mut u8, sep: *mut u8) -> i64 {
+        unsafe { __torajs_str_split_count(s, sep) }
+    }
+
+    #[test]
+    fn entry_on_every_width_pair() {
+        // Latin-1 on both sides, one-byte separator: the byte count
+        assert_eq!(count(latin1(b""), latin1(b",")), 1);
+        assert_eq!(count(latin1(b",a,,b,"), latin1(b",")), 5);
+        assert_eq!(count(latin1(b"caf\xe9x\xe9"), latin1(b"\xe9")), 3);
+        // Latin-1 longer separator and the empty one
+        assert_eq!(count(latin1(b"a, b, c"), latin1(b", ")), 3);
+        assert_eq!(count(latin1(b"abc"), latin1(b"")), 3);
+        // a UTF-16 receiver with a Latin-1 separator widens it
+        assert_eq!(count(utf16("日 本 語"), latin1(b" ")), 3);
+        assert_eq!(count(utf16("日\u{e9}本\u{e9}"), latin1(b"\xe9")), 3);
+        // a UTF-16 separator: never in a Latin-1 receiver
+        assert_eq!(count(latin1(b"a b"), utf16("→")), 1);
+        assert_eq!(count(utf16("a→b→c"), utf16("→")), 3);
     }
 }
