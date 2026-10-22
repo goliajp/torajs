@@ -55,39 +55,46 @@ pub(crate) unsafe fn release_cell(p: *mut c_void) {
         unsafe { released_alive(pp) };
         return;
     }
-    unsafe { free_dead(pp) };
-}
-
-/// [`__torajs_promise_drop`] after the last reference went. Out of
-/// line, so a release that leaves the cell alive — most of them — runs
-/// without the frame the teardown needs.
-#[inline(never)]
-unsafe fn free_dead(pp: *mut Promise) {
-    // A cell that owns nothing — no reaction list, no inline
-    // reaction, no heap value, no expando, no identity entry, never
-    // buffered — has nothing for `free_cell` to release, so it goes
-    // straight back to the allocator, without the teardown's frame. The
-    // STATIC_LITERAL bit sends a cell to the general path, which
-    // keeps it.
-    let owns_nothing = unsafe {
-        (*pp).header.flags & (FLAG_STATIC_LITERAL | FLAG_SUBCLASSED | FLAG_BUFFERED) == 0
-            && (*pp).callbacks.is_null()
-            && (*pp).rx_kind == RX_NONE
-            && (*pp).props.is_null()
-            && ((*pp).value_is_heap == 0 || (*pp).state == STATE_PENDING || (*pp).value == 0)
-    };
-    if owns_nothing {
+    if unsafe { owns_nothing(pp) } {
         unsafe { promise_release_(pp) };
         return;
     }
-    unsafe { free_owning(pp) };
+    unsafe { free_dead(pp) };
 }
 
-/// [`free_dead`] for a cell that may own something. The cell heads
+/// Bytes of the word at +8 (`state` .. `rx_param_repr`) that can make
+/// a dead cell own something: `value_is_heap` (+9) and `rx_kind` (+13).
+const OWNING_BYTES: u64 = 0x0000_ff00_0000_ff00;
+
+const _: () = {
+    assert!(core::mem::offset_of!(Promise, state) == 8);
+    assert!(core::mem::offset_of!(Promise, value_is_heap) == 9);
+    assert!(core::mem::offset_of!(Promise, rx_kind) == 13);
+};
+
+/// A dead cell with no reaction list, no inline reaction, no heap
+/// value, no expando, no identity entry, never buffered — nothing for
+/// [`free_cell`] to release, so its block goes straight back to the
+/// allocator. One test over the words that hold those facts; a cell
+/// it turns away takes [`free_dead`], whose teardown releases exactly
+/// what is there. The caller has already seen the count reach zero,
+/// which a STATIC_LITERAL cell never does.
+#[inline(always)]
+unsafe fn owns_nothing(pp: *mut Promise) -> bool {
+    unsafe {
+        let flags = (*pp).header.flags & (FLAG_SUBCLASSED | FLAG_BUFFERED);
+        let bytes = ptr::read((&raw const (*pp).state).cast::<u64>()) & OWNING_BYTES;
+        (flags as usize | (*pp).callbacks as usize | (*pp).props as usize | bytes as usize) == 0
+    }
+}
+
+/// [`__torajs_promise_drop`] after the last reference went, for a cell
+/// [`owns_nothing`] turned away. Out of line, so the releases that
+/// free nothing more run without the teardown's frame. The cell heads
 /// the same loop the derived cells its death frees go through, so the
 /// teardown is laid out once.
-#[inline(always)]
-unsafe fn free_owning(pp: *mut Promise) {
+#[inline(never)]
+unsafe fn free_dead(pp: *mut Promise) {
     // Defensive: STATIC_LITERAL Promise (none in practice today; the
     // universal drop dispatch sees the bit and skips, but re-check
     // here to keep the invariant if dispatch path changes).
@@ -219,5 +226,54 @@ unsafe fn free_chain(first: *mut Promise) {
             dead = (*pp).rx_next as *mut Promise;
             (*pp).rx_next = ptr::null_mut();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::layout::{HeapHeader, RX_THEN, STATE_FULFILLED, TAG_PROMISE};
+
+    fn dead() -> Promise {
+        Promise {
+            header: HeapHeader {
+                refcount: 0,
+                type_tag: TAG_PROMISE,
+                flags: 0,
+            },
+            state: STATE_FULFILLED,
+            value_is_heap: 0,
+            has_handler: 1,
+            value_repr: 0xff,
+            deferred_state: 0xff,
+            rx_kind: RX_NONE,
+            rx_ret_repr: 0xff,
+            rx_param_repr: 0xff,
+            value: 7,
+            callbacks: ptr::null_mut(),
+            props: ptr::null_mut(),
+            rx_next: ptr::null_mut(),
+            rx_source: ptr::null_mut(),
+            rx_cb: ptr::null_mut(),
+        }
+    }
+
+    fn owns(edit: impl FnOnce(&mut Promise)) -> bool {
+        let mut p = dead();
+        edit(&mut p);
+        !unsafe { owns_nothing(&mut p) }
+    }
+
+    #[test]
+    fn only_an_owning_fact_turns_a_dead_cell_away() {
+        // the other bytes of the state word and the trailing words own nothing
+        assert!(!owns(|_| {}));
+        assert!(!owns(|p| p.rx_cb = 0x3000 as *mut c_void));
+        assert!(owns(|p| p.value_is_heap = 1));
+        assert!(owns(|p| p.rx_kind = RX_THEN));
+        assert!(owns(|p| p.callbacks = 0x1000 as *mut PromiseCb));
+        assert!(owns(|p| p.props = 0x2000 as *mut c_void));
+        assert!(owns(|p| p.header.flags = FLAG_SUBCLASSED));
+        assert!(owns(|p| p.header.flags = FLAG_BUFFERED));
     }
 }
