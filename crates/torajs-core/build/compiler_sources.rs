@@ -210,4 +210,6 @@ pub(crate) const COMPILER_SOURCE_FILES: &[&str] = &[
     "src/ssa_lower_fn/async_main.rs",
     "src/ssa_lower_fn/suspend/in_place.rs",
     "src/ssa_lower_fn/suspend/then_fused.rs",
+    // the root that keeps the thenable probe's link evidence
+    "src/ssa_lower_promise_thunk/obj_return.rs",
 ];

@@ -445,7 +445,13 @@ mod tests {
     #[test]
     fn exotic_slow_path_stubs_are_symbol_guarded_loud_rejects() {
         let stubs = guarded_stubs();
-        assert_eq!(stubs.len(), 19);
+        assert_eq!(stubs.len(), 20);
+        let thenable = &stubs[19];
+        assert_eq!(thenable.sym, "___torajs_promise_settle_thenable_slow");
+        assert_eq!(
+            thenable.guard.to_string(),
+            "syms:___torajs_promise_obj_return_mark|___torajs_then_twin_run"
+        );
         let unhandled = &stubs[18];
         assert_eq!(unhandled.sym, "___torajs_unhandled_error_render_slow");
         assert_eq!(

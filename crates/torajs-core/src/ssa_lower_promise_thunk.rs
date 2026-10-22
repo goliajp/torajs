@@ -24,6 +24,7 @@ use crate::ssa_lower::CLOSURE_CAP_BASE_OFF;
 use std::collections::HashMap;
 
 mod build;
+pub(crate) mod obj_return;
 pub(crate) mod twins;
 mod wrap;
 use build::{build_env_drop, build_env_trace, build_thunk};

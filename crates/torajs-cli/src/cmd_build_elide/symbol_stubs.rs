@@ -4,7 +4,7 @@
 /// entries whose text liveness un-assumes the stub, landing-pad fam
 /// id). The join seam's enabler is the exotic-flag writer; the
 /// species probe's enablers are the two props-bag creators.
-pub(super) const SYMBOL_STUBS: [(&str, &[&str], u32); 18] = [
+pub(super) const SYMBOL_STUBS: [(&str, &[&str], u32); 19] = [
     (
         "___torajs_arr_join_exotic",
         &["___torajs_arr_flag_exotic"],
@@ -135,6 +135,18 @@ pub(super) const SYMBOL_STUBS: [(&str, &[&str], u32); 18] = [
         "___torajs_unhandled_error_render_slow",
         &["___torajs_register_native_error"],
         62,
+    ),
+    // the thenable probe on a handler's or an async body's object
+    // return: only a call site with an object or `any` return form
+    // (the compiler roots the mark entry for one) or a handler's any
+    // twin hands the settle an object.
+    (
+        "___torajs_promise_settle_thenable_slow",
+        &[
+            "___torajs_promise_obj_return_mark",
+            "___torajs_then_twin_run",
+        ],
+        63,
     ),
 ];
 

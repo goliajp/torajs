@@ -265,6 +265,12 @@ fn lower_once(
         &class_drop_fids,
         &boxed_entries,
     );
+    crate::ssa_lower_promise_thunk::obj_return::root_obj_return_mark(
+        &mut module,
+        &mut fn_table,
+        &mut fn_sigs,
+        &mut fn_sig_ids,
+    );
 
     finalize_module(
         &mut module,

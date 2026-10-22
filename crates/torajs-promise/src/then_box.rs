@@ -64,6 +64,46 @@ unsafe extern "C" {
     fn __torajs_anyv_promise_settle_thenable(result: *mut c_void, repr: i64, value: i64) -> i64;
 }
 
+// The thenable probe of a handler's or an async body's Object return
+// (§27.2.1.3.2 steps 8-9: Get(resolution, "then")), behind a seam whose
+// default lives in `torajs-dispatch`. Only two things hand this file a
+// return in object form: a call site whose static return form is an
+// object or `any` (the compiler then emits a rooted user fn that calls
+// `__torajs_promise_obj_return_mark`), and a handler's any twin
+// (`__torajs_then_twin_run`). With both dead the link shadows the seam
+// with a loud-reject stub; the probe behind it roots the generic value
+// world. Unit tests carry no dispatch member, so they bridge directly.
+#[cfg(not(test))]
+unsafe extern "C" {
+    fn __torajs_promise_settle_thenable_slow(result: *mut c_void, repr: i64, value: i64) -> i64;
+}
+#[cfg(test)]
+unsafe fn __torajs_promise_settle_thenable_slow(result: *mut c_void, repr: i64, value: i64) -> i64 {
+    unsafe { __torajs_anyv_promise_settle_thenable(result, repr, value) }
+}
+
+static OBJ_RETURN_SEEN: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
+
+/// The compiler's evidence that some call site settles a promise with
+/// an object-form return: a module with such a site emits a rooted
+/// user fn calling this entry, so its text liveness is what the link
+/// judges the thenable seam on. Nothing runs it; the store only keeps
+/// the body its own (an empty one could be folded onto another).
+#[inline(never)]
+#[unsafe(no_mangle)]
+pub extern "C" fn __torajs_promise_obj_return_mark() {
+    OBJ_RETURN_SEEN.store(1, Ordering::Relaxed);
+}
+
+/// The NaN-box gate of `then_adopt::returned_promise`: a cell pointer
+/// has its top 16 bits and the other-type tag bit clear.
+pub(crate) fn box_is_cell(bits: i64) -> bool {
+    const TOP_16_MASK: u64 = 0xFFFF_0000_0000_0000;
+    const TAG_BIT_TYPE_OTHER: u64 = 0x02;
+    let b = bits as u64;
+    b != 0 && b & TOP_16_MASK == 0 && b & TAG_BIT_TYPE_OTHER == 0
+}
+
 /// §27.2.2.1 PromiseReactionJob steps 8-9 — a handler that completes
 /// ABRUPTLY rejects the derived promise with the thrown value; it does
 /// not fulfill it with the (absent) return. Answers `true` when it
@@ -119,9 +159,8 @@ pub(crate) unsafe fn settle_handler_return(result: *mut c_void, ret_repr: u8, va
             crate::then_adopt::adopt_into(result, inner);
             return;
         }
-        if matches!(ret_repr, REPR_ANY | REPR_HEAP)
-            && __torajs_anyv_promise_settle_thenable(result, ret_repr as i64, value) != 0
-        {
+        let object = ret_repr == REPR_HEAP || (ret_repr == REPR_ANY && box_is_cell(value));
+        if object && __torajs_promise_settle_thenable_slow(result, ret_repr as i64, value) != 0 {
             return;
         }
         let pp = as_promise(result);

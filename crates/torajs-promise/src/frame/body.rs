@@ -27,7 +27,7 @@ use crate::layout::{
     STATE_FULFILLED, STATE_PENDING, THROW_TAG_I64, as_promise, frame_cell, inline_cell,
 };
 use crate::reaction::record::TraceVisit;
-use crate::then_box::reject_on_pending_throw;
+use crate::then_box::{box_is_cell, reject_on_pending_throw};
 
 unsafe extern "C" {
     fn __torajs_microtask_enqueue(fn_: crate::layout::MicrotaskFn, arg: i64);
@@ -158,15 +158,6 @@ unsafe fn wake_sole_waiter(f: *mut AsyncFrame, pp: *mut Promise, link: *mut Prom
         (*f).result = ptr::null_mut();
         __torajs_microtask_enqueue(job.0, job.1);
     }
-}
-
-/// The NaN-box gate of `then_adopt::returned_promise`: a cell pointer
-/// has its top 16 bits and the other-type tag bit clear.
-fn box_is_cell(bits: i64) -> bool {
-    const TOP_16_MASK: u64 = 0xFFFF_0000_0000_0000;
-    const TAG_BIT_TYPE_OTHER: u64 = 0x02;
-    let b = bits as u64;
-    b != 0 && b & TOP_16_MASK == 0 && b & TAG_BIT_TYPE_OTHER == 0
 }
 
 /// The body raised: reject the result with the pending throw and let
