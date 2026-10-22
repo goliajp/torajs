@@ -199,9 +199,11 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) {
         let cb = ctx.cur_block;
         ctx.f.set_term(cb, Terminator::Br(handler.blk));
     } else if ctx.is_main_fn && !ctx.suspend_body {
+        crate::ssa_lower_for_of_teardown::emit_closes_from(ctx, 0, true);
         ctx.emit_drops_for_owned_locals();
         crate::ssa_lower_main_exit::emit_uncaught_exit(ctx);
     } else {
+        crate::ssa_lower_for_of_teardown::emit_closes_from(ctx, 0, true);
         ctx.emit_drops_for_owned_locals();
         let cb = ctx.cur_block;
         ctx.f.append_void(cb, InstKind::ThrowSignal);

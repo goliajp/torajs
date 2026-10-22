@@ -211,6 +211,7 @@ fn emit_throw_propagate(ctx: &mut LowerCtx) {
         let cb2 = ctx.cur_block;
         ctx.f.set_term(cb2, Terminator::Br(handler.blk));
     } else {
+        crate::ssa_lower_for_of_teardown::emit_closes_from(ctx, 0, true);
         ctx.emit_drops_for_owned_locals();
         let cb2 = ctx.cur_block;
         ctx.f.append_void(cb2, InstKind::ThrowSignal);

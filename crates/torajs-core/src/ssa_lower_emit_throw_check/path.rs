@@ -64,6 +64,8 @@ impl LowerCtx<'_> {
             for t in live.iter().rev() {
                 self.emit_drop_throw_temp(t.clone());
             }
+            // §7.4.9: every for-of the throw leaves closes on its way out
+            crate::ssa_lower_for_of_teardown::emit_closes_from(self, 0, true);
             self.emit_drops_for_owned_locals();
             crate::ssa_lower_main_exit::emit_uncaught_exit(self);
         } else {
@@ -74,6 +76,8 @@ impl LowerCtx<'_> {
             for t in live.iter().rev() {
                 self.emit_drop_throw_temp(t.clone());
             }
+            // §7.4.9: every for-of the throw leaves closes on its way out
+            crate::ssa_lower_for_of_teardown::emit_closes_from(self, 0, true);
             self.emit_drops_for_owned_locals();
             let cb2 = self.cur_block;
             self.f.append_void(cb2, InstKind::ThrowSignal);
