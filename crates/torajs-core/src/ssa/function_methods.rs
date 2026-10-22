@@ -15,8 +15,8 @@
 use std::fmt::Write;
 
 use super::{
-    BlockId, Function, Inst, InstKind, Module, Operand, SuspendLane, Terminator, Type, ValueId,
-    ValueInfo,
+    BlockId, Function, Inst, InstKind, Module, Operand, PinWord, SuspendLane, Terminator, Type,
+    ValueId, ValueInfo,
 };
 
 impl Function {
@@ -322,6 +322,13 @@ impl Function {
             }
             InstKind::ThrowSignal => {
                 write!(w, "throw_signal")?;
+            }
+            InstKind::Pinned(word) => {
+                let word = match word {
+                    PinWord::Len => "len",
+                    PinWord::Data => "data",
+                };
+                write!(w, "pinned {word}")?;
             }
             InstKind::Suspend(kind, lane, src, held) => {
                 match lane {

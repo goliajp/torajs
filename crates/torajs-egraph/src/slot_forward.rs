@@ -299,6 +299,7 @@ pub(crate) fn rewrite_operands(kind: &mut InstKind, replace: &HashMap<ValueId, O
         | InstKind::GlobalRef(_)
         | InstKind::FnAddr(_)
         | InstKind::BoxedEntryAddr(_)
+        | InstKind::Pinned(_)
         | InstKind::ThrowSignal => {}
     }
 }

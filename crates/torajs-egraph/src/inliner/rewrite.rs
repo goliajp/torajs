@@ -80,6 +80,10 @@ pub(super) fn rewrite_inst_kind(kind: &InstKind, map: &HashMap<ValueId, Operand>
             "InstKind::ThrowSignal reached the inliner's rewrite — the splice \
              drops it with the callee `Ret` it marks"
         ),
+        InstKind::Pinned(_) => unreachable!(
+            "InstKind::Pinned reached the inliner — a cluster member's pinned \
+             words are placed after every inline round"
+        ),
         InstKind::Identity(o) => InstKind::Identity(r(o)),
         InstKind::Neg(o) => InstKind::Neg(r(o)),
         InstKind::Ctpop(o) => InstKind::Ctpop(r(o)),

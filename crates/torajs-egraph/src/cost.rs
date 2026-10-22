@@ -172,6 +172,9 @@ pub fn cost_of_kind(kind: &InstKind) -> Cost {
         // must not count against an inline budget.
         InstKind::ThrowSignal => Cost::ZERO,
 
+        // `Pinned` reads the register its cluster entry loaded: no code.
+        InstKind::Pinned(_) => Cost::ZERO,
+
         // `Neg(op)` lowers to a single ALU op (aarch64
         // `sub Xd, XZR, Xn`; LLVM `sub i64 0, %x`).
         InstKind::Neg(_) => ALU_COST,

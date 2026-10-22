@@ -343,7 +343,8 @@ pub(crate) fn visit_inst_operands(kind: &InstKind, mut f: impl FnMut(ValueId)) {
         | InstKind::StringRef(_)
         | InstKind::StaticStrRef(_)
         | InstKind::FnAddr(_)
-        | InstKind::BoxedEntryAddr(_) => {}
+        | InstKind::BoxedEntryAddr(_)
+        | InstKind::Pinned(_) => {}
         InstKind::ThrowSignal => {}
         // P-OPT Phase 1 — `Identity` is dropped by egraph elaborate
         // before liveness ever runs. If it survives, liveness would

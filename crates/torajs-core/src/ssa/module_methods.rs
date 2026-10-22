@@ -121,6 +121,14 @@ pub struct PinFact {
     pub direct_only: bool,
 }
 
+/// A header word of a pinned array field (`PinFact`) that a cluster
+/// member reads as `InstKind::Pinned`: the length, or the data pointer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PinWord {
+    Len,
+    Data,
+}
+
 #[derive(Debug, Clone)]
 pub struct FnNameEntry {
     /// Which fn this entry names. The link-time emitter resolves

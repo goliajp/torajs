@@ -57,7 +57,7 @@ pub use arr_layouts::ArrLayouts;
 pub use module_class_layouts::{ClassLayoutMeta, FieldMetaSpec, MethodMetaSpec, field_type_tag_of};
 pub use module_extras::{LOCAL_LABEL_PREFIX, demo_fib40, is_local_label};
 pub use module_methods::{
-    BakedDfa, BakedRegexEntry, DataGlobal, FnNameEntry, Module, PinFact, StringLiteral,
+    BakedDfa, BakedRegexEntry, DataGlobal, FnNameEntry, Module, PinFact, PinWord, StringLiteral,
     VtableGlobal,
 };
 pub use op_impls::{BinOp, FPred, IPred, Operand};
@@ -381,6 +381,11 @@ pub enum InstKind {
     /// emits no machine code; passes must neither drop it nor count it
     /// as work. The inliner discards it with the `Ret` it marks.
     ThrowSignal,
+    /// `%v = pinned <word>` — a header word of a pinned array field,
+    /// which a cluster member finds in the register its entry loaded
+    /// it into (`Module::pins`). No operands, no machine code; codegen
+    /// homes the value in that register.
+    Pinned(PinWord),
     /// `%v = suspend <kind> <lane>, %src [held…]` — the function parks
     /// here and returns to its caller; it is re-entered here, and `%v`
     /// is the value the suspension produced (see `suspend`). `held`

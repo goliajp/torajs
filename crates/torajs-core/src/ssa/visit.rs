@@ -96,6 +96,7 @@ pub fn visit_value_operands(kind: &InstKind, mut f: impl FnMut(ValueId)) {
         | InstKind::GlobalRef(_)
         | InstKind::FnAddr(_)
         | InstKind::BoxedEntryAddr(_)
+        | InstKind::Pinned(_)
         | InstKind::ThrowSignal => {}
     }
 }
@@ -194,6 +195,7 @@ pub fn rewrite_value_operands(kind: &mut InstKind, mut f: impl FnMut(ValueId) ->
         | InstKind::GlobalRef(_)
         | InstKind::FnAddr(_)
         | InstKind::BoxedEntryAddr(_)
+        | InstKind::Pinned(_)
         | InstKind::ThrowSignal => {}
     }
 }
