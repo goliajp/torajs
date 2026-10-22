@@ -13,10 +13,7 @@ use crate::check::Type;
 /// The seed for the next handler's parameter joins the same way
 /// (`join_legs` in `ast::infer_closure_params_promise`); the two must
 /// answer alike or the handler reads a value through a lane the checker
-/// did not type. One case is left out on purpose there: a join that may
-/// settle undefined into a pointer slot gives no seed, so the next
-/// handler takes its parameter on the any lane until the settle path
-/// can hand a pointer slot undefined.
+/// did not type.
 pub(super) fn two_leg_result([ok, err]: [Type; 2]) -> Type {
     let value = |t: Type| match t {
         Type::Never => None,
@@ -30,4 +27,12 @@ pub(super) fn two_leg_result([ok, err]: [Type; 2]) -> Type {
         (Some(v), None) | (None, Some(v)) => v,
         (None, None) => Type::Undefined,
     }
+}
+
+/// Does a handler parameter of type `p` run on a typed lane — one a
+/// settled value can fail to fit, so that the handler's any twin runs
+/// in its place? `any`, a union and a nullable take every value on the
+/// any lane, and such a handler's declared return is what it settles.
+pub(super) fn typed_lane(p: &Type) -> bool {
+    !matches!(p, Type::Any | Type::Union(_) | Type::Nullable(_))
 }

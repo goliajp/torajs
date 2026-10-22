@@ -40,7 +40,7 @@
 
 use crate::ast::{Ast, Expr, ExprId};
 use crate::check::{Checker, Type};
-use legs::two_leg_result;
+use legs::{two_leg_result, typed_lane};
 pub(crate) use route::{is_reject_mint, try_match};
 
 mod legs;
@@ -159,27 +159,23 @@ fn try_then_two_arg(
                     legs[i] = (**ret).clone();
                     continue;
                 }
-                // A handler whose parameter matches T — or that
-                // declares none at all, per the sibling arm below —
-                // may return ANYTHING. §27.2.5.4 makes the return the
-                // next cell's fulfilment value; it is under no
-                // obligation to be another T. Before this,
-                // `p.then((v: number) => { console.log(v) }, …)` —
-                // the ordinary two-handler side-effect shape — was
-                // refused until a `return v` was added, purely to
-                // satisfy the `(T) => T` signature the table fixes.
-                // A `Promise<any>` receiver puts no bound on the
-                // handler's parameter either (TS admits
-                // `(p as Promise<any>).then((v: string) => …)`), but
-                // then the leg settles `any`: a value that does not
-                // fit the parameter runs the handler's any twin, and
+                // A handler whose parameter matches T, or that has
+                // none, may return ANYTHING: §27.2.5.4 makes the return
+                // the next cell's fulfilment value, not another T
+                // (`p.then((v: number) => { console.log(v) }, …)`). A
+                // `Promise<any>` receiver bounds no parameter (TS
+                // admits `(p as Promise<any>).then((v: string) => …)`),
+                // but a typed lane then settles `any`: a value that
+                // does not fit runs the any twin, and
                 // `(v: number) => v + 1` handed "s" returns "s1".
                 if let Type::Function(params, ret) = &aty
                     && (params.is_empty()
                         || (params.len() == 1 && (params[0] == inner_ty || inner_ty == Type::Any)))
                 {
                     legs[i] = match &**ret {
-                        _ if inner_ty == Type::Any && !params.is_empty() => Type::Any,
+                        _ if inner_ty == Type::Any && params.first().is_some_and(typed_lane) => {
+                            Type::Any
+                        }
                         Type::Void => Type::Undefined,
                         other => other.clone(),
                     };
