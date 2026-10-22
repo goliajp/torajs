@@ -2,9 +2,12 @@
 //! annotated `Promise<T>`, and a call of a function whose return type
 //! is written `Promise<T>`.
 
+use super::super::desugar_with::walk::stmt_children_ref;
 use super::super::infer_closure_params::SoleBindings;
-use super::super::{Ast, Stmt};
+use super::super::{Ast, ExprId, Stmt};
 use crate::ast_desugar_builtin_new::promise::context::{promise_inner, settled};
+use crate::check_type_of_call_promise_then::is_reject_mint;
+use std::cell::Cell;
 use std::collections::HashMap;
 
 /// What a receiver's inner type is read from.
@@ -14,7 +17,13 @@ pub(in crate::ast) struct PromiseTables<'a> {
     pub all_anns: &'a HashMap<String, String>,
     pub fn_ret_anns: &'a HashMap<String, Option<String>>,
     pub bindings: &'a SoleBindings<'a>,
+    /// how deep the reading of initializers and returns has gone; a
+    /// binding whose initializer reads itself stops it
+    depth: Cell<u32>,
 }
+
+/// How many initializers and returns one receiver reading follows.
+const MAX_DEPTH: u32 = 32;
 
 impl<'a> PromiseTables<'a> {
     pub(in crate::ast) fn new(
@@ -26,6 +35,7 @@ impl<'a> PromiseTables<'a> {
             all_anns,
             fn_ret_anns,
             bindings,
+            depth: Cell::new(0),
         }
     }
 
@@ -33,8 +43,31 @@ impl<'a> PromiseTables<'a> {
     /// initialized it. Read through the program-wide count of bindings,
     /// not the flat table, which keeps the last of several same-named
     /// declarations.
-    pub(super) fn binding_inner(&self, name: &str) -> Option<String> {
-        promise_inner(self.bindings.sole(name)?.ann?).filter(|i| primitive(i))
+    pub(super) fn binding_inner(&self, ast: &Ast, name: &str) -> Option<String> {
+        let d = self.bindings.sole(name)?;
+        let inner = promise_inner(d.ann?)?;
+        if d.init.is_some_and(|e| self.settles_any(ast, e)) {
+            return Some("any".to_string());
+        }
+        primitive(&inner).then_some(inner)
+    }
+
+    /// Does the promise `e` evaluates to settle a value of any kind, as
+    /// far as its spelling shows? A `Promise<T>` annotation over such a
+    /// promise has no runtime meaning (§27.2.4.7 settles the value as it
+    /// is), and the checker gives the binding or the call the promise's
+    /// `Promise<any>` face (`check_stmt_let_decl::any_promise_slot`,
+    /// `check_entry::hidden_any`), so a handler on it is seeded `any`.
+    fn settles_any(&self, ast: &Ast, e: ExprId) -> bool {
+        let d = self.depth.get();
+        // a rejected promise fulfils with nothing (`never`)
+        if d >= MAX_DEPTH || is_reject_mint(ast, e) {
+            return false;
+        }
+        self.depth.set(d + 1);
+        let any = super::resolve_promise_inner_ann(ast, e, self).is_some_and(|i| i == "any");
+        self.depth.set(d);
+        any
     }
 
     /// A call of a function whose return type is written `Promise<T>`.
@@ -46,9 +79,17 @@ impl<'a> PromiseTables<'a> {
         if d.ann.is_some() || d.init.is_some() {
             return None;
         }
-        declared_return(ast, f)
-            .and_then(promise_inner)
-            .filter(|i| primitive(i))
+        let (inner, body) = declared_return(ast, f)?;
+        let inner = promise_inner(inner)?;
+        // an async function's own settles (`Promise.resolve(e)` for a
+        // `return e`) settle what its body computed; the checker keeps
+        // its declared return (`check_entry::hidden_any::promise_rets`)
+        let mut built =
+            (returns(body).into_iter()).filter(|e| !ast.synth_promise_static_calls.contains(e));
+        if !ast.async_fns.contains(f) && built.any(|e| self.settles_any(ast, e)) {
+            return Some("any".to_string());
+        }
+        primitive(&inner).then_some(inner)
     }
 }
 
@@ -66,13 +107,14 @@ fn primitive(inner: &str) -> bool {
 /// `name`. A generic function's `Promise<T>` names a type parameter the
 /// callback does not have in scope, and a sniffed return is a guess, so
 /// neither answers.
-fn declared_return<'a>(ast: &'a Ast, name: &str) -> Option<&'a str> {
+fn declared_return<'a>(ast: &'a Ast, name: &str) -> Option<(&'a str, &'a [Stmt])> {
     let mut found = None;
     for s in &ast.stmts {
         if let Stmt::FnDecl {
             name: n,
             type_params,
             return_type,
+            body,
             ..
         } = s
             && n == name
@@ -80,8 +122,23 @@ fn declared_return<'a>(ast: &'a Ast, name: &str) -> Option<&'a str> {
             if found.is_some() || !type_params.is_empty() {
                 return None;
             }
-            found = Some(return_type.as_deref()?);
+            found = Some((return_type.as_deref()?, body.as_slice()));
         }
     }
     found
+}
+
+/// The values a function body returns; a nested function's returns are
+/// its own.
+fn returns(body: &[Stmt]) -> Vec<ExprId> {
+    let mut out = Vec::new();
+    let mut stack: Vec<&Stmt> = body.iter().collect();
+    while let Some(s) = stack.pop() {
+        match s {
+            Stmt::Return(Some(e)) => out.push(*e),
+            Stmt::FnDecl { .. } => {}
+            s => stack.extend(stmt_children_ref(s)),
+        }
+    }
+    out
 }

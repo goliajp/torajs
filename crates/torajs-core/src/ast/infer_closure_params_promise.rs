@@ -35,7 +35,7 @@ pub(super) fn resolve_promise_inner_ann(
 ) -> Option<String> {
     let (callee, args) = match ast.get_expr(eid) {
         Expr::Call { callee, args } => (*callee, args),
-        Expr::Ident(n) => return t.binding_inner(n),
+        Expr::Ident(n) => return t.binding_inner(ast, n),
         _ => return None,
     };
     let Expr::Member { obj, name } = ast.get_expr(callee) else {

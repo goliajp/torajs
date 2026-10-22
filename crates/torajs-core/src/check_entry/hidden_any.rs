@@ -63,6 +63,7 @@ fn settle_with(
     let mut args: HashSet<ExprId> = HashSet::new();
     let mut rets: HashSet<String> = HashSet::new();
     let mut fields: HashSet<ExprId> = HashSet::new();
+    let mut promise_rets: HashSet<String> = HashSet::new();
     let mut retypable = None;
     let mut retyped: Option<Ast> = None;
     loop {
@@ -74,6 +75,7 @@ fn settle_with(
             rets.extend((hidden.rets.iter()).filter(|f| ok.contains(*f)).cloned());
         }
         let grew = (rets.len() > before)
+            | promise_rets::extend(ast, &cur.0.1, &mut promise_rets)
             | extend_own(ast, &mut inits, &hidden.inits)
             | extend_own(ast, &mut fields, &scalar_values(&cur.0.1, &hidden.fields))
             | extend_own(ast, &mut fields, &objects_given_any(ast, &cur.0.1));
@@ -89,6 +91,7 @@ fn settle_with(
         let r = retyped.get_or_insert_with(|| ast.clone());
         retype_any(&mut r.stmts, &inits);
         retype_returns_any(&mut r.stmts, &rets);
+        promise_rets::retype(&mut r.stmts, &promise_rets);
         spell_fields_any(r, &fields);
         reinfer::reinfer_returns(ast, r);
         round = Some(check_round(r, &args, &ShadowedNames::default(), false)?);
@@ -230,5 +233,6 @@ fn retype_returns_any(stmts: &mut [Stmt], fns: &HashSet<String>) {
 }
 
 mod fn_slots;
+mod promise_rets;
 mod reinfer;
 mod retypable;
