@@ -29,7 +29,7 @@ use crate::layout::{
 
 mod teardown;
 mod thenable;
-pub use teardown::__torajs_promise_drop;
+pub use teardown::{__torajs_promise_drop, __torajs_promise_drop_last};
 pub use thenable::__torajs_promise_resolve_thenable;
 
 /// `STATIC_LITERAL` flag bit — Promise literals don't exist in

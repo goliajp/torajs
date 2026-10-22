@@ -1490,6 +1490,7 @@ dependencies = [
  "torajs-arr",
  "torajs-core",
  "torajs-mmalloc",
+ "torajs-promise",
  "torajs-rc",
  "torajs-str",
 ]

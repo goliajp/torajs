@@ -19,6 +19,8 @@ torajs-anyvalue = { path = "../torajs-anyvalue" }
 torajs-arr = { path = "../torajs-arr" }
 torajs-core = { path = "../torajs-core" }
 torajs-mmalloc = { path = "../torajs-mmalloc" }
+# Promise cell layout and header bits the inline release arm reads.
+torajs-promise = { path = "../torajs-promise" }
 torajs-rc = { path = "../torajs-rc" }
 # Str header layout and the short-literal immediates the inline
 # append arm reads.

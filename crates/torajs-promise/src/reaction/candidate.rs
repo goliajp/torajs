@@ -43,11 +43,11 @@ use crate::pool::FLAG_STATIC_LITERAL;
 /// Header flag on a promise: some cell in the tree derived from it
 /// has an edge out (module doc). Bit 10 is disjoint-by-tag; see the
 /// occupancy map in torajs-rc `flags.rs`.
-pub(crate) const FLAG_LIST_EDGE: u16 = 1 << 10;
+pub const FLAG_LIST_EDGE: u16 = 1 << 10;
 
 /// Header flag on a promise: its own reaction calls a closure env
 /// (module doc). Bit 11, disjoint-by-tag like [`FLAG_LIST_EDGE`].
-pub(crate) const FLAG_RX_ENV: u16 = 1 << 11;
+pub const FLAG_RX_ENV: u16 = 1 << 11;
 
 /// Can this cell close a ring, so that a release leaving it alive must
 /// offer it to the cycle collector as a root?
@@ -57,6 +57,9 @@ pub(crate) const FLAG_RX_ENV: u16 = 1 << 11;
 /// settled value, the env and the tree, and the marks cover the last
 /// two. A stale mark answers yes for a cell with nothing to walk, and
 /// `cycle_buffer`'s own walkability check turns that away.
+///
+/// torajs-codegen opens this test at a typed release's call site
+/// (`promise_drop.rs`); a change here moves there too.
 #[inline(always)]
 pub(crate) unsafe fn cycle_candidate(pp: *const Promise) -> bool {
     unsafe {

@@ -79,7 +79,8 @@ pub use pool::{
     __torajs_promise_alloc_fulfilled, __torajs_promise_alloc_fulfilled_heap,
     __torajs_promise_alloc_fulfilled_heap_repr, __torajs_promise_alloc_fulfilled_repr,
     __torajs_promise_alloc_pending, __torajs_promise_alloc_rejected,
-    __torajs_promise_alloc_rejected_heap, __torajs_promise_drop, __torajs_promise_resolve_thenable,
+    __torajs_promise_alloc_rejected_heap, __torajs_promise_drop, __torajs_promise_drop_last,
+    __torajs_promise_resolve_thenable,
 };
 pub use state::{
     __torajs_promise_attach_then, __torajs_promise_get_state, __torajs_promise_get_value,

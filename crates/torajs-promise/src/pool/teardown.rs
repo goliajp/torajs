@@ -13,7 +13,7 @@ use crate::layout::{
     as_promise, frame_cell, inline_cell,
 };
 use crate::reaction::candidate::{cycle_candidate, offer_root};
-use torajs_rc::{FLAG_BUFFERED, rc_dec_cell};
+use torajs_rc::{DropPolicy, FLAG_BUFFERED, HeapHeader, rc_dec_cell};
 
 unsafe extern "C" {
     /// Universal-drop dispatcher in runtime_str.c. Routes the heap
@@ -45,6 +45,26 @@ pub unsafe extern "C" fn __torajs_promise_drop(p: *mut c_void) {
         return;
     }
     unsafe { free_dead(pp) };
+}
+
+/// [`__torajs_promise_drop`] for a caller that has already seen that
+/// `p` is a live cell, not a static literal, whose count is at most
+/// one: the typed release torajs-codegen opens at a call site sends
+/// the last reference here, past the tests it already made. The
+/// header's release still reports an underflow and runs the WeakRef
+/// hook.
+///
+/// # Safety
+/// `p` is a live non-static Promise cell with a count of at most one;
+/// the caller gives up its reference.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_promise_drop_last(p: *mut c_void) {
+    let pp = as_promise(p);
+    if unsafe { (*(p as *mut HeapHeader)).dec_ref_counted() } == DropPolicy::Free {
+        unsafe { free_dead(pp) };
+    } else {
+        unsafe { released_alive(pp) };
+    }
 }
 
 /// [`__torajs_promise_drop`] after the last reference went. Out of
