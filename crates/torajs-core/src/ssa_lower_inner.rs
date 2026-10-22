@@ -44,7 +44,7 @@ use crate::ast::{GenericStructDecls, PropKey};
 pub(crate) use body_passes_fn_name::{
     es_arity, intern_fn_source, register_fn_name, strip_static_method_name,
 };
-use callable_infra::{CallableInfra, setup_callable_infra};
+use callable_infra::setup_callable_infra;
 use declare::declare_intrinsic_batches;
 use setup::{build_anon_stamp_pool_with_snapshot, build_intrinsics_and_boxed_entries};
 
@@ -170,17 +170,6 @@ fn lower_once(
         &aliases,
         &struct_layouts,
     );
-    let CallableInfra {
-        env_drop_fids,
-        env_drop_trivial_fid,
-        env_trace_fids,
-        class_drops,
-        promise_thunks,
-        signatures,
-    } = infra;
-
-    // (struct_layouts already detached from module at top of lower(),
-    // see M3.4 block above; write-back happens at the end.)
 
     // M2 — capture-types side channel. The construction site of
     // `Expr::Closure` populates this map (lifted-fn-name → ordered
@@ -229,7 +218,7 @@ fn lower_once(
         &aliases,
         &arr_layouts,
         &struct_layouts,
-        env_drop_trivial_fid,
+        infra.env_drop_trivial_fid,
         &init_a,
         &init_b,
         &init_c,
@@ -237,19 +226,19 @@ fn lower_once(
     );
 
     let class_drop_fids: HashMap<u32, FuncId> =
-        class_drops.iter().map(|d| (d.sid.0, d.fid)).collect();
+        infra.class_drops.iter().map(|d| (d.sid.0, d.fid)).collect();
     let suspend = async_setup::preregister(ast, &mut module, &mut fn_table, &mut fn_sigs);
     let drop_hooks = body_passes::run(
         &suspend,
         decl_indices,
         closure_decls,
-        &env_drop_fids,
-        &env_trace_fids,
-        &class_drops,
+        &infra.env_drop_fids,
+        &infra.env_trace_fids,
+        &infra.class_drops,
         ast,
         &mut module,
         &fn_table,
-        &signatures,
+        &infra.signatures,
         &fn_sig_ids,
         &pass1.fn_dflt_lits,
         &intrinsics,
@@ -272,7 +261,7 @@ fn lower_once(
         arity_pad_count,
         contextual_any,
         num_f64_slots,
-        &promise_thunks,
+        &infra.promise_thunks,
         &class_drop_fids,
         &boxed_entries,
     );
