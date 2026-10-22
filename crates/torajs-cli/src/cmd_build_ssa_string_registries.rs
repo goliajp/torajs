@@ -18,7 +18,7 @@
 //!   bytes under the payload alias).
 
 use torajs_codegen::CompiledFunction;
-use torajs_core::ssa::{FuncId, Module, Type};
+use torajs_core::ssa::{FuncId, Module, THEN_TWINS_TABLE, Type};
 use torajs_link::exec::{
     UserClassLayoutEntry, UserClassNameEntry, UserDataGlobalEntry, UserFnNameEntry,
     UserStringEntry, UserStringKind, UserVtableEntry,
@@ -196,11 +196,17 @@ pub(crate) fn build_class_layout_entries(
 ///
 /// An async frame's descriptor is laid out the same way: three
 /// relative rows (resume, drop, trace), which is the form the frame
-/// runtime reads (`torajs-promise` `frame::FrameDesc`).
+/// runtime reads (`torajs-promise` `frame::FrameDesc`). So is the
+/// `.then` / `.catch` handler twin table, under the Mach-O name of the
+/// runtime static it stands in for (`torajs-promise` `then_twin`).
 pub(crate) fn build_vtable_globals(ssa_module: &Module) -> Vec<UserVtableEntry> {
     let fn_sym = |fid: FuncId| format!("__torajs_fn_{}", fid.0);
     let vtables = ssa_module.vtable_globals.iter().map(|vt| UserVtableEntry {
-        sym: format!("__vtable_{}", vt.class_name),
+        sym: if vt.class_name == THEN_TWINS_TABLE {
+            format!("_{THEN_TWINS_TABLE}")
+        } else {
+            format!("__vtable_{}", vt.class_name)
+        },
         slot_syms: vt.fn_ids.iter().map(|opt| opt.map(fn_sym)).collect(),
     });
     let frames = ssa_module.suspend_fns.iter().map(|s| UserVtableEntry {

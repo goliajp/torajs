@@ -281,6 +281,11 @@ fn lower_once(
         &anon_stamp_pool,
         struct_layouts_pass15_len,
     );
+    crate::ssa_lower_promise_thunk::twins::push_then_twins(
+        &boxed_entries,
+        &infra.promise_thunks,
+        &mut module,
+    );
     let disagree = cell_size::settle(&mut module, &closure_captures, ast, &facts, &drop_hooks);
     (module, struct_names(&aliases, &disagree))
 }

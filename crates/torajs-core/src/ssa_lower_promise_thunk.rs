@@ -17,13 +17,14 @@
 //! Modules without a promise chain (every bench case) synthesize
 //! nothing — zero artifact delta.
 
-use crate::ast::{Ast, Expr, Stmt};
+use crate::ast::{Ast, Stmt};
 use crate::num_width::{SlotKey, WidthTable};
 use crate::ssa::{self, FuncId, Module, Type};
 use crate::ssa_lower::CLOSURE_CAP_BASE_OFF;
 use std::collections::HashMap;
 
 mod build;
+pub(crate) mod twins;
 mod wrap;
 use build::{build_env_drop, build_env_trace, build_thunk};
 
@@ -44,6 +45,14 @@ pub(crate) struct PromiseThunks {
     pub(crate) drop_closure: Option<(FuncId, ssa::SigId)>,
     pub(crate) drop_fnsig: Option<(FuncId, ssa::SigId)>,
     pub(crate) trace_closure: Option<(FuncId, ssa::SigId)>,
+    /// The closures a `.then` / `.catch` call may hand over — the
+    /// twin table's rows ([`twins`]).
+    handlers: Vec<FuncId>,
+    /// A `.then` / `.catch` argument names no declaration, so the
+    /// closure it hands over is known only at run time.
+    unnamed: bool,
+    /// The forwarder the twin table's first word names.
+    twin_run: Option<FuncId>,
 }
 
 impl PromiseThunks {
@@ -77,6 +86,9 @@ pub(crate) fn synthesize_promise_thunks(
         drop_closure: None,
         drop_fnsig: None,
         trace_closure: None,
+        handlers: Vec::new(),
+        unnamed: false,
+        twin_run: None,
     };
     // fn name → user param names (mirrors the analysis fn_params with
     // the lifted-closure `__env` slot stripped) plus the number-domain
@@ -128,47 +140,30 @@ pub(crate) fn synthesize_promise_thunks(
     // stripped at link.
     let mut needed: Vec<(bool, bool, bool)> = Vec::new();
     let mut unnamed = false;
-    for expr in &ast.exprs {
-        let Expr::Call { callee, args } = expr else {
-            continue;
-        };
-        let Expr::Member { name, .. } = ast.get_expr(*callee) else {
-            continue;
-        };
-        if !matches!(name.as_str(), "then" | "catch") {
-            continue;
+    twins::then_handlers(ast, table, |cb| {
+        if !fn_user_params.contains_key(cb) {
+            unnamed = true;
+            return;
         }
-        for a in args.iter().take(2) {
-            let cbs: Vec<&str> = match ast.get_expr(*a) {
-                Expr::Ident(n) if table.bound_closures(*a).is_empty() => vec![n.as_str()],
-                Expr::Ident(_) => table
-                    .bound_closures(*a)
-                    .iter()
-                    .map(|f| f.as_str())
-                    .collect(),
-                Expr::Closure { fn_name, .. } => vec![fn_name.as_str()],
-                _ => vec![""],
-            };
-            for cb in cbs {
-                if !fn_user_params.contains_key(cb) {
-                    unnamed = true;
-                    continue;
-                }
-                let (p_num, r_num) = fn_num_faces[cb];
-                let p = p_num
-                    && fn_user_params[cb].first().is_some_and(|p0| {
-                        table.slot_is_f64(&SlotKey::Param(cb.to_string(), p0.to_string()))
-                    });
-                let r = r_num && table.slot_is_f64(&SlotKey::Ret(cb.to_string()));
-                if p || r {
-                    let key = (fn_is_closure[cb], p, r);
-                    if !needed.contains(&key) {
-                        needed.push(key);
-                    }
-                }
+        if fn_is_closure[cb]
+            && let Some(&fid) = fn_table.get(cb)
+            && !thunks.handlers.contains(&fid)
+        {
+            thunks.handlers.push(fid);
+        }
+        let (p_num, r_num) = fn_num_faces[cb];
+        let p = p_num
+            && fn_user_params[cb].first().is_some_and(|p0| {
+                table.slot_is_f64(&SlotKey::Param(cb.to_string(), p0.to_string()))
+            });
+        let r = r_num && table.slot_is_f64(&SlotKey::Ret(cb.to_string()));
+        if p || r {
+            let key = (fn_is_closure[cb], p, r);
+            if !needed.contains(&key) {
+                needed.push(key);
             }
         }
-    }
+    });
     if unnamed {
         for (p, r) in [(false, true), (true, false), (true, true)] {
             for key in [(false, p, r), (true, p, r)] {
@@ -177,6 +172,10 @@ pub(crate) fn synthesize_promise_thunks(
                 }
             }
         }
+    }
+    thunks.unnamed = unnamed;
+    if unnamed || !thunks.handlers.is_empty() {
+        thunks.twin_run = Some(twins::build_twin_run(module, fn_table, fn_sigs, fn_sig_ids));
     }
     if needed.is_empty() {
         return thunks;

@@ -55,7 +55,7 @@ pub use torajs_anyvalue::nanbox::{DOUBLE_ENCODE_OFFSET, TAG_TYPE_NUMBER};
 
 pub use arr_layouts::ArrLayouts;
 pub use module_class_layouts::{ClassLayoutMeta, FieldMetaSpec, MethodMetaSpec, field_type_tag_of};
-pub use module_extras::{LOCAL_LABEL_PREFIX, demo_fib40, is_local_label};
+pub use module_extras::{LOCAL_LABEL_PREFIX, THEN_TWINS_TABLE, demo_fib40, is_local_label};
 pub use module_methods::{
     BakedDfa, BakedRegexEntry, DataGlobal, FnNameEntry, Module, PinFact, PinRegs, PinWord,
     StringLiteral, VtableGlobal,

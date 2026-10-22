@@ -1,8 +1,8 @@
 //! `impl StringLiteral` (build-time Latin-1 / UTF-16 encoding picker),
-//! the local-label function names and the `demo_fib40` hand-built
-//! fixture. Extracted from `module_methods.rs` so that no source file
-//! passes 500 lines of production code. Pure mechanical pull, no
-//! semantic change.
+//! the local-label function names, the then-twin table name and the
+//! `demo_fib40` hand-built fixture. Extracted from `module_methods.rs`
+//! so that no source file passes 500 lines of production code. Pure
+//! mechanical pull, no semantic change.
 
 use super::module_methods::{Module, StringLiteral};
 use super::{BinOp, FuncId, Function, IPred, InstKind, Operand, Terminator, Type};
@@ -114,6 +114,11 @@ pub const LOCAL_LABEL_PREFIX: &str = ".L";
 pub fn is_local_label(name: &str) -> bool {
     name.starts_with(LOCAL_LABEL_PREFIX)
 }
+
+/// The class name of the one row set that is no class's: the
+/// `.then` / `.catch` handler twin table, which the link names after
+/// the runtime's `__torajs_then_twins` rather than `__vtable_<name>`.
+pub const THEN_TWINS_TABLE: &str = "__torajs_then_twins";
 
 /// Hand-built fib(n: i64) -> i64 module — the same shape the retired
 /// LLVM-gate spike (labs/0002, removed with the inkwell backend)
