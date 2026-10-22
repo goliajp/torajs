@@ -76,14 +76,18 @@ fn any_cast(init: ExprId, ast: &Ast, types: &HashMap<ExprId, T>) -> bool {
 }
 
 /// Whether `init` reads a value held as `any` — a binding, a property,
-/// an element, a conditional of them — rather than producing one: a
-/// call is left out, since the typed `JSON.parse` / `Object.fromEntries`
-/// lanes decode theirs into the declared layout.
+/// an element, a conditional of them, the settled value an `await`
+/// reads — rather than producing one: a call is left out, since the
+/// typed `JSON.parse` / `Object.fromEntries` lanes decode theirs into
+/// the declared layout.
 pub(super) fn any_read(init: ExprId, ast: &Ast, types: &HashMap<ExprId, T>) -> bool {
     types.get(&init) == Some(&T::Any)
         && match ast.get_expr(init) {
             Expr::Ident(_) | Expr::Index { .. } | Expr::Ternary { .. } => true,
-            Expr::Member { obj, .. } => !matches!(ast.get_expr(*obj), Expr::Call { .. }),
+            Expr::Member { obj, .. } => {
+                ast.await_value_reads.contains(&init)
+                    || !matches!(ast.get_expr(*obj), Expr::Call { .. })
+            }
             _ => false,
         }
 }

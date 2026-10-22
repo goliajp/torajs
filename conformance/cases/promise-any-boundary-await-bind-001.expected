@@ -1,0 +1,5 @@
+resolve string str
+call string str1
+string number 5
+number number 42
+typed number 6
