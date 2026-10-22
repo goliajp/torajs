@@ -45,6 +45,7 @@
 
 mod byte_sep;
 mod count;
+mod count_byte;
 pub mod iter;
 pub mod ops;
 pub mod pool;

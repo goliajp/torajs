@@ -11,15 +11,10 @@
 /// stay aligned with the haystack's code-unit grid.
 #[inline]
 fn count_matches(s: &[u8], sep: &[u8], stride: usize) -> u64 {
-    // V0.2 P14-S6 — single-byte-needle SIMD fast path. Latin-1
-    // haystack with 1-byte separator (the dominant `" "`, `","`,
-    // `"\n"`, `";"` shapes) collapses to a byte-equality reduce
-    // that LLVM auto-vectorizes to NEON `pcmpeq + popcount` on
-    // ARM64. `bench/cases/split-only-100k` (` `-separated short
-    // string) lives on this path.
+    // a Latin-1 haystack cut on one byte (the dominant `" "`, `","`,
+    // `"\n"`, `";"` shapes) is a byte count
     if stride == 1 && sep.len() == 1 {
-        let target = sep[0];
-        return s.iter().filter(|&&b| b == target).count() as u64;
+        return super::count_byte::count_byte(s, sep[0]);
     }
     if sep.len() == stride {
         // Single code-unit needle, UTF-16 path (or anything where
