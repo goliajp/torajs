@@ -14,7 +14,11 @@
 //!
 //! Anything else keeps the default the arrow gets with no context. A
 //! spelling that names a type parameter the handler cannot see is not
-//! projected.
+//! projected, and neither is a declaration the value may not run: a
+//! subclass overriding the method (TS checks method parameters
+//! bivariantly, so the override may call the arrow with anything), a
+//! write to a property of that name anywhere, or a write to the
+//! literal's binding.
 
 use super::super::infer_closure_lets::{field_ann_of, lifted_closure_name};
 use super::super::infer_closure_typevars::{UserFnHintSinks, apply_user_fn_callee_hint};
@@ -56,6 +60,9 @@ pub(super) fn seed_method_cb_anns(
     sole: &SoleBindings<'_>,
     sinks: UserFnHintSinks<'_>,
 ) {
+    if written(ast, None, site.method) {
+        return;
+    }
     let declared = match obj_ann {
         Some(ann) => field_fn_params(ast, ann, site.method)
             .or_else(|| class_method_params(ast, ann, site.method)),
@@ -116,7 +123,57 @@ fn class_method_params(ast: &Ast, ann: &str, method: &str) -> Option<Declared> {
     {
         return None;
     }
+    if overridden(ast, ann, method) {
+        return None;
+    }
     fn_decl_params(ast, &name)
+}
+
+/// Does a class descending from `class` declare its own `method`
+/// (a method or an accessor)?
+fn overridden(ast: &Ast, class: &str, method: &str) -> bool {
+    let key = PropKey::from(method);
+    let m = mangle_key(key.as_wtf8());
+    ast.class_parents.keys().any(|c| {
+        c != class && descends(ast, c, class) && {
+            let own = format!("__cm_{c}__{m}");
+            ast.stmts.iter().any(|s| match s {
+                Stmt::FnDecl { name, .. } => name
+                    .strip_prefix(own.as_str())
+                    .is_some_and(|r| matches!(r, "" | "_get" | "_set")),
+                _ => false,
+            })
+        }
+    })
+}
+
+/// Is `class` a proper ancestor of `c`?
+fn descends<'a>(ast: &'a Ast, mut c: &'a str, class: &str) -> bool {
+    while let Some(Some(p)) = ast.class_parents.get(c) {
+        if p == class {
+            return true;
+        }
+        c = p;
+    }
+    false
+}
+
+/// Does the program assign to a property named `method` (`o.m = …`,
+/// `o["m"] = …`), or to the binding `obj`?
+fn written(ast: &Ast, obj: Option<&str>, method: &str) -> bool {
+    ast.exprs.iter().any(|e| {
+        let Expr::Assign { target, .. } = e else {
+            return false;
+        };
+        match ast.get_expr(*target) {
+            Expr::Member { name, .. } => name == method,
+            Expr::Index { index, .. } => {
+                matches!(ast.get_expr(*index), Expr::String(s) if s.as_str() == Some(method))
+            }
+            Expr::Ident(n) => obj == Some(n.as_str()),
+            _ => false,
+        }
+    })
 }
 
 /// `const o = { arm(f) { … } }` bound once — the literal's method, when
@@ -131,7 +188,7 @@ fn literal_method_params(
         return None;
     };
     let decl = sole.sole(n)?;
-    if decl.ann.is_some() {
+    if decl.ann.is_some() || written(ast, Some(n), method) {
         return None;
     }
     let Expr::ObjectLit { fields } = ast.get_expr(decl.init?) else {
