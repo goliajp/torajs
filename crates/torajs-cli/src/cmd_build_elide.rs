@@ -93,6 +93,14 @@
 //! Two `#[inline(never)]` entries write boxed form, the any
 //! store and the descriptor define, so they are the guard (fam 60).
 //!
+//! **`shift` on a read-only `length`** — the typed lowering's lock
+//! raiser (`__torajs_arr_shift_guard`) answers a frozen or sealed
+//! receiver itself, but a non-writable `length` takes the spec's
+//! moves and the generic delete of the last index, which roots the
+//! any world in every program that shifts (fifo-queue: 512 KB). Off a
+//! freeze, FLAG_ARR_LENGTH_RO has one `#[inline(never)]` writer, the
+//! `length` define's (fam 61).
+//!
 //! **Uncaught reporter's Error rendering** (r501, 刀 4 A6) — the
 //! name / prototype-chain resolver is the reporter's only edge into
 //! the generic value world; a program that injected no error class
@@ -433,7 +441,17 @@ mod tests {
     #[test]
     fn exotic_slow_path_stubs_are_symbol_guarded_loud_rejects() {
         let stubs = guarded_stubs();
-        assert_eq!(stubs.len(), 17);
+        assert_eq!(stubs.len(), 18);
+        let shift_ro = &stubs[17];
+        assert_eq!(shift_ro.sym, "___torajs_arr_shift_ro_length_slow");
+        assert_eq!(
+            shift_ro.guard.to_string(),
+            "syms:___torajs_arr_flag_length_ro"
+        );
+        assert_eq!(
+            &shift_ro.bytes[..4],
+            &(0xD280_0000u32 | (61 << 5) | 7).to_le_bytes()
+        );
         let last_index = &stubs[16];
         assert_eq!(last_index.sym, "___torajs_regex_last_index_boxed_num");
         assert_eq!(

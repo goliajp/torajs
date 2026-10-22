@@ -80,7 +80,9 @@ pub(crate) unsafe fn shift_refuses_on_sealed(arr: *mut u8) -> bool {
 /// one element and no seal: §23.1.3.29 moves every element down,
 /// deletes the last index (a configurable element), and only the final
 /// `Set(O, "length")` refuses. Non-zero means a TypeError is pending;
-/// zero means the length is writable and nothing happened.
+/// zero means the length is writable and nothing happened. The leg
+/// sits behind a link seam: its delete is the generic one, and the
+/// flag that opens it has one writer outside a freeze.
 ///
 /// # Safety
 /// `arr` is a live array heap block with `len > 0`.
@@ -89,6 +91,18 @@ unsafe fn shift_refuses_on_ro_length(arr: *mut u8) -> i64 {
     if header.flags & FLAG_ARR_LENGTH_RO == 0 {
         return 0;
     }
+    unsafe { crate::exotic_seam::__torajs_arr_shift_ro_length_slow(arr.cast()) }
+}
+
+/// The default body behind the `__torajs_arr_shift_ro_length_slow`
+/// seam: move, delete the last index, refuse the length write.
+///
+/// # Safety
+/// `arr` is a live array heap block with `len > 0` and
+/// `FLAG_ARR_LENGTH_RO`, not frozen or sealed.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_shift_ro_length_impl(arr: *mut c_void) -> i64 {
+    let arr = arr as *mut u8;
     let last = unsafe { *(arr.add(ARR_LEN_OFF) as *const u64) } - 1;
     unsafe { shift_down_in_place(arr) };
     let key = unsafe { crate::define::mint_index_key(last) };

@@ -41,7 +41,9 @@
 
 use core::ffi::c_void;
 
-use torajs_rc::{FLAG_ARR_ANY_HOLEY, FLAG_ARR_EXOTIC_INDEX, FLAG_ARR_SPARSE_TAIL};
+use torajs_rc::{
+    FLAG_ARR_ANY_HOLEY, FLAG_ARR_EXOTIC_INDEX, FLAG_ARR_LENGTH_RO, FLAG_ARR_SPARSE_TAIL,
+};
 
 unsafe extern "C" {
     fn __torajs_dynobj_alloc() -> *mut c_void;
@@ -84,6 +86,14 @@ unsafe extern "C" {
     /// `boolean[]` / pointer-element twin: the AnyValue answer when
     /// `keep != 0`, otherwise `undefined` after the read has run.
     pub(crate) fn __torajs_arr_typed_nonint_any_slow(arr: *mut c_void, key: f64, keep: i64) -> u64;
+    /// `shift` on a non-writable `length`, the move-and-delete leg
+    /// (`__torajs_arr_shift_ro_length_impl`).
+    pub(crate) fn __torajs_arr_shift_ro_length_slow(arr: *mut c_void) -> i64;
+}
+
+#[cfg(test)]
+pub(crate) unsafe fn __torajs_arr_shift_ro_length_slow(arr: *mut c_void) -> i64 {
+    unsafe { crate::sealed_refuse::__torajs_arr_shift_ro_length_impl(arr) }
 }
 
 #[cfg(test)]
@@ -183,6 +193,22 @@ pub unsafe extern "C" fn __torajs_arr_flag_any_holey(arr: *mut c_void) {
 pub unsafe extern "C" fn __torajs_arr_flag_sparse_tail(arr: *mut c_void) {
     let p = unsafe { (arr as *mut u8).add(6) as *mut u16 };
     unsafe { p.write(p.read() | FLAG_ARR_SPARSE_TAIL) };
+}
+
+/// Make the header's `length` non-writable. The ONE writer of
+/// `FLAG_ARR_LENGTH_RO` on a receiver that is not frozen (a freeze
+/// raises it next to FLAG_FROZEN, and every reader that matters here
+/// answers a frozen receiver first), so its text liveness is the
+/// link-time evidence for `shift`'s RO-length leg
+/// (`__torajs_arr_shift_ro_length_slow`).
+///
+/// # Safety
+/// `arr` is a live `Tag::Arr` heap block.
+#[inline(never)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_flag_length_ro(arr: *mut c_void) {
+    let p = unsafe { (arr as *mut u8).add(6) as *mut u16 };
+    unsafe { p.write(p.read() | FLAG_ARR_LENGTH_RO) };
 }
 
 /// The array's props slot, with the bag allocated on first use. The

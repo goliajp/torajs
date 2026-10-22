@@ -123,8 +123,7 @@ pub(crate) unsafe fn define_length(
         }
     }
     if flags_byte & P_WRITABLE != 0 && flags_byte & F_WRITABLE == 0 {
-        let p = unsafe { (arr as *mut u8).add(6) as *mut u16 };
-        unsafe { p.write(p.read() | FLAG_ARR_LENGTH_RO) };
+        unsafe { crate::exotic_seam::__torajs_arr_flag_length_ro(arr) };
     }
     1
 }
@@ -164,8 +163,7 @@ unsafe fn define_length_value(
                     // false here; §20.1.2.4 turns that into the
                     // TypeError).
                     if flags_byte & P_WRITABLE != 0 && flags_byte & F_WRITABLE == 0 {
-                        let p = unsafe { (arr as *mut u8).add(6) as *mut u16 };
-                        unsafe { p.write(p.read() | FLAG_ARR_LENGTH_RO) };
+                        unsafe { crate::exotic_seam::__torajs_arr_flag_length_ro(arr) };
                     }
                     return refuse_length(throw_on_refusal, c"Unable to delete property.".as_ptr());
                 }

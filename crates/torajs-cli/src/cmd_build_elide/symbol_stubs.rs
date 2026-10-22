@@ -4,7 +4,7 @@
 /// entries whose text liveness un-assumes the stub, landing-pad fam
 /// id). The join seam's enabler is the exotic-flag writer; the
 /// species probe's enablers are the two props-bag creators.
-pub(super) const SYMBOL_STUBS: [(&str, &[&str], u32); 16] = [
+pub(super) const SYMBOL_STUBS: [(&str, &[&str], u32); 17] = [
     (
         "___torajs_arr_join_exotic",
         &["___torajs_arr_flag_exotic"],
@@ -134,6 +134,13 @@ pub(super) const SYMBOL_STUBS: [(&str, &[&str], u32); 16] = [
             "___torajs_regex_last_index_define",
         ],
         60,
+    ),
+    // `shift` on a non-writable length that is not frozen: the flag's
+    // one writer outside a freeze is the descriptor define.
+    (
+        "___torajs_arr_shift_ro_length_slow",
+        &["___torajs_arr_flag_length_ro"],
+        61,
     ),
 ];
 

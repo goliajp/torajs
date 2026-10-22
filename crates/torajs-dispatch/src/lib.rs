@@ -197,7 +197,7 @@ pub unsafe extern "C" fn __torajs_dispatch_stub_reject_ptr(
 
 /// Record the named TypeError for `fam_id`. It rides x7 (stamped by
 /// the stub's movz): 0..14 = the arm roster order, 16..40 = printer
-/// kernels, 40..=58 and 60 = link-judged exotic slow paths, 59 = a
+/// kernels, 40..=58 and 60..=61 = link-judged exotic slow paths, 59 = a
 /// class method row's dropped twin column. The name makes a wrong judgment
 /// attributable from the failure line alone.
 unsafe fn throw_reject(fam_id: u64) {
@@ -252,29 +252,30 @@ typed-array keyed any read\
 struct field-read guard\
 struct absent set\
 class method twin\
-method family\
-regexp boxed lastIndex read";
-/// `SUBJECTS[OFF[i]..OFF[i + 1]]` is subject `i` (u16: the string is 561 B).
-const OFF: [u16; 40] = [
+boxed lastIndex read\
+shift on ro length\
+method family";
+/// `SUBJECTS[OFF[i]..OFF[i + 1]]` is subject `i` (u16: the string is 572 B).
+const OFF: [u16; 41] = [
     0, 3, 6, 12, 18, 24, 28, 34, 38, 45, 51, 57, 63, 70, 74, 77, 99, 113, 130, 149, 172, 198, 216,
-    232, 253, 270, 292, 307, 331, 354, 376, 402, 421, 438, 464, 487, 504, 521, 534, 561,
+    232, 253, 270, 292, 307, 331, 354, 376, 402, 421, 438, 464, 487, 504, 521, 541, 559, 572,
 ];
 const ARM_FAMILY_COUNT: u64 = 15;
 /// Subject indices past the arm families.
 const SUBJ_NS_STATIC: usize = 15;
 const SUBJ_PRINTER: usize = 16;
+/// fam 40..=61 in order; 59, the twin column, is the one among them
+/// the dispatch judgment makes.
 const SUBJ_LINK_FIRST: usize = 17;
-const SUBJ_TWIN: usize = 36;
-const SUBJ_FALLBACK: usize = 37;
-/// Link-judged slow paths numbered past the twin column's 59.
-const SUBJ_LINK_SECOND: usize = 38;
+const FAM_TWIN: u64 = 59;
+const SUBJ_FALLBACK: usize = 39;
 
 const REJECT_METHOD_FAMILY: &str = " method family";
 const REJECT_DISPATCH_TAIL: &str = " stripped (dispatch judgment bug)";
 const REJECT_LINK_TAIL: &str = " stripped (link judgment bug)";
 
-/// Longest composed reject line + NUL: `"regexp boxed lastIndex read"`
-/// (27) + the link tail (29) is the widest, with room to spare.
+/// Longest composed reject line + NUL: `"scalar-array subclass drop"`
+/// (26) + the link tail (29) is the widest, with room to spare.
 const REJECT_MSG_CAP: usize = 96;
 
 fn subject(i: usize) -> &'static str {
@@ -299,13 +300,15 @@ fn reject_message(fam_id: u64, buf: &mut [u8; REJECT_MSG_CAP]) -> usize {
         n if n < ARM_FAMILY_COUNT => (n as usize, REJECT_METHOD_FAMILY, REJECT_DISPATCH_TAIL),
         15 => (SUBJ_NS_STATIC, "", REJECT_DISPATCH_TAIL),
         16..40 => (SUBJ_PRINTER, "", REJECT_DISPATCH_TAIL),
-        40..=58 => (
+        40..=61 => (
             SUBJ_LINK_FIRST + (fam_id - 40) as usize,
             "",
-            REJECT_LINK_TAIL,
+            if fam_id == FAM_TWIN {
+                REJECT_DISPATCH_TAIL
+            } else {
+                REJECT_LINK_TAIL
+            },
         ),
-        59 => (SUBJ_TWIN, "", REJECT_DISPATCH_TAIL),
-        60 => (SUBJ_LINK_SECOND, "", REJECT_LINK_TAIL),
         _ => (SUBJ_FALLBACK, "", REJECT_DISPATCH_TAIL),
     };
     // Filled through the iterator forms rather than range indexing:
@@ -381,10 +384,8 @@ mod tests {
         assert_line(57, "struct field-read guard stripped (link judgment bug)");
         assert_line(58, "struct absent set stripped (link judgment bug)");
         assert_line(59, "class method twin stripped (dispatch judgment bug)");
-        assert_line(
-            60,
-            "regexp boxed lastIndex read stripped (link judgment bug)",
-        );
+        assert_line(60, "boxed lastIndex read stripped (link judgment bug)");
+        assert_line(61, "shift on ro length stripped (link judgment bug)");
         assert_line(u64::MAX, "method family stripped (dispatch judgment bug)");
     }
 

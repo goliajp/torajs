@@ -41,6 +41,21 @@ unsafe extern "C" {
     ) -> *mut core::ffi::c_void;
     fn __torajs_arr_typed_nonint_any_impl(arr: *mut core::ffi::c_void, key: f64, keep: i64) -> u64;
     fn __torajs_anyv_to_number(v: u64) -> f64;
+    fn __torajs_arr_shift_ro_length_impl(arr: *mut core::ffi::c_void) -> i64;
+}
+
+/// Default resolution of `shift` on an array whose `length` is not
+/// writable (§23.1.3.29: the moves, the generic delete of the last
+/// index, then the refused length write). torajs-arr calls it only
+/// under FLAG_ARR_LENGTH_RO on a receiver that is neither frozen nor
+/// sealed; the link judgment stubs it (fam 61) when that flag's one
+/// writer outside a freeze, `__torajs_arr_flag_length_ro`, is dead.
+///
+/// # Safety
+/// `arr` is a live `Tag::Arr` cell with `len > 0`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_shift_ro_length_slow(arr: *mut core::ffi::c_void) -> i64 {
+    unsafe { __torajs_arr_shift_ro_length_impl(arr) }
 }
 
 /// Default resolution of a RegExp's boxed-form `lastIndex` read
