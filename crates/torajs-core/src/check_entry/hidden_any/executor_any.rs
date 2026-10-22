@@ -49,8 +49,9 @@ pub(super) fn extend(
 /// each time with a value `types` shows as typed, settles a `T`: one
 /// called from a closure the executor makes, handed on (`helper(r)`,
 /// `const k = r`), or given a promise of `any` (§27.2.1.3.2 adopts it,
-/// settling the value as it is) may settle anything, and so may an
-/// executor whose body this walk cannot find.
+/// settling the value as it is) may settle anything, and so may one
+/// that reads `arguments` and an executor whose body this walk cannot
+/// find.
 fn resolves_any(ast: &Ast, ex: ExprId, types: &HashMap<ExprId, Type>) -> bool {
     let name = match ast.get_expr(ex) {
         Expr::Closure { fn_name, .. } => fn_name,
@@ -68,10 +69,8 @@ fn resolves_any(ast: &Ast, ex: ExprId, types: &HashMap<ExprId, Type>) -> bool {
     }) else {
         return true;
     };
-    let Some(resolve) = params.iter().find(|p| p.name != "__env") else {
-        return false;
-    };
-    let resolve = resolve.name.as_str();
+    // `arguments[0]` reaches `resolve` too, named or not (§10.4.4)
+    let resolve = (params.iter().find(|p| p.name != "__env")).map_or("arguments", |p| &p.name);
     let mut stack: Vec<ExprId> = Vec::new();
     for s in body {
         visit_stmt_exprs(s, &mut |e| stack.push(e));
@@ -83,13 +82,13 @@ fn resolves_any(ast: &Ast, ex: ExprId, types: &HashMap<ExprId, Type>) -> bool {
         }
         match ast.get_expr(e) {
             Expr::Call { callee, args } if is_name(ast, *callee, resolve) => {
-                if args.first().is_some_and(|a| any_settle(types.get(a))) {
+                if args.first().is_some_and(|a| any_settle(ast, types.get(a))) {
                     return true;
                 }
                 stack.extend(args.iter().copied());
                 continue;
             }
-            Expr::Ident(n) if n == resolve => return true,
+            Expr::Ident(n) if n == resolve || n == "arguments" => return true,
             Expr::Closure { captures, .. } if captures.iter().any(|c| c == resolve) => {
                 return true;
             }
@@ -105,11 +104,61 @@ fn is_name(ast: &Ast, e: ExprId, name: &str) -> bool {
 }
 
 /// Does resolving with a value of type `t` settle a value of any kind?
-fn any_settle(t: Option<&Type>) -> bool {
+/// A thenable is adopted (§27.2.1.3.2 steps 9-13): its `then` may call
+/// back with anything.
+fn any_settle(ast: &Ast, t: Option<&Type>) -> bool {
     match t {
         Some(Type::Any) => true,
         Some(Type::Promise(inner)) => **inner == Type::Any,
+        Some(Type::Struct(fields)) => fields.iter().any(|(k, _)| *k == "then"),
+        Some(Type::Dict(_, v)) => !is_primitive(v),
+        Some(Type::ClassRef(c)) => class_has_then(ast, c, 0),
+        Some(Type::Nullable(inner)) => any_settle(ast, Some(inner)),
+        Some(Type::Union(ts)) => ts.iter().any(|t| any_settle(ast, Some(t))),
         _ => false,
+    }
+}
+
+fn is_primitive(t: &Type) -> bool {
+    matches!(
+        t,
+        Type::Number
+            | Type::String
+            | Type::Boolean
+            | Type::BigInt
+            | Type::Null
+            | Type::Undefined
+            | Type::Void
+            | Type::Literal(_)
+    )
+}
+
+/// Does an instance of class `name` have a `then` — a member of its own
+/// or an ancestor's? A class this walk cannot find may have one.
+fn class_has_then(ast: &Ast, name: &str, depth: u32) -> bool {
+    let decl = ast.stmts.iter().find_map(|s| match s {
+        Stmt::ClassDecl {
+            name: n,
+            parent,
+            fields,
+            methods,
+            ..
+        } if n == name => Some((parent, fields, methods)),
+        _ => None,
+    });
+    let Some((parent, fields, methods)) = decl else {
+        return !name.ends_with("Error");
+    };
+    if depth > 64
+        || fields.iter().any(|(k, _)| *k == "then")
+        || methods.iter().any(|m| m.name == "then")
+    {
+        return true;
+    }
+    match parent.map(|p| ast.get_expr(p)) {
+        None => false,
+        Some(Expr::Ident(p)) => class_has_then(ast, p, depth + 1),
+        Some(_) => true,
     }
 }
 
