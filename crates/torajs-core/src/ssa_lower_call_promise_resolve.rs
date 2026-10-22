@@ -184,6 +184,18 @@ fn typed_shape_has_then(ctx: &LowerCtx<'_>, arg0: ExprId, arg_ty: &Type) -> bool
             .is_some_and(|c| ctx.fn_table.contains_key(&format!("__cm_{c}__then")))
 }
 
+/// Did the checker leave `Promise.resolve(obj)` untyped? An object
+/// whose type shows no `then` fulfils the promise as itself only when
+/// the program is proven to give no object one (`check::promise_static`);
+/// otherwise it may still be a thenable, adopted by a `then` read at
+/// run time, and the promise is `Promise<any>`.
+fn resolves_untyped(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
+    matches!(
+        ctx.expr_types.get(&eid),
+        Some(crate::check::Type::Promise(inner)) if **inner == crate::check::Type::Any
+    )
+}
+
 /// `Promise.{resolve,reject}(v, ...)` — thenable absorption + heap /
 /// primitive dispatch. `arg_op` arrives PRE-LOWERED (the consult
 /// scaffold evaluates arguments once, before the split); trailing
@@ -236,15 +248,17 @@ fn lower_one_plus_op(
         );
         return Operand::Value(v);
     }
-    // §27.2.4.7 through §27.2.1.3.2 — a typed object whose shape carries
-    // a `then` member is a thenable: box it and take the any-lane
-    // kernel (the job road). A shape without one is proven
-    // non-thenable here, at compile time, and keeps the direct mint.
-    if method == "resolve" && typed_shape_has_then(ctx, arg0, &arg_ty) {
+    // §27.2.4.7 through §27.2.1.3.2 — a typed object that may be a
+    // thenable (its shape carries a `then`, or the program may install
+    // one at run time) is boxed onto the any-lane kernel (the job
+    // road). An object proven non-thenable keeps the direct mint.
+    if method == "resolve"
+        && (typed_shape_has_then(ctx, arg0, &arg_ty) || resolves_untyped(ctx, eid))
+    {
         if !ctx.expr_transfers_ownership(arg0) {
             ctx.emit_owned_result_inc(arg_op, arg_ty);
         }
-        let boxed = ctx.box_to_any(arg_op);
+        let boxed = ctx.box_to_any_from_expr(arg0, arg_op);
         let cur_block = ctx.cur_block;
         let v = ctx.f.append_inst(
             cur_block,

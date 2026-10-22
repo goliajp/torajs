@@ -102,7 +102,9 @@ impl Checker {
             // T: Array, Struct (Object literal), Date, RegExp.
             // Runtime owns one rc on the inner value; drop
             // dispatches via __torajs_value_drop_heap.
-            Type::Array(_) | Type::Struct(_) | Type::Date | Type::RegExp => arg_ty.clone(),
+            Type::Array(_) | Type::Struct(_) | Type::Date | Type::RegExp => {
+                self.resolved_object(ast, arg_ty.clone())
+            }
             // T-19.d (v0.5.0) — Nullable<T> + bare null. The
             // resolver returns the underlying T at SSA shape
             // (null is the in-band 0 sentinel), so the runtime
@@ -135,7 +137,7 @@ impl Checker {
             // A ClassRef is a nominal heap struct at SSA, so the
             // runtime side is the existing heap adopt path — this
             // whitelist was the only gate.
-            Type::ClassRef(_) => arg_ty.clone(),
+            Type::ClassRef(_) => self.resolved_object(ast, arg_ty.clone()),
             // P10.7 — `Promise.resolve(<any>)` lands a `Promise<any>`
             // wrapping the original value. Default-Any async fns
             // (`async function foo() { return e }`) desugar to
@@ -165,5 +167,26 @@ impl Checker {
             }
         };
         Some(Ok(Type::Promise(Box::new(inner))))
+    }
+
+    /// The fulfilment type of `Promise.resolve(v)` for an object `v`
+    /// whose type shows no `then`. §27.2.4.7 PromiseResolve hands it to
+    /// the resolve function, which adopts it when a run-time
+    /// `Get(v, "then")` answers a callable (§27.2.1.3.2 steps 9-13): it
+    /// fulfils as itself only when the program is proven to give no
+    /// object a `then`, the rule `await` follows (`Checker::awaited`).
+    /// Otherwise what the promise settles with has no type.
+    ///
+    /// A type that shows a `then` keeps its own type here: the lowering
+    /// takes the job road for it all the same, and `await` answers
+    /// `any` for such an inner.
+    fn resolved_object(&self, ast: &Ast, ty: Type) -> Type {
+        let has_fn = |f: &str| self.globals.contains_key(f);
+        if super::awaited::may_be_thenable(&ty, ast, &has_fn) || self.proto_shadow.then_closed(ast)
+        {
+            ty
+        } else {
+            Type::Any
+        }
     }
 }

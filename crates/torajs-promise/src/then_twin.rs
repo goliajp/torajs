@@ -183,8 +183,9 @@ unsafe fn handler_convert(src: u8, param: u8, v: i64) -> Result<i64, i64> {
 /// Does the box `av` cross into lane `param` as it is? Only a value of
 /// the lane's own kind does: a `number` lane takes a number, an integer
 /// lane an integral one, a `boolean` lane a boolean, a `string` lane a
-/// string and a pointer lane a cell (its layout is compile-time
-/// knowledge, so any cell passes).
+/// string and a pointer lane a cell other than a string (an object's
+/// layout is compile-time knowledge, so any object cell passes; a
+/// string has a lane of its own and never sits in an object's).
 unsafe fn lane_fit(param: u8, av: i64) -> bool {
     unsafe {
         let tag = __torajs_anyv_unbox_tag(av as u64);
@@ -201,7 +202,11 @@ unsafe fn lane_fit(param: u8, av: i64) -> bool {
             }
             REPR_BOOL => tag == TAG_BOOL,
             REPR_STR => __torajs_anyv_str_fits(av as u64) != 0,
-            REPR_HEAP => tag == TAG_HEAP && crate::unhandled::reason_is_cell_like(av),
+            REPR_HEAP => {
+                tag == TAG_HEAP
+                    && crate::unhandled::reason_is_cell_like(av)
+                    && __torajs_anyv_str_fits(av as u64) == 0
+            }
             _ => true,
         }
     }
