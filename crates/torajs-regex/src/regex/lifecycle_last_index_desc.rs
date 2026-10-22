@@ -31,6 +31,7 @@ use super::{as_regex, as_regex_mut};
 ///
 /// `re_ptr` is null or a live `*RegExp`; `value` carries the
 /// caller's +1 on a heap payload.
+#[inline(never)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_regex_last_index_define(
     re_ptr: *mut c_void,

@@ -117,7 +117,7 @@ pub unsafe extern "C" fn __torajs_regex_get_last_index(re_ptr: *const c_void) ->
     }
     let re = unsafe { as_regex(re_ptr) };
     if re.last_index_boxed != 0 {
-        return unsafe { super::__torajs_anyv_to_number(re.last_index_boxed) };
+        return unsafe { super::__torajs_regex_last_index_boxed_num(re.last_index_boxed) };
     }
     re.last_index
 }
@@ -230,6 +230,7 @@ pub unsafe extern "C" fn __torajs_regex_last_index_raw(re_ptr: *const c_void) ->
 ///
 /// `re_ptr` is null or a live `*RegExp`; `v` is a valid NaN-box
 /// AnyValue whose heap stake (if any) transfers to the cell.
+#[inline(never)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_regex_last_index_store_boxed(re_ptr: *mut c_void, v: u64) {
     if re_ptr.is_null() {

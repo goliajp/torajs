@@ -265,7 +265,7 @@ pub(crate) unsafe fn match_walk(
     // Done before the dfa_view borrow so the sticky arm below can
     // keep its disjoint field writes.
     if (global || sticky) && re.last_index_boxed != 0 {
-        let n = unsafe { super::__torajs_anyv_to_number(re.last_index_boxed) };
+        let n = unsafe { super::__torajs_regex_last_index_boxed_num(re.last_index_boxed) };
         unsafe { super::__torajs_value_drop_heap(re.last_index_boxed as *mut c_void) };
         re.last_index_boxed = 0;
         re.last_index = n;

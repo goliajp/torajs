@@ -85,6 +85,14 @@
 //! header bit (a shortened length alone takes it to the arm) and
 //! calls the writer directly.
 //!
+//! **A RegExp's boxed `lastIndex`** — every lastIndex consumer in
+//! torajs-regex (exec / test / match / replace entries) reads the
+//! numeric slot unless the any lane stored a non-number verbatim, and
+//! the ToNumber behind that one branch roots the whole any world (a
+//! typed regex match loop linked 562 KB, 380 KB of it through there).
+//! Two `#[inline(never)]` entries write boxed form, the any
+//! store and the descriptor define, so they are the guard (fam 60).
+//!
 //! **Uncaught reporter's Error rendering** (r501, 刀 4 A6) — the
 //! name / prototype-chain resolver is the reporter's only edge into
 //! the generic value world; a program that injected no error class
@@ -425,7 +433,17 @@ mod tests {
     #[test]
     fn exotic_slow_path_stubs_are_symbol_guarded_loud_rejects() {
         let stubs = guarded_stubs();
-        assert_eq!(stubs.len(), 16);
+        assert_eq!(stubs.len(), 17);
+        let last_index = &stubs[16];
+        assert_eq!(last_index.sym, "___torajs_regex_last_index_boxed_num");
+        assert_eq!(
+            last_index.guard.to_string(),
+            "syms:___torajs_regex_last_index_store_boxed|___torajs_regex_last_index_define"
+        );
+        assert_eq!(
+            &last_index.bytes[..4],
+            &(0xD280_0000u32 | (60 << 5) | 7).to_le_bytes()
+        );
         let map_hole = &stubs[14];
         assert_eq!(map_hole.sym, "___torajs_arr_map_hole_slow");
         assert_eq!(

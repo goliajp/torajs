@@ -4,7 +4,7 @@
 /// entries whose text liveness un-assumes the stub, landing-pad fam
 /// id). The join seam's enabler is the exotic-flag writer; the
 /// species probe's enablers are the two props-bag creators.
-pub(super) const SYMBOL_STUBS: [(&str, &[&str], u32); 15] = [
+pub(super) const SYMBOL_STUBS: [(&str, &[&str], u32); 16] = [
     (
         "___torajs_arr_join_exotic",
         &["___torajs_arr_flag_exotic"],
@@ -123,6 +123,17 @@ pub(super) const SYMBOL_STUBS: [(&str, &[&str], u32); 15] = [
         "___torajs_arr_typed_nonint_any_slow",
         &NAMED_PROP_WRITERS,
         56,
+    ),
+    // a RegExp's lastIndex read in boxed form (a non-number stored
+    // verbatim): only the any lane's store and the descriptor define
+    // put a value there; numeric form never calls the seam.
+    (
+        "___torajs_regex_last_index_boxed_num",
+        &[
+            "___torajs_regex_last_index_store_boxed",
+            "___torajs_regex_last_index_define",
+        ],
+        60,
     ),
 ];
 

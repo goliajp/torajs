@@ -311,10 +311,13 @@ unsafe extern "C" {
     /// it instead of NULL so downstream print / eq / typeof can tell
     /// JS undefined from JS null.
     pub fn __torajs_str_undef() -> *mut u8;
-    /// torajs-anyvalue — §7.1.4 ToNumber over a NaN-box AnyValue
-    /// (lastIndex boxed-form consumption; numeric fast path never
-    /// calls it).
-    pub fn __torajs_anyv_to_number(v: u64) -> f64;
+    /// §7.1.4 ToNumber of a boxed-form `lastIndex` — a link-judged
+    /// seam (default in torajs-dispatch, the any-world ToNumber). Only
+    /// `__torajs_regex_last_index_store_boxed` and
+    /// `__torajs_regex_last_index_define` put a value in boxed form,
+    /// so with both dead the link stubs it; the numeric fast path
+    /// never calls it.
+    pub fn __torajs_regex_last_index_boxed_num(v: u64) -> f64;
     /// torajs-value-drop — universal heap-value release (NaN-box-safe:
     /// the cell gate inside filters immediates, so callers pass the
     /// raw box bits unconditionally).
@@ -328,7 +331,7 @@ impl RegExp {
     /// verbatim by the any-lane setter) coerces through ToNumber.
     pub fn last_index_i64(&self) -> i64 {
         if self.last_index_boxed != 0 {
-            let n = unsafe { __torajs_anyv_to_number(self.last_index_boxed) };
+            let n = unsafe { __torajs_regex_last_index_boxed_num(self.last_index_boxed) };
             if n.is_nan() {
                 return 0;
             }

@@ -40,6 +40,22 @@ unsafe extern "C" {
         key: f64,
     ) -> *mut core::ffi::c_void;
     fn __torajs_arr_typed_nonint_any_impl(arr: *mut core::ffi::c_void, key: f64, keep: i64) -> u64;
+    fn __torajs_anyv_to_number(v: u64) -> f64;
+}
+
+/// Default resolution of a RegExp's boxed-form `lastIndex` read
+/// (§22.2.7.2 step 4's ToLength(ToNumber(lastIndex)) when the any lane
+/// stored a non-number verbatim): the any-world ToNumber. Every
+/// lastIndex consumer in torajs-regex calls it only for a cell whose
+/// boxed slot is non-zero; the link judgment stubs it (fam 60) when
+/// neither boxed writer (`__torajs_regex_last_index_store_boxed`,
+/// `__torajs_regex_last_index_define`) is live.
+///
+/// # Safety
+/// `v` is a live NaN-box AnyValue.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_regex_last_index_boxed_num(v: u64) -> f64 {
+    unsafe { __torajs_anyv_to_number(v) }
 }
 
 /// Default resolution of a typed `number[]` read at a non-integral

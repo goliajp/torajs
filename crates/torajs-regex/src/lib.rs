@@ -357,9 +357,9 @@ pub unsafe extern "C" fn __torajs_str_too_long() -> *mut u8 {
 /// panics on call.
 #[cfg(test)]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_anyv_to_number(_v: u64) -> f64 {
+pub unsafe extern "C" fn __torajs_regex_last_index_boxed_num(_v: u64) -> f64 {
     panic!(
-        "torajs-regex test stub: __torajs_anyv_to_number should not be called from cargo test (lastIndex stays in numeric form there)"
+        "torajs-regex test stub: __torajs_regex_last_index_boxed_num should not be called from cargo test (lastIndex stays in numeric form there)"
     );
 }
 
