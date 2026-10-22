@@ -1,0 +1,10 @@
+plain string str
+mixed any string str
+mixed typed number 2.5
+string string zero 4
+string any number 7
+field string fv
+method string str
+typed number 42
+all string a number 2
+typed handler string str
