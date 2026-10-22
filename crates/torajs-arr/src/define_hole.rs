@@ -25,8 +25,7 @@ unsafe extern "C" {
     fn __torajs_dynobj_set_entry_hole(obj_slot: *mut *mut c_void, key: *mut c_void);
     fn __torajs_dynobj_entry_is_hole(dynobj: *const c_void, key: *const c_void) -> i32;
     fn __torajs_dynobj_set_entry_flags(obj_slot: *mut *mut c_void, key: *mut c_void, flags: u64);
-    /// torajs-dynobj — entry removal (drops key + value, incl. an
-    /// accessor pair cell).
+    /// torajs-dynobj — entry removal (drops key + value, incl. an accessor pair cell).
     fn __torajs_dynobj_delete(dynobj: *mut c_void, key: *const c_void) -> i32;
     fn __torajs_str_alloc_pooled(len: u64) -> *mut u8;
     fn __torajs_str_drop(s: *mut c_void);
@@ -84,12 +83,9 @@ pub(crate) unsafe fn revive_index_if_hole(arr: *mut c_void, idx: u64) {
         && unsafe { __torajs_dynobj_has(props, key as *const c_void) } != 0
         && unsafe { __torajs_dynobj_entry_is_hole(props, key as *const c_void) } != 0
     {
-        // the bag is there and every caller gated on the exotic bit,
-        // so neither needs its writer: the attach and the flag entry
-        // stay out of a typed store's reach
-        unsafe {
-            __torajs_dynobj_set_entry_flags(props_slot(arr), key as *mut c_void, FLAGS_DEFAULT)
-        };
+        // the bag exists and every caller gated on the exotic bit: no attach or flag writer
+        let slot = unsafe { props_slot(arr) };
+        unsafe { __torajs_dynobj_set_entry_flags(slot, key as *mut c_void, FLAGS_DEFAULT) };
     }
     unsafe { __torajs_str_drop(key as *mut c_void) };
 }

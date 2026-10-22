@@ -8,6 +8,9 @@
 //! artifact can put a value into the state it serves. Same
 //! archive-member argument as the arm seams in the crate root.
 
+// the reporters' and the promise settle's seams
+mod report;
+
 unsafe extern "C" {
     fn __torajs_arr_join_exotic_impl(
         arr: *const u8,
@@ -21,13 +24,6 @@ unsafe extern "C" {
     fn __torajs_value_drop_heap(p: *mut core::ffi::c_void);
     fn __torajs_cycle_unbuffer(p: *mut core::ffi::c_void);
     fn __torajs_cycle_buffer(p: *mut core::ffi::c_void);
-    fn __torajs_uncaught_error_render_impl(p: *const u8);
-    fn __torajs_unhandled_error_render_impl(p: *const u8);
-    fn __torajs_anyv_promise_settle_thenable(
-        result: *mut core::ffi::c_void,
-        repr: i64,
-        value: i64,
-    ) -> i64;
     fn __torajs_anyv_rc_dec(v: u64);
     fn __torajs_obj_field_set_exotic_impl(
         p: *mut u8,
@@ -306,45 +302,4 @@ pub unsafe extern "C" fn __torajs_obj_props_drop_slow(cell: *mut core::ffi::c_vo
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_obj_buffer_slow(cell: *mut core::ffi::c_void) {
     unsafe { __torajs_cycle_buffer(cell) }
-}
-
-/// Default resolution of the uncaught reporter's Error-instance
-/// rendering (A6): `name: message` through the prototype-chain name
-/// resolver in torajs-throw / torajs-anyvalue.
-///
-/// # Safety
-/// `p` is a live `Tag::Obj` cell carrying FLAG_ERROR.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_uncaught_error_render_slow(p: *const u8) {
-    unsafe { __torajs_uncaught_error_render_impl(p) }
-}
-
-/// Default resolution of the unhandled-rejection reporter's
-/// Error-instance rendering, the uncaught one's twin (torajs-promise):
-/// `name: message` through the same resolver.
-///
-/// # Safety
-/// `p` is a live `Tag::Obj` cell carrying FLAG_ERROR.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_unhandled_error_render_slow(p: *const u8) {
-    unsafe { __torajs_unhandled_error_render_impl(p) }
-}
-
-/// Default resolution of the thenable probe on a handler's or an async
-/// body's object return (§27.2.1.3.2 steps 8-9, torajs-anyvalue). The
-/// link judgment stubs it (fam 63) when nothing can hand the settle an
-/// object: no call site with an object or `any` return form (the
-/// compiler's `__torajs_promise_obj_return_mark` root) and no handler
-/// twin (`__torajs_then_twin_run`).
-///
-/// # Safety
-/// `result` is a live pending cell; `value` carries the form `repr`
-/// names, owned.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_promise_settle_thenable_slow(
-    result: *mut core::ffi::c_void,
-    repr: i64,
-    value: i64,
-) -> i64 {
-    unsafe { __torajs_anyv_promise_settle_thenable(result, repr, value) }
 }

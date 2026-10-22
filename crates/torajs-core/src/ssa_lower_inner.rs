@@ -293,18 +293,7 @@ fn lower_once(
         &mut module,
     );
     let disagree = cell_size::settle(&mut module, &closure_captures, ast, &facts, &drop_hooks);
-    (module, struct_names(&aliases, &disagree))
-}
-
-/// The names that denote the structs in `sids`.
-fn struct_names(aliases: &HashMap<String, Type>, sids: &[ssa::StructId]) -> Vec<String> {
-    let names: Vec<String> = (aliases.iter())
-        .filter(|(_, t)| matches!(t, Type::Obj(s) if sids.contains(s)))
-        .map(|(n, _)| n.clone())
-        .collect();
-    // an empty answer reads as "no disagreement" and keeps the lowering
-    debug_assert!(sids.is_empty() || !names.is_empty());
-    names
+    (module, setup::struct_names(&aliases, &disagree))
 }
 
 /// Pass 1.5 (K.3) — collect + register top-level data globals.

@@ -124,3 +124,17 @@ pub(super) fn build_anon_stamp_pool_with_snapshot(
     let struct_layouts_pass15_len = struct_layouts.len();
     (anon_stamp_pool, struct_layouts_pass15_len)
 }
+
+/// The names that denote the structs in `sids`.
+pub(super) fn struct_names(
+    aliases: &HashMap<String, crate::ssa::Type>,
+    sids: &[crate::ssa::StructId],
+) -> Vec<String> {
+    let names: Vec<String> = (aliases.iter())
+        .filter(|(_, t)| matches!(t, crate::ssa::Type::Obj(s) if sids.contains(s)))
+        .map(|(n, _)| n.clone())
+        .collect();
+    // an empty answer reads as "no disagreement" and keeps the lowering
+    debug_assert!(sids.is_empty() || !names.is_empty());
+    names
+}
