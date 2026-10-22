@@ -81,12 +81,19 @@ impl<'a> PromiseTables<'a> {
         }
         let (inner, body) = declared_return(ast, f)?;
         let inner = promise_inner(inner)?;
-        // an async function's own settles (`Promise.resolve(e)` for a
-        // `return e`) settle what its body computed; the checker keeps
-        // its declared return (`check_entry::hidden_any::promise_rets`)
-        let mut built =
-            (returns(body).into_iter()).filter(|e| !ast.synth_promise_static_calls.contains(e));
-        if !ast.async_fns.contains(f) && built.any(|e| self.settles_any(ast, e)) {
+        // an async function settles what its body returns, as it is
+        // (§27.7.5.3); only one whose returns the sniff proved are `T`
+        // (`desugar_async::sniff`) settles a `T` the checker keeps
+        // (`check_entry::hidden_any::promise_rets`) whatever its body
+        // reads, so any other may settle a value of any kind
+        if ast.async_fns.contains(f) {
+            if !ast.async_proved_returns.contains(f) {
+                return Some("any".to_string());
+            }
+        } else if (returns(body).into_iter())
+            .filter(|e| !ast.synth_promise_static_calls.contains(e))
+            .any(|e| self.settles_any(ast, e))
+        {
             return Some("any".to_string());
         }
         primitive(&inner).then_some(inner)
