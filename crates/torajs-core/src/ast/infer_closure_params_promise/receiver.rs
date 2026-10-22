@@ -38,7 +38,14 @@ impl<'a> PromiseTables<'a> {
     }
 
     /// A call of a function whose return type is written `Promise<T>`.
+    /// The function must be the program's only binding of `f`: a local
+    /// `const f = …` or a parameter `f` in some other scope shadows the
+    /// declaration there, and the call reads that binding instead.
     pub(super) fn call_inner(&self, ast: &Ast, f: &str) -> Option<String> {
+        let d = self.bindings.sole(f)?;
+        if d.ann.is_some() || d.init.is_some() {
+            return None;
+        }
         declared_return(ast, f)
             .and_then(promise_inner)
             .filter(|i| primitive(i))
