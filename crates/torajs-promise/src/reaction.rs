@@ -46,7 +46,7 @@ use crate::layout::{
     RX_CLOSURE, RX_INTEREST_MASK, RX_NONE, RX_PARAM_ANY, RX_THEN, STATE_FULFILLED, STATE_PENDING,
     STATE_REJECTED, as_promise, inline_link,
 };
-use crate::pool::__torajs_promise_drop;
+use crate::pool::{__torajs_promise_drop, release_cell};
 use crate::state::{__torajs_promise_reject, __torajs_promise_resolve};
 use crate::then::{ThenCbI64, call_handler, stamp_result_repr};
 use crate::then_box::{handler_value, reject_on_pending_throw, settle_handler_return};
@@ -276,8 +276,9 @@ unsafe fn run_inline_reaction(dp: *mut Promise) -> Stake {
             Stake::Kept
         };
         // releasing a cell or an env runs no job and queues none, so
-        // a reaction left to run next is still the next job
-        __torajs_promise_drop(source);
+        // a reaction left to run next is still the next job; the source
+        // is the live cell the reaction held
+        release_cell(source);
         if kind & RX_CLOSURE != 0 {
             __torajs_value_drop_heap(cb);
         }

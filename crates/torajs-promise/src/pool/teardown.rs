@@ -39,6 +39,17 @@ pub unsafe extern "C" fn __torajs_promise_drop(p: *mut c_void) {
     if p.is_null() {
         return;
     }
+    unsafe { release_cell(p) };
+}
+
+/// [`__torajs_promise_drop`] of a pointer known to be a live cell,
+/// inlined into a kernel's own release (the run of a `then` chain
+/// releases each link's source here).
+///
+/// # Safety
+/// `p` is a live Promise cell; the caller gives up its reference.
+#[inline(always)]
+pub(crate) unsafe fn release_cell(p: *mut c_void) {
     let pp = as_promise(p);
     if !unsafe { rc_dec_cell(p) } {
         unsafe { released_alive(pp) };
