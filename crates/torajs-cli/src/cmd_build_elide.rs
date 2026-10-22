@@ -11,14 +11,18 @@
 //! | call | fed only by | guard member |
 //! |---|---|---|
 //! | `__torajs_host_jobs_run_until_idle` | `__torajs_microtask_enqueue` / `__torajs_host_job_drain_install` | `torajs_microtask-` |
-//! | `__torajs_main_exit_code` (unhandled-rejection sweep) | a promise cell being rejected | `torajs_promise-` |
+//! | `__torajs_main_exit_code` (unhandled-rejection sweep) | a promise cell being rejected | symbol `__torajs_promise_track_rejection` |
 //! | `__torajs_cycle_at_exit_drain` | `__torajs_cycle_buffer` (a cyclic-shape rc_dec) | `torajs_cycle-` |
 //!
 //! The exit-code call's replacement is `mov w0, #0` so the value the
 //! `ret` reads is the clean-run code; the two drains are `void` and
-//! become `nop`. A promise cell's drop and printer reach the member
-//! from the generic value-drop / inspect dispatch of any program that
-//! prints or drops a value; neither can reject, so they are ignored.
+//! become `nop`. The sweep walks a list whose one writer is the
+//! `#[inline(never)]` tracker every rejection calls, so that symbol's
+//! text liveness is the guard rather than the whole promise member:
+//! a promise cell's drop and printer reach the member from the
+//! generic value-drop / inspect dispatch of any program that drops or
+//! prints a value, and the drop's teardown helpers are atoms of their
+//! own that a name-based ignore list does not cover.
 //!
 //! **Guarded stubs** — rc-hit-zero calls
 //! `__torajs_weakref_target_dying` (torajs-weak) so a `WeakRef` /
@@ -134,24 +138,41 @@ const MOV_W0_ZERO: u32 = 0x5280_0000;
 /// `ret` (x30).
 const RET: u32 = 0xD65F_03C0;
 
-/// (callee symbol as the reloc names it, guard member prefix, the
-/// member's entry points that cannot feed the drain, replacement
+/// What feeds a drain: a member (by prefix, less its entry points
+/// that cannot feed it) or the one symbol that can.
+enum Feeder {
+    Member(&'static str, &'static [&'static str]),
+    Symbol(&'static str),
+}
+
+/// (callee symbol as the reloc names it, its feeder, replacement
 /// word).
-const SITES: [(&str, &str, &[&str], u32); 3] = [
+const SITES: [(&str, Feeder, u32); 3] = [
     (
         "___torajs_host_jobs_run_until_idle",
-        "torajs_microtask-",
-        &[],
+        Feeder::Member("torajs_microtask-", &[]),
         NOP,
     ),
     (
         "___torajs_main_exit_code",
-        "torajs_promise-",
-        &["___torajs_promise_drop", "___torajs_promise_print"],
+        Feeder::Symbol("___torajs_promise_track_rejection"),
         MOV_W0_ZERO,
     ),
-    ("___torajs_cycle_at_exit_drain", "torajs_cycle-", &[], NOP),
+    (
+        "___torajs_cycle_at_exit_drain",
+        Feeder::Member("torajs_cycle-", &[]),
+        NOP,
+    ),
 ];
+
+impl Feeder {
+    fn guard(&self) -> Guard {
+        match self {
+            Feeder::Member(prefix, ignore) => guard(prefix, ignore),
+            Feeder::Symbol(sym) => Guard::Symbols(vec![(*sym).to_string()]),
+        }
+    }
+}
 
 fn guard(prefix: &str, ignore: &[&str]) -> Guard {
     Guard::Member {
@@ -185,11 +206,10 @@ fn drain_sites(funcs: &[CompiledFunction]) -> Vec<ElidableSite> {
             else {
                 return None;
             };
-            let (_, prefix, ignore, replacement) =
-                SITES.iter().find(|(callee, _, _, _)| callee == name)?;
+            let (_, feeder, replacement) = SITES.iter().find(|(callee, _, _)| callee == name)?;
             Some(ElidableSite {
                 func: USER_MAIN_SYM.to_string(),
-                guard: guard(prefix, ignore),
+                guard: feeder.guard(),
                 shape: SiteShape::Call {
                     byte_offset: r.byte_offset,
                     replacement: *replacement,
@@ -321,18 +341,15 @@ mod tests {
             got,
             vec![
                 (4, "member:torajs_microtask-".to_string(), NOP),
-                (8, "member:torajs_promise-".to_string(), MOV_W0_ZERO),
+                (
+                    8,
+                    "syms:___torajs_promise_track_rejection".to_string(),
+                    MOV_W0_ZERO
+                ),
                 (12, "member:torajs_cycle-".to_string(), NOP),
             ]
         );
         assert!(sites.iter().all(|s| s.func == USER_MAIN_SYM));
-        let Guard::Member { ignore, .. } = &sites[1].guard else {
-            panic!("exit-code site is member-guarded");
-        };
-        assert_eq!(
-            ignore,
-            &["___torajs_promise_drop", "___torajs_promise_print"]
-        );
         let Guard::Member { ignore, .. } = &sites[0].guard else {
             panic!("microtask site is member-guarded");
         };

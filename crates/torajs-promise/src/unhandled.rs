@@ -27,7 +27,7 @@
 //!
 //! ## Wire-up
 //!
-//! - [`enqueue_hprt_check`] — called from
+//! - [`__torajs_promise_track_rejection`] — called from
 //!   `state::__torajs_promise_reject` (PENDING → REJECTED) and
 //!   `pool::__torajs_promise_alloc_rejected{,_heap}` (rejected
 //!   at construction). Bumps refcount + pushes the promise
@@ -276,8 +276,17 @@ fn box_reason_as_anyvalue(reason: i64, is_heap: u8) -> i64 {
 /// inc'd here so the sweep sees a live block even if every caller
 /// has dropped their ref; [`sweep_unhandled_list`] pairs that with
 /// a `promise_drop` after the check.
-#[inline]
-pub(crate) unsafe fn enqueue_hprt_check(p: *mut c_void) {
+///
+/// The list's only writer, kept out of line under its own symbol:
+/// the link judgment reads "this text is dead" as "no promise can be
+/// rejected", and then [`__torajs_main_exit_code`] has nothing to
+/// sweep or report.
+///
+/// # Safety
+/// `p` is null or a live promise cell already in STATE_REJECTED.
+#[unsafe(no_mangle)]
+#[inline(never)]
+pub unsafe extern "C" fn __torajs_promise_track_rejection(p: *mut c_void) {
     if p.is_null() {
         return;
     }

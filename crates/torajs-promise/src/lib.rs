@@ -92,7 +92,7 @@ pub use then_adopt::__torajs_promise_adopt_if_thenable;
 pub use then_finally::{__torajs_promise_finally, __torajs_promise_finally_closure};
 pub use unhandled::{
     __torajs_main_exit_code, __torajs_process_on_unhandled_rejection_register_closure,
-    __torajs_process_on_unhandled_rejection_register_simple,
+    __torajs_process_on_unhandled_rejection_register_simple, __torajs_promise_track_rejection,
 };
 
 // Cross-tier extern stubs for cargo unit tests — real symbols

@@ -195,11 +195,11 @@ pub unsafe extern "C" fn __torajs_promise_alloc_fulfilled_repr(
 pub unsafe extern "C" fn __torajs_promise_alloc_rejected(reason: i64) -> *mut c_void {
     let p = unsafe { promise_alloc_(STATE_REJECTED, reason, 0) as *mut c_void };
     // P10.5-A3-b — REJECTED at construction enqueues an HPRT-check
-    // microtask. See `unhandled::enqueue_hprt_check` for the
+    // microtask. See `unhandled::__torajs_promise_track_rejection` for the
     // detection invariant; defers the unhandled decision until the
     // microtask drain so synchronous `.catch` attaches can mark
     // the promise as observed first.
-    unsafe { crate::unhandled::enqueue_hprt_check(p) };
+    unsafe { crate::unhandled::__torajs_promise_track_rejection(p) };
     p
 }
 
@@ -236,7 +236,7 @@ pub unsafe extern "C" fn __torajs_promise_alloc_rejected_heap(reason: i64) -> *m
     // reason (Str / Obj / Any-box / etc.) is reachable through
     // `(*pp).value` so `unhandled::fire_unhandled_reporter` can
     // dispatch on its type_tag.
-    unsafe { crate::unhandled::enqueue_hprt_check(p) };
+    unsafe { crate::unhandled::__torajs_promise_track_rejection(p) };
     p
 }
 

@@ -141,7 +141,7 @@ pub unsafe extern "C" fn __torajs_promise_reject(p: *mut c_void, reason: i64) {
         // onErr) / await attaches made same-tick set has_handler
         // first; the microtask defers the unhandled decision to the
         // natural drain order so those attaches are observed.
-        crate::unhandled::enqueue_hprt_check(p);
+        crate::unhandled::__torajs_promise_track_rejection(p);
     }
 }
 
