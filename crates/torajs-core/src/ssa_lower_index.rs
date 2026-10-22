@@ -41,6 +41,7 @@
 //! `Expr::Index` match arm bottoms out here, no None fall-through).
 
 pub(crate) mod dict;
+pub(crate) mod dict_entry;
 
 use crate::ast::ExprId;
 use crate::ssa::{InstKind, Operand, Type};

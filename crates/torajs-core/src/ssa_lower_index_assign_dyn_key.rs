@@ -15,7 +15,7 @@
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{Operand, Type};
 use crate::ssa_lower::LowerCtx;
-use crate::ssa_lower_index::dict;
+use crate::ssa_lower_index::{dict, dict_entry};
 
 impl<'a> LowerCtx<'a> {
     /// L3b #3 (chunk 527) — an Ident receiver rides its variable slot
@@ -170,14 +170,18 @@ impl<'a> LowerCtx<'a> {
         let Operand::Value(key_v) = key_op else {
             panic!("ssa-lower: string index key lowered to a non-value operand");
         };
-        let v_raw = self.lower_expr(value);
-        // Chunk 567 — SHARE, no consume.
-        let v_ty = self.operand_ty(&v_raw);
         let recv_owned = self.expr_transfers_ownership(obj);
         let on_dict = !recv_owned && self.ast.number_dicts.contains(&obj);
+        if on_dict {
+            dict_entry::ask(self, obj, value);
+        }
+        let v_raw = self.lower_expr(value);
+        let after_entry = dict_entry::take(self);
+        // Chunk 567 — SHARE, no consume.
+        let v_ty = self.operand_ty(&v_raw);
         if on_dict && let Some(boxed) = dict::box_value(self, value, &v_raw, v_ty) {
             crate::ssa_lower_index_assign::mint_index_assign_value(self, eid, &v_raw);
-            dict::set(self, obj_val, key_v, boxed, &obj_ident);
+            dict::set(self, obj_val, key_v, boxed, &obj_ident, after_entry);
         } else {
             let (tag_op, value_op) = self.pack_any_slot_value_shared(value, &v_raw, v_ty);
             // Stake before the store (consuming receivers release the

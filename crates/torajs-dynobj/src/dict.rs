@@ -17,6 +17,7 @@
 //!   kernel the generic write calls.
 
 use core::ffi::c_void;
+use core::sync::atomic::{AtomicPtr, AtomicU64, Ordering};
 
 use crate::get::type_tag;
 use crate::layout::{ANY_ACCESSOR, BUCKET_FLAG_WRITABLE, DYNOBJ_HDR_FLAG_MODULE_NS, TAG_DYNOBJ};
@@ -126,6 +127,81 @@ pub unsafe extern "C" fn __torajs_dynobj_dict_get(recv: u64, key: *const c_void)
     unsafe { get_walk(obj, key) }
 }
 
+/// The note the last [`__torajs_dynobj_dict_get_entry`] left for the
+/// [`__torajs_dynobj_dict_set_entry`] that follows it: the receiver box
+/// and key cell the read was keyed by and the entry it found. `key` is
+/// null when there is no entry to overwrite, and no key cell is null,
+/// so the write tests the note with one comparison of its receiver and
+/// key. One static, so both entries reach every field from one address.
+/// It is per process, like the key cells' cached-entry hints
+/// (`probe_str`): the runtime runs one JS thread, and the note moves to
+/// thread-local storage with them when it runs more.
+struct LastEntry {
+    recv: AtomicU64,
+    key: AtomicPtr<c_void>,
+    entry: AtomicPtr<Entry>,
+}
+
+static LAST: LastEntry = LastEntry {
+    recv: AtomicU64::new(0),
+    key: AtomicPtr::new(core::ptr::null_mut()),
+    entry: AtomicPtr::new(core::ptr::null_mut()),
+};
+
+/// [`__torajs_dynobj_dict_get`] that also notes the entry the write
+/// this read feeds (the update `d[k] = (d[k] ?? 0) + 1`) may overwrite
+/// in place: the cached own entry the answer came from when it is a
+/// writable data entry of an object that is no module namespace, else
+/// none, with the receiver box and key cell the read was keyed by. The
+/// answer is a number there, so the entry holds an immediate: nothing
+/// to release, no setter, no global binding behind it. The lowering
+/// emits the write that reads the note right after this read, with no
+/// program code in between.
+///
+/// # Safety
+/// As [`__torajs_dynobj_dict_get`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_dynobj_dict_get_entry(recv: u64, key: *const c_void) -> u64 {
+    unsafe {
+        if let Some(obj) = dynobj_cell(recv)
+            && let Some(e) = cached(obj, key)
+        {
+            let v = (*e).value_anyv;
+            if nanbox::is_number(v) {
+                // one select rather than a branch per test: taken
+                // branches are what the update loop pays for
+                let writable = bucket_flags((*e).key_ptr_tagged) & BUCKET_FLAG_WRITABLE != 0;
+                let noted = if writable & !module_ns(obj) {
+                    key.cast_mut()
+                } else {
+                    core::ptr::null_mut()
+                };
+                LAST.recv.store(recv, Ordering::Relaxed);
+                LAST.key.store(noted, Ordering::Relaxed);
+                LAST.entry.store(e, Ordering::Relaxed);
+                return v;
+            }
+        }
+        get_unnoted(recv, key)
+    }
+}
+
+/// [`__torajs_dynobj_dict_get_entry`] when the cached entry did not
+/// answer a number: no entry for the write, and the plain read.
+///
+/// # Safety
+/// As [`__torajs_dynobj_dict_get`].
+// cold: the noted answer then falls through to its `ret`
+#[cold]
+#[inline(never)]
+unsafe fn get_unnoted(recv: u64, key: *const c_void) -> u64 {
+    // cleared after the read: a getter it runs may run an update of its
+    // own and leave a note for an entry the getter then frees
+    let v = unsafe { __torajs_dynobj_dict_get(recv, key) };
+    LAST.key.store(core::ptr::null_mut(), Ordering::Relaxed);
+    v
+}
+
 /// [`__torajs_dynobj_dict_get`] on a dynobj whose cached entry did not
 /// answer: the walk, then the generic read.
 ///
@@ -206,6 +282,48 @@ pub unsafe extern "C" fn __torajs_dynobj_dict_set(
         }
         set_walk(recv_slot, key, v, throw_on_refusal, obj);
     }
+}
+
+/// [`__torajs_dynobj_dict_set`] after the read
+/// [`__torajs_dynobj_dict_get_entry`]: the store into the entry that
+/// read noted when the read was keyed by this write's receiver box and
+/// key cell (the target's key expression runs between the two
+/// evaluations of the receiver and may rebind it, and the two key
+/// expressions may answer different strings), else the plain write. No
+/// program code ran since the probe, so a noted entry is still the
+/// receiver's own writable data entry holding an immediate.
+///
+/// # Safety
+/// As [`__torajs_dynobj_dict_set`]; the read on this write's
+/// right-hand side ran just before it.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_dynobj_dict_set_entry(
+    recv_slot: *mut u64,
+    key: *mut c_void,
+    v: u64,
+    throw_on_refusal: bool,
+) {
+    unsafe {
+        let e = LAST.entry.load(Ordering::Relaxed);
+        let other = (LAST.recv.load(Ordering::Relaxed) ^ *recv_slot)
+            | (LAST.key.load(Ordering::Relaxed) as u64 ^ key as u64);
+        if other != 0 {
+            return set_unnoted(recv_slot, key, v, throw_on_refusal);
+        }
+        store_own(e, v)
+    }
+}
+
+/// [`__torajs_dynobj_dict_set_entry`] when the read noted no entry for
+/// this write: the plain write.
+///
+/// # Safety
+/// As [`__torajs_dynobj_dict_set`].
+// cold: the noted store then falls through to its `ret`
+#[cold]
+#[inline(never)]
+unsafe fn set_unnoted(recv_slot: *mut u64, key: *mut c_void, v: u64, throw_on_refusal: bool) {
+    unsafe { __torajs_dynobj_dict_set(recv_slot, key, v, throw_on_refusal) }
 }
 
 /// The in-place write into the entry `e` that [`plain_own_entry`]
@@ -408,6 +526,45 @@ mod tests {
         }
     }
 
+    /// The read notes the cached own entry only when it is writable,
+    /// holds a number and is not on a module namespace, with the
+    /// receiver and key cell it was keyed by; the value answer is the
+    /// same as the plain read's either way.
+    #[test]
+    fn get_entry_notes_only_a_writable_number_entry() {
+        let (ka, kb) = (make_str("a"), make_str("b"));
+        unsafe {
+            let obj = __torajs_dynobj_alloc();
+            let a = ka.as_ptr() as *mut c_void;
+            let b = kb.as_ptr() as *mut c_void;
+            insert(obj, a, BUCKET_FLAGS_DEFAULT, av::box_int32(4));
+            insert(obj, b, BUCKET_FLAG_CONFIGURABLE, av::box_double(1.5));
+            // the walk leaves each key's cached-entry hint behind
+            for k in [a, b] {
+                assert!(own_number(obj, k).is_some());
+            }
+            let r = obj as u64;
+            let noted = || {
+                (
+                    LAST.recv.load(Ordering::Relaxed),
+                    LAST.key.load(Ordering::Relaxed),
+                    LAST.entry.load(Ordering::Relaxed),
+                )
+            };
+            assert_eq!(__torajs_dynobj_dict_get_entry(r, a), av::box_int32(4));
+            assert_eq!(noted(), (r, a, entries(obj)));
+            assert_eq!(__torajs_dynobj_dict_get_entry(r, b), av::box_double(1.5));
+            assert!(noted().1.is_null());
+            *(obj.cast::<u8>().add(6) as *mut u16) |= DYNOBJ_HDR_FLAG_MODULE_NS;
+            assert_eq!(__torajs_dynobj_dict_get_entry(r, a), av::box_int32(4));
+            assert!(noted().1.is_null());
+            *(obj.cast::<u8>().add(6) as *mut u16) &= !DYNOBJ_HDR_FLAG_MODULE_NS;
+            assert_eq!(__torajs_dynobj_dict_get_entry(r, a), av::box_int32(4));
+            assert_eq!(noted().1, a);
+            free_dynobj_blocks(obj);
+        }
+    }
+
     /// A writable own entry holding an immediate takes the box as is,
     /// in place, with its flags.
     #[test]
@@ -424,6 +581,46 @@ mod tests {
             assert_eq!(recv, obj as u64);
             let flags = bucket_flags((*entries(obj)).key_ptr_tagged);
             assert_eq!(flags, BUCKET_FLAGS_DEFAULT);
+            free_dynobj_blocks(obj);
+        }
+    }
+
+    /// The write after the entry read stores into the noted entry when
+    /// it names the read's receiver and key cell, and otherwise is the
+    /// plain write.
+    #[test]
+    fn set_entry_stores_into_the_noted_entry_else_writes() {
+        let (ka, kb) = (make_str("a"), make_str("b"));
+        unsafe {
+            let obj = __torajs_dynobj_alloc();
+            let a = ka.as_ptr() as *mut c_void;
+            let b = kb.as_ptr() as *mut c_void;
+            insert(obj, a, BUCKET_FLAGS_DEFAULT, av::box_int32(1));
+            insert(obj, b, BUCKET_FLAGS_DEFAULT, av::box_int32(10));
+            for k in [a, b] {
+                assert!(own_number(obj, k).is_some());
+            }
+            let mut recv = obj as u64;
+            let value = |i: usize| (*entries(obj).add(i)).value_anyv;
+            __torajs_dynobj_dict_get_entry(recv, a);
+            assert_eq!(LAST.entry.load(Ordering::Relaxed), entries(obj));
+            assert_eq!(LAST.key.load(Ordering::Relaxed), a);
+            __torajs_dynobj_dict_set_entry(&mut recv, a, av::box_int32(2), true);
+            assert_eq!(value(0), av::box_int32(2));
+            // another key cell: the plain write of that key
+            __torajs_dynobj_dict_get_entry(recv, a);
+            __torajs_dynobj_dict_set_entry(&mut recv, b, av::box_int32(11), true);
+            assert_eq!((value(0), value(1)), (av::box_int32(2), av::box_int32(11)));
+            // another receiver box: the plain write through the slot
+            let other = __torajs_dynobj_alloc();
+            insert(other, a, BUCKET_FLAGS_DEFAULT, av::box_int32(5));
+            let mut other_recv = other as u64;
+            __torajs_dynobj_dict_get_entry(recv, a);
+            __torajs_dynobj_dict_set_entry(&mut other_recv, a, av::box_int32(6), true);
+            assert_eq!(value(0), av::box_int32(2));
+            assert_eq!((*entries(other)).value_anyv, av::box_int32(6));
+            assert_eq!(recv, obj as u64);
+            free_dynobj_blocks(other);
             free_dynobj_blocks(obj);
         }
     }
