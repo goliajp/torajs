@@ -32,7 +32,9 @@ use replace_cb::seed_replace_cb_anns;
 mod sole_bindings;
 pub(super) use sole_bindings::SoleBindings;
 mod executor_cb;
+use super::infer_closure_params_promise::{PromiseTables, seed_then_catch_params};
 use crate::ast_desugar_builtin_new::promise::context::executor_helper;
+use executor_cb::seed_executor_params;
 mod method_cb;
 use method_cb::{MethodSite, seed_method_cb_anns};
 mod lit_ann;
@@ -179,15 +181,9 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
         // position hints the lifted closure (`apply_user_fn_callee_hint`).
         if let Expr::Ident(fname) = ast.get_expr(callee) {
             if executor_helper(fname).is_some() {
-                let contexts = lazy.executor_contexts(ast);
                 let (call, counts) = (ExprId(i as u32), &fn_user_param_count);
-                executor_cb::seed_executor_params(
-                    call,
-                    &closure_args,
-                    contexts,
-                    counts,
-                    &mut seeds.param_only,
-                );
+                let ctx = lazy.executor_contexts(ast);
+                seed_executor_params(call, &closure_args, ctx, counts, &mut seeds.param_only);
                 continue;
             }
             // a fn-typed param of the function the call sits in shadows
@@ -219,20 +215,9 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
             continue;
         };
         if matches!(name.as_str(), "then" | "catch") {
-            let promise_tables = super::infer_closure_params_promise::PromiseTables {
-                all_anns: &all_anns,
-                fn_ret_anns: &fn_ret_anns,
-                bindings: lazy.sole(ast),
-            };
-            super::infer_closure_params_promise::seed_then_catch_params(
-                ast,
-                obj,
-                &name,
-                &promise_tables,
-                &closure_args,
-                &fn_user_param_count,
-                &mut seeds.param_only,
-            );
+            let tables = PromiseTables::new(&all_anns, &fn_ret_anns, lazy.sole(ast));
+            let (counts, sink) = (&fn_user_param_count, &mut seeds.param_only);
+            seed_then_catch_params(ast, obj, &name, &tables, &closure_args, counts, sink);
             continue;
         }
         let this_ann = this_anns.get(&ExprId(i as u32)).map(String::as_str);

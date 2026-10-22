@@ -16,7 +16,19 @@ pub(in crate::ast) struct PromiseTables<'a> {
     pub bindings: &'a SoleBindings<'a>,
 }
 
-impl PromiseTables<'_> {
+impl<'a> PromiseTables<'a> {
+    pub(in crate::ast) fn new(
+        all_anns: &'a HashMap<String, String>,
+        fn_ret_anns: &'a HashMap<String, Option<String>>,
+        bindings: &'a SoleBindings<'a>,
+    ) -> Self {
+        PromiseTables {
+            all_anns,
+            fn_ret_anns,
+            bindings,
+        }
+    }
+
     /// A binding annotated `Promise<T>` settles with a T, whatever
     /// initialized it. Read through the program-wide count of bindings,
     /// not the flat table, which keeps the last of several same-named
