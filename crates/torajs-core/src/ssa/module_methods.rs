@@ -102,6 +102,22 @@ pub struct Module {
     /// for as long as a group of methods runs on one receiver
     /// (`ssa_lower_pass_2_5::pin_facts`).
     pub pins: Vec<PinFact>,
+    /// The cluster members given the pinned registers (`PinRegs`).
+    pub pin_regs: PinRegs,
+}
+
+/// The functions that find a pinned array field's length in x27 and
+/// its data pointer in x28 (`InstKind::Pinned`), as the e-graph's last
+/// pass placed them.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PinRegs {
+    /// Bodies entered with the two registers loaded: they keep them as
+    /// they are, and only each other call them with that receiver.
+    pub inner: Vec<FuncId>,
+    /// `(entry, body, field_off)`: `entry` keeps its caller's two
+    /// registers, loads them from the field at `field_off` of its
+    /// receiver, and calls `body`, an inner one.
+    pub entries: Vec<(FuncId, FuncId, u64)>,
 }
 
 /// An array field of class `sid` at `field_off` that only its
@@ -110,7 +126,9 @@ pub struct Module {
 /// while one of them is on the stack grows or shrinks an array of
 /// layout `arr`. `entries` are the members something outside the
 /// cluster calls; `direct_only` holds when nothing reaches a member
-/// but a direct call (no address taken, no vtable row).
+/// but a direct call (no address taken, no vtable row). `quiet` are the
+/// functions that name a member but never run (a method row's adapter
+/// while no name wakes the rows).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PinFact {
     pub sid: StructId,
@@ -119,6 +137,7 @@ pub struct PinFact {
     pub cluster: Vec<FuncId>,
     pub entries: Vec<FuncId>,
     pub direct_only: bool,
+    pub quiet: Vec<FuncId>,
 }
 
 /// A header word of a pinned array field (`PinFact`) that a cluster

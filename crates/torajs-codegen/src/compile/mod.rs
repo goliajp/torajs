@@ -44,6 +44,7 @@ mod inst;
 mod landing;
 mod mem;
 mod operand;
+pub(crate) mod pin_reg;
 mod rc;
 mod rc_dec;
 mod refs;
@@ -61,6 +62,8 @@ mod throw_reg_lax;
 mod throw_reg_zero;
 mod vec;
 
+#[cfg(test)]
+mod pin_reg_tests;
 #[cfg(test)]
 pub(crate) mod test_fixtures;
 #[cfg(test)]
@@ -169,7 +172,7 @@ pub fn compile_function_with(
     alloc: Assignment,
     facts: &ModuleFacts,
 ) -> CompiledFunction {
-    in_module::compile_with_role(func, alloc, facts, Role::default())
+    in_module::compile_with_role(func, alloc, facts, Default::default())
 }
 
 /// The function's code and relocations; None when a branch landed out
@@ -179,19 +182,18 @@ fn emit_body(
     alloc: &Assignment,
     facts: &ModuleFacts,
     frame: &FrameLayout,
-    role: Role,
+    (role, pin): (Role, pin_reg::PinRole),
     (bit_tests, far): (bool, bool),
 ) -> Option<(Vec<u8>, Vec<Reloc>)> {
     let mut bytes: Vec<u8> = Vec::new();
     let mut relocs: Vec<Reloc> = Vec::new();
     let mut fixups = Fixups::new(far);
 
-    // Track each block's start byte offset so the branch-fixup pass
-    // can compute PC-relative displacements after all blocks emit.
+    // each block's start offset, for the branch-fixup pass's displacements
     let mut block_byte_starts: HashMap<u32, u32> =
         HashMap::with_capacity_and_hasher(func.blocks.len(), Default::default());
 
-    let shrink = open_frame(&mut bytes, func, alloc, frame);
+    let shrink = open_frame(&mut bytes, func, alloc, frame, pin);
     let frameless = FrameLayout::leaf_no_spill();
 
     let fusions = fusions::Fusions::of(func, alloc, facts, role, bit_tests);
@@ -230,7 +232,8 @@ fn emit_body(
         }
         let probe = fusions.reads_throw_reg(block.id.0);
         let fused = fusions.cmp_of(block.id.0).filter(|_| !probe);
-        let sib = sibcall::plan(func, block, &landing.blocks_by_id, alloc, facts, role);
+        let sib = sibcall::plan(func, block, &landing.blocks_by_id, alloc, facts, role)
+            .filter(|_| !pin.is_entry());
         let body = sib.as_ref().map_or(block.insts.len(), |s| s.at);
         let at = (block, body, block_slot);
         emit_block_insts(
@@ -290,14 +293,17 @@ fn open_frame(
     func: &Function,
     alloc: &Assignment,
     frame: &FrameLayout,
+    pin: pin_reg::PinRole,
 ) -> Option<ShrinkWrap> {
-    let shrink = if frame.is_trivial() {
+    // an entry loads x27 / x28 only once the prologue has saved them
+    let shrink = if frame.is_trivial() || pin.is_entry() {
         None
     } else {
         crate::shrink_wrap::plan(func, alloc)
     };
     if shrink.is_none() {
         frame.emit_prologue(bytes);
+        pin.emit_entry_loads(bytes);
         // Relocate call-crossing params out of their (caller-saved) arg
         // registers into the callee-saved registers the allocator picked,
         // now that the prologue has saved those registers' prior contents.

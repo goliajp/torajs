@@ -58,15 +58,17 @@ pub fn allocate_linear_scan(func: &Function) -> Assignment {
 /// [`allocate_linear_scan`] for a function whose intrinsic calls
 /// `compile` opens inline: those sites call only on their slow arm.
 pub fn allocate_linear_scan_with(func: &Function, inline: InlineSites) -> Assignment {
-    allocate_linear_scan_reserving(func, inline, None)
+    allocate_linear_scan_reserving(func, inline, &[])
 }
 
 /// [`allocate_linear_scan_with`] that hands `reserved` to no value
-/// (the throw register of a function that reads it, compile/throw_reg.rs).
+/// (the throw register of a function that reads it, compile/throw_reg.rs;
+/// the pinned registers of a cluster member, compile/pin_reg.rs). A
+/// `Pinned` value lives in its register.
 pub(crate) fn allocate_linear_scan_reserving(
     func: &Function,
     inline: InlineSites,
-    reserved: Option<Gpr>,
+    reserved: &[Gpr],
 ) -> Assignment {
     let (mut intervals, blocks) = compute_liveness(func);
     let ret_vids = collect_ret_value_ids(func);
@@ -78,11 +80,12 @@ pub(crate) fn allocate_linear_scan_reserving(
         call_sites,
         call_rarity,
     } = scan_frame(func, inline);
-
     let (param_arg_reg, stack_params) = param_lanes(func);
 
     let widened = crate::zext_load::widened_loads(func);
-    let classes = build_copy_classes(func, &intervals, &blocks, &ret_vids, &call_sites, &widened);
+    let pinned = crate::compile::pin_reg::pinned_homes(func, reserved);
+    let fixed = crate::compile::pin_reg::copy_fixed(&ret_vids, &pinned);
+    let classes = build_copy_classes(func, &intervals, &blocks, &fixed, &call_sites, &widened);
     let (mut weights, units) = compute_spill_weights_with(func, inline, &alloca_offsets);
     classes.fold_into(&mut intervals, &mut weights);
     let ranges = LazyRanges::new(func, &blocks, &intervals, &classes);
@@ -96,6 +99,7 @@ pub(crate) fn allocate_linear_scan_reserving(
     // ties broken by ValueId to keep the sweep deterministic.
     let mut order: Vec<u32> = intervals.keys().copied().collect();
     order.sort_by_key(|v| (intervals[v].start, *v));
+    crate::compile::pin_reg::home_pinned(&pinned, &mut sweep.by_value, &mut order);
 
     for vid in order {
         let interval = intervals[&vid];
@@ -215,8 +219,6 @@ pub(crate) fn allocate_linear_scan_reserving(
 
     let alloca_offsets = std::mem::take(&mut sweep.alloca_slots);
     let total_spill_bytes = sweep.next_spill_offset - next_alloca_offset;
-    let used_callee_gpr_mask = sweep.used_callee_gpr_mask;
-    let used_callee_fpr_mask = sweep.used_callee_fpr_mask;
 
     let (param_entry_moves, stack_param_entry_loads) =
         param_entries(func, &sweep.by_value, &param_arg_reg, &stack_params);
@@ -229,8 +231,8 @@ pub(crate) fn allocate_linear_scan_reserving(
         has_calls,
     );
     assignment.widened = widened;
-    assignment.used_callee_gpr_mask = used_callee_gpr_mask;
-    assignment.used_callee_fpr_mask = used_callee_fpr_mask;
+    assignment.used_callee_gpr_mask = sweep.used_callee_gpr_mask;
+    assignment.used_callee_fpr_mask = sweep.used_callee_fpr_mask;
     assignment.param_entry_moves = param_entry_moves;
     assignment.stack_param_entry_loads = stack_param_entry_loads;
     assignment.call_saves = call_saves;

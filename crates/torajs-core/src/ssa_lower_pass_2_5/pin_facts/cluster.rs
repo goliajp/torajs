@@ -70,6 +70,7 @@ impl<'a> Clusters<'a> {
                     "[pin] {label}: cluster {{{names}}} entries {{{e}}} reads {reads} {direct}"
                 );
             }
+            let quiet = self.quiet(&cluster);
             out.push(PinFact {
                 sid,
                 field_off: off,
@@ -77,6 +78,7 @@ impl<'a> Clusters<'a> {
                 cluster,
                 entries,
                 direct_only,
+                quiet,
             });
         }
         out
@@ -167,6 +169,23 @@ impl<'a> Clusters<'a> {
                 && !module.class_drop_fns.contains(&FuncId(i as u32))
         };
         (0..module.funcs.len()).filter(|i| candidate(*i)).collect()
+    }
+
+    /// The functions that never run (`skip`) and call a member of
+    /// `cluster` or take its address.
+    fn quiet(&self, cluster: &[FuncId]) -> Vec<FuncId> {
+        let named = |f: &crate::ssa::Function| {
+            (f.blocks.iter().flat_map(|b| &b.insts)).any(|i| match &i.kind {
+                InstKind::Call(t, _) | InstKind::FnAddr(t) | InstKind::BoxedEntryAddr(t) => {
+                    cluster.contains(t)
+                }
+                _ => false,
+            })
+        };
+        (self.module.funcs.iter().enumerate())
+            .filter(|(i, f)| self.skip[*i] && named(f))
+            .map(|(i, _)| FuncId(i as u32))
+            .collect()
     }
 
     /// The reads of the field at `off` of `m`'s receiver.

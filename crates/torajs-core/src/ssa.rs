@@ -57,8 +57,8 @@ pub use arr_layouts::ArrLayouts;
 pub use module_class_layouts::{ClassLayoutMeta, FieldMetaSpec, MethodMetaSpec, field_type_tag_of};
 pub use module_extras::{LOCAL_LABEL_PREFIX, demo_fib40, is_local_label};
 pub use module_methods::{
-    BakedDfa, BakedRegexEntry, DataGlobal, FnNameEntry, Module, PinFact, PinWord, StringLiteral,
-    VtableGlobal,
+    BakedDfa, BakedRegexEntry, DataGlobal, FnNameEntry, Module, PinFact, PinRegs, PinWord,
+    StringLiteral, VtableGlobal,
 };
 pub use op_impls::{BinOp, FPred, IPred, Operand};
 pub use suspend::{SuspendFn, SuspendKind, SuspendLane, SuspendRuntime};

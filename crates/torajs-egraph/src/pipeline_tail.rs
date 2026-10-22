@@ -3,8 +3,8 @@ use crate::id_hash::HashMap;
 use torajs_core::ssa::{FuncId, Module, ValueId};
 
 use crate::{
-    block_layout, concat_len, concat_licm, concat_num_fuse, const_copy_fwd, fdiv_pair, gated_pass,
-    interval, iv_merge, loop_rotate, map_find_cse, pass_gates, pass_timer, rc_borrow,
+    block_layout, concat_len, concat_licm, concat_num_fuse, const_copy_fwd, fdiv_pair, field_pin,
+    gated_pass, interval, iv_merge, loop_rotate, map_find_cse, pass_gates, pass_timer, rc_borrow,
     rc_dec_immediate, rc_peephole, scaled_addr, select_form, srem_fquot, str_append, strip_assumes,
     unroll_jam, unroll_pair,
 };
@@ -185,6 +185,12 @@ pub(crate) fn finish_pipeline(
         module,
         const_copy_fwd::forward_constant_copies,
     );
+    // The pinned registers of each cluster (`Module::pins`): last, so
+    // no pass moves a `Pinned` value or inlines a member's body.
+    // `TORAJS_PIN_CLUSTER_OFF=1` skips.
+    if !module.pins.is_empty() {
+        gated_pass("PIN_CLUSTER", module, field_pin::cluster::pin_clusters);
+    }
 }
 
 /// The integer clones' entry assumptions, read by every analysis

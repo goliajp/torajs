@@ -26,6 +26,8 @@
 //!
 //! `TORAJS_FIELD_PIN_OFF=1` skips, `TORAJS_FIELD_PIN_STATS=1` counts.
 
+pub(crate) mod cluster;
+
 use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::dominator::DominatorTree;

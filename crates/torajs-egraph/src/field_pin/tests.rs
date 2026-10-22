@@ -87,6 +87,7 @@ fn module(f: Function, pinned: bool) -> Module {
             cluster: vec![FuncId(0)],
             entries: vec![FuncId(0)],
             direct_only: true,
+            quiet: vec![],
         }]
     } else {
         vec![]

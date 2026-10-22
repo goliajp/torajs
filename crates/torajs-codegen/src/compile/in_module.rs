@@ -1,11 +1,12 @@
 //! A function compiled as one of its module's: what its codegen reads
-//! of the module around it, and the throw register role the module
-//! gives it (compile/throw_reg.rs), which reserves x21 out of its
-//! register pool and guards its frame.
+//! of the module around it, the throw register role the module gives
+//! it (compile/throw_reg.rs), which reserves x21 out of its register
+//! pool and guards its frame, and its pin role (compile/pin_reg.rs).
 
 use torajs_core::ssa::id_hash::HashSet;
 use torajs_core::ssa::{FuncId, Function, Module, Type};
 
+use super::pin_reg::{PinPlan, PinRole};
 use super::throw_reg::{self, Role, ThrowRegPlan};
 use super::{CompiledFunction, InlineSites, emit_body, global_access, sibcall};
 use crate::frame::FrameLayout;
@@ -15,9 +16,13 @@ use crate::regalloc::Assignment;
 /// module's facts.
 pub fn compile_function_at(func: &Function, id: FuncId, facts: &ModuleFacts) -> CompiledFunction {
     let role = facts.throw_reg.role(id);
-    let reserved = role.reads.then_some(throw_reg::THROW_REG);
+    let pin = facts.pin.role(id);
+    let mut reserved = [throw_reg::THROW_REG; 3];
+    let pinned = pin.reserved();
+    reserved[1..=pinned.len()].copy_from_slice(pinned);
+    let reserved = &reserved[usize::from(!role.reads)..=pinned.len()];
     let alloc = crate::linear_scan::allocate_linear_scan_reserving(func, facts.inline, reserved);
-    compile_with_role(func, alloc, facts, role)
+    compile_with_role(func, alloc, facts, (role, pin))
 }
 
 /// What a function's codegen reads of the module around it.
@@ -47,6 +52,8 @@ pub struct ModuleFacts {
     pub(crate) aligned8_syms: HashSet<String>,
     /// Which functions hand a throw back in x21, and which read it.
     pub(crate) throw_reg: ThrowRegPlan,
+    /// Which functions find a pinned field's words in x27 / x28.
+    pub(crate) pin: PinPlan,
 }
 
 impl ModuleFacts {
@@ -65,6 +72,7 @@ impl ModuleFacts {
             inline: InlineSites::of_module(module),
             aligned8_syms: global_access::aligned8_syms(module),
             throw_reg: ThrowRegPlan::of(module),
+            pin: PinPlan::of(module),
         }
     }
 }
@@ -73,7 +81,7 @@ pub(super) fn compile_with_role(
     func: &Function,
     alloc: Assignment,
     facts: &ModuleFacts,
-    role: Role,
+    (role, pin): (Role, PinRole),
 ) -> CompiledFunction {
     // Frame carves alloca + spill + callee-save area in one sp
     // adjustment. `used_callee_*_mask` is 0 for leaf / non-crossing
@@ -85,7 +93,7 @@ pub(super) fn compile_with_role(
         zeroed: guarded,
         ..FrameLayout::with_callee_saved(
             alloc.total_frame_bytes(),
-            alloc.used_callee_gpr_mask | guarded.map_or(0, |g| 1 << g.idx()),
+            alloc.used_callee_gpr_mask | guarded.map_or(0, |g| 1 << g.idx()) | pin.saved_mask(),
             alloc.used_callee_fpr_mask,
             alloc.has_calls,
         )
@@ -93,9 +101,10 @@ pub(super) fn compile_with_role(
     // a TBZ / TBNZ that cannot reach its target: emit again without
     // them; a conditional branch that cannot (a body past 1 MiB): emit
     // again with every one in the long form
-    let (bytes, relocs) = emit_body(func, &alloc, facts, &frame, role, (true, false))
-        .or_else(|| emit_body(func, &alloc, facts, &frame, role, (false, false)))
-        .or_else(|| emit_body(func, &alloc, facts, &frame, role, (false, true)))
+    let roles = (role, pin);
+    let (bytes, relocs) = emit_body(func, &alloc, facts, &frame, roles, (true, false))
+        .or_else(|| emit_body(func, &alloc, facts, &frame, roles, (false, false)))
+        .or_else(|| emit_body(func, &alloc, facts, &frame, roles, (false, true)))
         .expect("with long conditional branches every displacement fits");
     CompiledFunction {
         name: func.name.clone(),
