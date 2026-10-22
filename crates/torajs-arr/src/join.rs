@@ -118,7 +118,7 @@ unsafe fn sep_latin1_folded(sep: *const u8, sep_units: u64, len: u64) -> bool {
 /// console inspector is the path that keeps the sign, and it
 /// formats through its own helper in `print.rs` — the two differ
 /// on exactly this value, which is why they are two helpers.
-unsafe fn f64_to_string_piece(d: f64, buf: *mut u8, cap: usize) -> (*const u8, u64) {
+pub(crate) unsafe fn f64_to_string_piece(d: f64, buf: *mut u8, cap: usize) -> (*const u8, u64) {
     let written = unsafe { __torajs_fmt_dtoa(d, buf, cap) };
     let mut len = written.max(0) as u64;
     let mut off = 0u64;

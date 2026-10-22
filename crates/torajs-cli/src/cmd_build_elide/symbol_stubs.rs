@@ -10,26 +10,12 @@ pub(super) const SYMBOL_STUBS: [(&str, &[&str], u32); 18] = [
         &["___torajs_arr_flag_exotic"],
         40,
     ),
-    (
-        "___torajs_arr_species_guard_slow",
-        &[
-            "___torajs_arr_props_attach",
-            "___torajs_arrprops_attach_exec3",
-        ],
-        41,
-    ),
+    ("___torajs_arr_species_guard_slow", &BAG_WRITERS, 41),
     // the scalar-array drop's two legs (r500 A4'): a props bag to
     // release — same enablers as the species probe — and a subclass
     // envelope to unwind — only `__torajs_arr_subclass_alloc` sets
     // FLAG_SUBCLASSED on an array.
-    (
-        "___torajs_arr_drop_props_slow",
-        &[
-            "___torajs_arr_props_attach",
-            "___torajs_arrprops_attach_exec3",
-        ],
-        42,
-    ),
+    ("___torajs_arr_drop_props_slow", &BAG_WRITERS, 42),
     (
         "___torajs_arr_drop_subclass_slow",
         &["___torajs_arr_subclass_alloc"],
@@ -150,6 +136,14 @@ pub(super) const SYMBOL_STUBS: [(&str, &[&str], u32); 18] = [
         &["___torajs_register_native_error"],
         62,
     ),
+];
+
+/// Every entry that turns an array's NULL props slot into a bag; the
+/// index-only attach (holes) is a bag writer but never a named one.
+const BAG_WRITERS: [&str; 3] = [
+    "___torajs_arr_props_attach",
+    "___torajs_arrprops_attach_exec3",
+    "___torajs_arr_props_attach_index",
 ];
 
 const NAMED_PROP_WRITERS: [&str; 4] = [

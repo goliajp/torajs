@@ -549,7 +549,8 @@ mod tests {
         assert_eq!(species.sym, "___torajs_arr_species_guard_slow");
         assert_eq!(
             species.guard.to_string(),
-            "syms:___torajs_arr_props_attach|___torajs_arrprops_attach_exec3"
+            "syms:___torajs_arr_props_attach|___torajs_arrprops_attach_exec3|\
+             ___torajs_arr_props_attach_index"
         );
         assert_eq!(
             &species.bytes[..4],

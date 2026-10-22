@@ -212,10 +212,12 @@ pub unsafe extern "C" fn __torajs_arr_flag_length_ro(arr: *mut c_void) {
 }
 
 /// The array's props slot, with the bag allocated on first use. The
-/// ONE writer that turns a NULL props slot into a bag (the regex
-/// exec attach builds its bag through the dynobj side and is listed
-/// next to this entry in the link guard) — `#[inline(never)]` for
-/// the same reason as [`__torajs_arr_flag_exotic`].
+/// ONE writer that turns a NULL props slot into a bag that can hold a
+/// named property (the regex exec attach builds its bag through the
+/// dynobj side and is listed next to this entry in the link guard;
+/// hole entries take [`__torajs_arr_props_attach_index`]) —
+/// `#[inline(never)]` for the same reason as
+/// [`__torajs_arr_flag_exotic`].
 ///
 /// # Safety
 /// `arr` is a live array heap block.
@@ -226,6 +228,29 @@ pub unsafe extern "C" fn __torajs_arr_props_attach(arr: *mut c_void) -> *mut *mu
     if unsafe { (*slot).is_null() } {
         unsafe { *slot = __torajs_dynobj_alloc() };
     }
+    slot
+}
+
+/// The props slot for a hole entry at an array index (a delete, the
+/// gap of a grow), with the exotic bit raised. A bag this entry
+/// creates holds index keys only until another writer adds to it, so
+/// it is not evidence for a named property: the non-integral reads'
+/// slow seams are judged on [`__torajs_arr_props_attach`] alone, and
+/// the readers of any bag on both. The flag call keeps the body
+/// distinct from the plain attach, which MergeFunctions would
+/// otherwise fold onto one address and so make one writer's liveness
+/// the other's.
+///
+/// # Safety
+/// `arr` is a live array heap block.
+#[inline(never)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_props_attach_index(arr: *mut c_void) -> *mut *mut c_void {
+    let slot = unsafe { (arr as *mut u8).add(crate::layout::ARR_PROPS_OFF) as *mut *mut c_void };
+    if unsafe { (*slot).is_null() } {
+        unsafe { *slot = __torajs_dynobj_alloc() };
+    }
+    unsafe { __torajs_arr_flag_exotic(arr) };
     slot
 }
 
