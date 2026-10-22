@@ -5,8 +5,13 @@
 //! declaration that is (TS reads `o.arm`'s type, never its runtime
 //! value), and three spellings of it name one:
 //!
-//! - a receiver annotated with an object type whose field is a
-//!   function type: `o: { arm: (f: …) => void }`;
+//! - a binding the program declares once, annotated with an object type
+//!   whose field is a function type and initialized with an object
+//!   literal: `const o: { arm: (f: …) => void } = { arm(f) { … } }`.
+//!   The literal's method is what runs, and the checker holds it to the
+//!   annotation; a value of another kind stored under the annotation (a
+//!   class instance, an `any`) runs a method of its own, which TS lets
+//!   call the arrow with anything;
 //! - a receiver whose type is a class: the class's own method
 //!   (`__cm_<C>__<m>`), not one it inherits;
 //! - an unannotated binding the program declares once, initialized with
@@ -64,7 +69,7 @@ pub(super) fn seed_method_cb_anns(
         return;
     }
     let declared = match obj_ann {
-        Some(ann) => field_fn_params(ast, ann, site.method)
+        Some(ann) => field_fn_params(ast, ann, site, sole)
             .or_else(|| class_method_params(ast, ann, site.method)),
         None => literal_method_params(ast, site.obj, site.method, sole),
     };
@@ -92,11 +97,25 @@ pub(super) fn seed_method_cb_anns(
 
 type Declared = (Vec<Option<String>>, Vec<String>);
 
-/// `o: { arm: (f: F) => void }` — the field's own parameter spellings.
-fn field_fn_params(ast: &Ast, ann: &str, method: &str) -> Option<Declared> {
-    let field = field_ann_of(ast, ann, method)?;
+/// `const o: { arm: (f: F) => void } = { arm(f) { … } }` — the field's
+/// own parameter spellings, when the literal supplies the method.
+fn field_fn_params(
+    ast: &Ast,
+    ann: &str,
+    site: &MethodSite<'_>,
+    sole: &SoleBindings<'_>,
+) -> Option<Declared> {
+    let field = field_ann_of(ast, ann, site.method)?;
     let canon = fn_type_canon(&field)?;
     let (params, _) = split_fn_type(&canon)?;
+    let Expr::Ident(n) = ast.get_expr(site.obj) else {
+        return None;
+    };
+    let decl = sole.sole(n)?;
+    if decl.ann.is_none() || written(ast, Some(n), site.method) {
+        return None;
+    }
+    literal_method(ast, decl.init?, site.method)?;
     Some((
         params.into_iter().map(|p| Some(p.to_string())).collect(),
         Vec::new(),
@@ -191,7 +210,13 @@ fn literal_method_params(
     if decl.ann.is_some() || written(ast, Some(n), method) {
         return None;
     }
-    let Expr::ObjectLit { fields } = ast.get_expr(decl.init?) else {
+    literal_method(ast, decl.init?, method)
+}
+
+/// The parameters of the method the object literal `lit` supplies for
+/// `method`, when nothing else in the literal can supply that key.
+fn literal_method(ast: &Ast, lit: ExprId, method: &str) -> Option<Declared> {
+    let Expr::ObjectLit { fields } = ast.get_expr(lit) else {
         return None;
     };
     // a spread, an accessor or a computed key can supply the key too

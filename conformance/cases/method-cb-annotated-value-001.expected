@@ -1,0 +1,5 @@
+string s
+param string s
+literal number 42
+arrow number 14
+any-param string u
