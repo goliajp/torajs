@@ -45,7 +45,10 @@ pub(super) fn extend(
         };
         if found.contains(name)
             || driven(ast, name)
-            || ast.async_proved_returns.contains(name)
+            || ast
+                .async_proved_returns
+                .get(name)
+                .is_some_and(|p| p.any_args())
             || promise_inner(rt).is_none_or(|i| !typed_spelling(&i))
         {
             return;

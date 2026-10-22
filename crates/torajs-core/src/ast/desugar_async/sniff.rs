@@ -19,12 +19,31 @@
 
 use super::super::{Ast, Param, Stmt, body_always_terminates, infer_return_ann};
 
+/// What a sniffed async return `T` was proved for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReturnProof {
+    /// every argument list: the parameters were read as `any`
+    AnyArgs,
+    /// arguments of the declared parameter types: a caller holding the
+    /// function as `any` may pass others, so only a call the checker
+    /// admits against the declaration settles a `T`
+    DeclaredArgs,
+}
+
+impl ReturnProof {
+    pub(crate) fn any_args(self) -> bool {
+        self == ReturnProof::AnyArgs
+    }
+}
+
 /// The written return type, else the sniffed primitive, else `any`.
 ///
 /// A function whose sniffed type is the one it declares joins
-/// `Ast::async_proved_returns`: its returns settle that type whatever
-/// the checker makes of a binding they read (a `var` the checker holds
-/// as `any`), so the check round keeps its `Promise<T>`.
+/// `Ast::async_proved_returns`. Proved for any arguments, its returns
+/// settle that type whatever the checker makes of a binding they read
+/// (a `var` the checker holds as `any`), so the check round keeps its
+/// `Promise<T>`; proved for the declared parameter types only, the
+/// check round still reads its returns.
 pub(super) fn declared_or_sniffed(
     ast: &mut Ast,
     name: &str,
@@ -32,13 +51,29 @@ pub(super) fn declared_or_sniffed(
     params: &[Param],
     body: &[Stmt],
 ) -> String {
-    let sniffed = sniffed_inner(ast, params, body);
-    if let Some(t) = &sniffed
-        && written
+    let as_any: Vec<Param> = (params.iter())
+        .map(|p| Param {
+            type_ann: Some("any".into()),
+            ..p.clone()
+        })
+        .collect();
+    let sniffed = sniffed_inner(ast, &as_any, body);
+    let declares = |t: &String| {
+        written
             .as_ref()
             .is_none_or(|w| *w == format!("Promise<{t}>"))
+    };
+    if let Some(t) = &sniffed
+        && declares(t)
     {
-        ast.async_proved_returns.insert(name.to_string());
+        let proof = ReturnProof::AnyArgs;
+        ast.async_proved_returns.insert(name.to_string(), proof);
+    } else if written.is_some()
+        && let Some(t) = sniffed_inner(ast, params, body)
+        && declares(&t)
+    {
+        let proof = ReturnProof::DeclaredArgs;
+        ast.async_proved_returns.insert(name.to_string(), proof);
     }
     written.or(sniffed).unwrap_or_else(|| "any".into())
 }
@@ -47,12 +82,6 @@ fn sniffed_inner(ast: &Ast, params: &[Param], body: &[Stmt]) -> Option<String> {
     if !body_always_terminates(body) {
         return None;
     }
-    let as_any: Vec<Param> = (params.iter())
-        .map(|p| Param {
-            type_ann: Some("any".into()),
-            ..p.clone()
-        })
-        .collect();
-    let t = infer_return_ann(&ast.exprs, body, &as_any, &Default::default())?;
+    let t = infer_return_ann(&ast.exprs, body, params, &Default::default())?;
     matches!(t.as_str(), "number" | "string" | "boolean").then_some(t)
 }

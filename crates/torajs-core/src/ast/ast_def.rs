@@ -1261,8 +1261,8 @@ pub struct Ast {
     /// desugar_async settles their returns and declares `Promise<T>`.
     pub async_fns: std::collections::HashSet<String>,
     /// The async functions whose every return the static sniff names as
-    /// their declared `T` (`desugar_async::sniff`).
-    pub async_proved_returns: std::collections::HashSet<String>,
+    /// their declared `T`, and how (`desugar_async::sniff`).
+    pub async_proved_returns: std::collections::HashMap<String, desugar_async::ReturnProof>,
     /// §27.2.4 patch-consult bypass (rotation 448) — the
     /// `Promise.resolve(e)` / `Promise.reject(err)` Call exprs the
     /// async desugar synthesizes (return rewrites, the tail-safety

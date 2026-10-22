@@ -83,11 +83,11 @@ impl<'a> PromiseTables<'a> {
         let inner = promise_inner(inner)?;
         // an async function settles what its body returns, as it is
         // (§27.7.5.3); only one whose returns the sniff proved are `T`
-        // (`desugar_async::sniff`) settles a `T` the checker keeps
-        // (`check_entry::hidden_any::promise_rets`) whatever its body
-        // reads, so any other may settle a value of any kind
+        // (`desugar_async::sniff`) — for any arguments, or for the
+        // declared parameter types the call is checked against — settles
+        // a `T`, so any other may settle a value of any kind
         if ast.async_fns.contains(f) {
-            if !ast.async_proved_returns.contains(f) {
+            if !ast.async_proved_returns.contains_key(f) {
                 return Some("any".to_string());
             }
         } else if (returns(body).into_iter())

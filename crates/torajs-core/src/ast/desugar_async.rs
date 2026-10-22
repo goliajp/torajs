@@ -21,6 +21,7 @@
 
 mod resolve;
 mod sniff;
+pub use sniff::ReturnProof;
 
 use super::{Ast, Expr, ExprId, Stmt, default_init_for_type};
 use resolve::{build_async_resolve, fallthrough_undefined_for};
