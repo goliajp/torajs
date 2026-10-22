@@ -212,9 +212,14 @@ fn is_iter_transform(name: &str) -> bool {
 impl Walker<'_> {
     fn register_let(&mut self, name: &str, mutable: bool, ann: Option<&str>, init: ExprId) {
         // a scalar annotation over a read of an `any` value holds the
-        // box (`check_stmt_let_decl::any_scalar_slot`)
+        // box (`check_stmt_let_decl::any_scalar_slot`), and a promise
+        // annotation over an untyped promise takes its face
+        // (`check_stmt_let_decl::any_promise_slot`)
         if let (Some(ann), Some(types)) = (ann, self.types)
-            && crate::check_stmt_let_decl::any_scalar_slot::takes_box(ann, init, self.ast, types)
+            && (crate::check_stmt_let_decl::any_scalar_slot::takes_box(ann, init, self.ast, types)
+                || crate::check_stmt_let_decl::any_promise_slot::takes_any(
+                    ann, init, self.ast, types,
+                ))
         {
             self.out.insert(init);
         }

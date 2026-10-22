@@ -33,6 +33,6 @@ pub(super) fn two_leg_result([ok, err]: [Type; 2]) -> Type {
 /// settled value can fail to fit, so that the handler's any twin runs
 /// in its place? `any`, a union and a nullable take every value on the
 /// any lane, and such a handler's declared return is what it settles.
-pub(super) fn typed_lane(p: &Type) -> bool {
+pub(crate) fn typed_lane(p: &Type) -> bool {
     !matches!(p, Type::Any | Type::Union(_) | Type::Nullable(_))
 }

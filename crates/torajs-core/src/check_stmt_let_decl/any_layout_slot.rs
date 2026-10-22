@@ -51,6 +51,7 @@ pub(crate) fn struct_elem_array(ann: &T) -> bool {
 pub(crate) fn declared_face(checker: &crate::check::Checker, ast: &Ast, init: ExprId, ann: T) -> T {
     let widened = checker.cross_type_widened.contains(&init);
     super::any_scalar_slot::checker_face(&ann, widened)
+        .or_else(|| super::any_promise_slot::checker_face(&ann, init, &checker.expr_types, widened))
         .or_else(|| checker_face(&ann, init, ast, &checker.expr_types, widened))
         .unwrap_or(ann)
 }

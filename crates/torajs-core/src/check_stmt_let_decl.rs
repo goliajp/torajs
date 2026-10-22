@@ -31,6 +31,7 @@
 
 mod annotated;
 pub(crate) mod any_layout_slot;
+pub(crate) mod any_promise_slot;
 pub(crate) mod any_scalar_slot;
 pub(crate) mod contextual_array;
 pub(crate) mod fn_face_slot;

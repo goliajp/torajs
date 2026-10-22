@@ -40,7 +40,8 @@
 
 use crate::ast::{Ast, Expr, ExprId};
 use crate::check::{Checker, Type};
-use legs::{two_leg_result, typed_lane};
+use legs::two_leg_result;
+pub(crate) use legs::typed_lane;
 pub(crate) use route::{is_reject_mint, try_match};
 
 mod legs;
