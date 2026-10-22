@@ -75,9 +75,7 @@ impl LowerCtx<'_> {
                 Type::I32,
                 None,
             );
-            let cb2 = self.cur_block;
-            self.f
-                .set_term(cb2, Terminator::Ret(Some(Operand::Value(code))));
+            crate::ssa_lower_main_exit::emit_exit(self, code);
         } else {
             self.cur_block = throw_blk;
             if let Some((op, ty)) = owned {

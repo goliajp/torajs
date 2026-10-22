@@ -136,7 +136,7 @@ fn lower_top_level(ctx: &mut LowerCtx<'_>, stmts: &[&Stmt]) {
 }
 
 /// The program's end: run the queued jobs, take the exit code, tear
-/// the top level down, return the code. `exit_code` is the module
+/// the top level down, exit with the code. `exit_code` is the module
 /// body's exit-code call (`__torajs_module_exit_code`), which runs
 /// the unhandled-rejection sweep itself.
 fn drain_and_exit(ctx: &mut LowerCtx<'_>, exit_code: Option<FuncId>) {
@@ -181,14 +181,5 @@ fn drain_and_exit(ctx: &mut LowerCtx<'_>, exit_code: Option<FuncId>) {
         ctx.cur_block,
         InstKind::Call(ctx.intrinsics.cycle_at_exit_drain, vec![]),
     );
-    // Census lines on fd 2, from a `--cfg torajs_census` build
-    // only; the names are declared under the same cfg.
-    if cfg!(torajs_census) {
-        for name in crate::ssa_lower_intrinsics_runtime_misc::CENSUS_DUMPS {
-            let dump = ctx.fn_table[name];
-            ctx.f
-                .append_void(ctx.cur_block, InstKind::Call(dump, vec![]));
-        }
-    }
-    crate::ssa_lower_main_exit::emit_ret(ctx, exit_code);
+    crate::ssa_lower_main_exit::emit_exit(ctx, exit_code);
 }

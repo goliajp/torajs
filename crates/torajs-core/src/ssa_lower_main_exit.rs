@@ -9,12 +9,10 @@
 //!   can look it up later without an `Intrinsics` struct field —
 //!   keeps the surface change in `ssa_lower.rs` to a single
 //!   call-site at each end.
-//! - [`emit_ret`] replaces the prior hard-coded
-//!   `set_term(Ret(ConstI32(0)))` at the end of
-//!   `synthesize_main`. Emits `call __torajs_main_exit_code`
-//!   followed by `ret <result>` so the synthesized `main` exits
-//!   with `0` on a clean run and `1` if the
-//!   `torajs_promise::unhandled` reporter fired during the
+//! - [`emit_exit`] ends the synthesized `main` through
+//!   `__torajs_process_exit(code)`, with the code
+//!   `__torajs_main_exit_code` answered: `0` on a clean run and `1`
+//!   if the `torajs_promise::unhandled` reporter fired during the
 //!   microtask drain.
 //!
 //! Runtime semantics live in
@@ -60,10 +58,22 @@ pub(crate) fn emit_exit_code(ctx: &mut LowerCtx) -> crate::ssa::ValueId {
         .append_inst(ctx.cur_block, InstKind::Call(fid, vec![]), Type::I32, None)
 }
 
-/// Terminate the synthesized main: `ret <exit_code>`. Runs after the
-/// teardown sequence, returning the value [`emit_exit_code`] captured
-/// while the heap was still fully alive.
-pub(crate) fn emit_ret(ctx: &mut LowerCtx, exit_code: crate::ssa::ValueId) {
+/// Leave the process with `exit_code`: `call __torajs_process_exit`
+/// (flush stdout and stderr, census lines under cfg, libc `exit`). It
+/// never returns; the `ret` after it only closes the block. Every way
+/// out of the top level ends here: the fall-through end of `main`,
+/// the uncaught throw, and `process.exit(n)` itself.
+pub(crate) fn emit_exit(ctx: &mut LowerCtx, exit_code: crate::ssa::ValueId) {
+    let wide = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ZExtI32ToI64(Operand::Value(exit_code)),
+        Type::I64,
+        None,
+    );
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Call(ctx.intrinsics.process_exit, vec![Operand::Value(wide)]),
+    );
     let cb = ctx.cur_block;
     ctx.f
         .set_term(cb, Terminator::Ret(Some(Operand::Value(exit_code))));

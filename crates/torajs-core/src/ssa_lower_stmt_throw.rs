@@ -210,9 +210,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) {
             Type::I32,
             None,
         );
-        let cb = ctx.cur_block;
-        ctx.f
-            .set_term(cb, Terminator::Ret(Some(Operand::Value(code))));
+        crate::ssa_lower_main_exit::emit_exit(ctx, code);
     } else {
         ctx.emit_drops_for_owned_locals();
         let cb = ctx.cur_block;

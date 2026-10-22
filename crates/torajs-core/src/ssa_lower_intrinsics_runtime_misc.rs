@@ -18,8 +18,8 @@
 //!   `cycle_buffer(p)` hot-path call from the inline Obj drop's
 //!   else-branch when rc stays positive; `cycle_collect()` is the
 //!   manual `gc()` trigger (mark/scan/collect over buffered roots);
-//!   `cycle_at_exit_drain()` is the main-exit drain (synthesize_main
-//!   emits it as the last step before Ret so cycle roots accumulated
+//!   `cycle_at_exit_drain()` is the main-exit drain (the teardown
+//!   emits it as its last step so cycle roots accumulated
 //!   during program lifetime are freed before process exit; same
 //!   body as cycle_collect today, kept as a separate symbol for
 //!   independent policy evolution).
@@ -43,13 +43,6 @@ use std::collections::HashMap;
 
 use crate::ssa::{FuncId, Module, Type};
 use crate::ssa_lower::declare_intrinsic;
-
-pub(crate) const CENSUS_DUMPS: [&str; 4] = [
-    "__torajs_syscall_census_dump",
-    "__torajs_mmalloc_census_dump",
-    "__torajs_cycle_census_dump",
-    "__torajs_process_census_dump",
-];
 
 pub(crate) struct RuntimeMiscIds {
     pub cycle_buffer: FuncId,
@@ -94,14 +87,6 @@ pub(crate) fn declare(
     module: &mut Module,
     fn_table: &mut HashMap<String, FuncId>,
 ) -> RuntimeMiscIds {
-    // The census dumps main calls before returning. Declared only in a
-    // `--cfg torajs_census` compiler, whose runtime staticlibs are the
-    // only ones that define them; synthesize_main finds them by name.
-    if cfg!(torajs_census) {
-        for name in CENSUS_DUMPS {
-            declare_intrinsic(module, fn_table, name, &[], Type::Void);
-        }
-    }
     RuntimeMiscIds {
         cycle_buffer: declare_intrinsic(
             module,

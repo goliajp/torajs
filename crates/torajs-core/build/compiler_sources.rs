@@ -212,4 +212,9 @@ pub(crate) const COMPILER_SOURCE_FILES: &[&str] = &[
     "src/ssa_lower_fn/suspend/then_fused.rs",
     // the root that keeps the thenable probe's link evidence
     "src/ssa_lower_promise_thunk/obj_return.rs",
+    // the exit call every way out of the top level ends in
+    "src/ssa_lower_main_exit.rs",
+    "src/ssa_lower_emit_throw_check/path.rs",
+    "src/ssa_lower_stmt_throw.rs",
+    "src/ssa_lower_intrinsics_runtime_misc.rs",
 ];

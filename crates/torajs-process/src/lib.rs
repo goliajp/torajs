@@ -159,12 +159,18 @@ mod census {
     }
 }
 
-/// `process.exit(code)` — libc exit. Does not return.
+/// The one way out of a torajs program: `process.exit(code)`, the
+/// end of `main`, and an uncaught throw all call it. Flushes stdout
+/// then stderr (the line buffers hold whatever followed the last
+/// newline), prints the census lines under `--cfg torajs_census`, and
+/// leaves through libc `exit`. The heap is not walked: the process is
+/// going away and no spec-visible effect remains.
 ///
 /// # Safety
-/// Takes no pointer arguments; runs process teardown and never returns.
+/// Takes no pointer arguments; never returns.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_process_exit(code: i64) -> ! {
+    unsafe { __torajs_io_flush() };
     #[cfg(torajs_census)]
     unsafe {
         __torajs_syscall_census_dump();
