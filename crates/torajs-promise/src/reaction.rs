@@ -275,9 +275,8 @@ unsafe fn run_inline_reaction(dp: *mut Promise) -> Stake {
             }
             Stake::Kept
         };
-        // releasing a cell or an env runs no job and queues none, so
-        // a reaction left to run next is still the next job; the source
-        // is the live cell the reaction held
+        // releasing the live source cell or an env runs no job and
+        // queues none, so a reaction left to run next is still next
         release_cell(source);
         if kind & RX_CLOSURE != 0 {
             __torajs_value_drop_heap(cb);
