@@ -1,0 +1,4 @@
+await string str
+await number 5
+then string str1
+typed then number 3
