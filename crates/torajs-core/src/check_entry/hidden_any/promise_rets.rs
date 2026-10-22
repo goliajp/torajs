@@ -10,7 +10,8 @@
 //! scalar return that hands back an `any` value is retyped `any`
 //! (`super::retype_returns_any`). An async function declared
 //! `Promise<T>` whose body returns an `any` value is the same case:
-//! §27.7.5.3 resolves its promise with the value as it is. A
+//! §27.7.5.3 resolves its promise with the value as it is, unless the
+//! static sniff proved every return is `T`. A
 //! `Promise.reject(r)` types `Promise<any>` as the `never` a rejected
 //! promise fulfils with, and leaves the declared return as it is.
 
@@ -44,6 +45,7 @@ pub(super) fn extend(
         };
         if found.contains(name)
             || driven(ast, name)
+            || ast.async_proved_returns.contains(name)
             || promise_inner(rt).is_none_or(|i| !typed_spelling(&i))
         {
             return;

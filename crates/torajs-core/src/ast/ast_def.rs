@@ -1257,13 +1257,12 @@ pub struct Ast {
     /// new. Monomorph clones carry entries across the id map
     /// (`check_monomorph_clone_tables`).
     pub field_default_objlits: std::collections::HashMap<ExprId, String>,
-    /// Phase L.2 — names of `async function` declarations recorded by
-    /// the parser. desugar_async iterates ast.stmts and, for any
-    /// FnDecl whose name is in this set, wraps the return value in a
-    /// Promise and shifts the surface return type from T to Promise<T>.
-    /// Avoids adding an `is_async: bool` to every FnDecl construction
-    /// site.
+    /// Names of `async function` declarations the parser recorded;
+    /// desugar_async settles their returns and declares `Promise<T>`.
     pub async_fns: std::collections::HashSet<String>,
+    /// The async functions whose every return the static sniff names as
+    /// their declared `T` (`desugar_async::sniff`).
+    pub async_proved_returns: std::collections::HashSet<String>,
     /// §27.2.4 patch-consult bypass (rotation 448) — the
     /// `Promise.resolve(e)` / `Promise.reject(err)` Call exprs the
     /// async desugar synthesizes (return rewrites, the tail-safety

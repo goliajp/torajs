@@ -19,10 +19,26 @@
 use super::super::{Ast, Stmt, body_always_terminates, infer_return_ann};
 
 /// The written return type, else the sniffed primitive, else `any`.
-pub(super) fn declared_or_sniffed(ast: &Ast, written: Option<String>, body: &[Stmt]) -> String {
-    written
-        .or_else(|| sniffed_inner(ast, body))
-        .unwrap_or_else(|| "any".into())
+///
+/// A function whose sniffed type is the one it declares joins
+/// `Ast::async_proved_returns`: its returns settle that type whatever
+/// the checker makes of a binding they read (a `var` the checker holds
+/// as `any`), so the check round keeps its `Promise<T>`.
+pub(super) fn declared_or_sniffed(
+    ast: &mut Ast,
+    name: &str,
+    written: Option<String>,
+    body: &[Stmt],
+) -> String {
+    let sniffed = sniffed_inner(ast, body);
+    if let Some(t) = &sniffed
+        && written
+            .as_ref()
+            .is_none_or(|w| *w == format!("Promise<{t}>"))
+    {
+        ast.async_proved_returns.insert(name.to_string());
+    }
+    written.or(sniffed).unwrap_or_else(|| "any".into())
 }
 
 fn sniffed_inner(ast: &Ast, body: &[Stmt]) -> Option<String> {

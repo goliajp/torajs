@@ -96,7 +96,7 @@ fn rewrite_async_decls(ast: &mut Ast, s: &mut Stmt) {
     // `As`-wrap happens inside `rewrite_returns_for_async` when inner_ty
     // == "any"). `Promise.resolve` accepts Any at `check/promise_static.rs`;
     // `.then` / `.catch` accept `Promise<Any>` at `check.rs:5008` / `:5054`.
-    let declared_ty = sniff::declared_or_sniffed(ast, return_type, &body);
+    let declared_ty = sniff::declared_or_sniffed(ast, &name, return_type, &body);
     let ssa = ast.async_ssa.fns.contains(&name);
     let (wrapped_body, promise_ty) = build_async_body(ast, body, &declared_ty, ssa);
     *s = Stmt::FnDecl {
