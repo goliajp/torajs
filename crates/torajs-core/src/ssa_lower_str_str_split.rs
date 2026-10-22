@@ -34,6 +34,8 @@ use crate::ast::ExprId;
 use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx, intern_arr_layout};
 
+mod count_byte;
+
 /// Lower a `<Str>.split(...)` call. The caller (`ssa_lower_str_str_dispatch::try_dispatch`)
 /// has already produced `argv = [recv, ...lowered_args]` with all
 /// undef-substitution / trailing-arg-drop carve-outs applied.
@@ -199,6 +201,11 @@ pub(crate) fn lower_split(
     // A product the census proved is only ever measured
     // (`ast::split_length_only`) is never built: count the tokens.
     if !sep_is_any && ctx.ast.split_length_only_seps.contains(&args[0]) {
+        if let Some(byte) = count_byte::literal_byte(ctx, args[0])
+            && ctx.operand_ty(&argv[0]) == Type::Str
+        {
+            return count_byte::emit(ctx, argv[0], byte);
+        }
         let n = ctx.f.append_inst(
             ctx.cur_block,
             InstKind::Call(ctx.intrinsics.str_split_count, argv),

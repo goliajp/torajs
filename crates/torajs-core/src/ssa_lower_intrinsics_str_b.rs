@@ -84,7 +84,7 @@ pub(crate) struct StrBIds {
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> StrBIds {
-    StrBIds {
+    let ids = StrBIds {
         str_slice: declare_intrinsic(
             module,
             fn_table,
@@ -258,5 +258,15 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             &[Type::Str, Type::Any, Type::Any],
             Type::Any,
         ),
-    }
+    };
+    // reached by name from the split-count lane's one-byte arm
+    // (`ssa_lower_str_str_split::count_byte`)
+    declare_intrinsic(
+        module,
+        fn_table,
+        "__torajs_str_split_count_byte",
+        &[Type::Str, Type::I64],
+        Type::I64,
+    );
+    ids
 }

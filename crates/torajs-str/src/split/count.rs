@@ -85,6 +85,30 @@ pub unsafe extern "C" fn __torajs_str_split_count(s: *const u8, sep: *const u8) 
     count_general(s_payload, s_latin1, sep_payload, sep_latin1)
 }
 
+/// [`__torajs_str_split_count`] for a separator the compiler saw is
+/// one Latin-1 code unit, `byte`: the separator's header is never
+/// read, and only the receiver's width decides the count.
+///
+/// # Safety
+///
+/// `s` must be a valid flat Str heap block; `byte` is in `0..=255`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_split_count_byte(s: *const u8, byte: i64) -> i64 {
+    let (s_payload, _, s_latin1) = unsafe { super::ops::str_view(s) };
+    let b = byte as u8;
+    if s_latin1 {
+        return super::count_byte::count_byte_inline(s_payload, b) as i64 + 1;
+    }
+    count_wide_byte(s_payload, b)
+}
+
+/// A UTF-16 receiver cut on one Latin-1 unit; kept out of line so the
+/// Latin-1 path above sets up no frame.
+#[inline(never)]
+fn count_wide_byte(s_payload: &[u8], b: u8) -> i64 {
+    count_general(s_payload, false, &[b], true)
+}
+
 #[inline(never)]
 fn count_general(s_payload: &[u8], s_latin1: bool, sep_payload: &[u8], sep_latin1: bool) -> i64 {
     let tokens = match (s_latin1, sep_latin1) {
@@ -151,5 +175,23 @@ mod tests {
         // a UTF-16 separator: never in a Latin-1 receiver
         assert_eq!(count(latin1(b"a b"), utf16("→")), 1);
         assert_eq!(count(utf16("a→b→c"), utf16("→")), 3);
+    }
+
+    #[test]
+    fn byte_entry_matches_the_general_entry() {
+        let byte = |s: *mut u8, b: u8| unsafe { __torajs_str_split_count_byte(s, i64::from(b)) };
+        for (s, b) in [
+            (latin1(b""), b','),
+            (latin1(b","), b','),
+            (latin1(b",a,,b,"), b','),
+            (latin1(b"3 4 + 2 * 5 +"), b' '),
+            (latin1(b"caf\xe9x\xe9"), 0xe9),
+            (utf16("日 本 語"), b' '),
+            (utf16("日\u{e9}本\u{e9}"), 0xe9),
+            (utf16("α,β,,γ,"), b','),
+            (utf16("日本"), b','),
+        ] {
+            assert_eq!(byte(s, b), count(s, latin1(&[b])));
+        }
     }
 }
