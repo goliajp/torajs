@@ -98,7 +98,10 @@ pub(super) fn seed_method_cb_anns(
 type Declared = (Vec<Option<String>>, Vec<String>);
 
 /// `const o: { arm: (f: F) => void } = { arm(f) { … } }` — the field's
-/// own parameter spellings, when the literal supplies the method.
+/// own parameter spellings, when the literal supplies the method. The
+/// method runs with the parameters it writes itself, so a position the
+/// literal annotates (`arm(f: (x: string | number) => void)`) keeps
+/// that spelling, and one past the literal's parameters has none.
 fn field_fn_params(
     ast: &Ast,
     ann: &str,
@@ -115,11 +118,11 @@ fn field_fn_params(
     if decl.ann.is_none() || written(ast, Some(n), site.method) {
         return None;
     }
-    literal_method(ast, decl.init?, site.method)?;
-    Some((
-        params.into_iter().map(|p| Some(p.to_string())).collect(),
-        Vec::new(),
-    ))
+    let (own, tps) = literal_method(ast, decl.init?, site.method)?;
+    let anns = (own.into_iter().enumerate())
+        .map(|(i, a)| a.or_else(|| params.get(i).map(|p| p.to_string())))
+        .collect();
+    Some((anns, tps))
 }
 
 /// `c: C` — the method `C` itself declares. A getter of that name
