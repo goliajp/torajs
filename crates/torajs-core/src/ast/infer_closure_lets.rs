@@ -22,20 +22,20 @@ pub(super) fn let_init_ann(
         Expr::Array(els) if !els.is_empty() => {
             let_init_ann(ast, els[0], declared_rets).map(|inner| format!("{inner}[]"))
         }
-        // A call to a function that declares what it returns —
+        // a call to a function that declares what it returns,
         // including the factory a `new C()` has become by now, so
         // `const c = new C()` binds `C` and a method call on one
-        // of its fields has a receiver type. Only a *declared*
-        // return counts: a sniffed one is a guess, and this table
-        // is read as if it were an annotation.
+        // of its fields has a receiver type; only a declared return
+        // counts: a sniffed one is a guess, and this table is read
+        // as if it were an annotation
         Expr::Call { callee, .. } => match ast.get_expr(*callee) {
             Expr::Ident(fname) => declared_rets.get(fname).cloned(),
             _ => None,
         },
-        // `new Map<string, number>()` / `new Set<number>()` — the
+        // `new Map<string, number>()` / `new Set<number>()`: the
         // explicit instantiation spelling carried on the New node
         // is the binding's ann (`Map<string|number>`, the same
-        // flat form parse_type_ann produces).
+        // flat form parse_type_ann produces)
         Expr::New {
             class_name,
             type_args,

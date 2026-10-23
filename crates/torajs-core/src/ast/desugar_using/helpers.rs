@@ -123,10 +123,10 @@ function __torajs_using_dispose(env: any): void {
 pub(super) fn inject_helpers(ast: &mut Ast) {
     let tokens = crate::lexer::tokenize(HELPER_SRC).expect("using helpers lex");
     let offset = crate::parser::parse_into(HELPER_SRC, &tokens, ast).expect("using helpers parse");
-    // The parsed spans index HELPER_SRC, not the program's source —
-    // consumers slicing `ast.source` with them would read out of
-    // bounds. Synthesized FnDecls carry the (0,0) "no user source"
-    // sentinel (the stmt.rs span contract); stamp it here.
+    // the parsed spans index HELPER_SRC, not the program's source, so
+    // a consumer slicing `ast.source` with them would read out of
+    // bounds; a synthesized FnDecl carries the (0,0) "no user source"
+    // sentinel of the stmt.rs span contract
     for s in ast.stmts[offset..].iter_mut() {
         if let Stmt::FnDecl { span, .. } = s {
             *span = crate::lexer::Span { start: 0, end: 0 };
