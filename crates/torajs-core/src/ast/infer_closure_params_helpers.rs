@@ -17,6 +17,7 @@
 
 use std::collections::HashMap;
 
+use super::infer_closure_params::{AnnScopes, Collisions};
 use super::infer_closure_params_apply::body_returns_value;
 use super::infer_return_ann;
 use crate::ast::infer_closure_lets::{collect_let_anns, collect_let_init_anns};
@@ -227,8 +228,35 @@ pub(super) fn apply_stored_elem_arm(
     true
 }
 
-pub(super) fn build_ann_table(ast: &Ast) -> (HashMap<String, String>, HashMap<String, String>) {
+/// The module's own bindings joined to the functions' `all_anns`, an
+/// explicit annotation over one its initializer gives; then the table
+/// as the sites read it.
+fn module_and_scopes<'a>(
+    ast: &'a Ast,
+    mut all_anns: HashMap<String, String>,
+    closure_hints: &mut HashMap<String, String>,
+    declared_rets: &HashMap<String, String>,
+    mut coll: Collisions<'a>,
+) -> AnnScopes {
+    let mut module = Collisions::default();
+    collect_let_anns(ast, &ast.stmts, &mut all_anns, closure_hints, &mut module);
+    let mut inferred: HashMap<String, String> = HashMap::new();
+    collect_let_init_anns(ast, &ast.stmts, declared_rets, &mut inferred, &mut module);
+    coll.module(module, &inferred);
+    for (k, v) in inferred {
+        let held = all_anns.entry(k).or_insert_with(|| v.clone());
+        coll.annotated(Some(held.clone()), &v);
+    }
+    if coll.any(&all_anns) {
+        AnnScopes::scoped(ast, all_anns, declared_rets)
+    } else {
+        AnnScopes::flat(all_anns)
+    }
+}
+
+pub(super) fn build_ann_table(ast: &Ast) -> (AnnScopes, HashMap<String, String>) {
     let mut all_anns: HashMap<String, String> = HashMap::new();
+    let mut coll = Collisions::default();
     // Lifted-closure name → the fn-type annotation of the binding it
     // initializes, for contextual param typing (see `collect_let_anns`).
     let mut closure_hints: HashMap<String, String> = HashMap::new();
@@ -253,13 +281,15 @@ pub(super) fn build_ann_table(ast: &Ast) -> (HashMap<String, String>, HashMap<St
             }
             for p in params {
                 if let Some(ann) = &p.type_ann {
-                    all_anns.insert(p.name.clone(), ann.clone());
+                    coll.param(&p.name, all_anns.insert(p.name.clone(), ann.clone()), ann);
                     if p.name == "__this" {
                         this_scopes.push((body, ann.clone()));
                     }
+                } else {
+                    coll.unannotated(&p.name);
                 }
             }
-            collect_let_anns(ast, body, &mut all_anns, &mut closure_hints);
+            collect_let_anns(ast, body, &mut all_anns, &mut closure_hints, &mut coll);
             if let Some(ret_ann) = return_type {
                 super::infer_closure_lets::seed_return_hints(
                     ast,
@@ -270,15 +300,10 @@ pub(super) fn build_ann_table(ast: &Ast) -> (HashMap<String, String>, HashMap<St
             }
         }
     }
-    collect_let_anns(ast, &ast.stmts, &mut all_anns, &mut closure_hints);
-    let mut inferred_inits: HashMap<String, String> = HashMap::new();
-    collect_let_init_anns(ast, &ast.stmts, &declared_rets, &mut inferred_inits);
-    for (k, v) in inferred_inits {
-        all_anns.entry(k).or_insert(v);
-    }
+    let anns = module_and_scopes(ast, all_anns, &mut closure_hints, &declared_rets, coll);
     // Assignment targets last: resolving one reads the finished
     // annotation table (`fs[0] = cb` needs to know what `fs` is).
-    crate::ast::infer_closure_lets::seed_assign_hints(ast, &all_anns, &mut closure_hints);
+    crate::ast::infer_closure_lets::seed_assign_hints(ast, &anns, &mut closure_hints);
     // ...except through `__this`, which names a different object in
     // every function and so cannot be answered from a table keyed by
     // bare name. See `infer_closure_this_scope::seed_this_assign_hints`.
@@ -290,7 +315,7 @@ pub(super) fn build_ann_table(ast: &Ast) -> (HashMap<String, String>, HashMap<St
             &mut closure_hints,
         );
     }
-    (all_anns, closure_hints)
+    (anns, closure_hints)
 }
 
 /// `(fn_param_pos_anns, fn_type_params, fn_user_param_count,

@@ -29,6 +29,8 @@ use super::{Ast, Expr, ExprId};
 
 mod replace_cb;
 use replace_cb::seed_replace_cb_anns;
+mod ann_scopes;
+pub(super) use ann_scopes::{AnnScopes, Anns, Collisions};
 mod sole_bindings;
 pub(super) use sole_bindings::SoleBindings;
 mod executor_cb;
@@ -61,7 +63,7 @@ pub(super) use lit_ann::infer_lit_ann;
 pub(super) fn resolve_receiver_ann(
     ast: &Ast,
     eid: ExprId,
-    all_anns: &std::collections::HashMap<String, String>,
+    all_anns: Anns<'_>,
     this_ann: Option<&str>,
 ) -> Option<String> {
     const IDENTITY_PRESERVING: &[&str] = &[
@@ -144,7 +146,7 @@ fn classify_call_args(ast: &Ast, args: &[ExprId]) -> (Vec<(usize, String)>, bool
 pub fn infer_anonymous_closure_params(ast: &mut Ast) {
     use std::collections::HashMap;
 
-    let (all_anns, closure_let_hints) = build_ann_table(ast);
+    let (ann_scopes, closure_let_hints) = build_ann_table(ast);
 
     let mut seeds = Seeds::default();
 
@@ -215,13 +217,17 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
             continue;
         };
         if matches!(name.as_str(), "then" | "catch") {
-            let tables = PromiseTables::new(&all_anns, &fn_ret_anns, lazy.sole(ast));
+            let tables = PromiseTables::new(
+                ann_scopes.at(ExprId(i as u32)),
+                &fn_ret_anns,
+                lazy.sole(ast),
+            );
             let (counts, sink) = (&fn_user_param_count, &mut seeds.param_only);
             seed_then_catch_params(ast, obj, &name, &tables, &closure_args, counts, sink);
             continue;
         }
         let this_ann = this_anns.get(&ExprId(i as u32)).map(String::as_str);
-        let obj_ann = resolve_receiver_ann(ast, obj, &all_anns, this_ann);
+        let obj_ann = resolve_receiver_ann(ast, obj, ann_scopes.at(ExprId(i as u32)), this_ann);
         // what no container arm below answers is a call of the method
         // the receiver's type declares
         let site = MethodSite::new(ExprId(i as u32), obj, &name, &args, &closure_args);
@@ -284,7 +290,7 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
             &args,
             &closure_args,
             &elem_ann,
-            &all_anns,
+            ann_scopes.at(ExprId(i as u32)),
             &fn_user_param_count,
             &mut seeds.param_only,
             &mut seeds.view_promotes,

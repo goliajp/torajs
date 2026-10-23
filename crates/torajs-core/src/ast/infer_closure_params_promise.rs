@@ -25,7 +25,7 @@ mod receiver;
 use handler_lane::{Lazy, typed_lane_handler};
 pub(super) use receiver::PromiseTables;
 
-use super::infer_closure_params::infer_lit_ann;
+use super::infer_closure_params::{Anns, infer_lit_ann};
 use super::{Ast, Expr, ExprId, Stmt, infer_return_ann};
 use crate::check_type_of_call_promise_then::is_reject_mint;
 use std::collections::HashMap;
@@ -218,7 +218,7 @@ fn sniff_body_with_param_seed(ast: &Ast, fn_name: &str, param_inner_ann: &str) -
 
 /// Best-effort type annotation for an expression flowing into a
 /// `Promise.resolve/reject(arg)` mint — the arg's static shape.
-fn resolve_arg_ann(ast: &Ast, eid: ExprId, all_anns: &HashMap<String, String>) -> Option<String> {
+fn resolve_arg_ann(ast: &Ast, eid: ExprId, all_anns: Anns<'_>) -> Option<String> {
     match ast.get_expr(eid) {
         Expr::Ident(n) => all_anns.get(n).cloned(),
         _ => infer_lit_ann(ast, eid),

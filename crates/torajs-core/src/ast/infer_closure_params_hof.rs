@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 
-use super::infer_closure_params::infer_lit_ann;
+use super::infer_closure_params::{Anns, infer_lit_ann};
 use super::{Ast, Expr, ExprId};
 
 /// Array HOF param-only arms — `.map(cb)` / `.flatMap(cb)` /
@@ -26,7 +26,7 @@ pub(super) fn apply_hof_param_only_arm(
     args: &[ExprId],
     closure_args: &[(usize, String)],
     elem_ann: &str,
-    all_anns: &HashMap<String, String>,
+    all_anns: Anns<'_>,
     fn_user_param_count: &HashMap<String, usize>,
     param_only_updates: &mut HashMap<String, Vec<String>>,
     view_promotes: &mut HashMap<String, (usize, String)>,

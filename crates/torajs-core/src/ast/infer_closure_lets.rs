@@ -5,7 +5,47 @@
 //! explicit `let x: T` annotations, `collect_let_init_anns` infers
 //! them from literal / `new Map<K, V>()` init shapes.
 
+use super::infer_closure_params::{AnnScopes, Anns, Collisions};
 use super::{Ast, Expr, ExprId, PropKey, Stmt};
+
+/// The annotation a literal / declared-return call / `new Map<K, V>()`
+/// initializer gives an unannotated binding.
+pub(super) fn let_init_ann(
+    ast: &Ast,
+    eid: ExprId,
+    declared_rets: &std::collections::HashMap<String, String>,
+) -> Option<String> {
+    match ast.get_expr(eid) {
+        Expr::Number(_) => Some("number".into()),
+        Expr::String(_) => Some("string".into()),
+        Expr::Bool(_) => Some("boolean".into()),
+        Expr::Array(els) if !els.is_empty() => {
+            let_init_ann(ast, els[0], declared_rets).map(|inner| format!("{inner}[]"))
+        }
+        // A call to a function that declares what it returns —
+        // including the factory a `new C()` has become by now, so
+        // `const c = new C()` binds `C` and a method call on one
+        // of its fields has a receiver type. Only a *declared*
+        // return counts: a sniffed one is a guess, and this table
+        // is read as if it were an annotation.
+        Expr::Call { callee, .. } => match ast.get_expr(*callee) {
+            Expr::Ident(fname) => declared_rets.get(fname).cloned(),
+            _ => None,
+        },
+        // `new Map<string, number>()` / `new Set<number>()` — the
+        // explicit instantiation spelling carried on the New node
+        // is the binding's ann (`Map<string|number>`, the same
+        // flat form parse_type_ann produces).
+        Expr::New {
+            class_name,
+            type_args,
+            ..
+        } if matches!(class_name.as_str(), "Map" | "Set") && !type_args.is_empty() => {
+            Some(format!("{class_name}<{}>", type_args.join("|")))
+        }
+        _ => None,
+    }
+}
 
 /// Walk `body` collecting `let name = <init>` shapes where the init is a
 /// literal whose type can be inferred (number / string / boolean / array
@@ -13,49 +53,15 @@ use super::{Ast, Expr, ExprId, PropKey, Stmt};
 /// matching the format used by `infer_anonymous_closure_params`'s
 /// `infer_lit_ann` helper. Used so unannotated top-level lets still feed
 /// the closure-param inference pass.
-pub(super) fn collect_let_init_anns(
+pub(super) fn collect_let_init_anns<'a>(
     ast: &Ast,
-    body: &[Stmt],
+    body: &'a [Stmt],
     declared_rets: &std::collections::HashMap<String, String>,
     out: &mut std::collections::HashMap<String, String>,
+    coll: &mut Collisions<'a>,
 ) {
-    fn ann_of(
-        ast: &Ast,
-        eid: ExprId,
-        declared_rets: &std::collections::HashMap<String, String>,
-    ) -> Option<String> {
-        match ast.get_expr(eid) {
-            Expr::Number(_) => Some("number".into()),
-            Expr::String(_) => Some("string".into()),
-            Expr::Bool(_) => Some("boolean".into()),
-            Expr::Array(els) if !els.is_empty() => {
-                ann_of(ast, els[0], declared_rets).map(|inner| format!("{inner}[]"))
-            }
-            // A call to a function that declares what it returns —
-            // including the factory a `new C()` has become by now, so
-            // `const c = new C()` binds `C` and a method call on one
-            // of its fields has a receiver type. Only a *declared*
-            // return counts: a sniffed one is a guess, and this table
-            // is read as if it were an annotation.
-            Expr::Call { callee, .. } => match ast.get_expr(*callee) {
-                Expr::Ident(fname) => declared_rets.get(fname).cloned(),
-                _ => None,
-            },
-            // `new Map<string, number>()` / `new Set<number>()` — the
-            // explicit instantiation spelling carried on the New node
-            // is the binding's ann (`Map<string|number>`, the same
-            // flat form parse_type_ann produces).
-            Expr::New {
-                class_name,
-                type_args,
-                ..
-            } if matches!(class_name.as_str(), "Map" | "Set") && !type_args.is_empty() => {
-                Some(format!("{class_name}<{}>", type_args.join("|")))
-            }
-            _ => None,
-        }
-    }
     for s in body {
+        let one = std::slice::from_ref;
         match s {
             Stmt::LetDecl {
                 name,
@@ -63,49 +69,31 @@ pub(super) fn collect_let_init_anns(
                 init,
                 ..
             } => {
-                if let Some(ann) = ann_of(ast, *init, declared_rets) {
-                    out.insert(name.clone(), ann);
+                if let Some(ann) = let_init_ann(ast, *init, declared_rets) {
+                    coll.annotated(out.insert(name.clone(), ann.clone()), &ann);
                 }
             }
             Stmt::Block(stmts) | Stmt::Multi(stmts) => {
-                collect_let_init_anns(ast, stmts, declared_rets, out)
+                collect_let_init_anns(ast, stmts, declared_rets, out, coll)
             }
             Stmt::If {
                 then_branch,
                 else_branch,
                 ..
             } => {
-                collect_let_init_anns(
-                    ast,
-                    std::slice::from_ref(then_branch.as_ref()),
-                    declared_rets,
-                    out,
-                );
+                collect_let_init_anns(ast, one(then_branch.as_ref()), declared_rets, out, coll);
                 if let Some(eb) = else_branch {
-                    collect_let_init_anns(
-                        ast,
-                        std::slice::from_ref(eb.as_ref()),
-                        declared_rets,
-                        out,
-                    );
+                    collect_let_init_anns(ast, one(eb.as_ref()), declared_rets, out, coll);
                 }
             }
-            Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
-                collect_let_init_anns(ast, std::slice::from_ref(body.as_ref()), declared_rets, out);
-            }
-            Stmt::Labeled { body, .. } => {
-                collect_let_init_anns(ast, std::slice::from_ref(body.as_ref()), declared_rets, out);
+            Stmt::While { body, .. } | Stmt::DoWhile { body, .. } | Stmt::Labeled { body, .. } => {
+                collect_let_init_anns(ast, one(body.as_ref()), declared_rets, out, coll);
             }
             Stmt::For { init, body, .. } => {
                 if let Some(i) = init {
-                    collect_let_init_anns(
-                        ast,
-                        std::slice::from_ref(i.as_ref()),
-                        declared_rets,
-                        out,
-                    );
+                    collect_let_init_anns(ast, one(i.as_ref()), declared_rets, out, coll);
                 }
-                collect_let_init_anns(ast, std::slice::from_ref(body.as_ref()), declared_rets, out);
+                collect_let_init_anns(ast, one(body.as_ref()), declared_rets, out, coll);
             }
             _ => {}
         }
@@ -126,21 +114,27 @@ pub(super) fn collect_let_init_anns(
 ///
 /// One walk, two outputs, on purpose: a second copy of this control-flow
 /// recursion is a copy that drifts.
-pub(super) fn collect_let_anns(
+pub(super) fn collect_let_anns<'a>(
     ast: &Ast,
-    body: &[Stmt],
+    body: &'a [Stmt],
     out: &mut std::collections::HashMap<String, String>,
     closure_hints: &mut std::collections::HashMap<String, String>,
+    coll: &mut Collisions<'a>,
 ) {
     for s in body {
         match s {
+            Stmt::LetDecl {
+                name,
+                type_ann: None,
+                ..
+            } => coll.unannotated(name),
             Stmt::LetDecl {
                 name,
                 type_ann: Some(ann),
                 init,
                 ..
             } => {
-                out.insert(name.clone(), ann.clone());
+                coll.annotated(out.insert(name.clone(), ann.clone()), ann);
                 // Both post-lift shapes, as at the call-arg positions:
                 // `Expr::Closure` when the arrow captured something,
                 // a bare ident at the lifted FnDecl when it did not.
@@ -154,7 +148,7 @@ pub(super) fn collect_let_anns(
             // included
             Stmt::FnDecl { .. } => {}
             _ => crate::ast::stmt_nested_lists::for_each_nested_list(s, &mut |list| {
-                collect_let_anns(ast, list, out, closure_hints)
+                collect_let_anns(ast, list, out, closure_hints, coll)
             }),
         }
     }
@@ -325,10 +319,10 @@ fn resolve_object_field_anns(
 /// question does not care where.
 pub(super) fn seed_assign_hints(
     ast: &Ast,
-    all_anns: &std::collections::HashMap<String, String>,
+    anns: &AnnScopes,
     closure_hints: &mut std::collections::HashMap<String, String>,
 ) {
-    for e in &ast.exprs {
+    for (i, e) in ast.exprs.iter().enumerate() {
         let Expr::Assign { target, value } = e else {
             continue;
         };
@@ -340,7 +334,7 @@ pub(super) fn seed_assign_hints(
         if super::infer_closure_this_scope::is_this_rooted(ast, *target) {
             continue;
         }
-        if let Some(ann) = assign_target_ann(ast, *target, all_anns) {
+        if let Some(ann) = assign_target_ann(ast, *target, anns.at(ExprId(i as u32))) {
             closure_hints.insert(fn_name, ann);
         }
     }
@@ -348,11 +342,7 @@ pub(super) fn seed_assign_hints(
 
 /// What an assignment target says it holds: a binding's own
 /// annotation, a field's declared type, or an array's element type.
-fn assign_target_ann(
-    ast: &Ast,
-    target: ExprId,
-    all_anns: &std::collections::HashMap<String, String>,
-) -> Option<String> {
+fn assign_target_ann(ast: &Ast, target: ExprId, all_anns: Anns<'_>) -> Option<String> {
     match ast.get_expr(target) {
         Expr::Ident(n) => all_anns.get(n).cloned(),
         Expr::Member { obj, name } => {
