@@ -67,8 +67,11 @@ pub(super) fn count_uses(func: &Function) -> HashMap<ValueId, u32> {
 /// Map of block id → the tail ICmp its CondBr absorbs. The inst-emit
 /// loop skips these compares; `emit_fused_condbr` re-emits them fused.
 /// `bit_tests` admits the TBZ / TBNZ form (bittest.rs).
-pub(crate) fn fusible_cmps(func: &Function, bit_tests: bool) -> HashMap<u32, FusedCmp> {
-    let uses = count_uses(func);
+pub(crate) fn fusible_cmps(
+    func: &Function,
+    uses: &HashMap<ValueId, u32>,
+    bit_tests: bool,
+) -> HashMap<u32, FusedCmp> {
     let mut fused = HashMap::default();
     for block in &func.blocks {
         let Terminator::CondBr {
@@ -96,7 +99,7 @@ pub(crate) fn fusible_cmps(func: &Function, bit_tests: bool) -> HashMap<u32, Fus
             unreachable!("arm above admits only compares");
         };
         let bit_test = match pred {
-            FusedSelPred::Int(p) if bit_tests => super::bittest::pick(block, p, lhs, rhs, &uses),
+            FusedSelPred::Int(p) if bit_tests => super::bittest::pick(block, p, lhs, rhs, uses),
             _ => None,
         };
         let (lhs, bits) = match bit_test {
@@ -154,9 +157,9 @@ pub(crate) struct FusedSelCmp {
 ///     GPR scratches, a different register file.
 pub(crate) fn fusible_select_cmps(
     func: &Function,
+    uses: &HashMap<ValueId, u32>,
     alloc: &Assignment,
 ) -> HashMap<(u32, u32), FusedSelCmp> {
-    let uses = count_uses(func);
     let mut fused = HashMap::default();
     for block in &func.blocks {
         for (ii, pair) in block.insts.windows(2).enumerate() {
@@ -367,7 +370,7 @@ mod tests {
     #[test]
     fn tail_single_use_icmp_fuses() {
         let func = icmp_condbr_func(IPred::Sgt, Operand::ConstI64(5), false);
-        let fused = fusible_cmps(&func, true);
+        let fused = fusible_cmps(&func, &count_uses(&func), true);
         assert_eq!(fused.len(), 1);
         assert!(fused.contains_key(&0));
         let words = words_of(&compile_function(&func).bytes);
@@ -438,7 +441,7 @@ mod tests {
     #[test]
     fn tail_single_use_fcmp_fuses() {
         let func = fcmp_condbr_func(torajs_core::ssa::FPred::Ogt);
-        let fused = fusible_cmps(&func, true);
+        let fused = fusible_cmps(&func, &count_uses(&func), true);
         assert_eq!(fused.len(), 1, "FCmp CondBr must fuse (mandelbrot D3)");
         let words = words_of(&compile_function(&func).bytes);
         assert!(!words.iter().any(|w| is_cset(*w)), "cset must be gone");
@@ -453,13 +456,13 @@ mod tests {
     fn fcmp_one_keeps_the_cset_form() {
         // Ordered != has no single cond code — never fuses.
         let func = fcmp_condbr_func(torajs_core::ssa::FPred::One);
-        assert!(fusible_cmps(&func, true).is_empty());
+        assert!(fusible_cmps(&func, &count_uses(&func), true).is_empty());
     }
 
     #[test]
     fn second_use_keeps_the_cset_form() {
         let func = icmp_condbr_func(IPred::Sgt, Operand::ConstI64(5), true);
-        assert!(fusible_cmps(&func, true).is_empty());
+        assert!(fusible_cmps(&func, &count_uses(&func), true).is_empty());
         let words = words_of(&compile_function(&func).bytes);
         assert!(words.iter().any(|w| is_cset(*w)), "cset must remain");
     }
@@ -467,7 +470,7 @@ mod tests {
     #[test]
     fn eq_zero_fuses_to_cbz_without_cmp() {
         let func = icmp_condbr_func(IPred::Eq, Operand::ConstI64(0), false);
-        assert_eq!(fusible_cmps(&func, true).len(), 1);
+        assert_eq!(fusible_cmps(&func, &count_uses(&func), true).len(), 1);
         let words = words_of(&compile_function(&func).bytes);
         assert!(!words.iter().any(|w| is_cset(*w)));
         // no CMP-immediate either — the value branches directly. The
@@ -485,7 +488,7 @@ mod tests {
         let mut func = icmp_condbr_func(IPred::Uge, Operand::ConstI64(0), false);
         func.blocks[0].insts[1].kind =
             InstKind::ICmp(IPred::Uge, Operand::ConstI64(0), Operand::Value(ValueId(0)));
-        assert_eq!(fusible_cmps(&func, true).len(), 1);
+        assert_eq!(fusible_cmps(&func, &count_uses(&func), true).len(), 1);
         let words = words_of(&compile_function(&func).bytes);
         // `0 >=u v` is `v == 0`; the then-target falls through, so the
         // flipped `0 <u v` branches to the else with CBNZ

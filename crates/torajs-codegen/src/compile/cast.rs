@@ -14,7 +14,7 @@ use super::{
 };
 use crate::enc::{
     and_imm_one, fcvtzs_x_d, fjcvtzs_w_d, fmov_d_from_x, fmov_x_from_d, mov_w_reg, mov_x_reg,
-    scvtf_d_x, sxtw_x_w,
+    scvtf_d_w, scvtf_d_x, sxtw_x_w,
 };
 use crate::regalloc::Assignment;
 
@@ -44,12 +44,19 @@ pub fn emit_bitcast_i64_to_f64(
     write_def_spill_fpr(bytes, spill_off, dst);
 }
 
-/// SiToFp Operand → Fpr: SCVTF Dd, Xn (signed int64 → f64).
-pub fn emit_si_to_fp(bytes: &mut Vec<u8>, inst: &Inst, src: &Operand, alloc: &Assignment) {
+/// SiToFp Operand → Fpr: SCVTF Dd, Xn (signed int64 → f64), or from
+/// the W view (`w`) when the source is known to hold an int32 in its
+/// low half.
+pub fn emit_si_to_fp(bytes: &mut Vec<u8>, inst: &Inst, src: &Operand, alloc: &Assignment, w: bool) {
     let result_vid = inst.result.expect("SiToFp must have a result");
     let (dst, spill_off) = alloc.def_fpr(result_vid, FP_SCRATCH_RESULT);
     let src_gpr = materialize_operand_gpr(bytes, src, OP_SCRATCH_LHS, alloc);
-    write_u32(bytes, scvtf_d_x(dst, src_gpr));
+    let word = if w {
+        scvtf_d_w(dst, src_gpr)
+    } else {
+        scvtf_d_x(dst, src_gpr)
+    };
+    write_u32(bytes, word);
     write_def_spill_fpr(bytes, spill_off, dst);
 }
 
@@ -64,13 +71,22 @@ pub fn emit_fp_to_si(bytes: &mut Vec<u8>, inst: &Inst, src: &Operand, alloc: &As
 
 /// FpToInt32 Operand → Gpr: FJCVTZS Wd, Dn (ToInt32 into the low 32
 /// bits, upper 32 zeroed) then SXTW Xd, Wd so the i64 carries the
-/// sign-extended int32 every bitwise consumer expects.
-pub fn emit_fp_to_int32(bytes: &mut Vec<u8>, inst: &Inst, src: &Operand, alloc: &Assignment) {
+/// sign-extended int32 every bitwise consumer expects; without `sext`
+/// when no use reads the upper half (low32.rs).
+pub fn emit_fp_to_int32(
+    bytes: &mut Vec<u8>,
+    inst: &Inst,
+    src: &Operand,
+    alloc: &Assignment,
+    sext: bool,
+) {
     let result_vid = inst.result.expect("FpToInt32 must have a result");
     let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
     let src_fpr = materialize_operand_fpr(bytes, src, FP_SCRATCH_LHS, OP_SCRATCH_LHS, alloc);
     write_u32(bytes, fjcvtzs_w_d(dst, src_fpr));
-    write_u32(bytes, sxtw_x_w(dst, dst));
+    if sext {
+        write_u32(bytes, sxtw_x_w(dst, dst));
+    }
     write_def_spill_gpr(bytes, spill_off, dst);
 }
 

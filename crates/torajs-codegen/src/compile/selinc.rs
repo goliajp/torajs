@@ -28,7 +28,7 @@ use torajs_core::ssa::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{BinOp, Function, IPred, InstKind, Operand, Type, ValueId};
 
-use super::brfuse::{FusedCmp, count_uses};
+use super::brfuse::FusedCmp;
 use super::cmp::ipred_to_cond;
 use crate::enc::{cond, logical_imm};
 
@@ -81,8 +81,7 @@ fn increment_base(kind: &InstKind) -> Option<&Operand> {
     }
 }
 
-pub(crate) fn fusible_select_incs(func: &Function) -> SelectIncs {
-    let uses = count_uses(func);
+pub(crate) fn fusible_select_incs(func: &Function, uses: &HashMap<ValueId, u32>) -> SelectIncs {
     let mut plans = HashMap::default();
     let mut absorbed = HashSet::default();
 
@@ -118,7 +117,7 @@ pub(crate) fn fusible_select_incs(func: &Function) -> SelectIncs {
 
             // Second absorption: an adjacent single-use ICmp defining
             // the condition folds its NZCV straight into the CSINC.
-            let fused_cmp = fused_predicate(func, block.id.0, ii, c, &uses);
+            let fused_cmp = fused_predicate(func, block.id.0, ii, c, uses);
             let (cond_true_cc, cmp) = match fused_cmp {
                 Some((fc, pred_cc)) => (pred_cc, Some(fc)),
                 None => (cond::NE, None), // `cmp cond, #0` — NE means "cond is true"
@@ -221,6 +220,7 @@ fn invert_cond(cc: u8) -> u8 {
 
 #[cfg(test)]
 mod tests {
+    use super::super::brfuse::count_uses;
     use super::*;
     use torajs_core::ssa::{Block, BlockId, IPred, Inst, Terminator, ValueInfo};
 
@@ -282,7 +282,7 @@ mod tests {
     #[test]
     fn counting_shape_absorbs_add_and_cmp() {
         let f = count_func(false, false);
-        let incs = fusible_select_incs(&f);
+        let incs = fusible_select_incs(&f, &count_uses(&f));
         let plan = incs.plan(0, 2).expect("select plan recognized");
         assert_eq!(plan.hold, Operand::ConstI64(5));
         assert_eq!(plan.inc, Operand::ConstI64(5));
@@ -297,7 +297,7 @@ mod tests {
     #[test]
     fn second_reader_of_the_add_blocks_the_fuse() {
         let f = count_func(true, false);
-        let incs = fusible_select_incs(&f);
+        let incs = fusible_select_incs(&f, &count_uses(&f));
         assert!(incs.plan(0, 2).is_none());
         assert!(!incs.absorbed(0, 1));
     }
@@ -305,7 +305,7 @@ mod tests {
     #[test]
     fn second_reader_of_the_cond_keeps_add_fuse_but_drops_cmp() {
         let f = count_func(false, true);
-        let incs = fusible_select_incs(&f);
+        let incs = fusible_select_incs(&f, &count_uses(&f));
         let plan = incs.plan(0, 2).expect("add still absorbs");
         assert!(plan.cmp.is_none(), "multi-use cond cannot ride NZCV");
         // falls back to `cmp cond, #0`; increment on the then arm
@@ -328,7 +328,7 @@ mod tests {
                 Operand::Value(ValueId(1)),
             ),
         );
-        let incs = fusible_select_incs(&f);
+        let incs = fusible_select_incs(&f, &count_uses(&f));
         let plan = incs.plan(0, 2).expect("mirrored arms still recognized");
         assert_eq!(plan.cc, cond::EQ, "eq predicate passes through");
     }
@@ -346,7 +346,7 @@ mod tests {
                 Operand::ConstI64(9),
             ),
         );
-        let incs = fusible_select_incs(&f);
+        let incs = fusible_select_incs(&f, &count_uses(&f));
         let plan = incs.plan(0, 2).expect("distinct arms recognized");
         assert_eq!(plan.hold, Operand::ConstI64(9));
         assert_eq!(plan.inc, Operand::ConstI64(5));
@@ -371,7 +371,7 @@ mod tests {
             InstKind::ICmp(IPred::Eq, Operand::Value(ValueId(5)), Operand::ConstI64(0)),
         );
         f.blocks[0].insts.insert(0, and);
-        let incs = fusible_select_incs(&f);
+        let incs = fusible_select_incs(&f, &count_uses(&f));
         let plan = incs.plan(0, 3).expect("select plan recognized");
         let fc = plan.cmp.as_ref().expect("compare fuses");
         assert!(fc.test);
@@ -390,7 +390,7 @@ mod tests {
             1,
             InstKind::BinOp(BinOp::Add, Operand::ConstI64(5), Operand::ConstI64(2)),
         );
-        let incs = fusible_select_incs(&f);
+        let incs = fusible_select_incs(&f, &count_uses(&f));
         assert!(incs.plan(0, 2).is_none());
     }
 
@@ -406,7 +406,7 @@ mod tests {
                 Operand::ConstI64(5),
             ),
         );
-        let incs = fusible_select_incs(&f);
+        let incs = fusible_select_incs(&f, &count_uses(&f));
         assert!(incs.plan(0, 2).is_none());
     }
 

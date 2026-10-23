@@ -12,6 +12,7 @@ use super::ModuleFacts;
 use super::brfuse::{self, FusedCmp, FusedSelCmp};
 use super::cmp;
 use super::global_access::{self, GlobalAccesses};
+use super::low32::Low32;
 use super::selinc::{self, SelectIncs};
 use super::store_pair::{self, StorePair};
 use super::throw_probe;
@@ -45,6 +46,9 @@ pub(super) struct Fusions {
     /// instead, by the index of the first instruction it absorbs. See
     /// compile/throw_reg.rs.
     throw_probes: HashMap<u32, usize>,
+    /// int32s whose upper half nothing reads, and the `shl 32; ashr 32`
+    /// pairs that shrink. See compile/low32.rs.
+    low32: Low32,
 }
 
 impl Fusions {
@@ -62,13 +66,14 @@ impl Fusions {
             HashMap::default()
         };
         Fusions {
-            cmps: brfuse::fusible_cmps(func, bit_tests),
-            select_cmps: brfuse::fusible_select_cmps(func, alloc),
-            select_incs: selinc::fusible_select_incs(func),
+            cmps: brfuse::fusible_cmps(func, &uses, bit_tests),
+            select_cmps: brfuse::fusible_select_cmps(func, &uses, alloc),
+            select_incs: selinc::fusible_select_incs(func, &uses),
             store_pairs: store_pair::plan(func, alloc),
             dead_refs: dead_refs(func, &uses),
             globals: global_access::plan(func, &uses, &facts.aligned8_syms),
             throw_probes,
+            low32: Low32::plan(func, &uses),
         }
     }
 
@@ -101,6 +106,9 @@ impl Fusions {
         if self.dead_refs.contains(&(b, i)) || self.globals.absorbed(b, i) {
             return true;
         }
+        if self.low32.emit(bytes, (b, i), inst, alloc) {
+            return true;
+        }
         if let Some(sym) = self.globals.paged_sym(b, i) {
             global_access::emit_paged(bytes, relocs, inst, sym, alloc);
             return true;
@@ -115,11 +123,8 @@ impl Fusions {
                 return true; // the CondBr emits this compare (and AND) fused
             }
         }
-        if self.select_cmps.contains_key(&(b, i)) {
-            return true; // the next Select emits this compare fused
-        }
-        if self.select_incs.absorbed(b, i) {
-            return true; // the CSINC downstream emits this add / compare
+        if self.select_cmps.contains_key(&(b, i)) || self.select_incs.absorbed(b, i) {
+            return true; // the next Select or a CSINC downstream emits it fused
         }
         if let Some(plan) = self.select_incs.plan(b, i) {
             cmp::emit_select_inc(bytes, inst, plan, alloc);

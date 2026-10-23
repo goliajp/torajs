@@ -42,6 +42,7 @@ mod in_module;
 mod inline_sites;
 mod inst;
 mod landing;
+mod low32;
 mod mem;
 mod operand;
 pub(crate) mod pin_reg;

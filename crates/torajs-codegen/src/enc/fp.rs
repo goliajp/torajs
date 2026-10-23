@@ -164,6 +164,12 @@ pub fn scvtf_d_x(rd: Fpr, rn: Gpr) -> u32 {
     0x9E62_0000 | (rn.idx() << 5) | rd.idx()
 }
 
+/// SCVTF Dd, Wn — signed int32 → f64, reading only the low 32 bits of
+/// the source. ARM ARM C7.2.236 (sf=0, ftype=01). Base = 0x1E62_0000.
+pub fn scvtf_d_w(rd: Fpr, rn: Gpr) -> u32 {
+    0x1E62_0000 | (rn.idx() << 5) | rd.idx()
+}
+
 /// FCVTZS Xd, Dn — f64 → signed int64, round toward zero.
 /// ARM ARM C6.2.114. Base = 0x9E78_0000.
 pub fn fcvtzs_x_d(rd: Gpr, rn: Fpr) -> u32 {
@@ -376,6 +382,13 @@ mod tests {
     #[test]
     fn scvtf_d0_from_x9_matches_arm_arm() {
         assert_eq!(scvtf_d_x(Fpr::V0, Gpr::X9), 0x9E62_0120);
+    }
+
+    #[test]
+    fn scvtf_d_from_w_matches_clang() {
+        // clang: `scvtf d0, w9` → 0x1E62_0120, `scvtf d17, w3` → 0x1E62_0071
+        assert_eq!(scvtf_d_w(Fpr::V0, Gpr::X9), 0x1E62_0120);
+        assert_eq!(scvtf_d_w(Fpr::V17, Gpr::X3), 0x1E62_0071);
     }
 
     #[test]
