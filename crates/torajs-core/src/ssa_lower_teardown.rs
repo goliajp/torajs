@@ -40,6 +40,16 @@ pub(crate) fn emit_local_drops(ctx: &mut LowerCtx<'_>) {
     }
 }
 
+/// The owned locals of the current frame at a throw leaving it: the
+/// top-level frame's only under the teardown, any other frame's always.
+pub(crate) fn emit_frame_drops(ctx: &mut LowerCtx<'_>) {
+    if ctx.is_main_fn {
+        emit_local_drops(ctx);
+    } else {
+        ctx.emit_drops_for_owned_locals();
+    }
+}
+
 /// The whole teardown at the fall-through end of `main`: locals,
 /// globals, the class cells the prologue handed to the registry, then
 /// one last cycle-collector drain for the cycles that outlived them.

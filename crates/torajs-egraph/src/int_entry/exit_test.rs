@@ -98,11 +98,7 @@ pub(crate) struct Reads(Vec<u32>);
 impl Reads {
     pub(crate) fn of(func: &Function) -> Self {
         let mut reads = vec![0u32; func.values.len()];
-        let mut read = |v: ValueId| {
-            if let Some(n) = reads.get_mut(v.0 as usize) {
-                *n += 1;
-            }
-        };
+        let mut read = |v: ValueId| reads[v.0 as usize] += 1;
         for block in &func.blocks {
             for inst in &block.insts {
                 visit_value_operands(&inst.kind, &mut read);

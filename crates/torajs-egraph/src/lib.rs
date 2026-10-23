@@ -219,11 +219,10 @@ pub fn transform_module(mut module: Module) -> Module {
     // `TORAJS_INT_ENTRY_OFF=1` skips (bisect gate).
     let versioned = gated_pass("INT_ENTRY", &mut module, int_entry::version_loops_recorded)
         .map_or_else(Vec::new, |v| v.loops);
-    // Integer range analysis (analysis-only, RFC 20260611) — interval
-    // lattice with branch refinement + loop widening over the post-φ
-    // canonical shape. Feeds float demotion below and seeds sext_elide
-    // R2 with loop cells provably inside i32 range (the popcount
-    // residual-pair case). `TORAJS_INTERVAL_OFF=1` skips (bisect gate).
+    // Integer range analysis (analysis-only, RFC 20260611) — interval lattice with branch
+    // refinement + loop widening over the post-φ canonical shape. Feeds float demotion below and
+    // seeds sext_elide R2 with loop cells provably inside i32 range (the popcount residual-pair
+    // case). `TORAJS_INTERVAL_OFF=1` skips (bisect gate).
     let (mut interval_facts, fact_cache) =
         pass_timer::timed("INTERVAL", || interval::run::analyze_gated(&module)).unzip();
     // Loop sums take their add-recurrence bound before float_demote
