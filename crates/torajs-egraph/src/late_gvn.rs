@@ -41,6 +41,7 @@
 mod epochs;
 mod keys;
 mod known_branch;
+mod view_guard;
 mod walk;
 
 use crate::id_hash::{HashMap, HashSet};
@@ -64,10 +65,12 @@ pub struct LateGvnStats {
     pub dedups: u32,
 }
 
-/// The dedup, then the conditionals it left testing a value a branch
-/// above them already tested.
+/// The dedup, the receiver guards of inline views their join's
+/// predecessors decide, then the conditionals left testing a value a
+/// branch above them already tested.
 pub(crate) fn run(module: &mut Module) {
     crate::gated_pass("LATE_GVN", module, dedup_pure_ops);
+    crate::gated_pass("VIEW_GUARD", module, view_guard::thread_view_guards);
     crate::gated_pass("KNOWN_BRANCH", module, known_branch::fold_known_branches);
 }
 

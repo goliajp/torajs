@@ -1,0 +1,10 @@
+factor 1 1 1
+factor -2 2 2
+factor 102 3 3
+factor 4 4 4
+caught true 5 5
+caught true 6 6
+caught true 2
+prev 2 4
+prev 4 6
+caught true 8

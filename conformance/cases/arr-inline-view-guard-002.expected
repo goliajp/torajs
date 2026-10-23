@@ -1,0 +1,14 @@
+factor 1 1 1
+factor -2 2 2
+factor 102 3 3
+factor 4 4 4
+caught true 5 5
+caught true 6 6
+between 2
+noisy 23 3
+between 3
+noisy 4 4
+between 4
+caught true 5 3
+between 5
+caught true 6 4

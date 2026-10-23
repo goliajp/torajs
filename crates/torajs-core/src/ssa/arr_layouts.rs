@@ -48,6 +48,11 @@ impl ArrLayouts {
         self.elems.get(i)
     }
 
+    /// The element types, in id order.
+    pub fn iter(&self) -> impl Iterator<Item = &Type> {
+        self.elems.iter()
+    }
+
     /// Whether some class of the program has its arrays held in place.
     pub fn has_value_classes(&self) -> bool {
         !self.value_sids.is_empty()
