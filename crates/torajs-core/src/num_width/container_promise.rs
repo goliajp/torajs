@@ -130,6 +130,12 @@ impl Analysis<'_> {
                 ) {
                     self.uf.union(&self.keys, pv, self.keys.field(ak, "value"));
                 } else {
+                    // the point holds a container: evidence on the point
+                    // itself, so the copy edge of a binding that awaits
+                    // it under another spelling (`const s = await o.m()`
+                    // reads the method's own key) activates, as for
+                    // `all` below
+                    self.mark_containerish(pv);
                     self.uf.union(&self.keys, pv, ak);
                 }
             }
