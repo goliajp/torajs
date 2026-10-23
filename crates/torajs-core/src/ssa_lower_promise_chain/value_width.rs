@@ -109,6 +109,15 @@ impl crate::ssa_lower::LowerCtx<'_> {
             .any(|k| self.num_f64_slots.promise_value_is_f64(k))
     }
 
+    /// Does the promise value point of `obj`'s expr settle with a
+    /// value of any kind (`num_width::hidden_any::escaped_values`)?
+    fn promise_value_escapes(&self, obj: ExprId) -> bool {
+        use crate::num_width::SlotKey;
+        (self.promise_read_keys(obj).into_iter()).any(|k| {
+            (self.num_f64_slots).promise_value_escapes(&SlotKey::Field(Box::new(k), "value".into()))
+        })
+    }
+
     /// ②.6b — width-face decode for the awaited value's SSA type.
     /// `Promise<number>` parses to the I64 default; when the value
     /// class floated, the slot carries f64 BITS and the await read
@@ -125,6 +134,11 @@ impl crate::ssa_lower::LowerCtx<'_> {
     ) -> Option<Type> {
         use crate::num_width::SlotKey;
         match inner_ssa_ty {
+            // an element of an array the `any` side reached, or a
+            // `Promise.race` / `Promise.any` over one, settles with
+            // whatever it left there, an object or an array included;
+            // a binding that stores it is retyped `any` to match
+            Some(t) if t != Type::Any && self.promise_value_escapes(obj) => Some(Type::Any),
             Some(Type::I64) if self.promise_value_is_f64(obj) => Some(Type::F64),
             Some(t @ Type::Arr(_)) => {
                 let mut t = t;

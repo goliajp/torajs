@@ -65,10 +65,17 @@ pub(crate) fn lower_await(ctx: &mut LowerCtx<'_>, eid: ExprId, obj: ExprId) -> O
     }
     if pv::detect_obj_is_builtin_promise(ctx, obj) {
         let src = ctx.lower_expr(obj);
+        // an element of an array the `any` side reached is held as
+        // `any`, whatever that side stored: PromiseResolve takes it
+        let held_any = matches!(ctx.operand_ty(&src), Type::Any);
         if !ctx.expr_transfers_ownership(obj) {
-            ctx.emit_owned_result_inc(src, Type::Promise);
+            let ty = if held_any { Type::Any } else { Type::Promise };
+            ctx.emit_owned_result_inc(src, ty);
         }
         let inner = inner_lane(ctx, eid, obj);
+        if held_any {
+            return await_any_in(ctx, src, inner.unwrap_or(Type::Any));
+        }
         let undef = pv::undef_cell_slot(ctx, obj, inner.as_ref());
         return await_cell(ctx, src, Some(obj), inner, undef);
     }

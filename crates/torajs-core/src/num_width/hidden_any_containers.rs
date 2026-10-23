@@ -14,7 +14,8 @@
 //! value later (`obj.k = v`), holds it the same way (§10.1.9): the
 //! check driver initializes the literal's field through `as any`, and a
 //! read of the field carries the value on. The element reads a method answers
-//! (`d.at(1)`, `d.pop()`) are sources as the index reads are.
+//! (`d.at(1)`, `d.pop()`) are sources as the index reads are, and so
+//! is an await of a promise whose value point escaped.
 
 use super::container::canon_key_frozen;
 use super::hidden_any::{Graph, Node};
@@ -96,7 +97,11 @@ impl Graph<'_> {
         let k = a.container_key_lookup(eid, sc)?;
         match a.keys.data(k) {
             SlotKeyData::Field(..) if matches!(a.ast.get_expr(eid), Expr::Member { .. }) => {
-                Some(Node::Read(canon_key_frozen(&a.uf, &a.keys, k)))
+                let k = canon_key_frozen(&a.uf, &a.keys, k);
+                if a.ast.await_value_reads.contains(&eid) && self.escaped_values.contains(&k) {
+                    self.seeds.push(Node::Read(k));
+                }
+                Some(Node::Read(k))
             }
             SlotKeyData::Elem(recv) if matches!(a.ast.get_expr(eid), Expr::Call { .. }) => {
                 let recv = canon_key_frozen(&a.uf, &a.keys, recv);

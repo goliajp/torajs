@@ -113,6 +113,8 @@ pub(super) type CapMap = HashMap<(String, String), Option<Ref>>;
 
 pub(super) struct Graph<'s> {
     pub(super) any_escaped: &'s KeySet,
+    /// [`escaped_values::of`].
+    pub(super) escaped_values: &'s KeySet,
     pub(super) keys: &'s SlotKeys,
     pub(super) edges: HashMap<Node, Vec<Node>>,
     pub(super) seeds: Vec<Node>,
@@ -142,7 +144,8 @@ pub(super) struct Graph<'s> {
 /// object literal field values whose field may be stored one, and the
 /// functions that may return one. `filled` are the containers such a
 /// value is stored into, which the width analysis itself turns into
-/// escapes.
+/// escapes, and `escaped_values` the promise value points that settle
+/// with one ([`escaped_values::of`]).
 #[derive(Default)]
 pub(crate) struct HiddenAny {
     pub(crate) inits: HashSet<ExprId>,
@@ -150,13 +153,14 @@ pub(crate) struct HiddenAny {
     pub(crate) fields: HashSet<ExprId>,
     pub(crate) rets: HashSet<String>,
     pub(super) filled: Vec<SlotKeyId>,
+    pub(super) escaped_values: KeySet,
 }
 
 /// The initializers of the declarations to retype `any`, and the call
-/// arguments that may carry such a value. `elem_params`
-/// are the parameters handed values of any kind: callback parameters
-/// handed `any` elements (`hof_receivers::settle`) and the widened
-/// parameters of the any-widened clones (`hidden_any_seeds`).
+/// arguments that may carry such a value. `elem_params` are the
+/// parameters handed values of any kind: callback parameters handed
+/// `any` elements (`hof_receivers::settle`) and the widened parameters
+/// of the any-widened clones (`hidden_any_seeds`).
 pub(super) fn collect(
     a: &Analysis<'_>,
     any_escaped: &KeySet,
@@ -167,11 +171,13 @@ pub(super) fn collect(
     let mut caps = CapMap::new();
     let mut origins = Vec::new();
     let lookups = std::cell::OnceCell::new();
+    let escaped_values = escaped_values::of(a, any_escaped);
     let g = loop {
         let mut g = Graph {
             any_escaped,
             keys: &a.keys,
             edges: HashMap::new(),
+            escaped_values: &escaped_values,
             seeds: (elem_params.iter())
                 .map(|(f, p)| Node::Read(a.keys.param(f, p)))
                 .collect(),
@@ -251,7 +257,10 @@ impl Graph<'_> {
             }
         }
         let stats = std::env::var_os("TORAJS_NUM_WIDTH_STATS").is_some();
-        let mut out = HiddenAny::default();
+        let mut out = HiddenAny {
+            escaped_values: self.escaped_values.clone(),
+            ..Default::default()
+        };
         for (n, v) in &self.lit_fields {
             if tainted.contains(n) {
                 out.fields.insert(*v);
@@ -284,6 +293,7 @@ impl Graph<'_> {
     }
 }
 
+mod escaped_values;
 mod resolve;
 mod returns;
 

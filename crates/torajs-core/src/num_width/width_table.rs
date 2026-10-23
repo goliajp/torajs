@@ -262,7 +262,7 @@ impl WidthTable {
 
     /// The class of the spelling `k`; `None` when the analysis never
     /// interned it, a class of its own that no table holds.
-    fn class_of(&self, k: &SlotKey) -> Option<SlotKeyId> {
+    pub(super) fn class_of(&self, k: &SlotKey) -> Option<SlotKeyId> {
         canon_spelling(&self.uf, &self.keys, k)
     }
 

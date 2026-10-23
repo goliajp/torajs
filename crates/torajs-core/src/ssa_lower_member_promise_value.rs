@@ -159,6 +159,10 @@ pub(crate) fn lower_promise_get_value(ctx: &mut LowerCtx<'_>, obj: ExprId) -> Op
 
 fn lower_promise_value_read(ctx: &mut LowerCtx<'_>, obj: ExprId, any_lane: bool) -> Operand {
     let obj_op = ctx.lower_expr(obj);
+    // an element of an array the `any` side reached, whatever it holds
+    if matches!(ctx.operand_ty(&obj_op), Type::Any) {
+        return lower_any_await(ctx, obj_op, obj);
+    }
     // the drain below runs jobs that may rebind the binding a borrowed
     // operand was read from and release the cell: the await takes its
     // own stake on a borrowed cell, so every path below owns one
