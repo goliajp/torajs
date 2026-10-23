@@ -34,7 +34,7 @@
 //! checks. `TORAJS_INT_ENTRY_OFF=1` skips it.
 
 pub(crate) mod exit_split;
-mod exit_test;
+pub(crate) mod exit_test;
 pub(crate) mod guard;
 mod order;
 pub(crate) mod region;
@@ -118,6 +118,8 @@ pub(crate) struct Versioned {
     /// in chain order, with whether the slow loop is the `then` side
     pub(crate) checks: Vec<(ValueId, bool)>,
     pub(crate) minted: std::ops::Range<u32>,
+    /// the slow loop's f64 tests against the bound
+    pub(crate) tests: Vec<exit_test::TestAt>,
 }
 
 /// The versioning's counters and the loops it copied.
@@ -154,11 +156,25 @@ pub fn version_loops_recorded(module: &mut Module) -> Versioning {
         let (plans, cyclic) = order::applying_order(func, plans);
         stats.skipped_escaping += cyclic;
         for plan in plans {
+            let tests = plan
+                .uses
+                .iter()
+                .filter_map(|u| {
+                    let test = func.blocks[u.block.0 as usize].insts[u.inst].result?;
+                    Some(exit_test::TestAt {
+                        test,
+                        source: u.source,
+                        round: u.round,
+                        pred: u.pred,
+                    })
+                })
+                .collect();
             let (checks, minted) = apply(func, &plan);
             loops.push(Versioned {
                 func: fi,
                 checks,
                 minted,
+                tests,
             });
             stats.loops_versioned += 1;
             stats.bounds_converted += plan.uses.len() as u32;

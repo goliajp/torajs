@@ -18,6 +18,13 @@
 //! has (a check folded, an instruction narrowed, the loop unrolled or
 //! widened), and the copy stays. Read before the loop rotation, after
 //! every pass that uses a fact to rewrite a loop body.
+//!
+//! One difference is the integer test itself: the `sitofp` of the
+//! counter that only the f64 test read is dead in the fast copy. A
+//! loop whose copy bought nothing else gets that test without a copy
+//! (`exit_test`, which `exit_split` then finishes): it goes back to one
+//! loop and the integer test goes in front of the f64 one — when the
+//! loop sits inside no other, as `exit_test` itself asks.
 //! `TORAJS_INT_ENTRY_TRIM_OFF=1` keeps every copy.
 //!
 //! [`version_loops`]: super::version_loops
@@ -25,11 +32,14 @@
 use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::dominator::DominatorTree;
-use torajs_core::ssa::{BlockId, Function, InstKind, Module, Operand, Terminator, ValueId};
+use torajs_core::ssa::loop_analysis::LoopAnalysis;
+use torajs_core::ssa::{Block, BlockId, Function, InstKind, Module, Operand, Terminator, ValueId};
 
 use super::Versioned;
+use super::exit_test::{self, TestAt};
+use super::guard::Round;
 use crate::branch_fold::sweep_unreachable_blocks;
-use crate::float_demote::cfg::term_operand_value;
+use crate::float_demote::cfg::{successors, term_operand_value};
 use crate::rc_peephole::visit_value_operands;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -38,12 +48,17 @@ pub struct TrimStats {
     pub trimmed: u32,
     /// loops whose chain the later passes reshaped past finding
     pub lost: u32,
+    /// of the trimmed, loops whose copy bought only its integer exit
+    /// tests, which the loop now makes in front of the f64 ones
+    pub exit_tests: u32,
 }
 
 struct Sides {
     head: BlockId,
     slow: BlockId,
-    alike: bool,
+    /// `None` when the copies differ; else the slow loop's tests whose
+    /// `sitofp` the fast copy no longer computes
+    alike: Option<Vec<ValueId>>,
 }
 
 pub(crate) fn trim_copies(module: &mut Module, loops: &[Versioned]) -> TrimStats {
@@ -54,16 +69,106 @@ pub(crate) fn trim_copies(module: &mut Module, loops: &[Versioned]) -> TrimStats
             stats.lost += 1;
             continue;
         };
-        if !sides.alike {
+        let tests = match &sides.alike {
+            None => None,
+            Some(dropped) if dropped.is_empty() => Some(Vec::new()),
+            Some(dropped) => header_tests(func, &v.tests, dropped),
+        };
+        let Some(tests) = tests else {
             stats.kept += 1;
             continue;
-        }
+        };
         func.blocks[sides.head.0 as usize].term = Terminator::Br(sides.slow);
         sweep_unreachable_blocks(func);
         drop_unused_minted(func, &v.minted);
         stats.trimmed += 1;
+        if !tests.is_empty() {
+            install_exit_tests(func, &tests);
+            stats.exit_tests += 1;
+        }
     }
     stats
+}
+
+/// The tests of a loop whose copy differs from it only in not making
+/// them in f64, when each is one the integer exit test serves: they
+/// are exactly the loop's tests against the bound, none compares with
+/// a value the loop also reads, and each branches out of every loop it
+/// sits in. The f64 test then runs once on the way out; a test that
+/// only leaves an inner loop would run it once per outer round, where
+/// the copy runs it never (see `exit_test`).
+fn header_tests(func: &Function, tests: &[TestAt], dropped: &[ValueId]) -> Option<Vec<TestAt>> {
+    let all_tests = dropped.iter().all(|d| tests.iter().any(|t| t.test == *d));
+    if tests.is_empty()
+        || !all_tests
+        || tests
+            .iter()
+            .any(|t| t.round == Round::Exact || !dropped.contains(&t.test))
+    {
+        return None;
+    }
+    let mut reads: HashMap<ValueId, u32> = HashMap::default();
+    for block in &func.blocks {
+        for inst in &block.insts {
+            visit_value_operands(&inst.kind, |v| *reads.entry(v).or_default() += 1);
+        }
+        if let Some(v) = term_operand_value(&block.term) {
+            *reads.entry(v).or_default() += 1;
+        }
+    }
+    let read_once = |v: ValueId| reads.get(&v) == Some(&1);
+    let dom = DominatorTree::compute(func);
+    let loops = LoopAnalysis::compute(func, &dom);
+    let served = tests.iter().all(|t| {
+        let Some(b) = branching_on(func, t.test) else {
+            return false;
+        };
+        let images = test_images(&func.blocks[b.0 as usize]);
+        leaves_every_loop(func, &loops, b)
+            && read_once(t.test)
+            && images.len() == 1
+            && images.iter().all(|i| read_once(*i))
+    });
+    served.then(|| tests.to_vec())
+}
+
+/// One of the block's successors lies outside every loop holding it.
+fn leaves_every_loop(func: &Function, loops: &LoopAnalysis, b: BlockId) -> bool {
+    let holding: Vec<_> = loops.loops().iter().filter(|l| l.contains(&b)).collect();
+    successors(&func.blocks[b.0 as usize].term).any(|s| holding.iter().all(|l| !l.contains(&s)))
+}
+
+/// The block whose branch reads `test`.
+fn branching_on(func: &Function, test: ValueId) -> Option<BlockId> {
+    func.blocks.iter().find_map(|b| match b.term {
+        Terminator::CondBr {
+            cond: Operand::Value(c),
+            ..
+        } if c == test => Some(b.id),
+        _ => None,
+    })
+}
+
+/// The integer test in front of each f64 one of the loop left, its
+/// bounds computed in front of the outermost loop holding the tests.
+fn install_exit_tests(func: &mut Function, tests: &[TestAt]) {
+    let at: Vec<(BlockId, TestAt)> = tests
+        .iter()
+        .filter_map(|t| Some((branching_on(func, t.test)?, *t)))
+        .collect();
+    let dom = DominatorTree::compute(func);
+    let loops = LoopAnalysis::compute(func, &dom);
+    let Some(l) = loops
+        .loops()
+        .iter()
+        .filter(|l| l.contains(&at[0].0))
+        .max_by_key(|l| l.body.len())
+    else {
+        return;
+    };
+    let region: HashSet<BlockId> = l.body.iter().copied().collect();
+    let plan = exit_test::of_tests(l.header, region, &at);
+    exit_test::apply(func, &plan);
 }
 
 /// The chain's first block, the slow loop's way in, and whether the
@@ -122,8 +227,16 @@ fn find_sides(func: &Function, checks: &[(ValueId, bool)]) -> Option<Sides> {
 /// the same blocks. Each side's walk starts at its loop: past the
 /// blocks in front of it that only fall through — on the fast side
 /// the one that seeds the copy's cells and values, which the slow
-/// loop has no match for.
-fn alike<'a>(func: &'a Function, dom: &DominatorTree, slow: BlockId, fast: BlockId) -> bool {
+/// loop has no match for. A slow block may hold one more instruction
+/// per f64 test it branches on: the `sitofp` of the counter that only
+/// that test read, which the fast copy's integer test left dead. Those
+/// tests are the answer; `None` when the copies differ.
+fn alike(
+    func: &Function,
+    dom: &DominatorTree,
+    slow: BlockId,
+    fast: BlockId,
+) -> Option<Vec<ValueId>> {
     let start = |mut b: BlockId| {
         while let Terminator::Br(t) = func.blocks[b.0 as usize].term
             && dom.dominates(b, t)
@@ -135,29 +248,28 @@ fn alike<'a>(func: &'a Function, dom: &DominatorTree, slow: BlockId, fast: Block
     };
     let mut work = vec![(start(slow), start(fast))];
     let mut paired: HashMap<BlockId, BlockId> = HashMap::default();
+    let mut dropped = Vec::new();
     while let Some((a, b)) = work.pop() {
         let (a_in, b_in) = (dom.dominates(slow, a), dom.dominates(fast, b));
         if a_in != b_in || (!a_in && a != b) {
-            return false;
+            return None;
         }
         if !a_in {
             continue;
         }
         if let Some(seen) = paired.insert(a, b) {
             if seen != b {
-                return false;
+                return None;
             }
             continue;
         }
         let (x, y) = (&func.blocks[a.0 as usize], &func.blocks[b.0 as usize]);
-        let ops = |blk: &'a torajs_core::ssa::Block| {
-            blk.insts
-                .iter()
-                .map(|i| &i.kind)
-                .filter(|k| !is_constant(k))
-        };
-        if ops(x).count() != ops(y).count() || !ops(x).zip(ops(y)).all(|(p, q)| same_op(p, q)) {
-            return false;
+        if !same_ops(x, y, &HashSet::default()) {
+            let images = test_images(x);
+            if images.is_empty() || !same_ops(x, y, &images) {
+                return None;
+            }
+            dropped.extend(term_operand_value(&x.term));
         }
         match (&x.term, &y.term) {
             (Terminator::Br(s), Terminator::Br(t)) => work.push((*s, *t)),
@@ -175,10 +287,50 @@ fn alike<'a>(func: &'a Function, dom: &DominatorTree, slow: BlockId, fast: Block
             ) => work.extend([(*s1, *t1), (*s2, *t2)]),
             (Terminator::Ret(_), Terminator::Ret(_))
             | (Terminator::Unreachable, Terminator::Unreachable) => {}
-            _ => return false,
+            _ => return None,
         }
     }
-    true
+    Some(dropped)
+}
+
+/// The two blocks hold the same instructions one for one, constants
+/// put in registers and the slow block's `skip` aside.
+fn same_ops(x: &Block, y: &Block, skip: &HashSet<ValueId>) -> bool {
+    let (p, q) = (ops(x, skip), ops(y, &HashSet::default()));
+    p.len() == q.len() && p.iter().zip(&q).all(|(p, q)| same_op(p, q))
+}
+
+fn ops<'b>(blk: &'b Block, skip: &HashSet<ValueId>) -> Vec<&'b InstKind> {
+    blk.insts
+        .iter()
+        .filter(|i| !is_constant(&i.kind) && !i.result.is_some_and(|r| skip.contains(&r)))
+        .map(|i| &i.kind)
+        .collect()
+}
+
+/// The counter's image the block's branch compares in f64.
+fn test_images(x: &Block) -> HashSet<ValueId> {
+    let Some(test) = term_operand_value(&x.term) else {
+        return HashSet::default();
+    };
+    let compared = x.insts.iter().find_map(|i| match i.kind {
+        InstKind::FCmp(_, Operand::Value(l), Operand::Value(r)) if i.result == Some(test) => {
+            Some([l, r])
+        }
+        _ => None,
+    });
+    let Some(compared) = compared else {
+        return HashSet::default();
+    };
+    let mut images: HashSet<ValueId> = HashSet::default();
+    for inst in &x.insts {
+        if let (InstKind::SiToFp(_), Some(r)) = (&inst.kind, inst.result)
+            && compared.contains(&r)
+        {
+            images.insert(r);
+        }
+    }
+    images
 }
 
 /// A constant put in a register, which the constant hoisting places
@@ -231,7 +383,7 @@ mod tests {
     use super::*;
     use crate::int_entry::tests::counting_loop;
     use crate::int_entry::version_loops_recorded;
-    use torajs_core::ssa::{FPred, IPred};
+    use torajs_core::ssa::{BinOp, FPred, IPred};
 
     fn icmps(f: &Function) -> usize {
         f.blocks
@@ -267,7 +419,7 @@ mod tests {
     }
 
     #[test]
-    fn a_copy_a_pass_made_shorter_stays() {
+    fn a_copy_that_only_tests_in_integers_leaves_an_integer_test() {
         let mut m = counting_loop(FPred::Olt, vec![]);
         let v = version_loops_recorded(&mut m);
         // the fast header's `sitofp` fed only the f64 test it no
@@ -285,6 +437,37 @@ mod tests {
         f.blocks[header]
             .insts
             .retain(|i| !matches!(i.kind, InstKind::SiToFp(_)));
+        let stats = trim_copies(&mut m, &v.loops);
+        assert_eq!((stats.kept, stats.trimmed, stats.exit_tests), (0, 1, 1));
+        let f = &m.funcs[1];
+        // one loop, its header testing `i < nb` or the f64 test
+        let Terminator::CondBr {
+            cond: Operand::Value(c),
+            ..
+        } = f.blocks[1].term
+        else {
+            panic!("header terminator");
+        };
+        let either = f.blocks[1].insts.iter().find(|i| i.result == Some(c));
+        assert!(matches!(
+            either.map(|i| &i.kind),
+            Some(InstKind::BinOp(BinOp::Or, ..))
+        ));
+        assert_eq!(icmps(f), 1);
+    }
+
+    #[test]
+    fn a_copy_a_pass_rewrote_stays() {
+        let mut m = counting_loop(FPred::Olt, vec![]);
+        let v = version_loops_recorded(&mut m);
+        // a pass narrowed something in the fast body
+        let f = &mut m.funcs[1];
+        let body = (4..f.blocks.len())
+            .find(|b| {
+                matches!(f.blocks[*b].term, Terminator::Br(_)) && f.blocks[*b].insts.len() == 4
+            })
+            .expect("the fast body");
+        f.blocks[body].insts.remove(0);
         let blocks = f.blocks.len();
         let stats = trim_copies(&mut m, &v.loops);
         assert_eq!((stats.kept, stats.trimmed, stats.lost), (1, 0, 0));

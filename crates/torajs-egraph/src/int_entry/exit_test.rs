@@ -54,6 +54,39 @@ pub(super) struct ExitTest {
     sites: Vec<Site>,
 }
 
+/// One f64 test of a versioned loop, by the value its compare defines:
+/// an id that holds while later passes renumber the blocks.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct TestAt {
+    pub(super) test: ValueId,
+    pub(super) source: ValueId,
+    pub(super) round: Round,
+    pub(super) pred: IPred,
+}
+
+/// The plan for a loop whose copy turned out to buy nothing but its
+/// integer tests: each `(block, test)` the block branching on it.
+pub(super) fn of_tests(
+    header: BlockId,
+    region: HashSet<BlockId>,
+    tests: &[(BlockId, TestAt)],
+) -> ExitTest {
+    let sites = tests
+        .iter()
+        .map(|(block, t)| Site {
+            block: *block,
+            source: t.source,
+            round: t.round,
+            pred: t.pred,
+        })
+        .collect();
+    ExitTest {
+        header,
+        region,
+        sites,
+    }
+}
+
 /// The exit test plan of a loop, when its bound informs nothing but the
 /// exit test: every compared image read only by its compare, which only
 /// its block's branch reads, and the counter and every value the loop
