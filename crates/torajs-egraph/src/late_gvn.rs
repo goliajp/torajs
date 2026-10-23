@@ -33,23 +33,27 @@
 //! with the first everywhere (def dominates both, so every rewritten
 //! use stays dominated) and delete the redundant instruction — the
 //! deleted kinds are `classify_pure` or a load, so no memory or
-//! refcount effect disappears with them.
+//! refcount effect disappears with them. A repeated address cast keys
+//! as its dominating twin and stays in place; once the dedup has taken
+//! its last reader it is deleted too (`keys::drop_unread_casts`), a
+//! cast between an address and its bits having no effect either.
 
 mod epochs;
 mod keys;
 mod known_branch;
 mod walk;
 
-use crate::id_hash::HashMap;
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{
     BlockId, Function, Module, Operand, Terminator, ValueId, rewrite_value_operands,
+    visit_value_operands,
 };
 
 use crate::float_demote::cfg::multi_def_values;
 use crate::optimize::classify_pure;
 use epochs::may_store;
-use keys::{global_ref_twins, is_read};
+use keys::{global_ref_twins, is_address_cast, is_read};
 use torajs_core::ssa::dominator::DominatorTree;
 use walk::Walk;
 
@@ -105,6 +109,7 @@ fn gvn_fn(func: &mut Function, stats: &mut LateGvnStats) {
         vgen: HashMap::default(),
         replace: HashMap::default(),
         twin: global_ref_twins(func, &multi),
+        cast_twins: HashSet::default(),
         multi,
         epoch: 0,
     };
@@ -142,6 +147,8 @@ fn gvn_fn(func: &mut Function, stats: &mut LateGvnStats) {
         return;
     }
     let resolve_full = |v: ValueId, w: &Walk| w.resolve(v);
+    // a repeated cast loses its last reader only with a deleted one
+    let freed = !w.cast_twins.is_empty() && deletes_a_cast_reader(func, &w);
     for block in func.blocks.iter_mut() {
         block
             .insts
@@ -160,6 +167,19 @@ fn gvn_fn(func: &mut Function, stats: &mut LateGvnStats) {
             _ => {}
         }
     }
+    if freed {
+        keys::drop_unread_casts(func, &w.cast_twins);
+    }
+}
+
+fn deletes_a_cast_reader(func: &Function, w: &Walk) -> bool {
+    let mut reads = false;
+    for inst in func.blocks.iter().flat_map(|b| &b.insts) {
+        if inst.result.is_some_and(|r| w.replace.contains_key(&r)) {
+            visit_value_operands(&inst.kind, |v| reads |= w.cast_twins.contains(&v));
+        }
+    }
+    reads
 }
 
 fn process_block(
@@ -184,18 +204,19 @@ fn process_block(
             *w.vgen.entry(result).or_insert(0) += 1;
             continue;
         }
-        if !pure && !load {
+        let ty = func.values[result.0 as usize].ty;
+        let cast = !pure && !load && is_address_cast(func, &inst.kind, ty);
+        if !pure && !load && !cast {
             continue;
         }
-        let (mut key, risky) = w.key_for(func.values[result.0 as usize].ty, &inst.kind);
+        let (mut key, risky) = w.key_for(ty, &inst.kind);
         if load {
             key.2.push(w.epoch);
         }
         if risky {
             match w.risky.get(&key) {
                 Some(&(existing, depth)) if w.risky_visible(depth) => {
-                    w.replace.insert(result, existing);
-                    stats.dedups += 1;
+                    w.hit(cast, result, existing, stats);
                 }
                 _ => {
                     let depth = w.frames.len();
@@ -204,8 +225,7 @@ fn process_block(
                 }
             }
         } else if let Some(&existing) = w.safe.get(&key) {
-            w.replace.insert(result, existing);
-            stats.dedups += 1;
+            w.hit(cast, result, existing, stats);
         } else {
             w.safe.insert(key.clone(), result);
             w.frames.last_mut().expect("in scope").safe.push(key);
@@ -535,6 +555,35 @@ mod tests {
         let mut m = reads(vec![], vec![], arm);
         assert_eq!(dedup_pure_ops(&mut m).dedups, 1);
         assert_eq!(returned(&m), ValueId(1));
+    }
+
+    /// b0: %2 = ptrtoint %0; %5 = inttoptr %2; %1 = load %5+8;
+    /// %3 = ptrtoint %0; %6 = inttoptr %3; %4 = load %6+8; ret %4.
+    #[test]
+    fn a_load_through_a_cast_repeated_reads_the_first_load() {
+        let ptr = |r, o| mk(r, InstKind::IntToPtr(v(o)));
+        let at = |r, p| mk(r, InstKind::Load(Type::I64, v(p), 8));
+        let mut values = vec![vi(Type::Ptr); 7];
+        for i in [1, 2, 3, 4] {
+            values[i] = vi(Type::I64);
+        }
+        let insts = vec![
+            mk(2, InstKind::PtrToInt(v(0))),
+            ptr(5, 2),
+            at(1, 5),
+            mk(3, InstKind::PtrToInt(v(0))),
+            ptr(6, 3),
+            at(4, 6),
+        ];
+        let mut m = func_of(values, vec![blk(0, insts, Terminator::Ret(Some(v(4))))]);
+        // the second load goes, and the casts nothing reads any more
+        // with it
+        assert_eq!(dedup_pure_ops(&mut m).dedups, 1);
+        assert_eq!(m.funcs[0].blocks[0].insts.len(), 3);
+        let Terminator::Ret(Some(Operand::Value(r))) = m.funcs[0].blocks[0].term else {
+            panic!("ret of a value");
+        };
+        assert_eq!(r, ValueId(1));
     }
 
     #[test]

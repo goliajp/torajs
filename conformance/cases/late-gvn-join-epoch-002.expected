@@ -1,0 +1,11 @@
+twice 0 false
+twice 1 false
+twice 2 true
+twice 3 true
+twice 4 false
+moved 0 false 1
+moved 1 false 2
+moved 2 true 3
+moved 3 false 4
+moved 4 false 5
+rewritten 6 3

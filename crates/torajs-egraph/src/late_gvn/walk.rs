@@ -30,10 +30,13 @@ pub(super) struct Walk {
     pub(super) vgen: HashMap<ValueId, u32>,
     pub(super) replace: HashMap<ValueId, ValueId>,
     /// Each `global_ref` value's stand-in inside a key: the first one
-    /// naming the same symbol. The instructions themselves stay (the
+    /// naming the same symbol; and each bit cast's, the dominating cast
+    /// of the same operand. The instructions themselves stay (the
     /// probe and guard matchers read them in place); only what reads
     /// two of them compares equal.
     pub(super) twin: HashMap<ValueId, ValueId>,
+    /// The casts among `twin`'s keys.
+    pub(super) cast_twins: HashSet<ValueId>,
     pub(super) multi: HashSet<ValueId>,
     /// The memory epoch at the current point (`epochs.rs`).
     pub(super) epoch: u32,
@@ -64,6 +67,26 @@ impl Walk {
             }
         });
         ((ty, resolved, gens), risky)
+    }
+
+    /// `result` computes what the dominating `existing` did. A bit
+    /// cast costs no instruction and deleting one only stretches the
+    /// earlier register over the later uses, so it stays, and only
+    /// what reads it keys as reading `existing`; anything else goes.
+    pub(super) fn hit(
+        &mut self,
+        cast: bool,
+        result: ValueId,
+        existing: ValueId,
+        stats: &mut super::LateGvnStats,
+    ) {
+        if cast {
+            self.twin.insert(result, existing);
+            self.cast_twins.insert(result);
+        } else {
+            self.replace.insert(result, existing);
+            stats.dedups += 1;
+        }
     }
 
     pub(super) fn enter(&mut self, barrier: bool) {
