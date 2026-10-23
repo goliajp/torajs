@@ -216,7 +216,8 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
             continue;
         }
         let this_ann = this_anns.get(&ExprId(i as u32)).map(String::as_str);
-        let obj_ann = resolve_receiver_ann(ast, obj, ann_scopes.at(ExprId(i as u32)), this_ann);
+        let obj_ann =
+            resolve_receiver_ann(ast, obj, ann_scopes.at(ast, ExprId(i as u32)), this_ann);
         // what no container arm below answers is a call of the method
         // the receiver's type declares
         let site = MethodSite::new(ExprId(i as u32), obj, &name, &args, &closure_args);
@@ -279,7 +280,7 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
             &args,
             &closure_args,
             &elem_ann,
-            ann_scopes.at(ExprId(i as u32)),
+            ann_scopes.at(ast, ExprId(i as u32)),
             &fn_user_param_count,
             &mut seeds.param_only,
             &mut seeds.view_promotes,

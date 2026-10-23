@@ -52,7 +52,7 @@ pub(super) fn resolve_promise_inner_ann(
                 return None;
             }
             args.first()
-                .and_then(|a| resolve_arg_ann(ast, *a, t.scopes.at(eid)))
+                .and_then(|a| resolve_arg_ann(ast, *a, t.scopes.at(ast, eid)))
         }
         "then" | "catch" => {
             let src = || resolve_promise_inner_ann(ast, *obj, t);
@@ -124,7 +124,7 @@ fn handler_ret_ann(
         Expr::Null => return pass_through(leg, src),
         Expr::Ident(n) if n == "undefined" => return pass_through(leg, src),
         // a binding of the name shadows the top-level function
-        Expr::Ident(n) if !t.scopes.at(call).contains_key(n) => {
+        Expr::Ident(n) if !t.scopes.at(ast, call).contains_key(n) => {
             if typed_lane_handler(ast, n) && src().is_some_and(|s| s == "any") {
                 return Some("any".to_string());
             }

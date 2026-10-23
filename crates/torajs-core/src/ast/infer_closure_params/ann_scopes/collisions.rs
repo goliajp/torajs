@@ -120,7 +120,7 @@ pub(in crate::ast) fn module_and_scopes<'a>(
         coll.annotated(Some(held.clone()), &v);
     }
     if coll.any(&all_anns) {
-        AnnScopes::scoped(ast, all_anns, declared_rets)
+        AnnScopes::scoped(all_anns, declared_rets.clone())
     } else {
         AnnScopes::flat(all_anns)
     }
@@ -139,7 +139,7 @@ mod tests {
         crate::ast::desugar_capturing_nested_fns(&mut ast);
         crate::ast::desugar_nested_fns(&mut ast);
         crate::ast::lift_arrow_fns(&mut ast);
-        !build_ann_table(&ast).0.scopes.is_empty()
+        build_ann_table(&ast).0.scoped.is_some()
     }
 
     #[test]

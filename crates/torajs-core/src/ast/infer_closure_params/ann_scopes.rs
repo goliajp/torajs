@@ -16,13 +16,15 @@
 //! its return; any other initializer answers nothing.
 //!
 //! The walk is paid only by a program in which some name is declared
-//! twice with different annotations; everywhere else the flat table
-//! already gives every site the answer the scopes would. A site the
-//! walk does not reach reads the module's scope.
+//! twice with different annotations, and there only once a site asks;
+//! everywhere else the flat table already gives every site the answer
+//! the scopes would. A site the walk does not reach reads the module's
+//! scope.
 
 use super::super::desugar_with::walk::{expr_children, stmt_exprs};
 use super::super::infer_closure_lets::lifted_closure_name;
 use super::super::{Ast, Expr, ExprId, Stmt};
+use std::cell::OnceCell;
 use std::collections::HashMap;
 
 mod collisions;
@@ -35,6 +37,18 @@ const ROOT: u32 = 0;
 
 pub(in crate::ast) struct AnnScopes {
     flat: HashMap<String, String>,
+    /// Set when some name collides: the walk, made when the first site
+    /// asks. The AST is not changed between the table and its last
+    /// reader, so a walk made then answers as one made up front.
+    scoped: Option<Pending>,
+}
+
+struct Pending {
+    declared_rets: HashMap<String, String>,
+    walked: OnceCell<Walked>,
+}
+
+struct Walked {
     scopes: Vec<Scope>,
     site: HashMap<ExprId, u32>,
 }
@@ -47,7 +61,8 @@ struct Scope {
 /// The bindings one site sees.
 #[derive(Clone, Copy)]
 pub(in crate::ast) struct Anns<'a> {
-    t: &'a AnnScopes,
+    flat: &'a HashMap<String, String>,
+    walked: Option<&'a Walked>,
     scope: Option<u32>,
 }
 
@@ -56,12 +71,12 @@ impl<'a> Anns<'a> {
     /// name no enclosing scope declares is not bound there, whatever
     /// another function calls the same name.
     pub(in crate::ast) fn get(&self, name: &str) -> Option<&'a String> {
-        if self.t.scopes.is_empty() {
-            return self.t.flat.get(name);
-        }
+        let Some(w) = self.walked else {
+            return self.flat.get(name);
+        };
         let mut s = Some(self.scope.unwrap_or(ROOT));
         while let Some(i) = s {
-            let sc = &self.t.scopes[i as usize];
+            let sc = &w.scopes[i as usize];
             if let Some(ann) = sc.names.get(name) {
                 return ann.as_ref();
             }
@@ -77,61 +92,68 @@ impl<'a> Anns<'a> {
 
 impl AnnScopes {
     pub(in crate::ast) fn flat(flat: HashMap<String, String>) -> Self {
-        AnnScopes {
-            flat,
-            scopes: Vec::new(),
-            site: HashMap::new(),
-        }
+        AnnScopes { flat, scoped: None }
     }
 
     /// `declared_rets` feeds the initializer inference of the
     /// unannotated bindings, the one the flat table applies to the
     /// module's.
     pub(in crate::ast) fn scoped(
-        ast: &Ast,
         flat: HashMap<String, String>,
-        declared_rets: &HashMap<String, String>,
+        declared_rets: HashMap<String, String>,
     ) -> Self {
-        let mut b = Builder {
-            ast,
+        let walked = OnceCell::new();
+        let scoped = Some(Pending {
             declared_rets,
-            scopes: Vec::new(),
-            site: HashMap::new(),
-            closure_site: HashMap::new(),
-            fn_scope: HashMap::new(),
-            unannotated: Vec::new(),
-        };
-        let root = b.new_scope(None);
-        b.hoist_vars(root, &ast.stmts);
-        b.declare(root, &ast.stmts);
-        for s in &ast.stmts {
-            if let Stmt::FnDecl { name, .. } = s {
-                let fs = b.function(s, root);
-                b.fn_scope.insert(name.as_str(), fs);
-            } else {
-                b.stmt(s, root);
-            }
-        }
-        // a lifted arrow's captures are the bindings of the scope it
-        // was written in
-        for (name, at) in &b.closure_site {
-            if let Some(&fs) = b.fn_scope.get(name.as_str()) {
-                b.scopes[fs as usize].parent = Some(*at);
-            }
-        }
-        b.infer_unannotated();
-        AnnScopes {
-            flat,
-            scopes: b.scopes,
-            site: b.site,
-        }
+            walked,
+        });
+        AnnScopes { flat, scoped }
     }
 
-    pub(in crate::ast) fn at(&self, site: ExprId) -> Anns<'_> {
+    /// The bindings `site` of `ast` sees.
+    pub(in crate::ast) fn at(&self, ast: &Ast, site: ExprId) -> Anns<'_> {
+        let walked =
+            (self.scoped.as_ref()).map(|p| p.walked.get_or_init(|| walk(ast, &p.declared_rets)));
         Anns {
-            t: self,
-            scope: self.site.get(&site).copied(),
+            flat: &self.flat,
+            walked,
+            scope: walked.and_then(|w| w.site.get(&site).copied()),
         }
+    }
+}
+
+fn walk(ast: &Ast, declared_rets: &HashMap<String, String>) -> Walked {
+    let mut b = Builder {
+        ast,
+        declared_rets,
+        scopes: Vec::new(),
+        site: HashMap::new(),
+        closure_site: HashMap::new(),
+        fn_scope: HashMap::new(),
+        unannotated: Vec::new(),
+    };
+    let root = b.new_scope(None);
+    b.hoist_vars(root, &ast.stmts);
+    b.declare(root, &ast.stmts);
+    for s in &ast.stmts {
+        if let Stmt::FnDecl { name, .. } = s {
+            let fs = b.function(s, root);
+            b.fn_scope.insert(name.as_str(), fs);
+        } else {
+            b.stmt(s, root);
+        }
+    }
+    // a lifted arrow's captures are the bindings of the scope it
+    // was written in
+    for (name, at) in &b.closure_site {
+        if let Some(&fs) = b.fn_scope.get(name.as_str()) {
+            b.scopes[fs as usize].parent = Some(*at);
+        }
+    }
+    b.infer_unannotated();
+    Walked {
+        scopes: b.scopes,
+        site: b.site,
     }
 }
 

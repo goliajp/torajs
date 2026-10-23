@@ -337,7 +337,7 @@ pub(super) fn seed_assign_hints(
         if super::infer_closure_this_scope::is_this_rooted(ast, *target) {
             continue;
         }
-        if let Some(ann) = assign_target_ann(ast, *target, anns.at(ExprId(i as u32))) {
+        if let Some(ann) = assign_target_ann(ast, *target, anns.at(ast, ExprId(i as u32))) {
             closure_hints.insert(fn_name, ann);
         }
     }
