@@ -84,6 +84,27 @@ fn narrow_in_function(
     seed: Seed,
     stats: &mut PrintNarrowStats,
 ) {
+    let prints =
+        func.blocks.iter().flat_map(|b| &b.insts).any(
+            |i| matches!(&i.kind, InstKind::Call(fid, _) if pairs.iter().any(|(f, _)| f == fid)),
+        );
+    if prints {
+        narrow_calls(func, pairs, names, seed, stats);
+    }
+    if stats.narrowed > 0 {
+        stats.bridges_removed += sweep_unused_sitofp(func);
+    }
+}
+
+/// The f64 print calls of a function that makes some, read against
+/// the bounds of their operands.
+fn narrow_calls(
+    func: &mut Function,
+    pairs: &[(FuncId, FuncId)],
+    names: &[String],
+    seed: Seed,
+    stats: &mut PrintNarrowStats,
+) {
     let dom = DominatorTree::compute(func);
     let la = LoopAnalysis::compute(func, &dom);
     let pe = PointEval::new(func, &dom, &la, names, seed);
@@ -120,9 +141,6 @@ fn narrow_in_function(
     for ((bi, ii), twin, w) in rewrites {
         func.blocks[bi].insts[ii].kind = InstKind::Call(twin, vec![Operand::Value(w)]);
         stats.narrowed += 1;
-    }
-    if stats.narrowed > 0 {
-        stats.bridges_removed += sweep_unused_sitofp(func);
     }
 }
 
