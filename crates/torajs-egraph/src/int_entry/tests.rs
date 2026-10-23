@@ -1,6 +1,6 @@
 use super::*;
 use crate::interval;
-use torajs_core::ssa::{Block, Inst, Terminator, ValueInfo};
+use torajs_core::ssa::{Block, FPred, Inst, Terminator, Type, ValueInfo};
 
 fn v(id: u32) -> Operand {
     Operand::Value(ValueId(id))
