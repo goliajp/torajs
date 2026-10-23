@@ -30,7 +30,7 @@ use super::{Ast, Expr, ExprId};
 mod replace_cb;
 use replace_cb::seed_replace_cb_anns;
 mod ann_scopes;
-pub(super) use ann_scopes::{AnnScopes, Anns, Collisions};
+pub(super) use ann_scopes::{AnnScopes, Anns, Collisions, module_and_scopes};
 mod sole_bindings;
 pub(super) use sole_bindings::SoleBindings;
 mod executor_cb;

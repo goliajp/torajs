@@ -26,47 +26,8 @@ use super::super::infer_closure_lets::{let_init_ann, lifted_closure_name};
 use super::super::{Ast, Expr, ExprId, Stmt};
 use std::collections::HashMap;
 
-/// Whether the flat table can answer every site: no name is declared
-/// with two different annotations, or with one and without one.
-/// `__this` is excluded — it names a different object in every
-/// function and is answered per function before the table is read.
-#[derive(Default)]
-pub(in crate::ast) struct Collisions<'a> {
-    conflict: bool,
-    unannotated: Vec<&'a str>,
-}
-
-impl<'a> Collisions<'a> {
-    /// `old` is what the flat table held for the name before `ann`.
-    pub(in crate::ast) fn annotated(&mut self, old: Option<String>, ann: &str) {
-        self.conflict |= old.is_some_and(|o| o != ann);
-    }
-
-    pub(in crate::ast) fn unannotated(&mut self, name: &'a str) {
-        self.unannotated.push(name);
-    }
-
-    pub(in crate::ast) fn param(&mut self, name: &'a str, old: Option<String>, ann: &str) {
-        if name != "__this" {
-            self.annotated(old, ann);
-        }
-    }
-
-    /// The module's own declarations, `m`: an unannotated one whose
-    /// initializer gave it an annotation (`inferred`) is not a shadow.
-    pub(in crate::ast) fn module(&mut self, m: Collisions<'a>, inferred: &HashMap<String, String>) {
-        self.conflict |= m.conflict;
-        let shadows = m
-            .unannotated
-            .into_iter()
-            .filter(|n| !inferred.contains_key(*n));
-        self.unannotated.extend(shadows);
-    }
-
-    pub(in crate::ast) fn any(&self, flat: &HashMap<String, String>) -> bool {
-        self.conflict || self.unannotated.iter().any(|n| flat.contains_key(*n))
-    }
-}
+mod collisions;
+pub(in crate::ast) use collisions::{Collisions, module_and_scopes};
 
 pub(in crate::ast) struct AnnScopes {
     flat: HashMap<String, String>,
