@@ -94,6 +94,16 @@ pub(super) fn rewrite_call_arm(
     if let Some(&alt) = ast.speculative_cm_rewrites.get(&eid) {
         ast.speculative_cm_rewrites.insert(new_id, alt);
     }
+    // So does an async body's own settle call (`Promise.resolve(e)`
+    // over a value that reads `arguments`): it never reaches the
+    // user's patchable `Promise.resolve`, and a body suspending over a
+    // frame returns its argument.
+    if ast.synth_promise_static_calls.contains(&eid) {
+        ast.synth_promise_static_calls.insert(new_id);
+    }
+    if ast.async_ssa.return_calls.contains(&eid) {
+        ast.async_ssa.return_calls.insert(new_id);
+    }
     new_id
 }
 
