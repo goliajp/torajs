@@ -56,6 +56,7 @@ pub struct TrimStats {
 struct Sides {
     head: BlockId,
     slow: BlockId,
+    dom: DominatorTree,
     /// `None` when the copies differ; else the slow loop's tests whose
     /// `sitofp` the fast copy no longer computes
     alike: Option<Vec<ValueId>>,
@@ -69,35 +70,46 @@ pub(crate) fn trim_copies(module: &mut Module, loops: &[Versioned]) -> TrimStats
             stats.lost += 1;
             continue;
         };
-        let tests = match &sides.alike {
+        let plan = match &sides.alike {
             None => None,
-            Some(dropped) if dropped.is_empty() => Some(Vec::new()),
-            Some(dropped) => header_tests(func, &v.tests, dropped),
+            Some(dropped) if dropped.is_empty() => Some(None),
+            Some(dropped) => exit_plan(func, &sides.dom, &v.tests, dropped).map(Some),
         };
-        let Some(tests) = tests else {
+        let Some(plan) = plan else {
             stats.kept += 1;
             continue;
         };
-        func.blocks[sides.head.0 as usize].term = Terminator::Br(sides.slow);
+        // the slow loop's way in, which the chain's first check now takes
+        let mut into = sides.slow;
+        if let Some(plan) = plan {
+            let entry = exit_test::apply(func, &plan);
+            if into == plan.header() {
+                into = entry;
+            }
+            stats.exit_tests += 1;
+        }
+        func.blocks[sides.head.0 as usize].term = Terminator::Br(into);
         sweep_unreachable_blocks(func);
         drop_unused_minted(func, &v.minted);
         stats.trimmed += 1;
-        if !tests.is_empty() {
-            install_exit_tests(func, &tests);
-            stats.exit_tests += 1;
-        }
     }
     stats
 }
 
-/// The tests of a loop whose copy differs from it only in not making
-/// them in f64, when each is one the integer exit test serves: they
-/// are exactly the loop's tests against the bound, none compares with
-/// a value the loop also reads, and each branches out of every loop it
-/// sits in. The f64 test then runs once on the way out; a test that
-/// only leaves an inner loop would run it once per outer round, where
-/// the copy runs it never (see `exit_test`).
-fn header_tests(func: &Function, tests: &[TestAt], dropped: &[ValueId]) -> Option<Vec<TestAt>> {
+/// The integer exit tests for a loop whose copy differs from it only in
+/// not making its tests in f64, when each is one such a test serves:
+/// the tests are exactly the loop's tests against the bound, none
+/// compares with a value the loop also reads, and each branches out of
+/// every loop it sits in. The f64 test then runs once on the way out;
+/// a test that only leaves an inner loop would run it once per outer
+/// round, where the copy runs it never (see `exit_test`). The bounds
+/// are computed in front of the outermost loop holding the tests.
+fn exit_plan(
+    func: &Function,
+    dom: &DominatorTree,
+    tests: &[TestAt],
+    dropped: &[ValueId],
+) -> Option<exit_test::ExitTest> {
     let all_tests = dropped.iter().all(|d| tests.iter().any(|t| t.test == *d));
     if tests.is_empty()
         || !all_tests
@@ -117,19 +129,27 @@ fn header_tests(func: &Function, tests: &[TestAt], dropped: &[ValueId]) -> Optio
         }
     }
     let read_once = |v: ValueId| reads.get(&v) == Some(&1);
-    let dom = DominatorTree::compute(func);
-    let loops = LoopAnalysis::compute(func, &dom);
-    let served = tests.iter().all(|t| {
-        let Some(b) = branching_on(func, t.test) else {
-            return false;
-        };
+    let loops = LoopAnalysis::compute(func, dom);
+    let mut at = Vec::new();
+    for t in tests {
+        let b = branching_on(func, t.test)?;
         let images = test_images(&func.blocks[b.0 as usize]);
-        leaves_every_loop(func, &loops, b)
+        let served = leaves_every_loop(func, &loops, b)
             && read_once(t.test)
             && images.len() == 1
-            && images.iter().all(|i| read_once(*i))
-    });
-    served.then(|| tests.to_vec())
+            && images.iter().all(|i| read_once(*i));
+        if !served {
+            return None;
+        }
+        at.push((b, *t));
+    }
+    let l = loops
+        .loops()
+        .iter()
+        .filter(|l| l.contains(&at[0].0))
+        .max_by_key(|l| l.body.len())?;
+    let region: HashSet<BlockId> = l.body.iter().copied().collect();
+    Some(exit_test::of_tests(l.header, region, &at))
 }
 
 /// One of the block's successors lies outside every loop holding it.
@@ -147,28 +167,6 @@ fn branching_on(func: &Function, test: ValueId) -> Option<BlockId> {
         } if c == test => Some(b.id),
         _ => None,
     })
-}
-
-/// The integer test in front of each f64 one of the loop left, its
-/// bounds computed in front of the outermost loop holding the tests.
-fn install_exit_tests(func: &mut Function, tests: &[TestAt]) {
-    let at: Vec<(BlockId, TestAt)> = tests
-        .iter()
-        .filter_map(|t| Some((branching_on(func, t.test)?, *t)))
-        .collect();
-    let dom = DominatorTree::compute(func);
-    let loops = LoopAnalysis::compute(func, &dom);
-    let Some(l) = loops
-        .loops()
-        .iter()
-        .filter(|l| l.contains(&at[0].0))
-        .max_by_key(|l| l.body.len())
-    else {
-        return;
-    };
-    let region: HashSet<BlockId> = l.body.iter().copied().collect();
-    let plan = exit_test::of_tests(l.header, region, &at);
-    exit_test::apply(func, &plan);
 }
 
 /// The chain's first block, the slow loop's way in, and whether the
@@ -215,10 +213,12 @@ fn find_sides(func: &Function, checks: &[(ValueId, bool)]) -> Option<Sides> {
     if dom.dominates(slow, pass) || dom.dominates(pass, slow) || !dom.dominates(head, slow) {
         return None;
     }
+    let alike = alike(func, &dom, slow, pass);
     Some(Sides {
         head,
         slow,
-        alike: alike(func, &dom, slow, pass),
+        dom,
+        alike,
     })
 }
 
@@ -350,30 +350,44 @@ fn same_op(p: &InstKind, q: &InstKind) -> bool {
 }
 
 /// The chain's values nothing reads any more, once its other blocks
-/// went: what is left of it sits in the first block.
+/// went: what is left of it sits in the first block, each value read
+/// only by those after it.
 fn drop_unused_minted(func: &mut Function, minted: &std::ops::Range<u32>) {
-    loop {
-        let mut used: HashSet<ValueId> = HashSet::default();
-        for block in &func.blocks {
-            for inst in &block.insts {
-                visit_value_operands(&inst.kind, |v| {
-                    used.insert(v);
-                });
+    let mut reads: HashMap<ValueId, u32> = HashMap::default();
+    for block in &func.blocks {
+        for inst in &block.insts {
+            visit_value_operands(&inst.kind, |v| *reads.entry(v).or_default() += 1);
+        }
+        if let Some(v) = term_operand_value(&block.term) {
+            *reads.entry(v).or_default() += 1;
+        }
+    }
+    for block in func.blocks.iter_mut() {
+        if !block
+            .insts
+            .iter()
+            .any(|i| i.result.is_some_and(|r| minted.contains(&r.0)))
+        {
+            continue;
+        }
+        // last first: a dropped value's operands may become dead too
+        for at in (0..block.insts.len()).rev() {
+            let inst = &block.insts[at];
+            let dead = inst
+                .result
+                .is_some_and(|r| minted.contains(&r.0) && !reads.contains_key(&r));
+            if !dead {
+                continue;
             }
-            used.extend(term_operand_value(&block.term));
-        }
-        let mut dropped = false;
-        for block in func.blocks.iter_mut() {
-            block.insts.retain(|inst| {
-                let dead = inst
-                    .result
-                    .is_some_and(|r| minted.contains(&r.0) && !used.contains(&r));
-                dropped |= dead;
-                !dead
+            visit_value_operands(&inst.kind, |v| {
+                if let Some(n) = reads.get_mut(&v) {
+                    *n -= 1;
+                    if *n == 0 {
+                        reads.remove(&v);
+                    }
+                }
             });
-        }
-        if !dropped {
-            return;
+            block.insts.remove(at);
         }
     }
 }

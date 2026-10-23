@@ -216,9 +216,16 @@ fn counts_beyond(
     }
 }
 
+impl ExitTest {
+    pub(super) fn header(&self) -> BlockId {
+        self.header
+    }
+}
+
 /// The integer test in front of each f64 one, and the rounded bounds it
-/// reads, computed once on the way into the loop.
-pub(super) fn apply(func: &mut Function, t: &ExitTest) {
+/// reads, computed once on the way into the loop. Answers the block
+/// that computes them, which every way into the loop now enters.
+pub(super) fn apply(func: &mut Function, t: &ExitTest) -> BlockId {
     let outside = func.blocks.len();
     let entry = new_block(func);
     let mut bound_of: HashMap<(ValueId, IPred), Operand> = HashMap::default();
@@ -236,6 +243,7 @@ pub(super) fn apply(func: &mut Function, t: &ExitTest) {
     for s in &t.sites {
         join_test(func, s, bound_of[&(s.source, s.pred)]);
     }
+    entry
 }
 
 /// The integer bound of one test, branch-free: `n` truncated and
