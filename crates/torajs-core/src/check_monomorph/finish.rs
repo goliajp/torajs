@@ -18,6 +18,25 @@ use crate::check_monomorph_any_widen::struct_escape::escaped_cb;
 use crate::num_width::WidthTable;
 use crate::ssa_lower_generics_monomorph::Generics;
 
+/// A specialization of an async function that suspends over a frame
+/// (`ast::desugar_async_ssa_gate`) suspends too: its body is a clone
+/// of the original's, with the same awaits, no `try` turning a throw
+/// into the rejection, and bare returns only such a lowering settles
+/// the result with. A specialization of a specialization follows.
+fn carry_async_ssa(ast: &mut Ast, cache: &HashMap<(String, Vec<String>), String>) {
+    loop {
+        let fns = &ast.async_ssa.fns;
+        let more: Vec<String> = (cache.iter())
+            .filter(|((orig, _), mono)| fns.contains(orig) && !fns.contains(*mono))
+            .map(|(_, mono)| mono.clone())
+            .collect();
+        if more.is_empty() {
+            return;
+        }
+        ast.async_ssa.fns.extend(more);
+    }
+}
+
 /// Run the any-widen fixpoint to completion and assemble the
 /// [`MonoOutput`] the lowerer consumes. The width table is built over
 /// the final AST; when it shows callbacks of escaped arrays without a
@@ -50,6 +69,7 @@ pub(crate) fn finish(
         );
         let appended = mono_decls.len();
         owned_ast.stmts.append(&mut mono_decls);
+        carry_async_ssa(&mut owned_ast, cache);
         let widths = hand_over(c, &mut owned_ast, &call_retargets);
         let minted = escaped_cb::mint_escaped_callback_twins(
             c,
