@@ -102,7 +102,16 @@ pub(in crate::ast) fn module_and_scopes<'a>(
     mut coll: Collisions<'a>,
 ) -> AnnScopes {
     let mut module = Collisions::default();
-    collect_let_anns(ast, &ast.stmts, &mut all_anns, closure_hints, &mut module);
+    // a top-level function's params and body were walked by the caller;
+    // only a function declared inside another is nested
+    let top = ast
+        .stmts
+        .iter()
+        .filter(|s| !matches!(s, Stmt::FnDecl { .. }));
+    for s in top {
+        let one = std::slice::from_ref(s);
+        collect_let_anns(ast, one, &mut all_anns, closure_hints, &mut module);
+    }
     let mut inferred: HashMap<String, String> = HashMap::new();
     collect_let_init_anns(ast, &ast.stmts, declared_rets, &mut inferred, &mut module);
     coll.module(module, &inferred);
@@ -114,5 +123,48 @@ pub(in crate::ast) fn module_and_scopes<'a>(
         AnnScopes::scoped(ast, all_anns, declared_rets)
     } else {
         AnnScopes::flat(all_anns)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::ast::infer_closure_params_helpers::build_ann_table;
+    use crate::lexer::tokenize;
+    use crate::parser::parse;
+
+    fn scoped(src: &str) -> bool {
+        let toks = tokenize(src).expect("lex");
+        let mut ast = parse(src, &toks).expect("parse");
+        crate::ast::resolve_type_decls(&mut ast).expect("type decls");
+        crate::ast::desugar_capturing_nested_fns(&mut ast);
+        crate::ast::desugar_nested_fns(&mut ast);
+        crate::ast::lift_arrow_fns(&mut ast);
+        !build_ann_table(&ast).0.scopes.is_empty()
+    }
+
+    #[test]
+    fn distinct_names_keep_the_flat_table() {
+        let src = "const top: number[] = [1, 2];\n\
+                   function f(a: number[]): number { const b: string[] = []; return a.map((x) => x + 1).length + b.length; }\n\
+                   function g(c: string[]): number { let d: number = 0; for (const e of c) { d += e.length; } return d; }\n\
+                   function h(n) { return n; }\n\
+                   console.log(f(top), g(['a']), h(3));\n";
+        assert!(!scoped(src));
+    }
+
+    #[test]
+    fn a_name_annotated_twice_differently_takes_the_scopes() {
+        let src = "function f(): number { const fs: Array<() => number> = []; fs.push(() => 1); return fs[0](); }\n\
+                   function g(): string { const fs: Array<() => string> = []; fs.push(() => 'a'); return fs[0](); }\n\
+                   console.log(f(), g());\n";
+        assert!(scoped(src));
+    }
+
+    #[test]
+    fn an_unannotated_shadow_takes_the_scopes() {
+        let src = "function f(a: number[]): number { return a.length; }\n\
+                   function g(a) { return a; }\n\
+                   console.log(f([1]), g(2));\n";
+        assert!(scoped(src));
     }
 }
