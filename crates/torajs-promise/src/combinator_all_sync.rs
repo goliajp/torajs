@@ -218,6 +218,11 @@ unsafe fn all_sync<const PROVED: bool>(
     let mut elem_repr = s.form;
     if target_repr == REPR_UNSTAMPED {
         elem_repr = unsafe { crate::settled_form::joined_form(promises_arr, len, elem_repr) };
+    } else if elem_repr == REPR_UNSTAMPED {
+        // No element named a form (an empty input): the slots are the
+        // site's, so the result carries the site's form. Left unstamped,
+        // an `any`-parameter handler refused the empty array.
+        elem_repr = target_repr;
     }
     // The call site typed the result element `any`, so the elements
     // share no raw form and the result has to carry NaN-box slots — the
