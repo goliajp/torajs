@@ -7,6 +7,8 @@
 //
 // stdout + exit code are compared; the stderr line (tr: `RangeError:
 // last`) is host output and documented here only.
+//
+// exit-code: 1
 
 const n: any = 42
 console.log(new Error(n).message, typeof new Error(n).message)

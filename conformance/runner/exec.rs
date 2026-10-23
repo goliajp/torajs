@@ -48,6 +48,25 @@ pub(crate) fn exec_with_timeout(
     args: &[&str],
     timeout: Duration,
 ) -> Result<(String, String), String> {
+    let (stdout, stderr, code) = exec_code_with_timeout(cmd, args, timeout)?;
+    if code != 0 {
+        return Err(format!("{cmd} exited {code}: {}", stderr.trim()));
+    }
+    Ok((stdout, stderr))
+}
+
+/// Like [`exec`], but a normal exit with any status is a result, the
+/// status returned alongside the output; only a timeout, a signal or a
+/// spawn failure is an error.
+pub(crate) fn exec_code(cmd: &str, args: &[&str]) -> Result<(String, String, i32), String> {
+    exec_code_with_timeout(cmd, args, PER_EXEC_TIMEOUT)
+}
+
+fn exec_code_with_timeout(
+    cmd: &str,
+    args: &[&str],
+    timeout: Duration,
+) -> Result<(String, String, i32), String> {
     let mut child = Command::new(cmd)
         .args(args)
         // a value class the compiler's own SSA check contradicts fails
@@ -115,10 +134,10 @@ pub(crate) fn exec_with_timeout(
     let stdout = stdout_thread.join().unwrap_or_default();
     let stderr = stderr_thread.join().unwrap_or_default();
 
-    if !status.success() {
-        return Err(format!("{cmd} exited {}: {}", status, stderr.trim()));
+    match status.code() {
+        Some(code) => Ok((stdout, stderr, code)),
+        None => Err(format!("{cmd} exited {}: {}", status, stderr.trim())),
     }
-    Ok((stdout, stderr))
 }
 
 #[cfg(test)]
@@ -147,6 +166,12 @@ mod tests {
             "timeout path took {:?} — should be < 2 s (deadline 200 ms + cleanup)",
             elapsed
         );
+    }
+
+    #[test]
+    fn exec_code_reports_a_non_zero_status_as_a_result() {
+        let (out, _, code) = exec_code("sh", &["-c", "echo hi; exit 3"]).expect("normal exit");
+        assert_eq!((out.as_str(), code), ("hi\n", 3));
     }
 
     #[test]

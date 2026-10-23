@@ -13,8 +13,8 @@
 //     the stderr shape for manual review).
 //   - exit code: non-zero (bun → 1, tr → 1 via main's
 //     `__torajs_main_exit_code` read of UNHANDLED_REJECTION_OCCURRED).
-// The conformance harness treats bun-exit-nonzero as `skip`, same
-// shape as async-024 / async-028 — no fail recorded.
+//
+// exit-code: 1
 
 console.log("before reject")
 Promise.reject("boom")

@@ -8,6 +8,8 @@
 // stdout + exit code are compared; the stderr line (tr: `error:
 // uncaught TypeError: reduce of empty array with no initial value`)
 // is host output and documented here only.
+//
+// exit-code: 1
 
 async function total(n: number): Promise<number> {
   const xs: number[] = []

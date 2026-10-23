@@ -6,7 +6,9 @@
 //!   2. torajs run <case>.ts  ← AOT-with-cache (LLVM, cached at ~/.torajs/cache)
 //!   3. torajs build <case>.ts && ./out  ← AOT (LLVM, explicit out path)
 //!
-//! All three outputs must match. A case can opt out of bun (when the
+//! All three outputs must match, and all three must end with the exit
+//! status the case declares (`// exit-code: N` in its leading comment
+//! block; 0 when it declares none). A case can opt out of bun (when the
 //! TS spec output diverges from torajs's subset semantics — e.g. JS's
 //! reference-shape mutable closure capture vs torajs's value-shape) by
 //! placing an `.expected` file alongside the `.ts`; presence of
@@ -26,10 +28,12 @@
 //!
 //! Exit code: 0 if all pass, 1 if any fail.
 
+mod cases;
 mod exec;
 mod oracle;
 
-use exec::exec;
+use cases::{Case, collect_cases};
+use exec::{exec, exec_code};
 use oracle::get_or_fill_bun_oracle;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -47,13 +51,6 @@ fn default_workers() -> usize {
     std::thread::available_parallelism()
         .unwrap_or_else(|e| die(&format!("available_parallelism: {e}")))
         .get()
-}
-
-#[derive(Debug, Clone)]
-struct Case {
-    name: String,
-    src: PathBuf,
-    expected_override: Option<PathBuf>,
 }
 
 #[derive(Debug)]
@@ -292,69 +289,6 @@ fn build_tr_once(manifest: &Path, repo_root: &Path) -> PathBuf {
     tr_bin
 }
 
-fn collect_cases(dir: &Path) -> Vec<Case> {
-    let mut out = Vec::new();
-    let entries = match std::fs::read_dir(dir) {
-        Ok(e) => e,
-        Err(e) => die(&format!("read_dir {}: {e}", dir.display())),
-    };
-    let mut paths: Vec<PathBuf> = entries.filter_map(|e| e.ok().map(|x| x.path())).collect();
-    paths.sort();
-    for p in paths {
-        if p.is_dir() {
-            // Phase K.2 — multi-file case. Convention: the directory is one
-            // case, named after the directory; `<dir>/main.ts` is the entry
-            // point that bun and torajs both run; sibling `.ts` files are
-            // imported via relative `import` statements. Expected-output
-            // override (when bun differs) lives at `<dir>/main.expected`,
-            // mirroring the single-file convention.
-            let main_ts = p.join("main.ts");
-            if !main_ts.is_file() {
-                continue;
-            }
-            let stem = p
-                .file_name()
-                .and_then(|s| s.to_str())
-                .unwrap_or("?")
-                .to_string();
-            let expected = main_ts.with_extension("expected");
-            out.push(Case {
-                name: stem,
-                src: main_ts,
-                expected_override: if expected.is_file() {
-                    Some(expected)
-                } else {
-                    None
-                },
-            });
-            continue;
-        }
-        // `.cts` fixtures ride the sloppy script goal (RFC
-        // 20260810-sloppy-goal-arguments S1) — tr and bun both map
-        // the extension to CommonJS sloppy, so one file drives the
-        // same goal on both sides of the parity check.
-        if p.extension().is_none_or(|e| e != "ts" && e != "cts") {
-            continue;
-        }
-        let stem = p
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("?")
-            .to_string();
-        let expected = p.with_extension("expected");
-        out.push(Case {
-            name: stem,
-            src: p,
-            expected_override: if expected.is_file() {
-                Some(expected)
-            } else {
-                None
-            },
-        });
-    }
-    out
-}
-
 fn run_case(c: &Case, tr_bin: &Path, slot: usize, no_aot: bool) -> Outcome {
     // Step 1: oracle output. Either an explicit .expected file or
     // whatever bun produces. Bun output is content-hash-cached on
@@ -369,7 +303,7 @@ fn run_case(c: &Case, tr_bin: &Path, slot: usize, no_aot: bool) -> Outcome {
                 };
             }
         },
-        None => match get_or_fill_bun_oracle(&c.src) {
+        None => match get_or_fill_bun_oracle(&c.src, c.expected_exit) {
             Ok(s) => s,
             Err(e) => {
                 return Outcome::Skip {
@@ -380,8 +314,11 @@ fn run_case(c: &Case, tr_bin: &Path, slot: usize, no_aot: bool) -> Outcome {
     };
 
     // Step 2: torajs JIT (prebuilt tr binary, invoked directly)
-    let jit = match exec(tr_bin.to_str().unwrap(), &["run", c.src.to_str().unwrap()]) {
-        Ok((s, _)) => s,
+    let jit = match exec_code(tr_bin.to_str().unwrap(), &["run", c.src.to_str().unwrap()]) {
+        Ok(r) => match exit_matches(c, "jit", r) {
+            Ok(s) => s,
+            Err(reason) => return Outcome::Fail { reason },
+        },
         Err(e) => {
             return Outcome::Fail {
                 reason: format!("jit: {e}"),
@@ -418,9 +355,9 @@ fn run_case(c: &Case, tr_bin: &Path, slot: usize, no_aot: bool) -> Outcome {
             reason: format!("aot build: {e}"),
         };
     }
-    let aot = match exec(aot_bin.to_str().unwrap(), &[]) {
-        Ok((s, _)) => s,
-        Err(e) => {
+    let aot = match exec_code(aot_bin.to_str().unwrap(), &[]).map(|r| exit_matches(c, "aot", r)) {
+        Ok(Ok(s)) => s,
+        Ok(Err(e)) | Err(e) => {
             let _ = std::fs::remove_file(&aot_bin);
             let _ = std::fs::remove_dir_all(&aot_dsym);
             return Outcome::Fail {
@@ -436,6 +373,23 @@ fn run_case(c: &Case, tr_bin: &Path, slot: usize, no_aot: bool) -> Outcome {
         };
     }
     Outcome::Pass
+}
+
+/// The stdout of a run that ended with the status the case declares;
+/// any other status fails the case, with its stderr.
+fn exit_matches(
+    c: &Case,
+    step: &str,
+    (out, err, code): (String, String, i32),
+) -> Result<String, String> {
+    if code == c.expected_exit {
+        return Ok(out);
+    }
+    Err(format!(
+        "{step} exited {code}, expected {}: {}",
+        c.expected_exit,
+        err.trim()
+    ))
 }
 
 fn die(msg: &str) -> ! {

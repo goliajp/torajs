@@ -6,7 +6,7 @@
 //! do is answer with something other than what the bun on this
 //! machine says today.
 
-use crate::exec::exec;
+use crate::exec::{exec, exec_code};
 use std::path::{Path, PathBuf};
 
 /// Return bun's stdout for `src`. On cache hit (a hash over every
@@ -33,22 +33,35 @@ use std::path::{Path, PathBuf};
 /// legible on disk instead of buried in a hash: `ls` the directory
 /// and you can see which bun each answer came from, and drop the
 /// retired ones.
-pub(crate) fn get_or_fill_bun_oracle(src: &Path) -> Result<String, String> {
+///
+/// bun must end with the status the case declares (`expected_exit`);
+/// an answer it gave while exiting otherwise is not an oracle.
+pub(crate) fn get_or_fill_bun_oracle(src: &Path, expected_exit: i32) -> Result<String, String> {
     let hash = content_hash(&oracle_inputs(src)?);
     // No readable version means no trustworthy key, so there is no
     // cache — every case pays the bun spawn rather than risk being
     // served an answer from an unknown oracle.
     let Some(cache_dir) = bun_oracle_cache_dir() else {
-        let (out, _) = exec("bun", &["run", src.to_str().unwrap()])?;
-        return Ok(out);
+        return bun_run(src, expected_exit);
     };
     let cache_path = cache_dir.join(format!("{hash}.out"));
     if let Ok(s) = std::fs::read_to_string(&cache_path) {
         return Ok(s);
     }
-    let (out, _) = exec("bun", &["run", src.to_str().unwrap()])?;
+    let out = bun_run(src, expected_exit)?;
     let _ = std::fs::create_dir_all(&cache_dir);
     let _ = std::fs::write(&cache_path, &out);
+    Ok(out)
+}
+
+fn bun_run(src: &Path, expected_exit: i32) -> Result<String, String> {
+    let (out, err, code) = exec_code("bun", &["run", src.to_str().unwrap()])?;
+    if code != expected_exit {
+        return Err(format!(
+            "bun exited {code}, the case declares {expected_exit}: {}",
+            err.trim()
+        ));
+    }
     Ok(out)
 }
 

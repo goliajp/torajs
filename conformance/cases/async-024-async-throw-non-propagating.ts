@@ -14,6 +14,8 @@
 // stdout == "after fail call\n"; stderr divergence (bun's default
 // "error: from-async" unhandled-rejection report) is outside the
 // stdout-only diff conformance harness uses.
+//
+// exit-code: 1
 
 async function fail(): Promise<string> {
   throw "from-async";

@@ -7,6 +7,8 @@
 //
 // stdout + exit code are compared; the stderr line (tr: `Error: load
 // failed at 4`) is host output and documented here only.
+//
+// exit-code: 1
 
 class AppError extends Error {
   code: number
