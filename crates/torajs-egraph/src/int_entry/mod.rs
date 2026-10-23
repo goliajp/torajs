@@ -39,6 +39,7 @@ pub(crate) mod guard;
 mod order;
 pub(crate) mod region;
 mod sources;
+pub(crate) mod trim;
 mod window;
 
 use crate::id_hash::{HashMap, HashSet};
@@ -109,9 +110,36 @@ struct Plan {
     readers: Vec<BlockId>,
 }
 
+/// A loop given a fast copy, as the pipeline tail finds it again: by
+/// the conditions of its checks and the values its chain minted, ids
+/// that hold while the blocks are renumbered.
+pub(crate) struct Versioned {
+    pub(crate) func: usize,
+    /// in chain order, with whether the slow loop is the `then` side
+    pub(crate) checks: Vec<(ValueId, bool)>,
+    pub(crate) minted: std::ops::Range<u32>,
+}
+
+/// The versioning's counters and the loops it copied.
+pub struct Versioning {
+    pub stats: IntEntryStats,
+    pub(crate) loops: Vec<Versioned>,
+}
+
+impl std::fmt::Debug for Versioning {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.stats.fmt(f)
+    }
+}
+
 pub fn version_loops(module: &mut Module) -> IntEntryStats {
+    version_loops_recorded(module).stats
+}
+
+pub fn version_loops_recorded(module: &mut Module) -> Versioning {
     let mut stats = IntEntryStats::default();
-    for func in module.funcs.iter_mut() {
+    let mut loops = Vec::new();
+    for (fi, func) in module.funcs.iter_mut().enumerate() {
         let dense = func
             .blocks
             .iter()
@@ -126,7 +154,12 @@ pub fn version_loops(module: &mut Module) -> IntEntryStats {
         let (plans, cyclic) = order::applying_order(func, plans);
         stats.skipped_escaping += cyclic;
         for plan in plans {
-            apply(func, &plan);
+            let (checks, minted) = apply(func, &plan);
+            loops.push(Versioned {
+                func: fi,
+                checks,
+                minted,
+            });
             stats.loops_versioned += 1;
             stats.bounds_converted += plan.uses.len() as u32;
             stats.values_converted += plan.values.len() as u32;
@@ -137,7 +170,7 @@ pub fn version_loops(module: &mut Module) -> IntEntryStats {
             stats.exit_tests += 1;
         }
     }
-    stats
+    Versioning { stats, loops }
 }
 
 fn plan_function(
@@ -296,11 +329,14 @@ fn join_need(needs: &mut Vec<Need>, source: ValueId, round: Round, lo: i64, hi: 
     }
 }
 
-fn apply(func: &mut Function, plan: &Plan) {
+/// Answers the chain's checks and the ids of the values it minted.
+fn apply(func: &mut Function, plan: &Plan) -> (Vec<(ValueId, bool)>, std::ops::Range<u32>) {
     let outside = func.blocks.len();
     let cells = multi_def_values(func);
     let copy = region::clone_blocks(func, &plan.region);
+    let first = func.values.len() as u32;
     let chain = guard::build_chain(func, &plan.needs, plan.header, copy.blocks[&plan.header]);
+    let minted = first..func.values.len() as u32;
     region::seed_cells(
         func,
         &plan.region,
@@ -344,6 +380,7 @@ fn apply(func: &mut Function, plan: &Plan) {
         func.blocks[at.0 as usize].insts[u.inst].kind =
             InstKind::ICmp(u.pred, copy.operand(u.counter), bound);
     }
+    (chain.checks, minted)
 }
 
 #[cfg(test)]

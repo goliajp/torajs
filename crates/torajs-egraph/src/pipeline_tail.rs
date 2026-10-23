@@ -84,6 +84,7 @@ pub(crate) fn finish_pipeline(
     module: &mut Module,
     facts: Option<&[HashMap<ValueId, interval::NumFact>]>,
     clones: &[(FuncId, FuncId)],
+    versioned: &[crate::int_entry::Versioned],
 ) {
     // Immediate-box release elision — `anyv_rc_dec` of a `box_from_
     // pair(<non-heap tag>, _)` is the kernel's own no-op (a `new C()`
@@ -151,6 +152,15 @@ pub(crate) fn finish_pipeline(
     // above, which make those blocks. `TORAJS_FDIV_PAIR_OFF=1` skips.
     gated_pass("FDIV_PAIR", module, |m| fdiv_pair::pair_module(m, facts));
     strip_clone_assumes(module, clones);
+    // The int_entry copies no later pass made shorter than their slow
+    // loop go back to one copy; after every pass that rewrites a loop
+    // body from a fact, before loop_rotate copies blocks of them.
+    // `TORAJS_INT_ENTRY_TRIM_OFF=1` keeps them all.
+    if !versioned.is_empty() {
+        gated_pass("INT_ENTRY_TRIM", module, |m| {
+            crate::int_entry::trim::trim_copies(m, versioned)
+        });
+    }
     // Loop rotation — copy each top-tested loop's exit test into its
     // latch so the loop runs one conditional branch per iteration.
     // Before block_layout, which lays out the rotated body.

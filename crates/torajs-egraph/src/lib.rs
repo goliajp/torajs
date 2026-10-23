@@ -217,7 +217,8 @@ pub fn transform_module(mut module: Module) -> Module {
     let clones = gated_pass("FN_INT_CLONE", &mut module, fn_int_clone::clone_functions)
         .map_or_else(Vec::new, |s| s.clones);
     // `TORAJS_INT_ENTRY_OFF=1` skips (bisect gate).
-    gated_pass("INT_ENTRY", &mut module, int_entry::version_loops);
+    let versioned = gated_pass("INT_ENTRY", &mut module, int_entry::version_loops_recorded)
+        .map_or_else(Vec::new, |v| v.loops);
     // Integer range analysis (analysis-only, RFC 20260611) — interval
     // lattice with branch refinement + loop widening over the post-φ
     // canonical shape. Feeds float demotion below and seeds sext_elide
@@ -341,7 +342,7 @@ pub fn transform_module(mut module: Module) -> Module {
         self_tail_call::eliminate_self_tail_calls,
     );
     pipeline_tail::form_selects_and_fuse(&mut module, fn_names.as_deref());
-    pipeline_tail::finish_pipeline(&mut module, interval_facts.as_deref(), &clones);
+    pipeline_tail::finish_pipeline(&mut module, interval_facts.as_deref(), &clones, &versioned);
     module
 }
 

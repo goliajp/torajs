@@ -39,7 +39,7 @@ fn block(id: u32, insts: Vec<Inst>, term: Terminator) -> Block {
 ///      br bb1
 /// bb3: ret %2
 /// ```
-fn counting_loop(pred: FPred, body_extra: Vec<Inst>) -> Module {
+pub(super) fn counting_loop(pred: FPred, body_extra: Vec<Inst>) -> Module {
     let tys = [
         Type::F64,
         Type::I64,

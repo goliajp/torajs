@@ -59,6 +59,7 @@ struct Chain<'f> {
     slow: BlockId,
     /// the block being filled; its terminator is set when it closes
     open: BlockId,
+    checks: Vec<(ValueId, bool)>,
 }
 
 impl Chain<'_> {
@@ -92,6 +93,9 @@ impl Chain<'_> {
         } else {
             (self.slow, next)
         };
+        if let Operand::Value(v) = cond {
+            self.checks.push((v, !pass_when));
+        }
         self.func.blocks[self.open.0 as usize].term = Terminator::CondBr {
             cond,
             then_blk,
@@ -109,6 +113,9 @@ pub(crate) struct Built {
     /// source → the f64 the copy reads in its place: `sitofp` of the
     /// exact integer's `copy`
     pub(crate) values: HashMap<ValueId, ValueId>,
+    /// each check's condition, in chain order, and whether the slow
+    /// loop is its `then` side
+    pub(crate) checks: Vec<(ValueId, bool)>,
 }
 
 /// Build the chain; `needs` holds each (source, round) once.
@@ -122,6 +129,7 @@ pub(crate) fn build_chain(
         func,
         slow,
         open: BlockId(0),
+        checks: Vec::new(),
     };
     let head = chain.new_block();
     chain.open = head;
@@ -196,5 +204,6 @@ pub(crate) fn build_chain(
         pass,
         rounded: out,
         values,
+        checks: chain.checks,
     }
 }
