@@ -195,9 +195,8 @@ pub(crate) fn cells_of(
     own
 }
 
-/// What one entering block last stored into `cell`, when it stored it
-/// by a `copy` whose operand still holds that value at the block's
-/// end.
+/// What one entering block last stored into `cell`, when it stored it by
+/// a `copy` whose operand still holds that value at the block's end.
 fn stored(
     func: &Function,
     block: usize,
@@ -285,7 +284,7 @@ fn entry_value_in(
 }
 
 /// Mint the out cells, point the readers at them, and store into
-/// them on every edge that leaves either copy.
+/// them on every edge that leaves either copy for a reader.
 pub(super) fn write_out(
     func: &mut Function,
     region: &[BlockId],
@@ -317,9 +316,10 @@ pub(super) fn write_out(
         .collect();
     leaving.sort_by_key(|(b, _)| b.0);
     let inside: HashSet<BlockId> = leaving.iter().map(|(b, _)| *b).collect();
+    let reach = crate::cfg_edit::reaching(func, readers, &inside);
     for (b, fast) in leaving {
         let targets: Vec<BlockId> = successors(&func.blocks[b.0 as usize].term)
-            .filter(|t| !inside.contains(t))
+            .filter(|t| !inside.contains(t) && reach.contains(t))
             .collect();
         for target in targets {
             let exit = BlockId(func.blocks.len() as u32);

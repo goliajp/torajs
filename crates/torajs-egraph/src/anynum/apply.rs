@@ -1,6 +1,5 @@
-//! Installing a plan: the fast part is copied, its web cells become
-//! three lanes each, and every way out of the copy boxes the lanes
-//! back.
+//! Installing a plan: the fast part is copied, its web cells become three
+//! lanes each, and every way out of the copy boxes the lanes back.
 //!
 //! Lanes of a cell: `i` (I64) holds the value while `b` (Bool) says
 //! the box would be an int32 — `i` means nothing otherwise — and `f`
@@ -423,7 +422,7 @@ impl Install<'_> {
     }
 
     /// Out cells for the loop cells read after the loop, stored on
-    /// every edge leaving either copy; the readers read them.
+    /// every edge leaving either copy for a reader; the readers read them.
     fn write_out(&self, func: &mut Function) {
         let plan = self.plan;
         let out: Vec<(ValueId, ValueId)> = plan
@@ -445,11 +444,12 @@ impl Install<'_> {
         }
         let mut inside: HashSet<BlockId> = self.region.clone();
         inside.extend(self.copy.blocks.values().copied());
+        let reach = crate::cfg_edit::reaching(func, &plan.readers, &inside);
         let mut leaving: Vec<(BlockId, bool)> = plan.region.iter().map(|b| (*b, false)).collect();
         leaving.extend(plan.fast.iter().map(|b| (self.copy.blocks[b], true)));
         for (b, fast) in leaving {
             let targets: Vec<BlockId> = successors(&func.blocks[b.0 as usize].term)
-                .filter(|t| !inside.contains(t))
+                .filter(|t| !inside.contains(t) && reach.contains(t))
                 .collect();
             for target in targets {
                 let mut insts: Vec<Inst> = Vec::new();

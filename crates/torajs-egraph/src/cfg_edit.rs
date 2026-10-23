@@ -1,10 +1,11 @@
 //! The block-level edits a diamond-building pass makes: a fresh block,
 //! an instruction appended to one, the renumbering after blocks
-//! move, and folding straight-line chains back into one block.
+//! move, and folding straight-line chains back into one block; and the
+//! blocks that still reach a set of blocks, for a pass placing stores.
 //! `split_block_at` and `push_value` stay in `float_demote`, which
 //! owns their tests.
 
-use crate::id_hash::HashMap;
+use crate::id_hash::{HashMap, HashSet};
 
 use torajs_core::ssa::{Block, BlockId, Function, Inst, InstKind, Operand, Terminator, Type};
 
@@ -93,4 +94,32 @@ pub(crate) fn merge_straight_chains(func: &mut Function) -> u32 {
     }
     sweep_unreachable_blocks(func);
     merged
+}
+
+/// The blocks from which some block of `to` is reached by a path that
+/// never enters `avoid` (the members of `to` included). A versioned
+/// loop stores its out cells only on the edges leaving it for one of
+/// these: an edge to anywhere else (an exit that ends the program, a
+/// throw that leaves the function) reaches no reader, and a store on
+/// it would keep the loop's cells live to that edge, where they
+/// contend with their own per-iteration copies for a register.
+pub(crate) fn reaching(
+    func: &Function,
+    to: &[BlockId],
+    avoid: &HashSet<BlockId>,
+) -> HashSet<BlockId> {
+    let mut preds: Vec<Vec<BlockId>> = vec![Vec::new(); func.blocks.len()];
+    for block in &func.blocks {
+        for s in successors(&block.term) {
+            preds[s.0 as usize].push(block.id);
+        }
+    }
+    let mut seen: HashSet<BlockId> = HashSet::default();
+    let mut work: Vec<BlockId> = to.to_vec();
+    while let Some(b) = work.pop() {
+        if !avoid.contains(&b) && seen.insert(b) {
+            work.extend(preds[b.0 as usize].iter().copied());
+        }
+    }
+    seen
 }
