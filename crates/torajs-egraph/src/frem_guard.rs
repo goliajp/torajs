@@ -42,7 +42,7 @@ use torajs_core::ssa::{
 
 use crate::cfg_edit::{emit, new_block, renumber};
 use crate::float_demote::{push_value, split_block_at};
-use crate::frem_int::{single_def_kinds, stable_here};
+use crate::frem_int::{has_frem, single_def_kinds, stable_here};
 use crate::interval::NumFact;
 use lane::{Lane, Role, classify};
 
@@ -57,7 +57,7 @@ pub struct FremGuardStats {
 pub fn guard_frems(module: &mut Module, facts: &[HashMap<ValueId, NumFact>]) -> FremGuardStats {
     let mut stats = FremGuardStats::default();
     for (func, fm) in module.funcs.iter_mut().zip(facts) {
-        if func.is_declaration() {
+        if func.is_declaration() || !has_frem(func) {
             continue;
         }
         let (sites, proven) = guard_function(func, fm);

@@ -67,7 +67,9 @@ pub struct FremNarrowStats {
 pub fn narrow_frems(module: &mut Module) -> FremNarrowStats {
     let mut stats = FremNarrowStats::default();
     for func in module.funcs.iter_mut() {
-        if func.is_declaration() {
+        // every shape narrowed here is f64 arithmetic
+        let f64s = func.values.iter().any(|v| v.ty == Type::F64);
+        if func.is_declaration() || !f64s {
             continue;
         }
         narrow_in_function(func, &mut stats);

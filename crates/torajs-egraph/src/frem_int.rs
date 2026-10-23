@@ -60,12 +60,20 @@ pub fn exact_frems(module: &mut Module, facts: &[HashMap<ValueId, NumFact>]) -> 
         .filter_map(|(f, i)| find(f).zip(find(i)))
         .collect();
     for (func, fm) in module.funcs.iter_mut().zip(facts) {
-        if func.is_declaration() {
+        if func.is_declaration() || !has_frem(func) {
             continue;
         }
         rewrite_function(func, fm, &twins, &mut stats);
     }
     stats
+}
+
+/// Any `frem` at all: a function without one is not read for its defs.
+pub(crate) fn has_frem(func: &Function) -> bool {
+    func.blocks
+        .iter()
+        .flat_map(|b| &b.insts)
+        .any(|i| matches!(i.kind, InstKind::BinOp(BinOp::FRem, ..)))
 }
 
 /// Kind of every value with exactly one def site.
