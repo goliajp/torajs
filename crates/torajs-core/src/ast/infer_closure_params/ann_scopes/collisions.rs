@@ -3,8 +3,9 @@
 //! without (a shadow), anywhere the table or the scopes see a binding.
 
 use super::AnnScopes;
-use crate::ast::Ast;
 use crate::ast::infer_closure_lets::{collect_let_anns, collect_let_init_anns};
+use crate::ast::stmt_nested_lists::for_each_nested_list;
+use crate::ast::{Ast, Stmt};
 use std::collections::HashMap;
 
 /// Whether the flat table can answer every site: no name is declared
@@ -30,6 +31,47 @@ impl<'a> Collisions<'a> {
     pub(in crate::ast) fn param(&mut self, name: &'a str, old: Option<String>, ann: &str) {
         if name != "__this" {
             self.annotated(old, ann);
+        }
+    }
+
+    /// The binding a statement makes in a scope of its own, apart from
+    /// its lists' declarations: a for-of head, a catch parameter. Only
+    /// the scopes answer one, so to the flat table it is a shadow.
+    pub(in crate::ast) fn heads(&mut self, s: &'a Stmt) {
+        match s {
+            Stmt::ForOf { var_name, .. } | Stmt::ForOfSplitIter { var_name, .. } => {
+                self.unannotated(var_name)
+            }
+            Stmt::Try {
+                catch_param: Some(p),
+                ..
+            } => self.unannotated(p),
+            _ => {}
+        }
+    }
+
+    /// A nested function's parameters and bindings, which only the
+    /// scopes answer.
+    pub(in crate::ast) fn nested_fn(&mut self, s: &'a Stmt) {
+        let Stmt::FnDecl { params, body, .. } = s else {
+            return;
+        };
+        for p in params.iter().filter(|p| p.name != "__this") {
+            self.unannotated(&p.name);
+        }
+        self.shadows(body);
+    }
+
+    fn shadows(&mut self, list: &'a [Stmt]) {
+        for s in list {
+            match s {
+                Stmt::LetDecl { name, .. } => self.unannotated(name),
+                Stmt::FnDecl { .. } => self.nested_fn(s),
+                _ => {
+                    self.heads(s);
+                    for_each_nested_list(s, &mut |l| self.shadows(l));
+                }
+            }
         }
     }
 

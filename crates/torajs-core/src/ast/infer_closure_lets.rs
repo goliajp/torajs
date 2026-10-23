@@ -146,10 +146,13 @@ pub(super) fn collect_let_anns<'a>(
             // a nested fn's lets are its own; every other compound form
             // is walked, the async Try `desugar_async` wraps a body in
             // included
-            Stmt::FnDecl { .. } => {}
-            _ => crate::ast::stmt_nested_lists::for_each_nested_list(s, &mut |list| {
-                collect_let_anns(ast, list, out, closure_hints, coll)
-            }),
+            Stmt::FnDecl { .. } => coll.nested_fn(s),
+            _ => {
+                coll.heads(s);
+                crate::ast::stmt_nested_lists::for_each_nested_list(s, &mut |list| {
+                    collect_let_anns(ast, list, out, closure_hints, coll)
+                })
+            }
         }
     }
 }
