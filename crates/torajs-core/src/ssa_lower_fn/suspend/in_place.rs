@@ -141,7 +141,10 @@ fn frame_result(ctx: &LowerCtx<'_>, obj: ExprId) -> Option<i64> {
     if ctx.locals.contains_key(name) || ctx.globals.contains_key(name) {
         return None;
     }
-    let fid = *ctx.fn_table.get(name)?;
+    // the call may run a specialization (`$$anyw…` for an `any`
+    // argument), whose result form is its own
+    let target = ctx.call_retargets.get(&e).unwrap_or(name);
+    let fid = *ctx.fn_table.get(target)?;
     let repr = *ctx.scans.frame_result_reprs.get(&fid)?;
     (!matches!(repr, REPR_HEAP | REPR_ANY)).then_some(repr)
 }
