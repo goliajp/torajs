@@ -128,7 +128,7 @@ fn rewrite_scope_list(stmts: &mut Vec<Stmt>, ast: &mut Ast, n: &mut u32, module:
     let Some(first) = stmts.iter().position(is_using_head) else {
         return;
     };
-    // The wrapper's body is a list of its own, so what it holds is out
+    // the wrapper's body is a list of its own, so what it holds is out
     // of reach of anything left before it: a function declared ahead of
     // `using x` (hoisted, §14.2.3) or an arrow written there must still
     // see `x`, and a call of either before the declaration still meets
@@ -136,7 +136,7 @@ fn rewrite_scope_list(stmts: &mut Vec<Stmt>, ast: &mut Ast, n: &mut u32, module:
     // therefore move in with the rest — the dispose stack is empty
     // while they run, so a completion they make leaves the wrapper as
     // it came in. The module's own list keeps them outside: its
-    // bindings are the module's, which the rest of the program names.
+    // bindings are the module's, which the rest of the program names
     let tail: Vec<Stmt> = stmts.split_off(if module { first } else { 0 });
     let wrapped = wrap_with_env(tail, ast, n);
     match wrapped {
@@ -195,10 +195,10 @@ fn wrap_with_env(mut tail: Vec<Stmt>, ast: &mut Ast, n: &mut u32) -> Stmt {
     // machinery picks up exactly like a user-written `await`.
     // Context legality is already guaranteed: `await using` only
     // parses where `await` itself is legal (§15.8.1 gate).
-    // An empty stack awaits nothing (DisposeResources step 4 needs a
+    // an empty stack awaits nothing (DisposeResources step 4 needs a
     // resource), so a completion made before the first resource — the
     // block's statements ahead of it now run inside the wrapper —
-    // leaves through the sync walk, which only rethrows.
+    // leaves through the sync walk, which only rethrows
     let sync_dispose = call_expr(ast, "__torajs_using_dispose", vec![env_eid2]);
     let dispose = if has_await {
         let env_eid3 = ast.add_expr(Expr::Ident(env_name.clone()));

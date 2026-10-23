@@ -7,8 +7,10 @@
 //!   +16  state     0 before the first suspension, k >= 1 parked at
 //!                  the k-th suspension point (or running since it
 //!                  landed there), FRAME_STATE_DONE after
-//!   +24  direct    the resumption value of an await on a value that
-//!                  is not a thenable
+//!   +24  direct    the frame's teardown state: 0 while its body may
+//!                  still run, FRAME_CANCELLED while its drop unwinds
+//!                  the body, FRAME_COLLECTED while the cycle
+//!                  collector frees it (`body`)
 //!   +32  result    the async function's promise; the frame holds +1
 //!                  (NULL for the module body's waiter, `module_await`)
 //!   +40  next      this frame's link in its source's callback list
