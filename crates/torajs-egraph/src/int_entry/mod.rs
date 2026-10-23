@@ -24,10 +24,9 @@
 //! analysis has a fact for. A divisor's window starts at 1, so the
 //! `%` the copy does is the integer one.
 //!
-//! Whether the copy can pay is asked before it is made ([`demand`]): a
-//! loop whose bound informs nothing but its exit tests, each leaving
-//! every loop around it, is not copied — an integer test that implies
-//! the f64 one goes in front of each ([`exit_test`]).
+//! A loop whose bound informs nothing but its exit tests ([`demand`]) is
+//! not copied: an integer test that implies the f64 one goes in front
+//! of each that leaves every loop around it ([`exit_test`]).
 //!
 //! Runs after `frem_narrow` — whose truncation rule does not check
 //! 2^53 and must not be fed the `sitofp`s minted here — and before
@@ -213,8 +212,7 @@ fn plan_function(
     let mut plans = Vec::new();
     let mut tests = Vec::new();
     let mut taken: HashSet<BlockId> = HashSet::default();
-    let mut budget = FUNCTION_INST_BUDGET;
-    let mut reads = None;
+    let (mut budget, mut reads) = (FUNCTION_INST_BUDGET, None);
     for l in outermost_first {
         if l.header.0 == 0 || l.body.iter().any(|b| taken.contains(b)) {
             continue;
@@ -246,8 +244,7 @@ fn plan_function(
         if uses.is_empty() && values.is_empty() {
             continue;
         }
-        // the integer tests are all a copy would buy: an exit test buys
-        // them without one, when it serves (see `exit_test::plan`)
+        // the integer tests are all a copy would buy: an exit test buys them
         if seeded.is_empty() && !demand::informs(func, &region, &uses, &values, &matched) {
             let reads = reads.get_or_insert_with(|| exit_test::reads_of(func));
             if let Some(test) = exit_test::plan(func, &loops, l.header, &region, &uses, reads) {
