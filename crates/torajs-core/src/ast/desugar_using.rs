@@ -54,7 +54,7 @@ use super::{Ast, Expr, ExprId, Stmt};
 pub fn desugar_using(ast: &mut Ast) {
     let mut n: u32 = 0;
     let mut stmts = std::mem::take(&mut ast.stmts);
-    rewrite_list(&mut stmts, ast, &mut n);
+    rewrite_scope_list(&mut stmts, ast, &mut n, true);
     ast.stmts = stmts;
     // Arrow-fn bodies live in the expr arena (raw-parse period: the
     // closure lift runs much later). One flat sweep covers arrows at
@@ -96,6 +96,11 @@ fn init_holds_using(init: &Stmt) -> bool {
 }
 
 fn rewrite_list(stmts: &mut Vec<Stmt>, ast: &mut Ast, n: &mut u32) {
+    rewrite_scope_list(stmts, ast, n, false);
+}
+
+/// `module`: `stmts` is the module's own top-level list.
+fn rewrite_scope_list(stmts: &mut Vec<Stmt>, ast: &mut Ast, n: &mut u32, module: bool) {
     let mut i = 0;
     while i < stmts.len() {
         // A Multi carrying using-decls shares THIS scope — splice its
@@ -123,7 +128,16 @@ fn rewrite_list(stmts: &mut Vec<Stmt>, ast: &mut Ast, n: &mut u32) {
     let Some(first) = stmts.iter().position(is_using_head) else {
         return;
     };
-    let tail: Vec<Stmt> = stmts.split_off(first);
+    // The wrapper's body is a list of its own, so what it holds is out
+    // of reach of anything left before it: a function declared ahead of
+    // `using x` (hoisted, §14.2.3) or an arrow written there must still
+    // see `x`, and a call of either before the declaration still meets
+    // `x`'s dead zone. A block's statements before its first resource
+    // therefore move in with the rest — the dispose stack is empty
+    // while they run, so a completion they make leaves the wrapper as
+    // it came in. The module's own list keeps them outside: its
+    // bindings are the module's, which the rest of the program names.
+    let tail: Vec<Stmt> = stmts.split_off(if module { first } else { 0 });
     let wrapped = wrap_with_env(tail, ast, n);
     match wrapped {
         Stmt::Multi(mut parts) => stmts.append(&mut parts),
@@ -170,7 +184,7 @@ fn wrap_with_env(mut tail: Vec<Stmt>, ast: &mut Ast, n: &mut u32) -> Stmt {
     let env_eid = ast.add_expr(Expr::Ident(env_name.clone()));
     let catch_eid = ast.add_expr(Expr::Ident(catch_name.clone()));
     let caught = call_expr(ast, "__torajs_using_caught", vec![env_eid, catch_eid]);
-    let env_eid2 = ast.add_expr(Expr::Ident(env_name));
+    let env_eid2 = ast.add_expr(Expr::Ident(env_name.clone()));
     // Knife 2 — a scope holding ANY `await using` binding disposes
     // through the async helper and awaits it (spec: the whole
     // DisposeResources walk is async once an async-dispose hint is
@@ -181,16 +195,27 @@ fn wrap_with_env(mut tail: Vec<Stmt>, ast: &mut Ast, n: &mut u32) -> Stmt {
     // machinery picks up exactly like a user-written `await`.
     // Context legality is already guaranteed: `await using` only
     // parses where `await` itself is legal (§15.8.1 gate).
+    // An empty stack awaits nothing (DisposeResources step 4 needs a
+    // resource), so a completion made before the first resource — the
+    // block's statements ahead of it now run inside the wrapper —
+    // leaves through the sync walk, which only rethrows.
+    let sync_dispose = call_expr(ast, "__torajs_using_dispose", vec![env_eid2]);
     let dispose = if has_await {
-        let call = call_expr(ast, "__torajs_using_dispose_async", vec![env_eid2]);
+        let env_eid3 = ast.add_expr(Expr::Ident(env_name.clone()));
+        let call = call_expr(ast, "__torajs_using_dispose_async", vec![env_eid3]);
         let read = ast.add_expr(Expr::Member {
             obj: call,
             name: "value".into(),
         });
         ast.await_value_reads.insert(read);
-        read
+        let env_eid4 = ast.add_expr(Expr::Ident(env_name));
+        Stmt::If {
+            cond: call_expr(ast, "__torajs_using_pending", vec![env_eid4]),
+            then_branch: Box::new(Stmt::Expr(read)),
+            else_branch: Some(Box::new(Stmt::Expr(sync_dispose))),
+        }
     } else {
-        call_expr(ast, "__torajs_using_dispose", vec![env_eid2])
+        Stmt::Expr(sync_dispose)
     };
     let try_stmt = Stmt::Try {
         body: tail,
@@ -198,7 +223,7 @@ fn wrap_with_env(mut tail: Vec<Stmt>, ast: &mut Ast, n: &mut u32) -> Stmt {
         catch_param: Some(catch_name),
         catch_type: None,
         catch_body: vec![Stmt::Expr(caught)],
-        finally_body: Some(vec![Stmt::Expr(dispose)]),
+        finally_body: Some(vec![dispose]),
     };
     Stmt::Multi(vec![env_decl, try_stmt])
 }

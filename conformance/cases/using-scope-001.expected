@@ -1,0 +1,16 @@
+a1 ReferenceError
+a2 null
+b1 ReferenceError
+b2 5
+b disposed
+c1 42
+c disposed
+w,disposed
+d1 true
+e disposed
+early late
+f1 ReferenceError
+f2 true
+a:early,tick1,tick2
+g disposed
+late

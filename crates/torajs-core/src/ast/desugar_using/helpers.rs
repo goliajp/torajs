@@ -88,6 +88,9 @@ async function __torajs_using_dispose_async(env: any): Promise<void> {
     throw error;
   }
 }
+function __torajs_using_pending(env: any): boolean {
+  return env.stack.length > 0;
+}
 function __torajs_using_caught(env: any, e: any): void {
   env.error = e;
   env.hasError = true;
