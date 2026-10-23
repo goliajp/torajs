@@ -23,7 +23,6 @@ use super::captures::bodies;
 use super::{Analysis, KeySet, Scope, SlotKeyId, SlotKeys};
 use crate::ast::ExprId;
 use crate::check::Type;
-use crate::check_monomorph_any_widen::struct_escape::twin_original;
 
 /// One point a value can sit in.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -283,30 +282,9 @@ impl Graph<'_> {
         }
         out
     }
-
-    /// What `n` names at the current point of the walk.
-    pub(super) fn resolve(&self, a: &Analysis<'_>, n: &str, sc: &Scope) -> Ref {
-        if let Some(node) = self.frames.iter().rev().find_map(|f| f.get(n)) {
-            return Ref::At(node.clone());
-        }
-        // a closure's all-`any` twin has no construction site of its
-        // own; it reads the bindings the original's site names
-        let built = twin_original(sc.fn_name).unwrap_or(sc.fn_name);
-        if let Some(Some(r)) = self.caps_in.get(&(built.to_string(), n.to_string())) {
-            return r.clone();
-        }
-        if let Some(k) = a.resolve(n, sc) {
-            return Ref::Keyed(vec![k]);
-        }
-        // a lifted body may still write an outer binding of that
-        // spelling (`walk::assign_to_name`)
-        if sc.fn_name.starts_with("__") {
-            return Ref::Keyed(a.named(n).cloned().unwrap_or_default());
-        }
-        Ref::Keyed(Vec::new())
-    }
 }
 
+mod resolve;
 mod returns;
 
 #[cfg(test)]
