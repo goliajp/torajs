@@ -136,6 +136,19 @@ impl<'a> Analysis<'a> {
                 self.mark_containerish(anon);
                 let ek = self.keys.elem(anon);
                 for el in els.clone() {
+                    // an `any` element, or what an `any` spread hands
+                    // over, is stored as is (§13.2.4.1): the block holds
+                    // what the any side made, so it escapes as a
+                    // container handed to an `any` slot does
+                    let stored = match self.ast.get_expr(el) {
+                        Expr::Spread { expr } => *expr,
+                        _ => el,
+                    };
+                    if self.expr_types.get(&stored) == Some(&crate::check::Type::Any)
+                        && promise_elems(self.expr_types.get(&eid))
+                    {
+                        self.escape_only_seeds.push(anon);
+                    }
                     if let Expr::Spread { expr } = self.ast.get_expr(el) {
                         let inner = *expr;
                         match self.container_key_of(inner, scope) {
@@ -257,4 +270,9 @@ impl<'a> Analysis<'a> {
             }
         }
     }
+}
+
+fn promise_elems(t: Option<&crate::check::Type>) -> bool {
+    use crate::check::Type;
+    matches!(t, Some(Type::Array(e)) if matches!(**e, Type::Promise(_)))
 }
