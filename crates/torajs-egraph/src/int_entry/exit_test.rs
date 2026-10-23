@@ -91,18 +91,43 @@ pub(super) fn of_tests(
     }
 }
 
-/// How many times each value is read, by an instruction or a branch.
-pub(super) fn reads_of(func: &Function) -> HashMap<ValueId, usize> {
-    let mut reads: HashMap<ValueId, usize> = HashMap::default();
-    for block in &func.blocks {
-        for inst in &block.insts {
-            visit_value_operands(&inst.kind, |v| *reads.entry(v).or_default() += 1);
+/// How many times each value is read, by an instruction or a branch,
+/// counted by id. A value minted after the count reads as unread.
+pub(crate) struct Reads(Vec<u32>);
+
+impl Reads {
+    pub(crate) fn of(func: &Function) -> Self {
+        let mut reads = vec![0u32; func.values.len()];
+        let mut read = |v: ValueId| {
+            if let Some(n) = reads.get_mut(v.0 as usize) {
+                *n += 1;
+            }
+        };
+        for block in &func.blocks {
+            for inst in &block.insts {
+                visit_value_operands(&inst.kind, &mut read);
+            }
+            if let Some(v) = term_operand_value(&block.term) {
+                read(v);
+            }
         }
-        if let Some(v) = term_operand_value(&block.term) {
-            *reads.entry(v).or_default() += 1;
+        Reads(reads)
+    }
+
+    pub(crate) fn count(&self, v: ValueId) -> u32 {
+        self.0.get(v.0 as usize).copied().unwrap_or(0)
+    }
+
+    pub(crate) fn once(&self, v: ValueId) -> bool {
+        self.count(v) == 1
+    }
+
+    /// One read of `v` went away.
+    pub(super) fn forget(&mut self, v: ValueId) {
+        if let Some(n) = self.0.get_mut(v.0 as usize) {
+            *n = n.saturating_sub(1);
         }
     }
-    reads
 }
 
 /// The exit test plan of a loop whose bound informs nothing but the
@@ -118,7 +143,7 @@ pub(super) fn plan(
     header: BlockId,
     region: &HashSet<BlockId>,
     uses: &[BoundUse],
-    reads: &HashMap<ValueId, usize>,
+    reads: &Reads,
 ) -> Option<ExitTest> {
     let served = |u: &BoundUse| u.round != Round::Exact && leaves_every_loop(func, loops, u.block);
     if uses.is_empty() || !uses.iter().all(served) {
@@ -140,7 +165,7 @@ pub(super) fn plan(
             block.term,
             Terminator::CondBr { cond: Operand::Value(c), .. } if c == test
         );
-        if !image_here || !branches_on_test || reads.get(&test) != Some(&1) {
+        if !image_here || !branches_on_test || !reads.once(test) {
             return None;
         }
         sites.push(Site {
@@ -148,7 +173,7 @@ pub(super) fn plan(
             source: u.source,
             round: u.round,
             pred: u.pred,
-            own_image: reads.get(&image) == Some(&1),
+            own_image: reads.once(image),
         });
     }
     Some(ExitTest {

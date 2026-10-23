@@ -119,8 +119,8 @@ fn exit_plan(
     {
         return None;
     }
-    let reads = exit_test::reads_of(func);
-    let read_once = |v: ValueId| reads.get(&v) == Some(&1);
+    let reads = exit_test::Reads::of(func);
+    let read_once = |v: ValueId| reads.once(v);
     let loops = LoopAnalysis::compute(func, dom);
     let mut at = Vec::new();
     for t in tests {
@@ -339,7 +339,7 @@ fn same_op(p: &InstKind, q: &InstKind) -> bool {
 /// went: what is left of it sits in the first block, each value read
 /// only by those after it.
 fn drop_unused_minted(func: &mut Function, minted: &std::ops::Range<u32>) {
-    let mut reads = exit_test::reads_of(func);
+    let mut reads = exit_test::Reads::of(func);
     for block in func.blocks.iter_mut() {
         if !block
             .insts
@@ -353,18 +353,11 @@ fn drop_unused_minted(func: &mut Function, minted: &std::ops::Range<u32>) {
             let inst = &block.insts[at];
             let dead = inst
                 .result
-                .is_some_and(|r| minted.contains(&r.0) && !reads.contains_key(&r));
+                .is_some_and(|r| minted.contains(&r.0) && reads.count(r) == 0);
             if !dead {
                 continue;
             }
-            visit_value_operands(&inst.kind, |v| {
-                if let Some(n) = reads.get_mut(&v) {
-                    *n -= 1;
-                    if *n == 0 {
-                        reads.remove(&v);
-                    }
-                }
-            });
+            visit_value_operands(&inst.kind, |v| reads.forget(v));
             block.insts.remove(at);
         }
     }

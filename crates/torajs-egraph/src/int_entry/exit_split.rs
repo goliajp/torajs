@@ -15,15 +15,12 @@
 //! rotated latch and the guard in front of the loop.
 //! `TORAJS_EXIT_SPLIT_OFF=1` skips.
 
-use crate::id_hash::HashMap;
-
 use torajs_core::ssa::{
     BinOp, Block, BlockId, Function, Inst, InstKind, Module, Operand, Terminator, ValueId,
 };
 
+use super::exit_test::Reads;
 use crate::cfg_edit::new_block;
-use crate::float_demote::cfg::term_operand_value;
-use crate::rc_peephole::visit_value_operands;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct ExitSplitStats {
@@ -41,15 +38,7 @@ pub fn split_exit_tests(module: &mut Module) -> ExitSplitStats {
         if !func.blocks.iter().any(ors) {
             continue;
         }
-        let mut reads: HashMap<ValueId, u32> = HashMap::default();
-        for block in &func.blocks {
-            for inst in &block.insts {
-                visit_value_operands(&inst.kind, |v| *reads.entry(v).or_default() += 1);
-            }
-            if let Some(v) = term_operand_value(&block.term) {
-                *reads.entry(v).or_default() += 1;
-            }
-        }
+        let reads = Reads::of(func);
         for b in 0..func.blocks.len() {
             if split(func, BlockId(b as u32), &reads) {
                 stats.tests_split += 1;
@@ -61,7 +50,7 @@ pub fn split_exit_tests(module: &mut Module) -> ExitSplitStats {
 
 /// The block's last three instructions are `sitofp`, the `fcmp` reading
 /// it and the `or` of an earlier test with that, each read once.
-fn split(func: &mut Function, b: BlockId, reads: &HashMap<ValueId, u32>) -> bool {
+fn split(func: &mut Function, b: BlockId, reads: &Reads) -> bool {
     let block = &func.blocks[b.0 as usize];
     let Terminator::CondBr {
         cond: Operand::Value(o),
@@ -80,7 +69,7 @@ fn split(func: &mut Function, b: BlockId, reads: &HashMap<ValueId, u32>) -> bool
         &block.insts[n - 2],
         &block.insts[n - 1],
     ];
-    let once = |v: Option<ValueId>| v.is_some_and(|v| reads.get(&v) == Some(&1));
+    let once = |v: Option<ValueId>| v.is_some_and(|v| reads.once(v));
     let compares_image = matches!(c.kind, InstKind::FCmp(_, Operand::Value(l), Operand::Value(r))
         if Some(l) == x.result || Some(r) == x.result);
     let fast = match or.kind {

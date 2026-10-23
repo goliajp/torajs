@@ -246,7 +246,7 @@ fn plan_function(
         }
         // the integer tests are all a copy would buy: an exit test buys them
         if seeded.is_empty() && !demand::informs(func, &region, &uses, &values, &matched) {
-            let reads = reads.get_or_insert_with(|| exit_test::reads_of(func));
+            let reads = reads.get_or_insert_with(|| exit_test::Reads::of(func));
             if let Some(test) = exit_test::plan(func, &loops, l.header, &region, &uses, reads) {
                 taken.extend(region);
                 tests.push(test);
