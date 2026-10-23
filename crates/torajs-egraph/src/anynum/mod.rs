@@ -39,7 +39,7 @@ mod web;
 use crate::id_hash::HashSet;
 
 use torajs_core::ssa::dominator::DominatorTree;
-use torajs_core::ssa::loop_analysis::LoopAnalysis;
+use torajs_core::ssa::loop_analysis::{LoopAnalysis, NaturalLoop};
 use torajs_core::ssa::{BlockId, Function, InstKind, Module, Operand, Type};
 
 use crate::float_demote::cfg::multi_def_values;
@@ -89,25 +89,27 @@ fn may_hold_web(func: &Function) -> bool {
 /// starting from the first one's total), and a plan made before that
 /// install would leave the copies reading the old cell. The blocks an
 /// install made or versioned are not planned again; a loop around
-/// them is left alone.
+/// them is left alone. When no loop is left to plan, the function is
+/// not read again.
 fn version_loops(func: &mut Function, stats: &mut AnyNumStats) {
     let mut taken: HashSet<BlockId> = HashSet::default();
     let mut seen: HashSet<BlockId> = HashSet::default();
     loop {
         let before = func.blocks.len();
-        let plan = {
+        let cells = multi_def_values(func);
+        let (plan, more) = {
             let dom = DominatorTree::compute(func);
             let loops = LoopAnalysis::compute(func, &dom);
-            let cells = multi_def_values(func);
             let defs = web::single_defs(func, &cells);
             let mut innermost_first: Vec<_> = loops.loops().iter().collect();
             innermost_first.sort_by_key(|l| (l.body.len(), l.header.0));
+            let open = |l: &&NaturalLoop, taken: &HashSet<BlockId>| {
+                l.header.0 != 0 && !l.body.iter().any(|b| taken.contains(b))
+            };
             let mut found = None;
-            for l in innermost_first {
-                if l.header.0 == 0
-                    || l.body.iter().any(|b| taken.contains(b))
-                    || !seen.insert(l.header)
-                {
+            let mut rest = innermost_first.iter();
+            for l in rest.by_ref() {
+                if !open(l, &taken) || !seen.insert(l.header) {
                     continue;
                 }
                 match web::plan_loop(func, l, &dom, &cells, &defs) {
@@ -119,15 +121,27 @@ fn version_loops(func: &mut Function, stats: &mut AnyNumStats) {
                     web::Verdict::NoWeb => {}
                 }
             }
-            found
+            // the loops a next round would plan: unseen, and clear of
+            // what this install versions
+            let more = found.as_ref().is_some_and(|plan: &web::Plan| {
+                let versioned: HashSet<BlockId> = plan.region.iter().copied().collect();
+                rest.any(|l| {
+                    open(l, &taken)
+                        && !seen.contains(&l.header)
+                        && !l.body.iter().any(|b| versioned.contains(b))
+                })
+            });
+            (found, more)
         };
         let Some(plan) = plan else {
             return;
         };
-        let cells = multi_def_values(func);
         apply::apply(func, &plan, &cells);
         stats.loops_versioned += 1;
         stats.cells_unboxed += plan.web.len() as u32;
+        if !more {
+            return;
+        }
         taken.extend(plan.region.iter().copied());
         taken.extend((before..func.blocks.len()).map(|b| BlockId(b as u32)));
     }
