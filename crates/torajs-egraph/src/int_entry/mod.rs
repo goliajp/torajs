@@ -24,15 +24,17 @@
 //! analysis has a fact for. A divisor's window starts at 1, so the
 //! `%` the copy does is the integer one.
 //!
-//! A loop whose bound informs nothing but its exit test is not copied:
-//! an integer test that implies the f64 one goes in front of it
-//! ([`exit_test`]).
+//! Whether the copy can pay is asked before it is made ([`demand`]): a
+//! loop whose bound informs nothing but its exit tests, each leaving
+//! every loop around it, is not copied — an integer test that implies
+//! the f64 one goes in front of each ([`exit_test`]).
 //!
 //! Runs after `frem_narrow` — whose truncation rule does not check
 //! 2^53 and must not be fed the `sitofp`s minted here — and before
 //! the interval analysis, which reads the assumption back out of the
 //! checks. `TORAJS_INT_ENTRY_OFF=1` skips it.
 
+mod demand;
 pub(crate) mod exit_split;
 pub(crate) mod exit_test;
 pub(crate) mod guard;
@@ -212,6 +214,7 @@ fn plan_function(
     let mut tests = Vec::new();
     let mut taken: HashSet<BlockId> = HashSet::default();
     let mut budget = FUNCTION_INST_BUDGET;
+    let mut reads = None;
     for l in outermost_first {
         if l.header.0 == 0 || l.body.iter().any(|b| taken.contains(b)) {
             continue;
@@ -243,16 +246,15 @@ fn plan_function(
         if uses.is_empty() && values.is_empty() {
             continue;
         }
-        // a test inside another loop exits once per outer round, each
-        // exit paying the f64 test the copy would not
-        let outermost = uses.iter().all(|u| loops.nest_depth(u.block) == 1);
-        if let Some(test) =
-            exit_test::plan(func, l.header, &region, &uses, &values, !seeded.is_empty())
-                .filter(|_| outermost)
-        {
-            taken.extend(region);
-            tests.push(test);
-            continue;
+        // the integer tests are all a copy would buy: an exit test buys
+        // them without one, when it serves (see `exit_test::plan`)
+        if seeded.is_empty() && !demand::informs(func, &region, &uses, &values, &matched) {
+            let reads = reads.get_or_insert_with(|| exit_test::reads_of(func));
+            if let Some(test) = exit_test::plan(func, &loops, l.header, &region, &uses, reads) {
+                taken.extend(region);
+                tests.push(test);
+                continue;
+            }
         }
         let size: usize = l
             .body

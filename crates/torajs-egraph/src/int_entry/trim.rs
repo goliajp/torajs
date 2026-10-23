@@ -36,10 +36,10 @@ use torajs_core::ssa::loop_analysis::LoopAnalysis;
 use torajs_core::ssa::{Block, BlockId, Function, InstKind, Module, Operand, Terminator, ValueId};
 
 use super::Versioned;
-use super::exit_test::{self, TestAt};
+use super::exit_test::{self, TestAt, leaves_every_loop};
 use super::guard::Round;
 use crate::branch_fold::sweep_unreachable_blocks;
-use crate::float_demote::cfg::{successors, term_operand_value};
+use crate::float_demote::cfg::term_operand_value;
 use crate::rc_peephole::visit_value_operands;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -119,15 +119,7 @@ fn exit_plan(
     {
         return None;
     }
-    let mut reads: HashMap<ValueId, u32> = HashMap::default();
-    for block in &func.blocks {
-        for inst in &block.insts {
-            visit_value_operands(&inst.kind, |v| *reads.entry(v).or_default() += 1);
-        }
-        if let Some(v) = term_operand_value(&block.term) {
-            *reads.entry(v).or_default() += 1;
-        }
-    }
+    let reads = exit_test::reads_of(func);
     let read_once = |v: ValueId| reads.get(&v) == Some(&1);
     let loops = LoopAnalysis::compute(func, dom);
     let mut at = Vec::new();
@@ -150,12 +142,6 @@ fn exit_plan(
         .max_by_key(|l| l.body.len())?;
     let region: HashSet<BlockId> = l.body.iter().copied().collect();
     Some(exit_test::of_tests(l.header, region, &at))
-}
-
-/// One of the block's successors lies outside every loop holding it.
-fn leaves_every_loop(func: &Function, loops: &LoopAnalysis, b: BlockId) -> bool {
-    let holding: Vec<_> = loops.loops().iter().filter(|l| l.contains(&b)).collect();
-    successors(&func.blocks[b.0 as usize].term).any(|s| holding.iter().all(|l| !l.contains(&s)))
 }
 
 /// The block whose branch reads `test`.
@@ -353,15 +339,7 @@ fn same_op(p: &InstKind, q: &InstKind) -> bool {
 /// went: what is left of it sits in the first block, each value read
 /// only by those after it.
 fn drop_unused_minted(func: &mut Function, minted: &std::ops::Range<u32>) {
-    let mut reads: HashMap<ValueId, u32> = HashMap::default();
-    for block in &func.blocks {
-        for inst in &block.insts {
-            visit_value_operands(&inst.kind, |v| *reads.entry(v).or_default() += 1);
-        }
-        if let Some(v) = term_operand_value(&block.term) {
-            *reads.entry(v).or_default() += 1;
-        }
-    }
+    let mut reads = exit_test::reads_of(func);
     for block in func.blocks.iter_mut() {
         if !block
             .insts

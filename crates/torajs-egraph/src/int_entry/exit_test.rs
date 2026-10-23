@@ -3,10 +3,9 @@
 //!
 //! Copying a loop pays when the copy's integer bound tells the passes
 //! after it something about the values the body computes from the
-//! counter. When the counter only counts — it is compared with the
-//! bound, stepped by a constant, masked by one, handed to a call or
-//! stored — the bound tells them nothing, and all the copy buys is the
-//! exit test done on integers. That test needs no copy: a test that is
+//! counter. When it tells them nothing ([`demand`](super::demand)),
+//! all the copy buys is the exit test done on integers. That test needs
+//! no copy: a test that is
 //! true only where the f64 one is true may run first, with the f64 test
 //! behind it for the rest.
 //!
@@ -22,14 +21,15 @@
 //! largest i64.
 //!
 //! The f64 test runs once, on the way out, and the loop is not
-//! duplicated. So the test is only for a loop no other loop holds: one
-//! that exits once per round of an outer loop would pay the f64 test
-//! every round, where the copy pays nothing.
+//! duplicated. So the test is only for one that leaves every loop
+//! holding it: one that exits once per round of an outer loop would pay
+//! the f64 test every round, where the copy pays nothing.
 
 use std::collections::hash_map::Entry;
 
 use crate::id_hash::{HashMap, HashSet};
 
+use torajs_core::ssa::loop_analysis::LoopAnalysis;
 use torajs_core::ssa::{
     BinOp, BlockId, FPred, Function, IPred, Inst, InstKind, Operand, Terminator, Type, ValueId,
 };
@@ -37,7 +37,8 @@ use torajs_core::ssa::{
 use super::guard::Round;
 use super::{BoundUse, EXACT_MAX};
 use crate::cfg_edit::{emit, new_block};
-use crate::float_demote::cfg::{retarget_edge, term_operand_value};
+use crate::float_demote::cfg::{retarget_edge, successors, term_operand_value};
+use crate::float_demote::push_value;
 use crate::rc_peephole::visit_value_operands;
 
 /// One f64 exit test to put an integer test in front of.
@@ -46,6 +47,8 @@ struct Site {
     source: ValueId,
     round: Round,
     pred: IPred,
+    /// the compared image is read by the compare alone
+    own_image: bool,
 }
 
 pub(super) struct ExitTest {
@@ -78,6 +81,7 @@ pub(super) fn of_tests(
             source: t.source,
             round: t.round,
             pred: t.pred,
+            own_image: true,
         })
         .collect();
     ExitTest {
@@ -87,36 +91,40 @@ pub(super) fn of_tests(
     }
 }
 
-/// The exit test plan of a loop, when its bound informs nothing but the
-/// exit test: every compared image read only by its compare, which only
-/// its block's branch reads, and the counter and every value the loop
-/// reads (none of them starting a cell of the loop) only counted.
-pub(super) fn plan(
-    func: &Function,
-    header: BlockId,
-    region: &HashSet<BlockId>,
-    uses: &[BoundUse],
-    values: &[ValueId],
-    seeds_cells: bool,
-) -> Option<ExitTest> {
-    if seeds_cells || uses.is_empty() {
-        return None;
-    }
-    let matched: HashSet<(BlockId, usize)> = uses.iter().map(|u| (u.block, u.inst)).collect();
+/// How many times each value is read, by an instruction or a branch.
+pub(super) fn reads_of(func: &Function) -> HashMap<ValueId, usize> {
     let mut reads: HashMap<ValueId, usize> = HashMap::default();
     for block in &func.blocks {
-        for (i, inst) in block.insts.iter().enumerate() {
-            if !matched.contains(&(block.id, i)) {
-                visit_value_operands(&inst.kind, |v| *reads.entry(v).or_default() += 1);
-            }
+        for inst in &block.insts {
+            visit_value_operands(&inst.kind, |v| *reads.entry(v).or_default() += 1);
         }
         if let Some(v) = term_operand_value(&block.term) {
             *reads.entry(v).or_default() += 1;
         }
     }
+    reads
+}
+
+/// The exit test plan of a loop whose bound informs nothing but the
+/// exit test (see `demand`): every compared image made in its compare's
+/// block, every compare read only by its block's branch and leaving
+/// every loop holding it, and no bound taken as it is. A test inside
+/// another loop exits once per outer round, each exit paying the f64
+/// test a copy would not; such a loop is copied. `reads` counts the
+/// reads of the whole function.
+pub(super) fn plan(
+    func: &Function,
+    loops: &LoopAnalysis,
+    header: BlockId,
+    region: &HashSet<BlockId>,
+    uses: &[BoundUse],
+    reads: &HashMap<ValueId, usize>,
+) -> Option<ExitTest> {
+    let served = |u: &BoundUse| u.round != Round::Exact && leaves_every_loop(func, loops, u.block);
+    if uses.is_empty() || !uses.iter().all(served) {
+        return None;
+    }
     let mut sites = Vec::new();
-    let mut counters = Vec::new();
-    let mut images: HashSet<ValueId> = HashSet::default();
     for u in uses {
         let block = &func.blocks[u.block.0 as usize];
         let InstKind::FCmp(_, Operand::Value(l), Operand::Value(r)) = &block.insts[u.inst].kind
@@ -132,29 +140,16 @@ pub(super) fn plan(
             block.term,
             Terminator::CondBr { cond: Operand::Value(c), .. } if c == test
         );
-        if !image_here
-            || !branches_on_test
-            || reads.contains_key(&image)
-            || reads.get(&test) != Some(&1)
-        {
+        if !image_here || !branches_on_test || reads.get(&test) != Some(&1) {
             return None;
         }
-        images.insert(image);
-        counters.extend(match u.counter {
-            Operand::Value(c) => Some(c),
-            _ => None,
-        });
         sites.push(Site {
             block: u.block,
             source: u.source,
             round: u.round,
             pred: u.pred,
+            own_image: reads.get(&image) == Some(&1),
         });
-    }
-    if sites.iter().any(|s| s.round == Round::Exact)
-        || counts_beyond(func, region, &[&counters, values].concat(), &images)
-    {
-        return None;
     }
     Some(ExitTest {
         header,
@@ -163,57 +158,10 @@ pub(super) fn plan(
     })
 }
 
-/// Whether some instruction of the loop does more with the counter than
-/// count: everything derived from it by a copy or a constant step or
-/// scale is followed; a constant non-negative mask, a call argument, a stored
-/// value and the compared image end the trail; anything else is a use
-/// the bound could inform.
-fn counts_beyond(
-    func: &Function,
-    region: &HashSet<BlockId>,
-    counters: &[ValueId],
-    images: &HashSet<ValueId>,
-) -> bool {
-    let mut derived: HashSet<ValueId> = counters.iter().copied().collect();
-    let constant = |o: &Operand| !matches!(o, Operand::Value(_));
-    loop {
-        let before = derived.len();
-        for b in region {
-            let block = &func.blocks[b.0 as usize];
-            for inst in &block.insts {
-                let mut reads = false;
-                visit_value_operands(&inst.kind, |v| reads |= derived.contains(&v));
-                if !reads || inst.result.is_some_and(|r| images.contains(&r)) {
-                    continue;
-                }
-                match &inst.kind {
-                    InstKind::Copy(..) => derived.extend(inst.result),
-                    InstKind::BinOp(
-                        BinOp::Add
-                        | BinOp::Sub
-                        | BinOp::Mul
-                        | BinOp::Shl
-                        | BinOp::AShr
-                        | BinOp::LShr,
-                        a,
-                        c,
-                    ) if constant(a) || constant(c) => derived.extend(inst.result),
-                    InstKind::BinOp(BinOp::And, _, Operand::ConstI64(k))
-                    | InstKind::BinOp(BinOp::And, Operand::ConstI64(k), _)
-                        if *k >= 0 => {}
-                    InstKind::Call(..) | InstKind::CallIndirect(..) => {}
-                    InstKind::Store(Operand::Value(v), _, _) if derived.contains(v) => {}
-                    _ => return true,
-                }
-            }
-            if term_operand_value(&block.term).is_some_and(|v| derived.contains(&v)) {
-                return true;
-            }
-        }
-        if derived.len() == before {
-            return false;
-        }
-    }
+/// One of the block's successors lies outside every loop holding it.
+pub(super) fn leaves_every_loop(func: &Function, loops: &LoopAnalysis, b: BlockId) -> bool {
+    let holding: Vec<_> = loops.loops().iter().filter(|l| l.contains(&b)).collect();
+    successors(&func.blocks[b.0 as usize].term).any(|s| holding.iter().all(|l| !l.contains(&s)))
 }
 
 impl ExitTest {
@@ -295,8 +243,10 @@ fn rounded_bound(func: &mut Function, at: BlockId, s: &Site) -> Operand {
 /// `c = fcmp (sitofp i), n; br c, then, else` becomes `f = icmp i, nb;
 /// o = or f, c; br o, then, else`. The loop keeps one test through the
 /// passes that read its shape; `exit_split`, after them, runs the f64
-/// test only where the integer one fails.
+/// test only where the integer one fails. An image the loop reads
+/// elsewhere stays where it is, and the f64 test gets one of its own.
 fn join_test(func: &mut Function, s: &Site, bound: Operand) {
+    let fresh = (!s.own_image).then(|| push_value(&mut func.values, Type::F64));
     let block = &mut func.blocks[s.block.0 as usize];
     let Terminator::CondBr {
         cond: Operand::Value(test),
@@ -310,11 +260,15 @@ fn join_test(func: &mut Function, s: &Site, bound: Operand) {
         let at = insts.iter().position(|i| i.result == Some(v));
         insts.remove(at.expect("the plan found it in the block"))
     };
-    let test_inst = take(&mut block.insts, test);
+    let mut test_inst = take(&mut block.insts, test);
     let InstKind::FCmp(_, Operand::Value(l), Operand::Value(r)) = test_inst.kind else {
         unreachable!("the plan checked the compare");
     };
-    let image_inst = take(&mut block.insts, if r == s.source { l } else { r });
+    let image = if r == s.source { l } else { r };
+    let image_inst = match fresh {
+        None => take(&mut block.insts, image),
+        Some(own) => own_image(&block.insts, image, own, &mut test_inst),
+    };
     let InstKind::SiToFp(counter) = image_inst.kind else {
         unreachable!("the plan checked the image");
     };
@@ -339,6 +293,25 @@ fn join_test(func: &mut Function, s: &Site, bound: Operand) {
     );
     if let Terminator::CondBr { cond, .. } = &mut func.blocks[s.block.0 as usize].term {
         *cond = either;
+    }
+}
+
+/// A second `sitofp` of the counter, `own`, for the f64 test to read
+/// in place of the `image` the loop reads elsewhere.
+fn own_image(insts: &[Inst], image: ValueId, own: ValueId, test: &mut Inst) -> Inst {
+    let def = insts.iter().find(|i| i.result == Some(image));
+    let kind = def.expect("the plan found it in the block").kind.clone();
+    if let InstKind::FCmp(_, l, r) = &mut test.kind {
+        for o in [l, r] {
+            if matches!(o, Operand::Value(v) if *v == image) {
+                *o = Operand::Value(own);
+            }
+        }
+    }
+    Inst {
+        result: Some(own),
+        kind,
+        origin: None,
     }
 }
 
@@ -372,6 +345,9 @@ mod tests {
             Type::Bool,
             Type::I64,
             Type::I64,
+            Type::F64,
+            Type::F64,
+            Type::F64,
         ];
         let values = tys
             .iter()
@@ -470,6 +446,77 @@ mod tests {
         let mut m = counting(FPred::Olt, extra);
         let stats = version_loops(&mut m);
         assert_eq!((stats.loops_versioned, stats.exit_tests), (1, 0));
+    }
+
+    fn versioned_and_tested(extra: Vec<Inst>) -> (u32, u32) {
+        let stats = version_loops(&mut counting(FPred::Olt, extra));
+        (stats.loops_versioned, stats.exit_tests)
+    }
+
+    #[test]
+    fn the_counters_image_is_followed_into_f64() {
+        let image = || inst(Some(6), InstKind::SiToFp(v(1)));
+        let summed = vec![
+            image(),
+            inst(Some(7), InstKind::BinOp(BinOp::FAdd, v(6), v(0))),
+        ];
+        assert_eq!(versioned_and_tested(summed), (1, 0));
+        let handed_over = vec![image(), inst(None, InstKind::Call(FuncId(0), vec![v(6)]))];
+        assert_eq!(versioned_and_tested(handed_over), (0, 1));
+    }
+
+    #[test]
+    fn a_sum_with_a_value_no_fact_bounds_is_not_one_a_bound_informs() {
+        let summed = vec![
+            inst(Some(8), InstKind::Call(FuncId(0), vec![])),
+            inst(Some(6), InstKind::SiToFp(v(1))),
+            inst(Some(7), InstKind::BinOp(BinOp::FAdd, v(8), v(6))),
+        ];
+        assert_eq!(versioned_and_tested(summed), (0, 1));
+    }
+
+    #[test]
+    fn a_counter_shifted_or_divided_by_a_constant_only_counts() {
+        let shifted = vec![inst(
+            Some(5),
+            InstKind::BinOp(BinOp::Shl, v(1), Operand::ConstI64(32)),
+        )];
+        assert_eq!(versioned_and_tested(shifted), (0, 1));
+        let rem = vec![inst(
+            Some(5),
+            InstKind::BinOp(BinOp::SRem, v(1), Operand::ConstI64(4)),
+        )];
+        assert_eq!(versioned_and_tested(rem), (0, 1));
+        let mut m = counting(
+            FPred::Ogt,
+            vec![inst(
+                Some(5),
+                InstKind::BinOp(BinOp::SRem, v(1), Operand::ConstI64(4)),
+            )],
+        );
+        let stats = version_loops(&mut m);
+        assert_eq!(
+            stats.loops_versioned, 1,
+            "a bound from below sets the remainder's sign"
+        );
+    }
+
+    #[test]
+    fn a_compared_image_read_elsewhere_stays_and_the_f64_test_gets_its_own() {
+        let shared = vec![inst(None, InstKind::Call(FuncId(0), vec![v(2)]))];
+        let mut m = counting(FPred::Olt, shared);
+        let stats = version_loops(&mut m);
+        assert_eq!((stats.loops_versioned, stats.exit_tests), (0, 1));
+        let header = &m.funcs[1].blocks[1].insts;
+        assert!(
+            matches!(header[0].kind, InstKind::SiToFp(_)) && header[0].result == Some(ValueId(2))
+        );
+        let n = header.len();
+        let Some(own) = header[n - 3].result else {
+            panic!("the f64 test's image is defined");
+        };
+        assert!(own != ValueId(2) && matches!(header[n - 3].kind, InstKind::SiToFp(_)));
+        assert!(matches!(header[n - 2].kind, InstKind::FCmp(_, Operand::Value(x), _) if x == own));
     }
 
     #[test]
