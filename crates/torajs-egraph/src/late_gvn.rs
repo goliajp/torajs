@@ -527,6 +527,17 @@ mod tests {
     }
 
     #[test]
+    fn a_load_past_an_arm_that_only_casts_an_address_dedups() {
+        let arm = vec![
+            mk(2, InstKind::PtrToInt(v(0))),
+            mk(5, InstKind::IntToPtr(v(2))),
+        ];
+        let mut m = reads(vec![], vec![], arm);
+        assert_eq!(dedup_pure_ops(&mut m).dedups, 1);
+        assert_eq!(returned(&m), ValueId(1));
+    }
+
+    #[test]
     fn a_load_past_an_arm_that_stores_stays() {
         let arm = vec![void(InstKind::Store(Operand::ConstI64(7), v(0), 8))];
         let mut m = reads(vec![], vec![], arm);
