@@ -21,11 +21,13 @@
 //! walk does not reach reads the module's scope.
 
 use super::super::desugar_with::walk::{expr_children, stmt_exprs};
-use super::super::infer_closure_lets::{let_init_ann, lifted_closure_name};
+use super::super::infer_closure_lets::lifted_closure_name;
 use super::super::{Ast, Expr, ExprId, Stmt};
 use std::collections::HashMap;
 
 mod collisions;
+mod compound;
+mod declare;
 pub(in crate::ast) use collisions::{Collisions, module_and_scopes};
 
 /// The module's scope, the first one the walk makes.
@@ -166,90 +168,6 @@ impl<'a> Builder<'a> {
         }
     }
 
-    /// The lexical declarations a statement list makes in its own
-    /// scope; a `Multi` is spliced into the list it sits in.
-    fn declare(&mut self, scope: u32, list: &'a [Stmt]) {
-        for s in list {
-            match s {
-                Stmt::LetDecl {
-                    name,
-                    type_ann,
-                    init,
-                    is_var: false,
-                    ..
-                } => self.binding(scope, name, type_ann, *init),
-                Stmt::Multi(inner) => self.declare(scope, inner),
-                _ => {}
-            }
-        }
-    }
-
-    /// `var`s belong to the function (or the module) wherever they sit.
-    fn hoist_vars(&mut self, scope: u32, list: &'a [Stmt]) {
-        for s in list {
-            match s {
-                Stmt::LetDecl {
-                    name,
-                    type_ann,
-                    init,
-                    is_var: true,
-                    ..
-                } => self.binding(scope, name, type_ann, *init),
-                Stmt::FnDecl { .. } => {}
-                _ => crate::ast::stmt_nested_lists::for_each_nested_list(s, &mut |l| {
-                    self.hoist_vars(scope, l)
-                }),
-            }
-        }
-    }
-
-    fn binding(&mut self, scope: u32, name: &'a str, ann: &Option<String>, init: ExprId) {
-        if ann.is_none() {
-            self.unannotated.push((scope, name, init));
-        }
-        self.bind(scope, name, ann.clone());
-    }
-
-    /// An unannotated binding that no annotated declaration of the same
-    /// scope answers for takes what its initializer gives it. A callee
-    /// that an enclosing function rebinds is not the module's function
-    /// of that name, so its declared return says nothing.
-    fn infer_unannotated(&mut self) {
-        for (scope, name, init) in std::mem::take(&mut self.unannotated) {
-            if self.scopes[scope as usize].names[name].is_some() {
-                continue;
-            }
-            let mut leaf = init;
-            while let Expr::Array(els) = self.ast.get_expr(leaf)
-                && let Some(&first) = els.first()
-            {
-                leaf = first;
-            }
-            if let Expr::Call { callee, .. } = self.ast.get_expr(leaf)
-                && let Expr::Ident(f) = self.ast.get_expr(*callee)
-                && self.rebound_below_module(scope, f)
-            {
-                continue;
-            }
-            let ann = let_init_ann(self.ast, init, self.declared_rets);
-            self.bind(scope, name, ann);
-        }
-    }
-
-    fn rebound_below_module(&self, scope: u32, name: &str) -> bool {
-        let mut s = scope;
-        loop {
-            let sc = &self.scopes[s as usize];
-            let Some(parent) = sc.parent else {
-                return false;
-            };
-            if sc.names.contains_key(name) {
-                return true;
-            }
-            s = parent;
-        }
-    }
-
     fn function(&mut self, s: &'a Stmt, parent: u32) -> u32 {
         let Stmt::FnDecl { params, body, .. } = s else {
             unreachable!()
@@ -312,32 +230,14 @@ impl<'a> Builder<'a> {
             Stmt::While { body, .. } | Stmt::DoWhile { body, .. } | Stmt::Labeled { body, .. } => {
                 self.block(std::slice::from_ref(body), scope);
             }
-            Stmt::For { init, body, .. } => {
-                // the head's bindings enclose the body (§14.7.4.2)
-                let hs = match init {
-                    Some(i) => self.block(std::slice::from_ref(i), scope),
-                    None => scope,
-                };
-                for e in stmt_exprs(s) {
-                    self.expr(e, hs);
-                }
-                self.block(std::slice::from_ref(body), hs);
-            }
+            Stmt::For { init, body, .. } => self.for_loop(s, init.as_deref(), body, scope),
             Stmt::ForOf {
                 var_name,
                 var_type_ann,
                 body,
                 ..
-            } => {
-                let hs = self.new_scope(Some(scope));
-                self.bind(hs, var_name, var_type_ann.clone());
-                self.block(std::slice::from_ref(body), hs);
-            }
-            Stmt::ForOfSplitIter { var_name, body, .. } => {
-                let hs = self.new_scope(Some(scope));
-                self.bind(hs, var_name, None);
-                self.block(std::slice::from_ref(body), hs);
-            }
+            } => self.for_of(var_name, var_type_ann.clone(), body, scope),
+            Stmt::ForOfSplitIter { var_name, body, .. } => self.for_of(var_name, None, body, scope),
             Stmt::Try {
                 body,
                 catch_param,
@@ -346,27 +246,12 @@ impl<'a> Builder<'a> {
                 finally_body,
                 ..
             } => {
-                self.block(body, scope);
-                let cs = self.new_scope(Some(scope));
-                if let Some(p) = catch_param {
-                    self.bind(cs, p, catch_type.clone());
-                }
-                self.block(catch_body, cs);
-                if let Some(f) = finally_body {
-                    self.block(f, scope);
-                }
+                let catch = (catch_param.as_deref(), catch_type.clone(), &catch_body[..]);
+                self.try_stmt(body, catch, finally_body.as_deref(), scope)
             }
-            // every clause shares the one CaseBlock scope (§14.12.2)
             Stmt::Switch { cases, default, .. } => {
-                let cs = self.new_scope(Some(scope));
-                for list in cases.iter().map(|c| &c.body[..]).chain(default.as_deref()) {
-                    self.declare(cs, list);
-                }
-                for list in cases.iter().map(|c| &c.body[..]).chain(default.as_deref()) {
-                    for st in list {
-                        self.stmt(st, cs);
-                    }
-                }
+                let lists = cases.iter().map(|c| &c.body[..]).chain(default.as_deref());
+                self.switch(lists.collect(), scope)
             }
             _ => {}
         }
