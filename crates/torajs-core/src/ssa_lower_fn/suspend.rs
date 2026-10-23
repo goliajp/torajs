@@ -31,20 +31,24 @@
 //! Every suspension is followed by a throw check: a frame dropped
 //! while it waits is unwound by re-entering it there with a throw
 //! pending (`torajs-promise` `frame::body`), so the body's exception
-//! path releases what it holds. What that path releases is also what
-//! the suspension lists as held, for the frame's trace to report.
+//! path releases what it holds (inside a `try` or a `for…of`, an exit
+//! of its own that runs no handler, `cancel`). What that path releases
+//! is also what the suspension lists as held, for the frame's trace to
+//! report.
 
 use crate::ast::ExprId;
 use crate::ssa::{InstKind, Operand, SuspendKind, SuspendLane, Type};
 use crate::ssa_lower::LowerCtx;
 use crate::ssa_lower_member_promise_value as pv;
 
+mod cancel;
 mod held;
 mod in_place;
 mod object;
 mod read;
 mod then_fused;
 
+pub(crate) use cancel::CANCELLED_PROBE;
 use held::held;
 pub(crate) use object::{cell_of, is_object_cell};
 use read::read_settled;
@@ -180,7 +184,7 @@ fn suspend_on(ctx: &mut LowerCtx<'_>, src: Operand, lane: Type) -> Operand {
     let cb = ctx.cur_block;
     let kind = InstKind::Suspend(SuspendKind::Await, SuspendLane::Promise(lane), src, held);
     let settled = Operand::Value(ctx.f.append_inst(cb, kind, Type::Promise, None));
-    ctx.emit_throw_check_owned(None, settled, Type::Promise);
+    cancel::throw_check(ctx, Some((settled, Type::Promise)));
     settled
 }
 
@@ -217,11 +221,9 @@ fn suspend_direct(ctx: &mut LowerCtx<'_>, eid: ExprId, op: Operand, ty: Type) ->
     let cb = ctx.cur_block;
     let kind = InstKind::Suspend(SuspendKind::Await, SuspendLane::Direct, op, held);
     ctx.f.append_void(cb, kind);
+    cancel::throw_check(ctx, owned.then_some((op, ty)));
     if owned {
-        ctx.emit_throw_check_owned(None, op, ty);
         ctx.owned_member_reads.insert(eid);
-    } else {
-        ctx.emit_throw_check(None);
     }
     op
 }

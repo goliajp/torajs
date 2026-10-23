@@ -21,7 +21,7 @@ impl LowerCtx<'_> {
     /// owned call result dies here, and so does every temp parked on
     /// `temps.throw_live`: release them first (result, then parked
     /// temps newest-first).
-    pub(super) fn emit_throw_path(&mut self, throw_blk: BlockId, owned: Option<(Operand, Type)>) {
+    pub(crate) fn emit_throw_path(&mut self, throw_blk: BlockId, owned: Option<(Operand, Type)>) {
         let live: Vec<ThrowTemp> = self.temps.throw_live.iter().flatten().cloned().collect();
         if let Some(catch) = self.try_stack.last().copied() {
             // the jump into the catch also leaves every frame opened

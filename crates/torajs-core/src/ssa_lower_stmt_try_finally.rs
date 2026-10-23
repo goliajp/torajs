@@ -30,6 +30,9 @@ pub(crate) fn lower(ctx: &mut LowerCtx, fb: BlockId, fbody: &[Stmt], after_blk: 
     ctx.shadow_stack.push(Vec::new());
 
     let (saved_active_slot, saved_tag_slot, saved_value_slot) = emit_o5_suspend(ctx);
+    ctx.pending
+        .finally_throws
+        .push([saved_active_slot, saved_tag_slot, saved_value_slot]);
     crate::ssa_lower_stmt_let_decl_recursive::hoist_forward_boxes(ctx, fbody.iter());
     for s in fbody {
         ctx.lower_stmt(s);
@@ -37,6 +40,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, fb: BlockId, fbody: &[Stmt], after_blk: 
             break;
         }
     }
+    ctx.pending.finally_throws.pop();
     // RFC 20260901-scope-exit-drops — the finally body's own frame
     // closes BEFORE the tail dispatch: its locals are dead on every
     // one of the four ways out, and the dispatch's depth-based drops

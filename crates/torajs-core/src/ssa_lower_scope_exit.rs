@@ -245,4 +245,9 @@ pub(crate) struct PendingExits {
     pub(crate) break_flag: Option<ValueId>,
     /// Same shape for continue.
     pub(crate) continue_flag: Option<ValueId>,
+    /// The `finally` bodies being lowered, outermost first: the three
+    /// slots each one's entry set the pending throw aside in (active,
+    /// tag, value). The value is owned there until the tail puts it
+    /// back.
+    pub(crate) finally_throws: Vec<[ValueId; 3]>,
 }

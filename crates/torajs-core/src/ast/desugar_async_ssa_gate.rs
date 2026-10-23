@@ -9,10 +9,15 @@
 //!
 //! - its body awaits (its own awaits; a nested async value is a
 //!   function of its own and is judged by itself);
-//! - no await sits inside a `try`, a `for…of` (`for await` included)
-//!   or a `class` body: those statements leave through exit protocols
-//!   (finally routing, iterator close) a suspension inside them would
-//!   have to carry across;
+//! - no await sits inside a `class` body, and the function has no
+//!   `for await` (its steps await without spelling one; they still
+//!   drain the queue in place). An await inside a `try` (any of its
+//!   blocks, `await using` included, which `desugar_using` turned into
+//!   one) or a `for…of` moves: the slots their exit protocols keep
+//!   (the pending return, the throw a `finally` set aside, the
+//!   iterator) are stack slots the frame carries across, and a frame
+//!   dropped while it waits there unwinds past the handlers
+//!   (`ssa_lower_fn::suspend::cancel`);
 //! - it never reads `arguments` or `new.target` and makes no dynamic
 //!   `import()` (the same three the state machine refuses);
 //! - no parameter is a synthesized `__` one, and it is no generator,
@@ -97,7 +102,8 @@ pub fn mark_async_ssa_fns(ast: &mut Ast) {
     // module's own awaits; a script's `await` is an identifier
     ast.async_ssa.main = !ast.sloppy_script_goal
         && ast.stmts.iter().any(|s| stmt_awaits(ast, s))
-        && !ast.stmts.iter().any(|s| stmt_blocks(ast, s));
+        && !ast.stmts.iter().any(|s| stmt_blocks(ast, s))
+        && !ast.stmts.iter().any(|s| awaits_in_exit_protocol(ast, s));
 }
 
 fn method_moves(ast: &Ast, m: &ClassMethod) -> bool {
@@ -131,21 +137,29 @@ fn expr_awaits(ast: &Ast, eid: ExprId) -> bool {
             .any(|c| expr_awaits(ast, c))
 }
 
-/// The statement keeps the function off the frame: an await under one
-/// of the protocol statements, or a reserved read anywhere.
+/// An await of the module body inside a `try` or a `for…of`: the body
+/// awaits in place, and those shapes stay with the lowering they had.
+fn awaits_in_exit_protocol(ast: &Ast, s: &Stmt) -> bool {
+    let protocol = matches!(
+        s,
+        Stmt::Try { .. } | Stmt::ForOf { .. } | Stmt::ForOfSplitIter { .. }
+    );
+    (protocol && stmt_awaits(ast, s))
+        || walk::stmt_children_ref(s)
+            .into_iter()
+            .any(|c| awaits_in_exit_protocol(ast, c))
+}
+
+/// The statement keeps the function off the frame: an await in a class
+/// body or a generator step, a `for await`, or a reserved read
+/// anywhere.
 fn stmt_blocks(ast: &Ast, s: &Stmt) -> bool {
     let protocol = matches!(
         s,
-        Stmt::Try { .. }
-            | Stmt::ForOf { .. }
-            | Stmt::ForOfSplitIter { .. }
-            | Stmt::ClassDecl { .. }
-            | Stmt::UsingDecl { .. }
-            | Stmt::Yield(_)
-            | Stmt::YieldInto { .. }
+        Stmt::ClassDecl { .. } | Stmt::Yield(_) | Stmt::YieldInto { .. }
     );
     // a `for await` steps by awaiting without spelling one
-    if protocol && (stmt_awaits(ast, s) || matches!(s, Stmt::ForOf { is_await: true, .. })) {
+    if (protocol && stmt_awaits(ast, s)) || matches!(s, Stmt::ForOf { is_await: true, .. }) {
         return true;
     }
     if loop_head_closes_over(ast, s) {

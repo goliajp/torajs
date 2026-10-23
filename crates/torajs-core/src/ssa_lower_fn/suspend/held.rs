@@ -5,14 +5,17 @@ use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 use crate::ssa_lower_temp_scratch::ThrowTemp;
 
-/// What the body owns at a suspension point: what the throw check
-/// after it releases (no `try` is open around an await here), that is
-/// the owned locals, the temps parked for a throw and the operand the
-/// suspension keeps. The frame's trace reports them while the function
-/// waits there. Left out: a substring view (no cycle passes through
-/// one, and it has no universal header to read), and whatever the
-/// throw path releases by another protocol than a drop of the value
-/// it holds (capture boxes, class cells, relocation slots).
+/// What the body owns at a suspension point: what a cancelled frame's
+/// exit after it releases (`cancel`), that is the owned locals, the
+/// temps parked for a throw and the operand the suspension keeps. The
+/// frame's trace reports them while the function waits there. Left
+/// out: a substring view (no cycle passes through one, and it has no
+/// universal header to read), whatever the throw path releases by
+/// another protocol than a drop of the value it holds (capture boxes,
+/// class cells, relocation slots), and what a `finally` body around
+/// the point may keep aside (a pending return, a suspended throw):
+/// whether those slots hold anything is known only at run time, so a
+/// frame the cycle collector frees there does not release them.
 pub(super) fn held(ctx: &mut LowerCtx<'_>, kept: Option<(Operand, Type)>) -> Vec<Operand> {
     let traced = |ty: Type| !ty.is_copy() && ty != Type::Substr;
     let mut slots: Vec<(crate::ssa::ValueId, Type)> = (ctx.locals.iter())

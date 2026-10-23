@@ -18,7 +18,7 @@
 use std::collections::HashMap;
 
 use crate::ast::Ast;
-use crate::ssa::suspend::{FRAME_PARAMS_OFF, FRAME_SIZE_PLACEHOLDER_BASE};
+use crate::ssa::suspend::{FRAME_DIRECT_OFF, FRAME_PARAMS_OFF, FRAME_SIZE_PLACEHOLDER_BASE};
 use crate::ssa::{
     self, BinOp, FuncId, Inst, InstKind, Module, Operand, SigId, SuspendFn, SuspendRuntime, Type,
 };
@@ -33,6 +33,9 @@ pub(crate) struct FrameCalls {
     pub(crate) ret: FuncId,
     pub(crate) throw: FuncId,
     pub(crate) unwind: FuncId,
+    /// The placeholder the body asks whether its frame is cancelled
+    /// through (`suspend::cancel`); [`frame_body`] reads the word.
+    pub(crate) cancelled: FuncId,
     pub(crate) release_links: FuncId,
     pub(crate) trace_links: FuncId,
     /// The trace visit callback's signature.
@@ -87,6 +90,7 @@ pub(crate) fn preregister(
         ),
         throw: decl("__torajs_frame_throw", &[p], Type::Void),
         unwind: decl("__torajs_frame_unwind", &[p], Type::Void),
+        cancelled: decl(super::suspend::CANCELLED_PROBE, &[], Type::I64),
         release_links: decl("__torajs_frame_release_links", &[p], Type::Void),
         trace_links: decl("__torajs_frame_trace_links", &[p, p, p], Type::Void),
         visit_sig: crate::ssa_lower::intern_fn_sig(fn_sigs, vec![Type::I64, p, p, p], Type::Void),
@@ -182,7 +186,7 @@ pub(crate) fn install(
         resume: slots.resume,
         calls,
     };
-    module.funcs[slots.resume.0 as usize] = frame_body(f, &name);
+    module.funcs[slots.resume.0 as usize] = frame_body(f, &name, calls.cancelled);
     module.funcs[slots.drop.0 as usize] =
         super::async_wrapper::build_drop(&name, &shape, intrinsics);
     module.funcs[slots.trace.0 as usize] = frame_trace(&name, &calls, &traced_params);
@@ -212,9 +216,11 @@ pub(crate) fn install(
 }
 
 /// The body as a function of its frame: the one parameter is the
-/// frame, and each of the body's parameters is read from the frame's
-/// parameter area on entry, under the value it had.
-fn frame_body(mut f: ssa::Function, name: &str) -> ssa::Function {
+/// frame, each of the body's parameters is read from the frame's
+/// parameter area on entry, under the value it had, and each call of
+/// the `cancelled` placeholder becomes the read of the frame's cancel
+/// word.
+fn frame_body(mut f: ssa::Function, name: &str, cancelled: FuncId) -> ssa::Function {
     f.name = format!("__async_resume_{name}");
     let params = std::mem::take(&mut f.params);
     let frame = f.add_param(Type::Ptr, "__frame");
@@ -229,6 +235,11 @@ fn frame_body(mut f: ssa::Function, name: &str) -> ssa::Function {
     });
     let loads: Vec<Inst> = loads.collect();
     f.blocks[0].insts.splice(0..0, loads);
+    for i in f.blocks.iter_mut().flat_map(|b| b.insts.iter_mut()) {
+        if matches!(&i.kind, InstKind::Call(fid, _) if *fid == cancelled) {
+            i.kind = InstKind::Load(Type::I64, Operand::Value(frame), FRAME_DIRECT_OFF);
+        }
+    }
     f
 }
 
