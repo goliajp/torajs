@@ -73,14 +73,15 @@ pub(super) fn aside(ctx: &mut LowerCtx<'_>) -> Vec<Operand> {
         && ret != Type::Substr
     {
         let set = load(ctx, Type::Bool, flag);
-        out.push(read_if(ctx, &[set], ret, slot));
+        out.push(read_if(ctx, 0, &[set], ret, slot));
     }
-    for [active, tag, value] in ctx.pending.finally_throws.clone() {
+    let levels = ctx.pending.finally_throws.clone();
+    for (level, [active, tag, value]) in levels.into_iter().enumerate() {
         let active = load(ctx, Type::I64, active);
         let active = icmp(ctx, IPred::Ne, active, 0);
         let tag = load(ctx, Type::I64, tag);
         let heap = icmp(ctx, IPred::Eq, tag, ANY_HEAP_TAG);
-        out.push(read_if(ctx, &[active, heap], Type::I64, value));
+        out.push(read_if(ctx, level + 1, &[active, heap], Type::I64, value));
     }
     out
 }
@@ -99,9 +100,15 @@ fn icmp(ctx: &mut LowerCtx<'_>, pred: IPred, v: Operand, c: i64) -> Operand {
 }
 
 /// The word `slot` holds (read as `ty`) where every `conds` holds,
-/// else null, through a word of its own.
-fn read_if(ctx: &mut LowerCtx<'_>, conds: &[Operand], ty: Type, slot: ValueId) -> Operand {
-    let word = ctx.alloca_in_entry(Type::Ptr, Some("__aside"));
+/// else null, through aside word `key` of the function.
+fn read_if(
+    ctx: &mut LowerCtx<'_>,
+    key: usize,
+    conds: &[Operand],
+    ty: Type,
+    slot: ValueId,
+) -> Operand {
+    let word = aside_word(ctx, key);
     let store = |ctx: &mut LowerCtx<'_>, v| {
         let k = InstKind::Store(v, Operand::Value(word), 0);
         ctx.f.append_void(ctx.cur_block, k);
@@ -127,4 +134,17 @@ fn read_if(ctx: &mut LowerCtx<'_>, conds: &[Operand], ty: Type, slot: ValueId) -
     ctx.f.set_term(cb, Terminator::Br(join));
     ctx.cur_block = join;
     load(ctx, Type::Ptr, word)
+}
+
+fn aside_word(ctx: &mut LowerCtx<'_>, key: usize) -> ValueId {
+    let words = &mut ctx.pending.aside_words;
+    if words.len() <= key {
+        words.resize(key + 1, None);
+    }
+    if let Some(w) = words[key] {
+        return w;
+    }
+    let w = ctx.alloca_in_entry(Type::Ptr, Some("__aside"));
+    ctx.pending.aside_words[key] = Some(w);
+    w
 }

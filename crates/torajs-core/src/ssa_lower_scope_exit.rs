@@ -250,4 +250,11 @@ pub(crate) struct PendingExits {
     /// tag, value). The value is owned there until the tail puts it
     /// back.
     pub(crate) finally_throws: Vec<[ValueId; 3]>,
+    /// The words a suspension point reads what the finally bodies keep
+    /// aside into (`ssa_lower_fn::suspend::held::aside`): the pending
+    /// return's first, then one per finally level. Each point reads
+    /// them before it parks and holds the values from then on, so every
+    /// point shares one word per level and the frame does not widen
+    /// with the number of points.
+    pub(crate) aside_words: Vec<Option<ValueId>>,
 }
