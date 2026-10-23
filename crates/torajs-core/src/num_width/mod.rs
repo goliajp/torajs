@@ -245,6 +245,10 @@ pub(super) struct Analysis<'a> {
     /// Each callback-taking iteration with the array it walks and that
     /// array's key (`hof_receivers`).
     pub(super) hof_receivers: Vec<(ExprId, ExprId, SlotKeyId)>,
+    /// Each `Promise.all` / `Promise.allSettled` over a container: the
+    /// source array's key and the result's value point
+    /// (`hof_receivers::close_products`).
+    pub(super) array_combinators: Vec<(SlotKeyId, SlotKeyId)>,
     /// Each call that may leave a parameter unfilled: the callee's key,
     /// that position, whether later arguments are unknown (`variadic_short`).
     pub(super) variadic_calls: Vec<(SlotKeyId, usize, bool)>,
@@ -334,6 +338,7 @@ pub(crate) fn analyze(
         mag: Default::default(),
         nonzero_negs,
         hof_receivers: Vec::new(),
+        array_combinators: Vec::new(),
         variadic_calls: Vec::new(),
         fn_flows: Vec::new(),
         idle: std::cell::OnceCell::new(),

@@ -146,6 +146,9 @@ impl Analysis<'_> {
         {
             let src_elem_pv = self.keys.field(self.keys.elem(ak), "value");
             self.combinator_wiring(name, pv, src_elem_pv);
+            if matches!(name, "all" | "allSettled") {
+                self.array_combinators.push((ak, pv));
+            }
         }
     }
 

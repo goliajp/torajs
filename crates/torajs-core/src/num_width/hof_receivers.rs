@@ -61,7 +61,8 @@ pub(crate) fn iterated_array(ast: &Ast, callee: ExprId, args: &[ExprId]) -> Opti
 /// Close the escape faces over the iterations: propagate the `any`
 /// and escape-only seeds (`escape_propagate::propagate`), and when an
 /// iteration that fills a product walks `any` elements, the product
-/// joins them.
+/// joins them, as does a `Promise.all` / `Promise.allSettled` result
+/// over an escaped array (`combinator_products`).
 /// The product holds what the callback answers, and a callback fed
 /// `any` elements through a typed first parameter answers through its
 /// all-`any` twin in any kind (`d.map(v => v + 1)` on a "5" element is
@@ -108,18 +109,36 @@ fn close_products(a: &Analysis<'_>, seeds: &mut Vec<SlotKeyId>) -> (KeySet, Hash
             .filter(|(_, _, k)| any_escaped.contains(&canon_key_frozen(&a.uf, &a.keys, *k)))
             .map(|(_, recv, _)| *recv)
             .collect();
+        let escaped_key = |k: SlotKeyId| any_escaped.contains(&canon_key_frozen(&a.uf, &a.keys, k));
         let products: Vec<SlotKeyId> = a
             .hof_receivers
             .iter()
             .filter(|(call, recv, _)| any_elems(a, &escaped, *recv) && fills_any(a, *call))
             .map(|(call, _, _)| a.keys.anon(call.0))
-            .filter(|k| !any_escaped.contains(&canon_key_frozen(&a.uf, &a.keys, *k)))
+            .chain(combinator_products(a, &escaped_key))
+            .filter(|k| !escaped_key(*k))
             .collect();
         if products.is_empty() {
             return (any_escaped, escaped);
         }
         seeds.extend(products);
     }
+}
+
+/// The result arrays of the `Promise.all` / `Promise.allSettled` calls
+/// over an escaped array. An alias written through `any` can leave a
+/// plain value or a thenable in the source, and §27.2.4.1.2 settles
+/// each element through PromiseResolve, so the result holds values (or
+/// records whose `value` is one) of any kind whatever the source's
+/// element type says: it lowers as an `Arr<Any>`, and so does every
+/// alias of it, the await that reads it included.
+fn combinator_products<'k>(
+    a: &'k Analysis<'_>,
+    escaped_key: &'k impl Fn(SlotKeyId) -> bool,
+) -> impl Iterator<Item = SlotKeyId> + 'k {
+    (a.array_combinators.iter())
+        .filter(|(src, _)| escaped_key(*src))
+        .map(|(_, pv)| *pv)
 }
 
 /// The callback parameters an iteration over `escaped` or an `any[]`
