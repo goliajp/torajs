@@ -36,6 +36,9 @@ pub const ALL_NO_OWN_THEN: i64 = 1;
 /// `flags` bit: `Promise.resolve` stays %Promise.resolve% for the whole
 /// run (the compiler's `promise_statics_pinned`). Mirrored likewise.
 pub const ALL_STATICS_PINNED: i64 = 2;
+/// Both proofs at once: the call site names
+/// [`__torajs_promise_all_sync_proved`] instead of passing these flags.
+pub const ALL_PROVED: i64 = ALL_NO_OWN_THEN | ALL_STATICS_PINNED;
 
 /// Map a source promise's value repr onto the result array's
 /// elem-kind chain (torajs-rc `arr_kind` numbering: 1=I64, 2=F64,
@@ -119,7 +122,33 @@ pub unsafe extern "C" fn __torajs_promise_all_sync(
     target_repr: i64,
     flags: i64,
 ) -> *mut c_void {
-    let target_repr = target_repr as u8;
+    unsafe { all_sync::<false>(promises_arr, target_repr as u8, flags) }
+}
+
+/// [`__torajs_promise_all_sync`] under both whole-program proofs
+/// ([`ALL_PROVED`]), which the call site alone can vouch for. Nothing
+/// here can reach the own-`then` lane or the patched-`resolve` lane, so
+/// an artifact whose every `Promise.all` comes through this entry links
+/// neither, nor the generic member read and call they stand on.
+///
+/// # Safety
+/// As [`__torajs_promise_all_sync`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_promise_all_sync_proved(
+    promises_arr: *mut c_void,
+    target_repr: i64,
+) -> *mut c_void {
+    unsafe { all_sync::<true>(promises_arr, target_repr as u8, ALL_PROVED) }
+}
+
+/// The kernel of both entries; `PROVED` drops the two lanes the
+/// proofs rule out from the code, not only from the run.
+#[inline(always)]
+unsafe fn all_sync<const PROVED: bool>(
+    promises_arr: *mut c_void,
+    target_repr: u8,
+    flags: i64,
+) -> *mut c_void {
     if promises_arr.is_null() {
         return unsafe { defer_settle(STATE_REJECTED, 0, 0, REPR_VOID) };
     }
@@ -130,24 +159,24 @@ pub unsafe extern "C" fn __torajs_promise_all_sync(
     // so §27.2.4.1.3 step 6.r's Get(nextPromise, "then") is
     // %Promise.prototype.then% on every element — the attach this
     // kernel performs on the cell's state directly.
-    let probe_then = flags & ALL_NO_OWN_THEN == 0;
+    let probe_then = !PROVED && flags & ALL_NO_OWN_THEN == 0;
     // With the statics pinned, §27.2.4.1 step 1's GetPromiseResolve reads
     // %Promise.resolve%, and step 6.i's Call of it answers each element
     // itself (§27.2.4.7.1 step 1: its constructor is %Promise%, which the
     // pinned proof leaves unwritten).
-    let consult = flags & ALL_STATICS_PINNED == 0;
+    let consult = !PROVED && flags & ALL_STATICS_PINNED == 0;
     // An `Array<Any>` input carries NaN-box slots (mixed promise /
     // plain-value elements) — the raw-pointer walk below would
     // dereference immediates.
     if unsafe { crate::combinator_any::arr_is_any(promises_arr) } {
-        return unsafe { all_sync_any(promises_arr, probe_then, consult) };
+        return unsafe { all_sync_any::<PROVED>(promises_arr, probe_then, consult) };
     }
     let len = unsafe { arr_len(promises_arr) };
     let s = unsafe { scan(promises_arr, len, target_repr, probe_then) };
     // The lanes in the order they win. An element wearing its own `then`
     // sends the input down the interleaved lane (§27.2.4.1.3 step
     // 6.q-s); see `combinator_then_override`.
-    if s.overridden {
+    if !PROVED && s.overridden {
         return unsafe {
             crate::combinator_then_override::defer_overridden(
                 promises_arr,
@@ -159,7 +188,7 @@ pub unsafe extern "C" fn __torajs_promise_all_sync(
     // §27.2.4 static-slot patch consult (rotation 448) — a user
     // override on `Promise.resolve` detours to the per-element
     // Call(promiseResolve, C, «v») lane; see `combinator_patched`.
-    if consult && unsafe { crate::combinator_patched::consult_active() } {
+    if !PROVED && consult && unsafe { crate::combinator_patched::consult_active() } {
         return unsafe { crate::combinator_patched::run_all(promises_arr) };
     }
     // A genuinely pending element is the one thing this kernel cannot
@@ -208,9 +237,14 @@ pub unsafe extern "C" fn __torajs_promise_all_sync(
 
 /// The any-shape input: the lanes in the same order, each asked of
 /// the NaN-box slots by its own walk.
-unsafe fn all_sync_any(arr: *mut c_void, probe_then: bool, consult: bool) -> *mut c_void {
+unsafe fn all_sync_any<const PROVED: bool>(
+    arr: *mut c_void,
+    probe_then: bool,
+    consult: bool,
+) -> *mut c_void {
     unsafe {
-        if probe_then
+        if !PROVED
+            && probe_then
             && let Some(out) = crate::combinator_then_override::defer_on_then_override(
                 arr,
                 MODE_ALL,
@@ -219,7 +253,7 @@ unsafe fn all_sync_any(arr: *mut c_void, probe_then: bool, consult: bool) -> *mu
         {
             return out;
         }
-        if consult && crate::combinator_patched::consult_active() {
+        if !PROVED && consult && crate::combinator_patched::consult_active() {
             return crate::combinator_patched::run_all(arr);
         }
         // §27.2.4.1.2 step 5.f and siblings — every element goes

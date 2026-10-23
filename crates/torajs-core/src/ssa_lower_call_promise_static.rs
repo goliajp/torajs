@@ -144,6 +144,26 @@ const ALL_NO_OWN_THEN: i64 = 1;
 /// torajs-promise `combinator_all_sync::ALL_STATICS_PINNED`:
 /// `Promise.resolve` is pinned, so the patch consult cannot answer yes.
 const ALL_STATICS_PINNED: i64 = 2;
+/// Both proofs: the site calls [`ALL_SYNC_PROVED`], which takes no flags
+/// word and carries neither lane the proofs rule out.
+const ALL_PROVED: i64 = ALL_NO_OWN_THEN | ALL_STATICS_PINNED;
+/// torajs-promise `__torajs_promise_all_sync_proved(arr, repr)`.
+const ALL_SYNC_PROVED: &str = "__torajs_promise_all_sync_proved";
+
+/// Declare [`ALL_SYNC_PROVED`], which the intrinsic table does not carry.
+pub(crate) fn declare_all_sync_proved(
+    module: &mut crate::ssa::Module,
+    fn_table: &mut std::collections::HashMap<String, crate::ssa::FuncId>,
+) {
+    let args = [Type::Ptr, Type::I64];
+    crate::ssa_lower_synthesize_main::declare_intrinsic(
+        module,
+        fn_table,
+        ALL_SYNC_PROVED,
+        &args,
+        Type::Promise,
+    );
+}
 
 /// What the whole program lets `Promise.all`'s sync kernel skip.
 fn all_proof_flags(ctx: &LowerCtx<'_>) -> i64 {
@@ -232,7 +252,7 @@ fn lower_aggregate(ctx: &mut LowerCtx<'_>, eid: ExprId, method: &str, args: &[Ex
         }
         return Operand::Value(v);
     }
-    let fid = match method {
+    let mut fid = match method {
         "all" => ctx.intrinsics.promise_all_sync,
         "race" => ctx.intrinsics.promise_race_sync,
         "any" => ctx.intrinsics.promise_any_sync,
@@ -246,7 +266,10 @@ fn lower_aggregate(ctx: &mut LowerCtx<'_>, eid: ExprId, method: &str, args: &[Ex
     match method {
         "all" => {
             call_args.push(Operand::ConstI64(all_result_elem_repr(ctx, eid)));
-            call_args.push(Operand::ConstI64(all_proof_flags(ctx)));
+            match all_proof_flags(ctx) {
+                ALL_PROVED => fid = ctx.fn_table[ALL_SYNC_PROVED],
+                flags => call_args.push(Operand::ConstI64(flags)),
+            }
         }
         "allSettled" => {
             call_args.push(Operand::ConstI64(allsettled_record_tags(ctx, eid)));

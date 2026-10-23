@@ -67,7 +67,7 @@ pub mod unhandled;
 mod unhandled_report;
 
 pub use combinator::{__torajs_promise_any_sync, __torajs_promise_race_sync};
-pub use combinator_all_sync::__torajs_promise_all_sync;
+pub use combinator_all_sync::{__torajs_promise_all_sync, __torajs_promise_all_sync_proved};
 pub use combinator_allsettled::__torajs_promise_allsettled_sync;
 pub use combinator_dyn::{
     __torajs_promise_all_dyn, __torajs_promise_allsettled_dyn, __torajs_promise_any_dyn,
