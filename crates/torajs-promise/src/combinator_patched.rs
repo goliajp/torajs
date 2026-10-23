@@ -260,3 +260,31 @@ pub(crate) unsafe fn run_any_builtin(arr: *mut c_void) -> *mut c_void {
 pub(crate) unsafe fn run_allsettled_builtin(arr: *mut c_void, record_tags: u64) -> *mut c_void {
     unsafe { run_allsettled_with(arr, record_tags, Resolver::Builtin) }
 }
+
+/// [`run_all_builtin`] for `Promise.all`'s proved entry, over an
+/// any-shape input. §27.2.4.7.1 PromiseResolve(%Promise%, x) answers a
+/// native promise itself when its `constructor` is %Promise%, and
+/// otherwise a promise resolved with x, whose `then` it reads. The
+/// `then` closure proof the entry stands on leaves no object a `then`
+/// and no promise another `constructor` (a `constructor` read or write,
+/// a Promise heritage and a prototype write all open it), so the
+/// generic PromiseResolve's two questions both answer no, and
+/// `__torajs_promise_resolve_any` — identity for a promise, a plain
+/// fulfill otherwise — is the whole step. No element can throw.
+pub(crate) unsafe fn run_all_proved(arr: *mut c_void) -> *mut c_void {
+    unsafe {
+        let len = arr_len(arr);
+        let mut items: Vec<u64> = Vec::with_capacity(len as usize);
+        for i in 0..len {
+            // a BORROWED slot; the resolve consumes a stake of its own
+            let v = crate::combinator_any::any_slot(arr, i);
+            __torajs_anyv_rc_inc(v);
+            let cell = crate::pool::__torajs_promise_resolve_any(v as i64);
+            items.push(__torajs_anyv_box_from_pair(4, cell as i64));
+        }
+        let new_arr = crate::combinator_dyn::items_to_any_arr(items);
+        let out = crate::combinator_any::all_sync_any(new_arr);
+        __torajs_value_drop_heap(new_arr);
+        out
+    }
+}

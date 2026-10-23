@@ -267,7 +267,11 @@ unsafe fn all_sync_any<const PROVED: bool>(
         // was taken for an already-fulfilled value and handed on as
         // itself. The patched lane above does the same thing with the
         // user's override; this is its builtin twin.
-        crate::combinator_patched::run_all_builtin(arr)
+        if PROVED {
+            crate::combinator_patched::run_all_proved(arr)
+        } else {
+            crate::combinator_patched::run_all_builtin(arr)
+        }
     }
 }
 
