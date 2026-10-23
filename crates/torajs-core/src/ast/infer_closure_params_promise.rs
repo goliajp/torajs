@@ -52,12 +52,12 @@ pub(super) fn resolve_promise_inner_ann(
                 return None;
             }
             args.first()
-                .and_then(|a| resolve_arg_ann(ast, *a, t.all_anns))
+                .and_then(|a| resolve_arg_ann(ast, *a, t.scopes.at(eid)))
         }
         "then" | "catch" => {
             let src = || resolve_promise_inner_ann(ast, *obj, t);
-            let ok_leg = |cb| handler_ret_ann(ast, cb, Leg::Fulfil, src, t);
-            let err_leg = |cb| handler_ret_ann(ast, cb, Leg::Reject, src, t);
+            let ok_leg = |cb| handler_ret_ann(ast, (eid, cb), Leg::Fulfil, src, t);
+            let err_leg = |cb| handler_ret_ann(ast, (eid, cb), Leg::Reject, src, t);
             match (name.as_str(), &args[..]) {
                 // §27.2.5.4: the derived promise settles from whichever
                 // handler runs, so its value is either handler's return;
@@ -112,7 +112,7 @@ enum Leg {
 /// (`never`).
 fn handler_ret_ann(
     ast: &Ast,
-    cb: ExprId,
+    (call, cb): (ExprId, ExprId),
     leg: Leg,
     src: impl FnOnce() -> Option<String>,
     t: &PromiseTables<'_>,
@@ -124,7 +124,7 @@ fn handler_ret_ann(
         Expr::Null => return pass_through(leg, src),
         Expr::Ident(n) if n == "undefined" => return pass_through(leg, src),
         // a binding of the name shadows the top-level function
-        Expr::Ident(n) if !t.all_anns.contains_key(n) => {
+        Expr::Ident(n) if !t.scopes.at(call).contains_key(n) => {
             if typed_lane_handler(ast, n) && src().is_some_and(|s| s == "any") {
                 return Some("any".to_string());
             }

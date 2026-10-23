@@ -1,13 +1,6 @@
 //! Backward inference of anonymous-closure param/return type annotations
 //! from the call site that consumes them.
 //!
-//! Chunk 342 — extracted from ast.rs. The pass + its two helper walkers
-//! (`collect_let_anns` for explicit let annotations, `collect_let_init_anns`
-//! for literal-init shape inference) form one logical unit and lift
-//! cleanly into a single sibling. ast.rs re-exports `infer_anonymous_closure_params`
-//! so external callers (`crates/torajs-cli/src/{cmd_build,main,lsp}.rs`)
-//! keep their existing `ast::infer_anonymous_closure_params` path.
-//!
 //! RFC 20260705 chunk 554 — two contextual-typing extensions:
 //! - **chained receivers**: `b.reverse().sort((x, y) => x - y)` — the
 //!   receiver walks through identity-preserving Array methods
@@ -217,11 +210,7 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
             continue;
         };
         if matches!(name.as_str(), "then" | "catch") {
-            let tables = PromiseTables::new(
-                ann_scopes.at(ExprId(i as u32)),
-                &fn_ret_anns,
-                lazy.sole(ast),
-            );
+            let tables = PromiseTables::new(&ann_scopes, &fn_ret_anns, lazy.sole(ast));
             let (counts, sink) = (&fn_user_param_count, &mut seeds.param_only);
             seed_then_catch_params(ast, obj, &name, &tables, &closure_args, counts, sink);
             continue;

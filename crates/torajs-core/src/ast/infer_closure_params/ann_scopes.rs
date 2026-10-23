@@ -18,8 +18,7 @@
 //! The walk is paid only by a program in which some name is declared
 //! twice with different annotations; everywhere else the flat table
 //! already gives every site the answer the scopes would. A site the
-//! walk does not reach, and a name no enclosing scope declares, read
-//! the flat table.
+//! walk does not reach reads the module's scope.
 
 use super::super::desugar_with::walk::{expr_children, stmt_exprs};
 use super::super::infer_closure_lets::{let_init_ann, lifted_closure_name};
@@ -28,6 +27,9 @@ use std::collections::HashMap;
 
 mod collisions;
 pub(in crate::ast) use collisions::{Collisions, module_and_scopes};
+
+/// The module's scope, the first one the walk makes.
+const ROOT: u32 = 0;
 
 pub(in crate::ast) struct AnnScopes {
     flat: HashMap<String, String>,
@@ -48,8 +50,14 @@ pub(in crate::ast) struct Anns<'a> {
 }
 
 impl<'a> Anns<'a> {
+    /// A site the walk did not reach reads the module's bindings; a
+    /// name no enclosing scope declares is not bound there, whatever
+    /// another function calls the same name.
     pub(in crate::ast) fn get(&self, name: &str) -> Option<&'a String> {
-        let mut s = self.scope;
+        if self.t.scopes.is_empty() {
+            return self.t.flat.get(name);
+        }
+        let mut s = Some(self.scope.unwrap_or(ROOT));
         while let Some(i) = s {
             let sc = &self.t.scopes[i as usize];
             if let Some(ann) = sc.names.get(name) {
@@ -57,7 +65,7 @@ impl<'a> Anns<'a> {
             }
             s = sc.parent;
         }
-        self.t.flat.get(name)
+        None
     }
 
     pub(in crate::ast) fn contains_key(&self, name: &str) -> bool {
@@ -249,6 +257,10 @@ impl<'a> Builder<'a> {
         let fs = self.new_scope(Some(parent));
         for p in params {
             self.bind(fs, &p.name, p.type_ann.clone());
+        }
+        // a default is evaluated in the parameters' scope (§10.2.11)
+        for d in params.iter().filter_map(|p| p.default) {
+            self.expr(d, fs);
         }
         self.hoist_vars(fs, body);
         self.declare(fs, body);

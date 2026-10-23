@@ -3,7 +3,7 @@
 //! is written `Promise<T>`.
 
 use super::super::desugar_with::walk::stmt_children_ref;
-use super::super::infer_closure_params::{Anns, SoleBindings};
+use super::super::infer_closure_params::{AnnScopes, SoleBindings};
 use super::super::{Ast, ExprId, Stmt};
 use crate::ast_desugar_builtin_new::promise::context::{promise_inner, settled};
 use crate::check_type_of_call_promise_then::is_reject_mint;
@@ -12,9 +12,9 @@ use std::collections::HashMap;
 
 /// What a receiver's inner type is read from.
 pub(in crate::ast) struct PromiseTables<'a> {
-    /// the flat receiver table — read for a `Promise.resolve(x)`
-    /// argument and for whether a name is bound at all
-    pub all_anns: Anns<'a>,
+    /// the receiver table — read, at the call being resolved, for a
+    /// `Promise.resolve(x)` argument and for whether a name is bound
+    pub scopes: &'a AnnScopes,
     pub fn_ret_anns: &'a HashMap<String, Option<String>>,
     pub bindings: &'a SoleBindings<'a>,
     /// how deep the reading of initializers and returns has gone; a
@@ -27,12 +27,12 @@ const MAX_DEPTH: u32 = 32;
 
 impl<'a> PromiseTables<'a> {
     pub(in crate::ast) fn new(
-        all_anns: Anns<'a>,
+        scopes: &'a AnnScopes,
         fn_ret_anns: &'a HashMap<String, Option<String>>,
         bindings: &'a SoleBindings<'a>,
     ) -> Self {
         PromiseTables {
-            all_anns,
+            scopes,
             fn_ret_anns,
             bindings,
             depth: Cell::new(0),
