@@ -77,7 +77,7 @@ pub(crate) fn synthesize_main(
         if ctx.cur_open() {
             if body.is_some() {
                 // the wrapper drains and exits once the body is done
-                ctx.emit_drops_for_owned_locals();
+                crate::ssa_lower_teardown::emit_local_drops(&mut ctx);
                 let cb = ctx.cur_block;
                 ctx.f.set_term(cb, Terminator::Ret(None));
             } else {
@@ -136,7 +136,8 @@ fn lower_top_level(ctx: &mut LowerCtx<'_>, stmts: &[&Stmt]) {
 }
 
 /// The program's end: run the queued jobs, take the exit code, tear
-/// the top level down, exit with the code. `exit_code` is the module
+/// the top level down when asked (`ssa_lower_teardown`), exit with the
+/// code. `exit_code` is the module
 /// body's exit-code call (`__torajs_module_exit_code`), which runs
 /// the unhandled-rejection sweep itself.
 fn drain_and_exit(ctx: &mut LowerCtx<'_>, exit_code: Option<FuncId>) {
@@ -167,19 +168,6 @@ fn drain_and_exit(ctx: &mut LowerCtx<'_>, exit_code: Option<FuncId>) {
         }
         None => crate::ssa_lower_main_exit::emit_exit_code(ctx),
     };
-    ctx.emit_drops_for_owned_locals();
-    ctx.emit_drops_for_globals();
-    // r505 (A12) — the class cells the prologue fn handed to
-    // the registry.
-    crate::ssa_lower_main_exit::emit_class_cell_registry_release(ctx);
-    // V3-10.b — drain the cycle collector buffer one last
-    // time before returning from main. Cheap when the
-    // buffer is empty; sweeps any orphaned cycles
-    // accumulated during program lifetime so they don't
-    // leak past process exit.
-    ctx.f.append_void(
-        ctx.cur_block,
-        InstKind::Call(ctx.intrinsics.cycle_at_exit_drain, vec![]),
-    );
+    crate::ssa_lower_teardown::emit_main_teardown(ctx);
     crate::ssa_lower_main_exit::emit_exit(ctx, exit_code);
 }

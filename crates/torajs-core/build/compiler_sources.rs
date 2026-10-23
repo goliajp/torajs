@@ -220,4 +220,5 @@ pub(crate) const COMPILER_SOURCE_FILES: &[&str] = &[
     // the for-of closes under a pending throw
     "src/ssa_lower_for_of_teardown.rs",
     "src/ssa_lower_intrinsics_iterator.rs",
+    "src/ssa_lower_teardown.rs",
 ];

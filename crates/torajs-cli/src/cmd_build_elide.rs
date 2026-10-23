@@ -5,8 +5,8 @@
 //! once the hook is assumed away"):
 //!
 //! **Elidable call sites** — `synthesize_main` closes every program
-//! with three calls that are no-ops unless something else in the
-//! artifact can feed them:
+//! with calls that are no-ops unless something else in the artifact
+//! can feed them (the cycle drain only under `TORAJS_TEARDOWN=1`):
 //!
 //! | call | fed only by | guard member |
 //! |---|---|---|

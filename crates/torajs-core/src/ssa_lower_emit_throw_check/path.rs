@@ -66,7 +66,7 @@ impl LowerCtx<'_> {
             }
             // §7.4.9: every for-of the throw leaves closes on its way out
             crate::ssa_lower_for_of_teardown::emit_closes_from(self, 0, true);
-            self.emit_drops_for_owned_locals();
+            crate::ssa_lower_teardown::emit_local_drops(self);
             crate::ssa_lower_main_exit::emit_uncaught_exit(self);
         } else {
             self.cur_block = throw_blk;
@@ -78,7 +78,12 @@ impl LowerCtx<'_> {
             }
             // §7.4.9: every for-of the throw leaves closes on its way out
             crate::ssa_lower_for_of_teardown::emit_closes_from(self, 0, true);
-            self.emit_drops_for_owned_locals();
+            if self.is_main_fn {
+                // the module body: a throw out of it ends the program
+                crate::ssa_lower_teardown::emit_local_drops(self);
+            } else {
+                self.emit_drops_for_owned_locals();
+            }
             self.emit_propagate_ret();
         }
     }
