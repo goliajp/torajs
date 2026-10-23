@@ -40,7 +40,7 @@ use crate::id_hash::HashSet;
 
 use torajs_core::ssa::dominator::DominatorTree;
 use torajs_core::ssa::loop_analysis::LoopAnalysis;
-use torajs_core::ssa::{BlockId, Function, Module};
+use torajs_core::ssa::{BlockId, Function, InstKind, Module, Operand, Type};
 
 use crate::float_demote::cfg::multi_def_values;
 
@@ -61,12 +61,26 @@ pub fn unbox_loop_cells(module: &mut Module) -> AnyNumStats {
             .iter()
             .enumerate()
             .all(|(i, b)| b.id.0 as usize == i);
-        if func.is_declaration() || !dense {
+        if func.is_declaration() || !dense || !may_hold_web(func) {
             continue;
         }
         version_loops(func, &mut stats);
     }
     stats
+}
+
+/// A web starts at a copy into an `any` cell and a plan needs a lane
+/// read of it: a function with no such copy or no such read has no loop
+/// to plan, and is not read for dominators and loops.
+fn may_hold_web(func: &Function) -> bool {
+    let insts = || func.blocks.iter().flat_map(|b| b.insts.iter());
+    insts().any(|i| matches!(i.kind, InstKind::Copy(Type::Any, Operand::Value(_))))
+        && insts().any(|i| {
+            matches!(
+                i.kind,
+                InstKind::AnyIsInt32(_) | InstKind::AnyToInt32(_) | InstKind::AnyToF64(..)
+            )
+        })
 }
 
 /// Plans and installs one loop at a time, innermost first, reading
