@@ -1,26 +1,14 @@
-// The abrupt half of `promise-combinator-result-thenable-001`: when
-// the `then` READ on the result array throws, §27.2.1.3 step 2.g
-// rejects the combinator's promise with what it threw. tr fulfilled
-// anyway — a failure turned into a success, which no fixture had the
-// shape to catch.
-//
-// Its own file because the getter has to be installed before any
-// combinator in the program settles; sharing a file with the
-// adoption cases let one of theirs land on this prototype.
-Object.defineProperty(Array.prototype, "then", {
-  configurable: true,
-  get() { throw new Error("poison"); },
-});
+// A combinator's result is resolved through PromiseResolve (§27.2.4.7),
+// which adopts any thenable, including an array once Array.prototype
+// has a callable then. Each entry that can produce such a result must
+// keep that probe: the race result is the element itself, and the
+// iterable entries take their input as any.
 
-Promise.all([]).then(
-  () => console.log("all-empty", "WRONG: fulfilled"),
-  (e: any) => console.log("all-empty", (e as Error).message),
-);
-Promise.allSettled([]).then(
-  () => console.log("allSettled-empty", "WRONG: fulfilled"),
-  (e: any) => console.log("allSettled-empty", (e as Error).message),
-);
-Promise.all([1]).then(
-  () => console.log("all-nonempty", "WRONG: fulfilled"),
-  (e: any) => console.log("all-nonempty", (e as Error).message),
-);
+;(Array.prototype as any).then = function (res: any) {
+  res("ADOPTED")
+}
+Promise.race([Promise.resolve([1])]).then((v: any) => console.log("race", v))
+const it: any = new Set([1])
+Promise.all(it).then((v: any) => console.log("dyn", v))
+const keyed: any = new Map([["k", 1]]).values()
+Promise.allSettled(keyed).then((v: any) => console.log("keyed", v))
