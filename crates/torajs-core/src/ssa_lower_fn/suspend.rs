@@ -180,11 +180,12 @@ fn await_cell(
 /// The suspension on the owned cell `src`; answers the settled cell,
 /// owned.
 fn suspend_on(ctx: &mut LowerCtx<'_>, src: Operand, lane: Type) -> Operand {
-    let held = held(ctx, None);
+    let aside = held::aside(ctx);
+    let held = held(ctx, None, &aside);
     let cb = ctx.cur_block;
     let kind = InstKind::Suspend(SuspendKind::Await, SuspendLane::Promise(lane), src, held);
     let settled = Operand::Value(ctx.f.append_inst(cb, kind, Type::Promise, None));
-    cancel::throw_check(ctx, Some((settled, Type::Promise)));
+    cancel::throw_check(ctx, Some((settled, Type::Promise)), &aside);
     settled
 }
 
@@ -217,11 +218,12 @@ fn suspend_direct(ctx: &mut LowerCtx<'_>, eid: ExprId, op: Operand, ty: Type) ->
         }
         return op;
     }
-    let held = held(ctx, owned.then_some((op, ty)));
+    let aside = held::aside(ctx);
+    let held = held(ctx, owned.then_some((op, ty)), &aside);
     let cb = ctx.cur_block;
     let kind = InstKind::Suspend(SuspendKind::Await, SuspendLane::Direct, op, held);
     ctx.f.append_void(cb, kind);
-    cancel::throw_check(ctx, owned.then_some((op, ty)));
+    cancel::throw_check(ctx, owned.then_some((op, ty)), &aside);
     if owned {
         ctx.owned_member_reads.insert(eid);
     }

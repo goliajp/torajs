@@ -11,7 +11,8 @@
 //! whether the frame is being cancelled, and a cancelled frame takes
 //! its own exit: it releases the owned operand, the parked temps, the
 //! values the exit protocols keep (a pending return, the throws the
-//! `finally` bodies around it set aside) and every owned local, with
+//! `finally` bodies around it set aside, read into words before the
+//! park) and every owned local, with
 //! no handler, no `finally` body and no IteratorClose, then propagates
 //! the cancelling throw that `frame::body` discards.
 //!
@@ -31,7 +32,11 @@ pub(crate) const CANCELLED_PROBE: &str = "__torajs_frame_cancelled";
 
 /// The throw check after a suspension, `owned` the value it hands the
 /// body (dropped on every throw edge).
-pub(super) fn throw_check(ctx: &mut LowerCtx<'_>, owned: Option<(Operand, Type)>) {
+pub(super) fn throw_check(
+    ctx: &mut LowerCtx<'_>,
+    owned: Option<(Operand, Type)>,
+    aside: &[Operand],
+) {
     if !in_exit_protocol(ctx) {
         match owned {
             Some((op, ty)) => ctx.emit_throw_check_owned(None, op, ty),
@@ -61,7 +66,7 @@ pub(super) fn throw_check(ctx: &mut LowerCtx<'_>, owned: Option<(Operand, Type)>
     branch(ctx, cancelled, cancel, throw_blk);
     ctx.emit_throw_path(throw_blk, owned);
     ctx.cur_block = cancel;
-    unwind(ctx, owned);
+    unwind(ctx, owned, aside);
     ctx.cur_block = normal;
 }
 
@@ -75,8 +80,10 @@ fn in_exit_protocol(ctx: &LowerCtx<'_>) -> bool {
 }
 
 /// The cancelled frame's exit: release everything the body owns here
-/// and propagate.
-fn unwind(ctx: &mut LowerCtx<'_>, owned: Option<(Operand, Type)>) {
+/// and propagate. What the `finally` bodies around the point keep
+/// aside is released through the words read before the park
+/// (`held::aside`), the same words the trace reports.
+fn unwind(ctx: &mut LowerCtx<'_>, owned: Option<(Operand, Type)>, aside: &[Operand]) {
     if let Some((op, ty)) = owned {
         ctx.emit_drop_value(op, ty);
     }
@@ -84,32 +91,14 @@ fn unwind(ctx: &mut LowerCtx<'_>, owned: Option<(Operand, Type)>) {
     for t in live.into_iter().rev() {
         ctx.emit_drop_throw_temp(t);
     }
-    if !ctx.pending.finally_throws.is_empty() {
-        drop_pending_return(ctx);
+    for &p in aside {
+        let drop = InstKind::Call(ctx.intrinsics.value_drop_heap, vec![p]);
+        ctx.f.append_void(ctx.cur_block, drop);
     }
-    for [active, tag, value] in ctx.pending.finally_throws.clone().into_iter().rev() {
-        let set = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Load(Type::I64, Operand::Value(active), 0),
-            Type::I64,
-            None,
-        );
-        let set = test(ctx, set);
-        let release = ctx.f.add_block();
-        let next = ctx.f.add_block();
-        branch(ctx, set, release, next);
-        ctx.cur_block = release;
-        let load = |ctx: &mut LowerCtx<'_>, slot| {
-            let k = InstKind::Load(Type::I64, Operand::Value(slot), 0);
-            Operand::Value(ctx.f.append_inst(ctx.cur_block, k, Type::I64, None))
-        };
-        let (tag, value) = (load(ctx, tag), load(ctx, value));
-        let boxed = InstKind::Call(ctx.intrinsics.any_box, vec![tag, value]);
-        let boxed = ctx.f.append_inst(ctx.cur_block, boxed, Type::Any, None);
-        ctx.emit_drop_value(Operand::Value(boxed), Type::Any);
-        let cb = ctx.cur_block;
-        ctx.f.set_term(cb, Terminator::Br(next));
-        ctx.cur_block = next;
+    // a substring view has no universal header, so no word stands
+    // for a pending return of one
+    if ctx.f.ret == Type::Substr && !ctx.pending.finally_throws.is_empty() {
+        drop_pending_return(ctx);
     }
     ctx.emit_drops_for_owned_locals();
     ctx.emit_propagate_ret();
