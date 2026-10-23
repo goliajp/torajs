@@ -106,6 +106,17 @@ pub fn mark_async_ssa_fns(ast: &mut Ast) {
         && !ast.stmts.iter().any(|s| awaits_in_exit_protocol(ast, s));
 }
 
+/// A method's receiver-polymorphic twin (`__cmany_` / `__smany_`) is
+/// a copy of the method's desugared body, so it moves with the
+/// method: that body has no `try` turning a throw into the rejection
+/// and returns the bare value, which only the lowering of a moved body
+/// settles the result with.
+pub(super) fn mark_twin(ast: &mut Ast, method: &str, twin: &str) {
+    if ast.async_ssa.fns.contains(method) {
+        ast.async_ssa.fns.insert(twin.to_string());
+    }
+}
+
 fn method_moves(ast: &Ast, m: &ClassMethod) -> bool {
     m.accessor_kind.is_none()
         && !m.is_abstract

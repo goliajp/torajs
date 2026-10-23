@@ -114,6 +114,7 @@ pub(in crate::ast) fn mint_generic_twin(
     let twin_name = format!("__cmany_{}", &mono_name["__cm_".len()..]);
     ast.cmany_twins
         .insert(mono_name.to_string(), twin_name.clone());
+    super::desugar_async_ssa_gate::mark_twin(ast, mono_name, &twin_name);
     appended.push(Stmt::FnDecl {
         name: twin_name,
         type_params: type_params.to_vec(),

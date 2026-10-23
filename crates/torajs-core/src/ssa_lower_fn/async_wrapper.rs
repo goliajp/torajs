@@ -125,6 +125,25 @@ pub(crate) fn build_wrapper(
     f
 }
 
+/// `f` (answering the result promise) as a function answering `ret`,
+/// its registered return type: a twin declared to answer `any` boxes
+/// the promise.
+pub(crate) fn answer_as(f: &mut ssa::Function, ret: Type) {
+    if ret != Type::Any || f.ret == Type::Any {
+        return;
+    }
+    for bi in 0..f.blocks.len() {
+        let Terminator::Ret(Some(op)) = f.blocks[bi].term else {
+            continue;
+        };
+        let b = ssa::BlockId(bi as u32);
+        let at = f.blocks[bi].insts.len();
+        let boxed = f.insert_inst(b, at, InstKind::BoxAny(ssa::ANY_SLOT_TAG_HEAP, op), ret);
+        f.blocks[bi].term = Terminator::Ret(Some(Operand::Value(boxed)));
+    }
+    f.ret = ret;
+}
+
 /// The frame's drop: a frame left at a suspension point is first
 /// unwound through its body (`torajs-promise` `frame::body`); then the
 /// parameters' references, the links, and the block go.

@@ -89,6 +89,7 @@ pub(in crate::ast) fn mint_static_generic_twin(
     let twin_name = format!("__smany_{}", &mono_name["__sm_".len()..]);
     ast.smany_twins
         .insert(mono_name.to_string(), twin_name.clone());
+    crate::ast::desugar_async_ssa_gate::mark_twin(ast, mono_name, &twin_name);
     if reads_this {
         ast.smany_reads_this.insert(mono_name.to_string());
     }

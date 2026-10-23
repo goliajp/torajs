@@ -192,8 +192,10 @@ pub(crate) fn install(
     module.funcs[slots.drop.0 as usize] =
         super::async_wrapper::build_drop(&name, &shape, intrinsics);
     module.funcs[slots.trace.0 as usize] = frame_trace(&name, &calls, &traced_params);
-    module.funcs[fid.0 as usize] =
+    let mut wrapper =
         super::async_wrapper::build_wrapper(&name, &shape, &desc_sym, ret_repr, intrinsics);
+    super::async_wrapper::answer_as(&mut wrapper, module.funcs[fid.0 as usize].ret);
+    module.funcs[fid.0 as usize] = wrapper;
     module.suspend_fns.push(SuspendFn {
         wrapper: fid,
         resume: slots.resume,
