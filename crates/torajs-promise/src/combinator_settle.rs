@@ -13,12 +13,33 @@ unsafe extern "C" {
     fn __torajs_rc_inc(p: *mut c_void);
     fn __torajs_value_drop_heap(p: *mut c_void);
     fn __torajs_microtask_enqueue(fn_: crate::layout::MicrotaskFn, arg: i64);
-    /// torajs-anyvalue — §27.2.1.3 steps 2.f-2.l over an already
-    /// pending cell: reads `then` off the value, and either rejects
-    /// with an abrupt read or enqueues the
-    /// NewPromiseResolveThenableJob. Answers 1 when it took the value
-    /// (consuming its stake), 0 to let the caller settle as before.
-    fn __torajs_anyv_promise_settle_thenable(result: *mut c_void, repr: i64, value: i64) -> i64;
+}
+
+// §27.2.1.3 steps 2.f-2.l over an already pending cell (torajs-
+// anyvalue): reads `then` off the value, and either rejects with an
+// abrupt read or enqueues the NewPromiseResolveThenableJob. Answers 1
+// when it took the value (consuming its stake), 0 to let the caller
+// settle as before. Reached through a seam whose default lives in
+// torajs-dispatch: an artifact whose only combinator entry is
+// `Promise.all`'s proved one stands on the `then` closure proof, so no
+// result it settles can have a `then`, and the link shadows the seam
+// with a stub that answers 0. Unit tests carry no dispatch member, so
+// they bridge directly.
+#[cfg(not(test))]
+unsafe extern "C" {
+    fn __torajs_combinator_result_thenable_slow(result: *mut c_void, repr: i64, value: i64) -> i64;
+}
+#[cfg(test)]
+unsafe fn __torajs_combinator_result_thenable_slow(
+    result: *mut c_void,
+    repr: i64,
+    value: i64,
+) -> i64 {
+    unsafe extern "C" {
+        fn __torajs_anyv_promise_settle_thenable(result: *mut c_void, repr: i64, value: i64)
+        -> i64;
+    }
+    unsafe { __torajs_anyv_promise_settle_thenable(result, repr, value) }
 }
 
 /// §27.2.1.3 step 2.f at a combinator's RESULT — the capability's
@@ -47,7 +68,7 @@ unsafe fn result_adopted_as_thenable(p: *mut c_void, repr: u8, value: i64, is_he
         let pp = as_promise(p);
         (*pp).value = 0;
         (*pp).value_is_heap = 0;
-        if __torajs_anyv_promise_settle_thenable(p, repr as i64, value) != 0 {
+        if __torajs_combinator_result_thenable_slow(p, repr as i64, value) != 0 {
             return true;
         }
         (*pp).value = value;
@@ -152,7 +173,7 @@ pub(crate) unsafe fn settle_result(
             let pp = as_promise(p);
             (*pp).value_repr = repr;
             (*pp).value_is_heap = is_heap;
-            if __torajs_anyv_promise_settle_thenable(p, repr as i64, value) != 0 {
+            if __torajs_combinator_result_thenable_slow(p, repr as i64, value) != 0 {
                 return p;
             }
             crate::state::__torajs_promise_resolve(p, value);

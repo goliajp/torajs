@@ -150,7 +150,7 @@ use torajs_link::exec::{ElidableSite, Guard, GuardedStub, SiteShape};
 use crate::cmd_build_synthesize::USER_MAIN_SYM;
 
 mod symbol_stubs;
-use symbol_stubs::SYMBOL_STUBS;
+use symbol_stubs::{SYMBOL_STUBS, ZERO_STUBS};
 
 const NOP: u32 = 0xD503_201F;
 /// `movz w0, #0`.
@@ -276,24 +276,33 @@ pub(crate) fn guarded_stubs() -> Vec<GuardedStub> {
         guard: guard("torajs_weak-", &[weak_hook]),
     }];
     let forced = std::env::var("TORAJS_LINK_STUB_FORCE").unwrap_or_default();
+    // diagnosis: a named stub with no enabler is always taken
+    let guard_of = |sym: &str, writers: &[&str]| {
+        let writers: &[&str] = if forced.split(',').any(|f| f == sym) {
+            &[]
+        } else {
+            writers
+        };
+        Guard::Symbols(writers.iter().map(|w| (*w).to_string()).collect())
+    };
     out.extend(SYMBOL_STUBS.iter().map(|(sym, writers, fam_id)| {
         let (bytes, relocs) = if PTR_RETURNING.contains(sym) {
             crate::cmd_build_dispatch_stubs::reject_stub_body_ptr(*fam_id)
         } else {
             crate::cmd_build_dispatch_stubs::reject_stub_body(*fam_id)
         };
-        // diagnosis: a named stub with no enabler is always taken
-        let writers: &[&str] = if forced.split(',').any(|f| f == *sym) {
-            &[]
-        } else {
-            writers
-        };
         GuardedStub {
             sym: (*sym).to_string(),
             bytes,
             relocs,
-            guard: Guard::Symbols(writers.iter().map(|w| (*w).to_string()).collect()),
+            guard: guard_of(sym, writers),
         }
+    }));
+    out.extend(ZERO_STUBS.iter().map(|(sym, entries)| GuardedStub {
+        sym: (*sym).to_string(),
+        bytes: torajs_link::text_payload::ANSWER_ZERO_STUB.to_vec(),
+        relocs: Vec::new(),
+        guard: guard_of(sym, entries),
     }));
     out
 }
@@ -445,7 +454,21 @@ mod tests {
     #[test]
     fn exotic_slow_path_stubs_are_symbol_guarded_loud_rejects() {
         let stubs = guarded_stubs();
-        assert_eq!(stubs.len(), 21);
+        assert_eq!(stubs.len(), 22);
+        let result_thenable = &stubs[21];
+        assert_eq!(
+            result_thenable.sym,
+            "___torajs_combinator_result_thenable_slow"
+        );
+        assert_eq!(
+            result_thenable.bytes,
+            torajs_link::text_payload::ANSWER_ZERO_STUB
+        );
+        assert!(result_thenable.relocs.is_empty());
+        assert_eq!(
+            result_thenable.guard.to_string(),
+            "syms:___torajs_anyv_promise_resolve"
+        );
         let reparented = &stubs[20];
         assert_eq!(reparented.sym, "___torajs_struct_lacks_in_user_proto_slow");
         assert_eq!(

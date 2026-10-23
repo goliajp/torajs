@@ -51,3 +51,21 @@ pub unsafe extern "C" fn __torajs_promise_settle_thenable_slow(
 ) -> i64 {
     unsafe { __torajs_anyv_promise_settle_thenable(result, repr, value) }
 }
+
+/// Default resolution of the thenable probe on a promise combinator's
+/// result (§27.2.1.3 step 2.f, torajs-anyvalue). The link judgment
+/// shadows it with a stub that answers 0 (declines) when no combinator
+/// entry but `Promise.all`'s proved one is live: that entry stands on
+/// the `then` closure proof, so nothing it settles has a `then`.
+///
+/// # Safety
+/// `result` is a live pending cell; `value` carries the form `repr`
+/// names, owned.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_combinator_result_thenable_slow(
+    result: *mut core::ffi::c_void,
+    repr: i64,
+    value: i64,
+) -> i64 {
+    unsafe { __torajs_anyv_promise_settle_thenable(result, repr, value) }
+}

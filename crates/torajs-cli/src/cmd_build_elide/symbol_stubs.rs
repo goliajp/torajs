@@ -171,3 +171,22 @@ const NAMED_PROP_WRITERS: [&str; 4] = [
     "___torajs_get_builtin_prototype",
     "___torajs_arr_subclass_alloc",
 ];
+
+/// Seams whose stub answers 0 instead of rejecting: the call is made on
+/// every road through its kernel, and with the guard dead 0 is the
+/// exact answer. (shadowed seam, entries whose text liveness
+/// un-assumes the stub)
+pub(super) const ZERO_STUBS: [(&str, &[&str]); 1] = [
+    // the thenable probe on a combinator's result: any combinator entry
+    // but `Promise.all`'s proved one, which stands on the `then` closure
+    // proof, can settle a value that has a `then`. Every one of the
+    // others runs §27.2.4.7 PromiseResolve over its elements through
+    // the any lane's kernel (the sync entries on an any-shape input, the
+    // dyn ones on every element), which the proved entry never calls, so
+    // that one name stands for all eleven, and every `tr build` pays the
+    // judgment for one guard name instead of eleven.
+    (
+        "___torajs_combinator_result_thenable_slow",
+        &["___torajs_anyv_promise_resolve"],
+    ),
+];
