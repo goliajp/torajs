@@ -39,7 +39,15 @@ pub(super) fn build_step_decl(
         });
         let operand = match cx.suspend {
             Suspend::Mark => super::desugar_generators_async::mint_await_mark(ast, call),
-            Suspend::Plain | Suspend::None => call,
+            // the driver awaits what an async function's machine
+            // yields, so the step it sends back is this call's settled
+            // value, as for a `let v = await e` the async rewrite made
+            // (`yield_into_await_origins`)
+            Suspend::Plain => {
+                ast.await_yield_values.insert(call);
+                call
+            }
+            Suspend::None => call,
         };
         Stmt::YieldInto {
             var: step_name.to_string(),
