@@ -42,12 +42,7 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, stmt: &Stmt) {
     };
     let had_catch = *had_catch;
     let entry = checker.flow_entry();
-    // body in a fresh scope
-    checker.scopes.push(HashMap::new());
-    for s in body {
-        checker.check_stmt(ast, s);
-    }
-    checker.scopes.pop();
+    check_list(checker, ast, body, None);
     // ut3 — the catch entry point is any throw site inside the
     // body: no body assignment narrow survives into catch.
     checker.flush_assign_narrows();
@@ -68,14 +63,8 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, stmt: &Stmt) {
         }
         None => Type::Any,
     };
-    checker.scopes.push(HashMap::new());
-    if let Some(p) = catch_param {
-        let _ = checker.declare(p.clone(), LocalInfo::plain(e_ty));
-    }
-    for s in catch_body {
-        checker.check_stmt(ast, s);
-    }
-    checker.scopes.pop();
+    let param = catch_param.as_ref().map(|p| (p, e_ty));
+    check_list(checker, ast, catch_body, param);
     checker.flush_assign_narrows();
     let ends = |b: &[Stmt]| b.last().is_some_and(stmt_diverges);
     let after = if !had_catch || ends(catch_body) {
@@ -89,15 +78,29 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, stmt: &Stmt) {
     if let Some(fb) = finally_body {
         let region: Vec<&Stmt> = body.iter().chain(catch_body).collect();
         checker.join_region_exit(ast, &entry, &region);
-        checker.scopes.push(HashMap::new());
-        for s in fb {
-            checker.check_stmt(ast, s);
-        }
-        checker.scopes.pop();
+        check_list(checker, ast, fb, None);
         checker.flush_assign_narrows();
         // what follows runs after a body or catch that completed, then
         // the finally: the state they left, less what the finally wrote
         let fin: Vec<&Stmt> = fb.iter().collect();
         checker.resume_after(ast, &after, &fin);
     }
+}
+
+/// One of the three blocks in a scope of its own, the catch parameter
+/// bound in it when given. Like any block (`check_block`), its
+/// `let` / `const` are created on entry (§14.2.2), so a closure written
+/// ahead of a declaration in the same block resolves the binding the
+/// declaration makes (`try { const g = () => y; const y = 5; g() }`).
+fn check_list(checker: &mut Checker, ast: &Ast, list: &[Stmt], param: Option<(&String, Type)>) {
+    checker.scopes.push(HashMap::new());
+    if let Some((p, ty)) = param {
+        let _ = checker.declare(p.clone(), LocalInfo::plain(ty));
+    }
+    let saved_hoists = crate::check_hoist_closure_lets::enter(checker, ast, list);
+    for s in list {
+        checker.check_stmt(ast, s);
+    }
+    checker.hoisted_closure_lets = saved_hoists;
+    checker.scopes.pop();
 }

@@ -1,0 +1,6 @@
+t 5
+caught:x
+body
+f 42
+dz ReferenceError
+z 1
