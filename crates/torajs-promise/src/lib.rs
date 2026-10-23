@@ -260,6 +260,19 @@ pub unsafe extern "C" fn __torajs_dynobj_set(
 /// Never called; any call panics.
 #[cfg(test)]
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_dynobj_set_fresh(
+    _obj_slot: *mut *mut core::ffi::c_void,
+    _key: *mut core::ffi::c_void,
+    _tag: u64,
+    _value: u64,
+) {
+    panic!("torajs-promise test stub: dynobj_set_fresh should not be called from cargo test");
+}
+
+/// # Safety
+/// Never called; any call panics.
+#[cfg(test)]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_drop(_s: *mut core::ffi::c_void) {
     panic!("torajs-promise test stub: str_drop should not be called from cargo test");
 }

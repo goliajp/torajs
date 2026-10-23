@@ -36,9 +36,18 @@ unsafe extern "C" {
 
     /// torajs-dynobj + torajs-anyvalue + torajs-str — the tag-less
     /// record path ([`alloc_settled_dynobj`]) builds an ordinary
-    /// object instead of a class-shape cell.
+    /// object instead of a class-shape cell. Its two keys go in through
+    /// the fresh-key insert: the record is a new ordinary object that
+    /// holds neither yet, so the generic [[Set]]'s found path, its
+    /// extensibility gate and its builtin-prototype bookkeeping never
+    /// apply, and they are what roots the accessor and dispatch worlds.
     fn __torajs_dynobj_alloc() -> *mut c_void;
-    fn __torajs_dynobj_set(obj_slot: *mut *mut c_void, key: *mut c_void, tag: u64, value: u64);
+    fn __torajs_dynobj_set_fresh(
+        obj_slot: *mut *mut c_void,
+        key: *mut c_void,
+        tag: u64,
+        value: u64,
+    );
     fn __torajs_anyv_unbox_tag(v: u64) -> i64;
     fn __torajs_anyv_unbox_value(v: u64) -> i64;
     fn __torajs_str_drop(s: *mut c_void);
@@ -126,9 +135,10 @@ unsafe fn alloc_settled_dynobj(state: u8, boxed: u64) -> *mut c_void {
             STATUS_REJECTED_LIT
         });
         // Entry pairs use the AnySlotTag numbering; 4 = Heap, and
-        // the entry adopts the fresh status Str. Keys are cloned by
-        // the store — the caller-side Str drops after each set.
-        __torajs_dynobj_set(&mut obj, k_status, 4, status as u64);
+        // the entry adopts the fresh status Str. The store takes its
+        // own stake in each key — the caller-side Str drops after
+        // each set.
+        __torajs_dynobj_set_fresh(&mut obj, k_status, 4, status as u64);
         __torajs_str_drop(k_status);
         let k_val = make_settled_str(if fulfilled {
             b"value" as &[u8]
@@ -137,7 +147,7 @@ unsafe fn alloc_settled_dynobj(state: u8, boxed: u64) -> *mut c_void {
         });
         let t = __torajs_anyv_unbox_tag(boxed) as u64;
         let v = __torajs_anyv_unbox_value(boxed) as u64;
-        __torajs_dynobj_set(&mut obj, k_val, t, v);
+        __torajs_dynobj_set_fresh(&mut obj, k_val, t, v);
         __torajs_str_drop(k_val);
         obj
     }
