@@ -112,16 +112,7 @@ fn unwind(ctx: &mut LowerCtx<'_>, owned: Option<(Operand, Type)>) {
         ctx.cur_block = next;
     }
     ctx.emit_drops_for_owned_locals();
-    let cb = ctx.cur_block;
-    ctx.f.append_void(cb, InstKind::ThrowSignal);
-    let sentinel = match ctx.f.ret {
-        Type::Void => None,
-        Type::F64 => Some(Operand::ConstF64(0.0)),
-        Type::I32 => Some(Operand::ConstI32(0)),
-        Type::Bool => Some(Operand::ConstBool(false)),
-        _ => Some(Operand::ConstI64(0)),
-    };
-    ctx.f.set_term(cb, Terminator::Ret(sentinel));
+    ctx.emit_propagate_ret();
 }
 
 /// Inside a `finally` body a `return` may be pending: its value is the

@@ -79,17 +79,23 @@ impl LowerCtx<'_> {
             // §7.4.9: every for-of the throw leaves closes on its way out
             crate::ssa_lower_for_of_teardown::emit_closes_from(self, 0, true);
             self.emit_drops_for_owned_locals();
-            let cb2 = self.cur_block;
-            self.f.append_void(cb2, InstKind::ThrowSignal);
-            let ret_ty = self.f.ret;
-            let term = match ret_ty {
-                Type::Void => Terminator::Ret(None),
-                Type::F64 => Terminator::Ret(Some(Operand::ConstF64(0.0))),
-                Type::I32 => Terminator::Ret(Some(Operand::ConstI32(0))),
-                Type::Bool => Terminator::Ret(Some(Operand::ConstBool(false))),
-                _ => Terminator::Ret(Some(Operand::ConstI64(0))),
-            };
-            self.f.set_term(cb2, term);
+            self.emit_propagate_ret();
         }
+    }
+
+    /// Leave the function with the pending throw: signal it and return
+    /// the sentinel of the return type, which the caller's throw check
+    /// does not read.
+    pub(crate) fn emit_propagate_ret(&mut self) {
+        let cb = self.cur_block;
+        self.f.append_void(cb, InstKind::ThrowSignal);
+        let sentinel = match self.f.ret {
+            Type::Void => None,
+            Type::F64 => Some(Operand::ConstF64(0.0)),
+            Type::I32 => Some(Operand::ConstI32(0)),
+            Type::Bool => Some(Operand::ConstBool(false)),
+            _ => Some(Operand::ConstI64(0)),
+        };
+        self.f.set_term(cb, Terminator::Ret(sentinel));
     }
 }

@@ -205,17 +205,6 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) {
     } else {
         crate::ssa_lower_for_of_teardown::emit_closes_from(ctx, 0, true);
         ctx.emit_drops_for_owned_locals();
-        let cb = ctx.cur_block;
-        ctx.f.append_void(cb, InstKind::ThrowSignal);
-        let ret_ty = ctx.f.ret;
-        let term = match ret_ty {
-            Type::Void => Terminator::Ret(None),
-            Type::I64 => Terminator::Ret(Some(Operand::ConstI64(0))),
-            Type::I32 => Terminator::Ret(Some(Operand::ConstI32(0))),
-            Type::Bool => Terminator::Ret(Some(Operand::ConstBool(false))),
-            Type::F64 => Terminator::Ret(Some(Operand::ConstF64(0.0))),
-            _ => Terminator::Ret(Some(Operand::ConstI64(0))),
-        };
-        ctx.f.set_term(cb, term);
+        ctx.emit_propagate_ret();
     }
 }

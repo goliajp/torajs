@@ -217,17 +217,7 @@ fn emit_throw_propagate(ctx: &mut LowerCtx) {
     } else {
         crate::ssa_lower_for_of_teardown::emit_closes_from(ctx, 0, true);
         ctx.emit_drops_for_owned_locals();
-        let cb2 = ctx.cur_block;
-        ctx.f.append_void(cb2, InstKind::ThrowSignal);
-        let ret_ty = ctx.f.ret;
-        let prop_term = match ret_ty {
-            Type::Void => Terminator::Ret(None),
-            Type::F64 => Terminator::Ret(Some(Operand::ConstF64(0.0))),
-            Type::I32 => Terminator::Ret(Some(Operand::ConstI32(0))),
-            Type::Bool => Terminator::Ret(Some(Operand::ConstBool(false))),
-            _ => Terminator::Ret(Some(Operand::ConstI64(0))),
-        };
-        ctx.f.set_term(cb2, prop_term);
+        ctx.emit_propagate_ret();
     }
     ctx.cur_block = no_throw_blk;
 }
