@@ -289,14 +289,6 @@ pub(crate) fn lower_typed_index_checked(
 ) -> Operand {
     use crate::ssa::{IPred, Terminator};
     use crate::ssa_lower::ARR_LEN_OFF;
-    let len = (!upper_proven).then(|| {
-        ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Load(Type::I64, arr_val, ARR_LEN_OFF),
-            Type::I64,
-            None,
-        )
-    });
     let slot_ty = crate::ssa_lower_nullable_guard::undefable_read_ty(elem_ty);
     let promote_bool = slot_ty != elem_ty;
     let owned_str = elem_ty == Type::Str && (nonint.is_some() || oob_asks);
@@ -331,6 +323,17 @@ pub(crate) fn lower_typed_index_checked(
         }
         ctx.cur_block = int_blk;
     }
+    // the length is loaded only on the integral path, after the
+    // non-integral split: between that split's compare and its branch
+    // it kept the compare from fusing into the branch
+    let len = (!upper_proven).then(|| {
+        ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Load(Type::I64, arr_val, ARR_LEN_OFF),
+            Type::I64,
+            None,
+        )
+    });
     // one unsigned compare covers both ends (len never exceeds
     // i64::MAX); a proven upper bound leaves only the sign test
     let out = match len {
