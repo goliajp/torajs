@@ -112,7 +112,9 @@ pub fn version_loops(module: &mut Module) -> IntEntryStats {
             .iter()
             .enumerate()
             .all(|(i, b)| b.id.0 as usize == i);
-        if func.is_declaration() || !dense {
+        // every bound and value a plan converts is an f64
+        let f64s = func.values.iter().any(|v| v.ty == Type::F64);
+        if func.is_declaration() || !dense || !f64s {
             continue;
         }
         let (plans, cyclic) = order::applying_order(func, plan_function(func, &mut stats));
