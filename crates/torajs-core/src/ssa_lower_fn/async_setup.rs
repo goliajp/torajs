@@ -160,14 +160,16 @@ fn frame_trace(name: &str, calls: &FrameCalls, traced: &[u32]) -> ssa::Function 
 pub(crate) fn install(
     module: &mut Module,
     fid: FuncId,
-    f: ssa::Function,
+    mut f: ssa::Function,
     setup: &SuspendSetup,
     intrinsics: &crate::ssa_lower::Intrinsics,
+    arr_layouts: &ssa::ArrLayouts,
 ) {
     let (Some(&slots), Some(calls)) = (setup.slots.get(&f.name), setup.calls) else {
         module.funcs[fid.0 as usize] = f;
         return;
     };
+    mark_returned_arrays(&mut f, arr_layouts, intrinsics.arr_mark_kind);
     let index = module.suspend_fns.len();
     let size_placeholder = FRAME_SIZE_PLACEHOLDER_BASE + index as i64;
     let params: Vec<(String, Type)> = (f.params.iter())
@@ -213,6 +215,31 @@ pub(crate) fn install(
         obj_alloc: intrinsics.obj_alloc,
         obj_drop_sized: intrinsics.obj_drop_sized,
     });
+}
+
+/// Each array the body returns marked with its element kind, as
+/// `Promise.resolve` marks the array it settles with: the result is
+/// read in the `any` lane too (a `.then` handler taking `any`), which
+/// reads the elements by the mark.
+fn mark_returned_arrays(f: &mut ssa::Function, arr_layouts: &ssa::ArrLayouts, mark: FuncId) {
+    for b in &mut f.blocks {
+        let ssa::Terminator::Ret(Some(Operand::Value(v))) = b.term else {
+            continue;
+        };
+        let Type::Arr(id) = f.values[v.0 as usize].ty else {
+            continue;
+        };
+        let elem = arr_layouts[id.0 as usize];
+        let chain = crate::ssa_lower_arr_kind_mark::arr_kind_chain_of(arr_layouts, &elem, 0);
+        if chain != 0 {
+            let args = vec![Operand::Value(v), Operand::ConstI64(chain as i64)];
+            b.insts.push(Inst {
+                result: None,
+                kind: InstKind::Call(mark, args),
+                origin: None,
+            });
+        }
+    }
 }
 
 /// The body as a function of its frame: the one parameter is the

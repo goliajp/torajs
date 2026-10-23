@@ -12,6 +12,7 @@ use crate::ast::{Ast, ExprId, GenericStructDecls, PropKey, Stmt};
 use crate::num_width::WidthTable;
 use crate::ssa::{self, BakedRegexEntry, FuncId, Module, Type};
 use crate::ssa_lower::Intrinsics;
+use crate::ssa_lower_fn::async_setup;
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn run(
@@ -101,7 +102,7 @@ pub(crate) fn run(
                 boxed_entries,
                 &scans,
             );
-            crate::ssa_lower_fn::async_setup::install(module, fid, f, suspend, intrinsics);
+            async_setup::install(module, fid, f, suspend, intrinsics, arr_layouts);
             for s in new_strings {
                 module.strings.push(s);
             }

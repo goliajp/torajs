@@ -17,6 +17,7 @@ use crate::ast::{Ast, Expr, ExprId, Stmt};
 use crate::num_width::WidthTable;
 use crate::ssa::{self, BakedRegexEntry, FnNameEntry, FuncId, Module, Type};
 use crate::ssa_lower::Intrinsics;
+use crate::ssa_lower_fn::async_setup;
 
 /// Chunk 720 — ES §8.4.5 NamedEvaluation for lifted arrows: an
 /// anonymous function definition takes its name from the syntactic
@@ -193,7 +194,7 @@ pub(crate) fn run(
                 boxed_entries,
                 scans,
             );
-            crate::ssa_lower_fn::async_setup::install(module, fid, f, suspend, intrinsics);
+            async_setup::install(module, fid, f, suspend, intrinsics, arr_layouts);
             for s in new_strings {
                 module.strings.push(s);
             }
