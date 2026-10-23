@@ -15,6 +15,7 @@ pub(super) fn join_classes(a: &mut Analysis) -> promise_taint::PromiseTaint {
     a.join_bound_candidates();
     container::objlit_ctor_unions(a);
     container::generator_step_unions(a);
+    container::iterator_step_unions(a);
     slot_abi::dispatch_unions(a);
     slot_abi::relay_unions(a);
     a.alias_nominal_unions();

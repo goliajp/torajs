@@ -216,6 +216,37 @@ pub(super) fn generator_step_unions(a: &mut Analysis) {
     }
 }
 
+/// Iterator step hookup, the class-protocol counterpart of
+/// [`generator_step_unions`]: `for (const v of it)` over an instance of
+/// a class `C` whose `[Symbol.iterator]()` declares iterator class `I`
+/// binds `v` through the parser's `src[i]` element read, which spells
+/// `Elem(Class(C))`, while the loop loads `value` out of what `I`'s
+/// `next()` answers (§7.4.8 IteratorValue). With nothing joining the
+/// two, a fractional `value` met an integer-wide `out` at
+/// `out.push(v)`. Both copies of `next` join, as above.
+pub(super) fn iterator_step_unions(a: &mut Analysis) {
+    use crate::ssa_lower_for_of_iter_protocol_plan::{iterator_method_classes, iterator_next_fn};
+    let mut unions: Vec<(SlotKeyId, SlotKeyId)> = Vec::new();
+    for st in &a.ast.stmts {
+        let Some((src, iter)) = iterator_method_classes(a.ast, st) else {
+            continue;
+        };
+        let elem = a.keys.elem(a.keys.class(src));
+        let next = iterator_next_fn(iter);
+        for m in [next.clone(), next.replacen("__cm_", "__cmany_", 1)] {
+            if a.fn_params.contains_key(&m) {
+                let mr = a.keys.ret(&m);
+                unions.push((elem, a.keys.field(mr, "value")));
+            }
+        }
+    }
+    for (x, y) in unions {
+        a.mark_containerish(x);
+        a.mark_containerish(y);
+        a.uf.union(&a.keys, x, y);
+    }
+}
+
 /// Objlit-nominal constructor hookup: a method-bearing object literal
 /// IS the single constructor of its synthetic `__ObjLit_<n>` type
 /// (ast/objlit_nominal.rs), so its literal-origin Anon key joins the

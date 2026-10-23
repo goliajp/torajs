@@ -73,23 +73,42 @@ pub(crate) struct IterPlan {
 fn iter_class_name(ctx: &LowerCtx, src_class: &str) -> Option<String> {
     let iter_fn = format!("__cm_{src_class}____sym_Symbol_iterator__");
     for st in &ctx.ast.stmts {
-        let Stmt::FnDecl {
-            name, return_type, ..
-        } = st
-        else {
+        let Stmt::FnDecl { name, .. } = st else {
             continue;
         };
         if name != &iter_fn {
             continue;
         }
-        let declared = return_type.as_deref()?;
-        return ctx
-            .ast
-            .class_parents
-            .contains_key(declared)
-            .then(|| declared.to_string());
+        return iterator_method_classes(ctx.ast, st).map(|(_, iter)| iter.to_string());
     }
     None
+}
+
+/// `(source class, iterator class)` when `st` is a class's `@@iterator`
+/// method declaring the class it returns — the one reading of the
+/// protocol the loop's lowering and the width analysis of its binding
+/// share, so the `value` the loop loads is the `value` the analysis
+/// joined the binding to.
+pub(crate) fn iterator_method_classes<'a>(
+    ast: &crate::ast::Ast,
+    st: &'a Stmt,
+) -> Option<(&'a str, &'a str)> {
+    let Stmt::FnDecl {
+        name, return_type, ..
+    } = st
+    else {
+        return None;
+    };
+    let src = name
+        .strip_prefix("__cm_")?
+        .strip_suffix("____sym_Symbol_iterator__")?;
+    let iter = return_type.as_deref()?;
+    ast.class_parents.contains_key(iter).then_some((src, iter))
+}
+
+/// The method a loop over an instance of `iter_class` calls for each step.
+pub(crate) fn iterator_next_fn(iter_class: &str) -> String {
+    format!("__cm_{iter_class}__next")
 }
 
 pub(crate) fn resolve_iter_plan(
@@ -104,7 +123,7 @@ pub(crate) fn resolve_iter_plan(
             iter_sid.0
         );
     };
-    let next_fn = format!("__cm_{iter_cname}__next");
+    let next_fn = iterator_next_fn(&iter_cname);
     let Some(&next_fid) = ctx.fn_table.get(&next_fn) else {
         panic!(
             "ssa-lower: for-of protocol — iter class `{iter_cname}` must declare `next(): IteratorResult<T>` (fn `{next_fn}` not registered)"
