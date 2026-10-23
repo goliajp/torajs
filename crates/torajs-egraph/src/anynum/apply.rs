@@ -122,7 +122,7 @@ pub(super) fn apply(func: &mut Function, plan: &Plan, cells: &HashSet<ValueId>) 
     ins.rewrite_fast(func, cells);
     ins.write_out(func);
     for (from, to) in &plan.cuts {
-        let exit = ins.side_exit(func, *to, &live[to]);
+        let exit = ins.side_exit(func, *to, &live.of(*to));
         let fb = ins.copy.blocks[from];
         retarget_edge(&mut func.blocks[fb.0 as usize].term, *to, exit);
     }
@@ -404,11 +404,10 @@ impl Install<'_> {
     /// A block on an edge into the slow part: the web cells the
     /// target reads are boxed back, every copied value it reads is
     /// written to its own id.
-    fn side_exit(&self, func: &mut Function, target: BlockId, live: &HashSet<ValueId>) -> BlockId {
-        let mut vs: Vec<ValueId> = live.iter().copied().collect();
-        vs.sort_by_key(|v| v.0);
+    /// `live`: the values live into `target`, in id order.
+    fn side_exit(&self, func: &mut Function, target: BlockId, live: &[ValueId]) -> BlockId {
         let mut insts: Vec<Inst> = Vec::new();
-        for v in vs {
+        for &v in live {
             if let Some(l) = self.lanes.get(&v) {
                 let boxed = self.rebox(func, *l, &mut insts);
                 insts.push(mk(v, InstKind::Copy(Type::Any, val(boxed))));
