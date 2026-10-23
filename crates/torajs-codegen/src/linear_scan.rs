@@ -33,8 +33,8 @@
 //! params take their AAPCS64 lanes (`X0..X7` and `V0..V7` counted
 //! independently) from `linear_scan_lanes::param_lanes`.
 
-use torajs_core::ssa::Function;
 use torajs_core::ssa::block_freq::ENTRY_FREQ;
+use torajs_core::ssa::{Function, InstKind, Operand};
 
 use crate::coalesce::build_copy_classes;
 use crate::compile::InlineSites;
@@ -94,6 +94,16 @@ pub(crate) fn allocate_linear_scan_reserving(
     sweep.unspillable = crate::vec_homes::vector_values(func, &classes);
     sweep.log = crate::linear_scan_dump::wanted(func);
     sweep.alloca_slots = alloca_offsets;
+    // an inline append's result lands where its accumulator is, or moves
+    for inst in func.blocks.iter().flat_map(|b| &b.insts) {
+        if let (Some(r), InstKind::Call(_, args)) = (inst.result, &inst.kind)
+            && let Some(Operand::Value(acc)) = args.first()
+            && inline.appends_in_place(&inst.kind)
+        {
+            let (r, acc) = (classes.leader(r.0), classes.leader(acc.0));
+            sweep.hints.insert(r, acc);
+        }
+    }
 
     // Sweep every interval (params + inst/alloca results) by start;
     // ties broken by ValueId to keep the sweep deterministic.

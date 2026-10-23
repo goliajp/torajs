@@ -51,6 +51,14 @@ impl InlineSites {
             && slot <= str_append_substr::VIEW_REACH
     }
 
+    /// Whether the call `kind` is an append opened inline, whose fast
+    /// arm leaves the accumulator (its first operand) as the result: a
+    /// move unless the two share a register.
+    pub(crate) fn appends_in_place(self, kind: &InstKind) -> bool {
+        self.str_append.is_some_and(|s| s.literal(kind).is_some())
+            || self.str_append_substr.is_some_and(|s| s.matches(kind))
+    }
+
     /// Whether the call `kind` reaches its `bl` only on a slow arm.
     pub(crate) fn opens_inline(self, kind: &InstKind) -> bool {
         self.cells.is_some_and(|c| c.inline_class(kind).is_some())

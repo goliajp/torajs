@@ -19,7 +19,9 @@ impl Sweep<'_> {
         crossing: bool,
         call_sites: &[u32],
     ) {
-        let reg = if crossing && self.unspillable.contains(&vid) {
+        let reg = if let Some(r) = self.hinted(vid, is_fp, crossing) {
+            r
+        } else if crossing && self.unspillable.contains(&vid) {
             self.alloc_crossing_vector(vid, interval)
         } else if crossing
             && !crate::linear_scan_calls::live_across_a_call(

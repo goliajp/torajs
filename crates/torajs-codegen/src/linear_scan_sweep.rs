@@ -86,6 +86,9 @@ pub(crate) struct Sweep<'a> {
     pub(crate) save_calls: bool,
     /// `TORAJS_REGALLOC_DUMP`: narrate evictions and shares to stderr.
     pub(crate) log: bool,
+    /// A value whose definition costs a move unless it lands where
+    /// another one is, keyed to that one (`linear_scan_alloc`).
+    pub(crate) hints: HashMap<u32, u32>,
 }
 
 /// Most values that hold one register at a time: finding a register to
@@ -138,6 +141,7 @@ impl<'a> Sweep<'a> {
             used_callee_gpr_mask: 0,
             used_callee_fpr_mask: 0,
             weights,
+            hints: HashMap::default(),
             caller_crossing: Vec::new(),
             saved: HashSet::default(),
             call_costs,

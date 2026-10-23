@@ -54,23 +54,59 @@ impl Sweep<'_> {
                 continue;
             }
             seen |= 1 << k;
-            if self.holders[k] >= MAX_HOLDERS || self.saved_holders[k] > 0 {
-                continue;
-            }
-            if self.unions[k].is_none() {
-                let mut u: Vec<(u32, u32)> = Vec::new();
-                for &(v, _, _) in self.active.iter().filter(|e| e.2 == reg) {
-                    u = LiveRanges::union_from(&u, self.ranges.of(v), self.at);
-                }
-                self.unions[k] = Some(u);
-            }
-            let union = self.unions[k].as_deref().unwrap_or_default();
-            if !LiveRanges::intersect(union, mine) {
-                if self.log {
-                    eprintln!("  share %{vid} -> {reg:?}");
-                }
+            if self.sharable(vid, reg) {
                 return Some(reg);
             }
+        }
+        None
+    }
+
+    /// Whether `vid` may take `reg`, a register the active set holds,
+    /// beside its holders: none is live where `vid` is, none is saved
+    /// around calls, and it has room for one more.
+    pub(crate) fn sharable(&mut self, vid: u32, reg: Reg) -> bool {
+        let Some(k) = slot(reg) else {
+            return false;
+        };
+        if self.holders[k] == 0 || self.holders[k] >= MAX_HOLDERS || self.saved_holders[k] > 0 {
+            return false;
+        }
+        if self.unions[k].is_none() {
+            let mut u: Vec<(u32, u32)> = Vec::new();
+            for &(v, _, _) in self.active.iter().filter(|e| e.2 == reg) {
+                u = LiveRanges::union_from(&u, self.ranges.of(v), self.at);
+            }
+            self.unions[k] = Some(u);
+        }
+        let union = self.unions[k].as_deref().unwrap_or_default();
+        let mine = self.ranges.of(vid);
+        let free = !mine.is_empty() && !LiveRanges::intersect(union, mine);
+        if free && self.log {
+            eprintln!("  share %{vid} -> {reg:?}");
+        }
+        free
+    }
+
+    /// The register of the value `vid` is hinted to, when `vid` may
+    /// share it: a callee-saved one when `vid` crosses a call.
+    pub(crate) fn hinted(&mut self, vid: u32, is_fp: bool, crossing: bool) -> Option<Reg> {
+        if !self.share {
+            return None;
+        }
+        let reg = *self.by_value.get(self.hints.get(&vid)?)?;
+        if !(in_pool(reg, is_fp, true) || !crossing && in_pool(reg, is_fp, false)) {
+            return None;
+        }
+        // the hinted value died where `vid` starts: its register is free
+        if let Reg::Gpr(g) = reg
+            && self.free_callee_gpr.contains(&g)
+        {
+            self.free_callee_gpr.retain(|&f| f != g);
+            self.used_callee_gpr_mask |= 1 << g.idx();
+            return Some(reg);
+        }
+        if self.claim(reg) || self.sharable(vid, reg) {
+            return Some(reg);
         }
         None
     }
