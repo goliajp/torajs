@@ -24,11 +24,17 @@
 //! analysis has a fact for. A divisor's window starts at 1, so the
 //! `%` the copy does is the integer one.
 //!
+//! A loop whose bound informs nothing but its exit test is not copied:
+//! an integer test that implies the f64 one goes in front of it
+//! ([`exit_test`]).
+//!
 //! Runs after `frem_narrow` — whose truncation rule does not check
 //! 2^53 and must not be fed the `sitofp`s minted here — and before
 //! the interval analysis, which reads the assumption back out of the
 //! checks. `TORAJS_INT_ENTRY_OFF=1` skips it.
 
+pub(crate) mod exit_split;
+mod exit_test;
 pub(crate) mod guard;
 mod order;
 pub(crate) mod region;
@@ -60,6 +66,8 @@ pub struct IntEntryStats {
     pub skipped_escaping: u32,
     /// loops left alone: too large to copy
     pub skipped_budget: u32,
+    /// loops given an integer exit test instead of a copy
+    pub exit_tests: u32,
 }
 
 const REGION_INST_BUDGET: usize = 512;
@@ -114,7 +122,8 @@ pub fn version_loops(module: &mut Module) -> IntEntryStats {
         if func.is_declaration() || !dense || !f64s {
             continue;
         }
-        let (plans, cyclic) = order::applying_order(func, plan_function(func, &mut stats));
+        let (plans, tests) = plan_function(func, &mut stats);
+        let (plans, cyclic) = order::applying_order(func, plans);
         stats.skipped_escaping += cyclic;
         for plan in plans {
             apply(func, &plan);
@@ -122,11 +131,19 @@ pub fn version_loops(module: &mut Module) -> IntEntryStats {
             stats.bounds_converted += plan.uses.len() as u32;
             stats.values_converted += plan.values.len() as u32;
         }
+        // after the copies: they only append blocks and rename reads
+        for test in &tests {
+            exit_test::apply(func, test);
+            stats.exit_tests += 1;
+        }
     }
     stats
 }
 
-fn plan_function(func: &Function, stats: &mut IntEntryStats) -> Vec<Plan> {
+fn plan_function(
+    func: &Function,
+    stats: &mut IntEntryStats,
+) -> (Vec<Plan>, Vec<exit_test::ExitTest>) {
     let dom = DominatorTree::compute(func);
     let loops = LoopAnalysis::compute(func, &dom);
     let mut outermost_first: Vec<_> = loops.loops().iter().collect();
@@ -143,6 +160,7 @@ fn plan_function(func: &Function, stats: &mut IntEntryStats) -> Vec<Plan> {
     }
 
     let mut plans = Vec::new();
+    let mut tests = Vec::new();
     let mut taken: HashSet<BlockId> = HashSet::default();
     let mut budget = FUNCTION_INST_BUDGET;
     for l in outermost_first {
@@ -174,6 +192,17 @@ fn plan_function(func: &Function, stats: &mut IntEntryStats) -> Vec<Plan> {
             }
         }
         if uses.is_empty() && values.is_empty() {
+            continue;
+        }
+        // a test inside another loop exits once per outer round, each
+        // exit paying the f64 test the copy would not
+        let outermost = uses.iter().all(|u| loops.nest_depth(u.block) == 1);
+        if let Some(test) =
+            exit_test::plan(func, l.header, &region, &uses, &values, !seeded.is_empty())
+                .filter(|_| outermost)
+        {
+            taken.extend(region);
+            tests.push(test);
             continue;
         }
         let size: usize = l
@@ -212,7 +241,7 @@ fn plan_function(func: &Function, stats: &mut IntEntryStats) -> Vec<Plan> {
             readers,
         });
     }
-    plans
+    (plans, tests)
 }
 
 /// A sign-extension pair or a bitwise operator: the loop is doing

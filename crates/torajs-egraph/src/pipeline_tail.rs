@@ -161,6 +161,12 @@ pub(crate) fn finish_pipeline(
     // in the header; before block_layout, which lays out the preheader
     // and exit blocks it adds. `TORAJS_CONCAT_LICM_OFF=1` skips.
     gated_pass("CONCAT_LICM", module, concat_licm::hoist_concats);
+    // The f64 half of an int_entry exit test off the integer half's
+    // path; after concat_licm, the last pass that reads a loop by its
+    // test. `TORAJS_EXIT_SPLIT_OFF=1` skips.
+    gated_pass("EXIT_SPLIT", module, |m| {
+        crate::int_entry::exit_split::split_exit_tests(m)
+    });
     // One address per symbol in a call-free run of a block, so codegen
     // folds a read and a write of one module `let` through one page;
     // after every pass that adds or moves instructions.
