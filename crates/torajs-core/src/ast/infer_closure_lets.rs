@@ -19,8 +19,14 @@ pub(super) fn let_init_ann(
         Expr::Number(_) => Some("number".into()),
         Expr::String(_) => Some("string".into()),
         Expr::Bool(_) => Some("boolean".into()),
+        // every element has to name the same type: the first alone
+        // reads a tuple such as `["hour", 1n]` as `string[]`
         Expr::Array(els) if !els.is_empty() => {
-            let_init_ann(ast, els[0], declared_rets).map(|inner| format!("{inner}[]"))
+            let first = let_init_ann(ast, els[0], declared_rets)?;
+            els[1..]
+                .iter()
+                .all(|e| let_init_ann(ast, *e, declared_rets).as_deref() == Some(first.as_str()))
+                .then(|| format!("{first}[]"))
         }
         // a call to a function that declares what it returns,
         // including the factory a `new C()` has become by now, so
