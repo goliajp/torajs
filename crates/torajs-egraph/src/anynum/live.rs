@@ -84,3 +84,80 @@ pub(super) fn live_in(func: &Function) -> LiveIn {
     }
     LiveIn { words, bits }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use torajs_core::ssa::{
+        BinOp, Block, IPred, Inst, InstKind, Operand, Terminator, Type, ValueInfo,
+    };
+
+    fn inst(r: u32, kind: InstKind) -> Inst {
+        Inst {
+            result: Some(ValueId(r)),
+            kind,
+            origin: None,
+        }
+    }
+
+    fn v(id: u32) -> Operand {
+        Operand::Value(ValueId(id))
+    }
+
+    /// `i = 0; while (i < n) i = i + 1; return i` with `n` the param %3:
+    /// the loop cell %0 is live round the loop and out of it, the bound
+    /// only while the loop runs, and a value defined and read in one
+    /// block is live into none.
+    #[test]
+    fn a_loop_cell_is_live_round_the_loop_and_past_it() {
+        let block = |id: u32, insts: Vec<Inst>, term: Terminator| Block {
+            id: BlockId(id),
+            insts,
+            term,
+        };
+        let f = Function {
+            name: "f".into(),
+            params: vec![ValueId(3)],
+            ret: Type::I64,
+            blocks: vec![
+                block(
+                    0,
+                    vec![inst(0, InstKind::Copy(Type::I64, Operand::ConstI64(0)))],
+                    Terminator::Br(BlockId(1)),
+                ),
+                block(
+                    1,
+                    vec![inst(1, InstKind::ICmp(IPred::Slt, v(0), v(3)))],
+                    Terminator::CondBr {
+                        cond: v(1),
+                        then_blk: BlockId(2),
+                        else_blk: BlockId(3),
+                    },
+                ),
+                block(
+                    2,
+                    vec![
+                        inst(2, InstKind::BinOp(BinOp::Add, v(0), Operand::ConstI64(1))),
+                        inst(0, InstKind::Copy(Type::I64, v(2))),
+                    ],
+                    Terminator::Br(BlockId(1)),
+                ),
+                block(3, vec![], Terminator::Ret(Some(v(0)))),
+            ],
+            values: [Type::I64, Type::Bool, Type::I64, Type::I64]
+                .iter()
+                .map(|ty| ValueInfo {
+                    ty: *ty,
+                    name: None,
+                })
+                .collect(),
+            current_origin: None,
+        };
+        let live = live_in(&f);
+        let ids = |b: u32| -> Vec<u32> { live.of(BlockId(b)).iter().map(|v| v.0).collect() };
+        assert_eq!(ids(0), vec![3]);
+        assert_eq!(ids(1), vec![0, 3]);
+        assert_eq!(ids(2), vec![0, 3]);
+        assert_eq!(ids(3), vec![0]);
+    }
+}
