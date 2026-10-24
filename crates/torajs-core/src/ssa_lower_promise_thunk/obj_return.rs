@@ -21,13 +21,14 @@ const ROOT_NAME: &str = "___torajs_promise_obj_return_root";
 
 /// Each kernel that settles through the handler-return path, with the
 /// argument positions of its return-form words (low byte = repr code).
-const KERNELS: [(&str, &[usize]); 6] = [
+const KERNELS: [(&str, &[usize]); 7] = [
     ("__torajs_promise_then_simple", &[2]),
     ("__torajs_promise_then_closure", &[2]),
     ("__torajs_promise_catch_simple", &[2]),
     ("__torajs_promise_catch_closure", &[2]),
     ("__torajs_promise_then2", &[2, 4]),
     ("__torajs_frame_return", &[1]),
+    ("__torajs_async_resolved", &[0]),
 ];
 
 /// Emit the root when a lowered kernel call names an object or `any`

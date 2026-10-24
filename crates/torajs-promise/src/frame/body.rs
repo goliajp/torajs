@@ -99,20 +99,40 @@ pub unsafe extern "C" fn __torajs_frame_return(frame: *mut c_void, repr: i64, va
     running(f);
     unsafe {
         let result = (*f).result;
-        let pp = as_promise(result);
-        let repr = repr as u8;
-        if !matches!(repr, REPR_HEAP | REPR_ANY) && (*pp).state == STATE_PENDING {
-            if !reject_on_pending_throw(result) {
-                (*pp).value_repr = repr;
-                (*pp).value_is_heap = (repr == REPR_STR) as u8;
-                (*pp).state = STATE_FULFILLED;
-                (*pp).value = value;
-                let link = (*pp).callbacks;
-                if !link.is_null() {
-                    wake_sole_waiter(f, pp, link);
-                }
+        if settle_result(result, repr as u8, value) {
+            let pp = as_promise(result);
+            let link = (*pp).callbacks;
+            if !link.is_null() {
+                wake_sole_waiter(f, pp, link);
             }
-        } else if repr == REPR_ANY && !box_is_cell(value) {
+        }
+        (*f).state = FRAME_STATE_DONE;
+        release(f);
+    }
+}
+
+/// Settle the async function's result with the value its body
+/// returned, in the form `repr` names (the value's reference goes to
+/// the result). Answers whether the result was fulfilled here, in a
+/// form that can be neither adopted nor a thenable: its list is then
+/// the caller's to wake.
+///
+/// # Safety
+/// `result` is a live promise cell; `value` is owned.
+pub(super) unsafe fn settle_result(result: *mut c_void, repr: u8, value: i64) -> bool {
+    unsafe {
+        let pp = as_promise(result);
+        if !matches!(repr, REPR_HEAP | REPR_ANY) && (*pp).state == STATE_PENDING {
+            if reject_on_pending_throw(result) {
+                return false;
+            }
+            (*pp).value_repr = repr;
+            (*pp).value_is_heap = (repr == REPR_STR) as u8;
+            (*pp).state = STATE_FULFILLED;
+            (*pp).value = value;
+            return true;
+        }
+        if repr == REPR_ANY && !box_is_cell(value) {
             // a boxed number or other immediate: nothing to adopt
             (*pp).value_repr = REPR_ANY;
             (*pp).value_is_heap = 1;
@@ -120,8 +140,7 @@ pub unsafe extern "C" fn __torajs_frame_return(frame: *mut c_void, repr: i64, va
         } else {
             crate::then_box::settle_handler_return(result, repr, value);
         }
-        (*f).state = FRAME_STATE_DONE;
-        release(f);
+        false
     }
 }
 

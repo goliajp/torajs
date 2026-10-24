@@ -31,12 +31,18 @@ pub(crate) struct FrameShape<'a> {
     pub(crate) calls: FrameCalls,
 }
 
+/// The argv buffer an `arguments`-reading body is handed: the
+/// caller's, dead once the call returns.
+const ARGV: &str = "__torajs_argv";
+
 /// Whether the frame holds a reference on a parameter of `ty`. The
-/// closure env (`__env`, a `Ptr`) is a cell like any other; every
-/// other `Ptr`-shaped parameter (an argv buffer) would not outlive the
-/// call, and the gate keeps such functions off the frame.
+/// closure env (`__env`, a `Ptr`) is a cell like any other. The argv
+/// buffer is no cell: the frame keeps its word, unowned, for the run
+/// the call makes ([`assert_argv_read_before_awaits`]). No other
+/// `Ptr`-shaped parameter reaches a frame.
 pub(crate) fn param_held(name: &str, ty: Type) -> bool {
     match ty {
+        Type::Ptr if name == ARGV => false,
         Type::Ptr => {
             assert!(
                 name == "__env",
@@ -48,6 +54,47 @@ pub(crate) fn param_held(name: &str, ty: Type) -> bool {
             "internal error: async parameter `{name}` borrows an array element the frame cannot keep"
         ),
         t => !t.is_copy(),
+    }
+}
+
+/// The argv buffer's one reader is the arguments object's
+/// materialization heading the body (`ast::arguments_object_synth`),
+/// which runs inside the call, before the first await. A read a
+/// suspension can reach would see a buffer that is gone, so it fails
+/// the build instead.
+pub(crate) fn assert_argv_read_before_awaits(f: &ssa::Function) {
+    let Some(&argv) = (f.params.iter()).find(|&&p| f.value_name(p)[1..] == *ARGV) else {
+        return;
+    };
+    let mut seen = vec![false; f.blocks.len()];
+    let mut work: Vec<(usize, usize)> = Vec::new();
+    for (bi, b) in f.blocks.iter().enumerate() {
+        if let Some(at) = (b.insts.iter()).position(|i| matches!(i.kind, InstKind::Suspend(..))) {
+            work.push((bi, at + 1));
+        }
+    }
+    while let Some((bi, from)) = work.pop() {
+        for inst in &f.blocks[bi].insts[from..] {
+            ssa::visit_value_operands(&inst.kind, |v| {
+                assert!(
+                    v != argv,
+                    "internal error: `{}` reads its argv buffer after an await",
+                    f.name
+                )
+            });
+        }
+        let next = match f.blocks[bi].term {
+            Terminator::Br(t) => vec![t],
+            Terminator::CondBr {
+                then_blk, else_blk, ..
+            } => vec![then_blk, else_blk],
+            _ => vec![],
+        };
+        for t in next {
+            if !std::mem::replace(&mut seen[t.0 as usize], true) {
+                work.push((t.0 as usize, 0));
+            }
+        }
     }
 }
 

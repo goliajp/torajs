@@ -250,11 +250,13 @@ pub(crate) unsafe fn source_died(frame: *mut AsyncFrame) {
 
 mod body;
 mod desc;
+mod sync;
 pub use body::{
     __torajs_frame_trace_links, __torajs_frame_unwind, FRAME_CANCELLED, FRAME_COLLECTED,
     TRACE_STATE_WORD,
 };
 pub use desc::{FrameDesc, FrameTrace, desc_drop, desc_resume, desc_trace};
+pub(crate) use sync::reject_with_taken;
 
 #[cfg(test)]
 mod tests;

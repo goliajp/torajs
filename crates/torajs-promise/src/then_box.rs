@@ -20,7 +20,6 @@ use crate::layout::{
     Promise, REPR_ANY, REPR_BOOL, REPR_F64, REPR_HEAP, REPR_I64, REPR_NULL, REPR_STR,
     REPR_UNSTAMPED, REPR_VOID, as_promise,
 };
-use crate::state::__torajs_promise_reject;
 
 /// Bit 8 of the then/catch kernels' `ret_repr` parameter — set when
 /// the handler's first parameter is `any` (dispatch boxes the settled
@@ -46,7 +45,7 @@ const TAG_F64: i64 = 3;
 const TAG_HEAP: i64 = 4;
 
 unsafe extern "C" {
-    fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
+    pub(crate) fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
     fn __torajs_anyv_box_str_slot(s: *mut c_void) -> u64;
     fn __torajs_anyv_unbox_tag(v: u64) -> i64;
     fn __torajs_anyv_unbox_value(v: u64) -> i64;
@@ -134,11 +133,7 @@ pub(crate) unsafe fn reject_on_pending_throw(result: *mut c_void) -> bool {
         }
         let tag = __torajs_throw_take_tag();
         let value = __torajs_throw_take();
-        let reason = __torajs_anyv_box_from_pair(tag, value);
-        let pp = as_promise(result);
-        (*pp).value_is_heap = 1;
-        (*pp).value_repr = REPR_ANY;
-        __torajs_promise_reject(result, reason as i64);
+        crate::frame::reject_with_taken(result, tag, value);
         true
     }
 }

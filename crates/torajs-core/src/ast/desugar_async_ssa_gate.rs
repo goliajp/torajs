@@ -5,10 +5,13 @@
 //! this gate refuses keeps the generator-driven state machine
 //! (`desugar_async_sm`) or the synchronous lowering behind it.
 //!
+//! A body that never awaits (its own awaits; a nested async value is
+//! a function of its own and is judged by itself) runs to its end
+//! inside the call: it moves too, with no frame, its return settling
+//! the result in place (`ssa_lower_fn::async_setup::sync_body`).
+//!
 //! A function moves when all of these hold:
 //!
-//! - its body awaits (its own awaits; a nested async value is a
-//!   function of its own and is judged by itself);
 //! - no await sits inside a `class` body, and the function has no
 //!   `for await` (its steps await without spelling one; they still
 //!   drain the queue in place). An await inside a `try` (any of its
@@ -18,8 +21,12 @@
 //!   iterator) are stack slots the frame carries across, and a frame
 //!   dropped while it waits there unwinds past the handlers
 //!   (`ssa_lower_fn::suspend::cancel`);
-//! - it never reads `arguments` or `new.target` and makes no dynamic
-//!   `import()` (the same three the state machine refuses);
+//! - it makes no dynamic `import()`: the imported module's top-level
+//!   await and a suspended caller's resumption do not agree yet.
+//!   (`arguments` and `new.target` move: the arguments object is built
+//!   from the parameters on entry, before the first await, and an
+//!   async function is never a constructor, so its `new.target` is
+//!   undefined wherever it is read);
 //! - no parameter is a synthesized `__` one, and it is no generator,
 //!   no async generator and not generic (a specialized copy of a
 //!   generic body is minted later under another name).
@@ -126,9 +133,13 @@ fn method_moves(ast: &Ast, m: &ClassMethod) -> bool {
 }
 
 fn moves(ast: &Ast, params: &[Param], body: &[Stmt]) -> bool {
-    !params.iter().any(|p| p.name.starts_with("__"))
-        && body.iter().any(|s| stmt_awaits(ast, s))
-        && !body.iter().any(|s| stmt_blocks(ast, s))
+    !params.iter().any(|p| p.name.starts_with("__")) && !body.iter().any(|s| stmt_blocks(ast, s))
+}
+
+/// The body holds one of the function's own awaits: without one it
+/// runs to its end inside the call and needs no frame.
+pub fn body_awaits(ast: &Ast, body: &[Stmt]) -> bool {
+    body.iter().any(|s| stmt_awaits(ast, s))
 }
 
 /// The statement holds one of the function's own awaits.
@@ -162,7 +173,7 @@ fn awaits_in_exit_protocol(ast: &Ast, s: &Stmt) -> bool {
 }
 
 /// The statement keeps the function off the frame: an await in a class
-/// body or a generator step, a `for await`, or a reserved read
+/// body or a generator step, a `for await`, or a dynamic `import()`
 /// anywhere.
 fn stmt_blocks(ast: &Ast, s: &Stmt) -> bool {
     let protocol = matches!(
@@ -213,13 +224,11 @@ fn expr_makes_fn(ast: &Ast, eid: ExprId) -> bool {
             .any(|c| expr_makes_fn(ast, c))
 }
 
-/// `arguments`, `new.target` or a dynamic `import()` anywhere in the
-/// expression, nested function bodies included (an arrow inherits the
-/// first two; a nested function's own are refused too, conservatively).
+/// A dynamic `import()` anywhere in the expression, nested function
+/// bodies included.
 fn expr_reserved(ast: &Ast, eid: ExprId) -> bool {
     match ast.get_expr(eid) {
-        Expr::Ident(n) => n == "arguments" || n == "__torajs_dyn_import",
-        Expr::NewTarget => true,
+        Expr::Ident(n) => n == "__torajs_dyn_import",
         Expr::ArrowFn { body, .. } => body.iter().any(|s| stmt_reserved(ast, s)),
         _ => walk::expr_children(ast, eid)
             .into_iter()

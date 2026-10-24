@@ -368,7 +368,7 @@ pub use desugar_async::desugar_async;
 pub use desugar_async_nested_fns::desugar_async_nested_fns;
 pub use desugar_async_sm::desugar_async_state_machine;
 pub(crate) use desugar_async_sm::stmt_has_await;
-pub use desugar_async_ssa_gate::mark_async_ssa_fns;
+pub use desugar_async_ssa_gate::{body_awaits, mark_async_ssa_fns};
 pub use desugar_classes::desugar_classes;
 pub(crate) use desugar_classes_computed_fields::class_has_computed_instance_fields;
 pub use desugar_classes_pass2::route_non_class_new;

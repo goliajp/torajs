@@ -17,6 +17,12 @@
 
 use std::collections::HashMap;
 
+mod returns;
+mod sync_body;
+
+use returns::{mark_returned_arrays, ret_repr};
+use sync_body::SyncBodies;
+
 use crate::ast::Ast;
 use crate::ssa::suspend::{FRAME_DIRECT_OFF, FRAME_PARAMS_OFF, FRAME_SIZE_PLACEHOLDER_BASE};
 use crate::ssa::{
@@ -55,6 +61,8 @@ struct Slots {
 pub(crate) struct SuspendSetup {
     slots: HashMap<String, Slots>,
     calls: Option<FrameCalls>,
+    /// The bodies that never await.
+    sync: SyncBodies,
 }
 
 pub(crate) fn preregister(
@@ -67,10 +75,14 @@ pub(crate) fn preregister(
     let mut names: Vec<&String> = (ast.async_ssa.fns.iter())
         .filter(|n| fn_table.contains_key(n.as_str()))
         .collect();
-    if names.is_empty() {
-        return SuspendSetup::default();
-    }
     names.sort();
+    let sync = SyncBodies::reserve(ast, &mut names, module, fn_table);
+    if names.is_empty() {
+        return SuspendSetup {
+            sync,
+            ..SuspendSetup::default()
+        };
+    }
     let mut decl = |name: &str, params: &[Type], ret: Type| {
         declare_intrinsic(module, fn_table, name, params, ret)
     };
@@ -112,6 +124,7 @@ pub(crate) fn preregister(
     SuspendSetup {
         slots,
         calls: Some(calls),
+        sync,
     }
 }
 
@@ -155,8 +168,9 @@ fn frame_trace(name: &str, calls: &FrameCalls, traced: &[u32]) -> ssa::Function 
     f
 }
 
-/// Put the lowered `f` in its place: under `fid`, or, for a body that
-/// suspends, in its resume slot behind a wrapper under `fid`.
+/// Put the lowered `f` in its place: under `fid`; for a body that
+/// suspends, in its resume slot behind a wrapper under `fid`; for one
+/// that never awaits, under `fid` with its returns making the result.
 pub(crate) fn install(
     module: &mut Module,
     fid: FuncId,
@@ -165,11 +179,24 @@ pub(crate) fn install(
     intrinsics: &crate::ssa_lower::Intrinsics,
     arr_layouts: &ssa::ArrLayouts,
 ) {
-    let (Some(&slots), Some(calls)) = (setup.slots.get(&f.name), setup.calls) else {
+    let frame = setup.slots.get(&f.name).copied().zip(setup.calls);
+    if frame.is_none() && !setup.sync.holds(&f.name) {
         module.funcs[fid.0 as usize] = f;
         return;
-    };
+    }
     mark_returned_arrays(&mut f, arr_layouts, intrinsics.arr_mark_kind);
+    let Some((slots, calls)) = frame else {
+        let repr = ret_repr(f.ret);
+        let take = sync_body::ThrowTake {
+            tag: intrinsics.throw_take_tag,
+            value: intrinsics.throw_take,
+        };
+        let mut settled = setup.sync.settle_in_place(f, repr, take);
+        super::async_wrapper::answer_as(&mut settled, module.funcs[fid.0 as usize].ret);
+        module.funcs[fid.0 as usize] = settled;
+        return;
+    };
+    super::async_wrapper::assert_argv_read_before_awaits(&f);
     let index = module.suspend_fns.len();
     let size_placeholder = FRAME_SIZE_PLACEHOLDER_BASE + index as i64;
     let params: Vec<(String, Type)> = (f.params.iter())
@@ -219,31 +246,6 @@ pub(crate) fn install(
     });
 }
 
-/// Each array the body returns marked with its element kind, as
-/// `Promise.resolve` marks the array it settles with: the result is
-/// read in the `any` lane too (a `.then` handler taking `any`), which
-/// reads the elements by the mark.
-fn mark_returned_arrays(f: &mut ssa::Function, arr_layouts: &ssa::ArrLayouts, mark: FuncId) {
-    for b in &mut f.blocks {
-        let ssa::Terminator::Ret(Some(Operand::Value(v))) = b.term else {
-            continue;
-        };
-        let Type::Arr(id) = f.values[v.0 as usize].ty else {
-            continue;
-        };
-        let elem = arr_layouts[id.0 as usize];
-        let chain = crate::ssa_lower_arr_kind_mark::arr_kind_chain_of(arr_layouts, &elem, 0);
-        if chain != 0 {
-            let args = vec![Operand::Value(v), Operand::ConstI64(chain as i64)];
-            b.insts.push(Inst {
-                result: None,
-                kind: InstKind::Call(mark, args),
-                origin: None,
-            });
-        }
-    }
-}
-
 /// The body as a function of its frame: the one parameter is the
 /// frame, each of the body's parameters is read from the frame's
 /// parameter area on entry, under the value it had, and each call of
@@ -270,18 +272,4 @@ fn frame_body(mut f: ssa::Function, name: &str, cancelled: FuncId) -> ssa::Funct
         }
     }
     f
-}
-
-/// The value form a body returning `ty` settles its result with
-/// (`torajs-promise` `REPR_*`): the form `Promise.resolve` of a value
-/// of that type stamps, a number at the width the body returns it
-/// (the width of the promise's value point, which every `await` of a
-/// call to the body reads).
-fn ret_repr(ty: Type) -> i64 {
-    use crate::ssa_lower_promise_repr_mark as m;
-    match m::promise_value_repr(&ty, false, false) {
-        Some(r) => r,
-        None if ty.is_refcounted() => m::REPR_HEAP,
-        None => m::REPR_I64,
-    }
 }

@@ -1,10 +1,9 @@
-// RFC 20260805-async-fn-state-machine blade 1 / 3 — shapes the move
-// gate refuses, each of which regressed a test262 case when moved
-// (rotation 641 close sweep): a plain async function reading `this`
-// (the driver's thunk calls the generator plainly, so `.call`'s
-// receiver would be lost), an async body with no await at all (no
-// suspend point to gain; moving reorders the settle microtask), and a
-// static async method reaching a private method through `this`.
+// Shapes that once regressed a test262 case when an async function
+// moved off its synchronous lowering: a plain async function reading
+// `this` (`.call`'s receiver must arrive), an async body with no await
+// at all (it settles its promise inside the call, so a caller's await
+// on it takes one job, not more), and a static async method reaching
+// a private method through `this`.
 async function recv(a: any) {
   return this === a;
 }

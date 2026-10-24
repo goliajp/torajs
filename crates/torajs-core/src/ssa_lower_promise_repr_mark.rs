@@ -27,8 +27,8 @@ use crate::ssa_lower::{LowerCtx, declare_intrinsic};
 
 /// `__torajs_promise_alloc_fulfilled[_heap]_repr(value, repr)`: the
 /// fulfilled allocators with the stamp folded in, one call per mint.
-const ALLOC_FULFILLED_REPR: &str = "__torajs_promise_alloc_fulfilled_repr";
-const ALLOC_FULFILLED_HEAP_REPR: &str = "__torajs_promise_alloc_fulfilled_heap_repr";
+pub(crate) const ALLOC_FULFILLED_REPR: &str = "__torajs_promise_alloc_fulfilled_repr";
+pub(crate) const ALLOC_FULFILLED_HEAP_REPR: &str = "__torajs_promise_alloc_fulfilled_heap_repr";
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) {
     for name in [ALLOC_FULFILLED_REPR, ALLOC_FULFILLED_HEAP_REPR] {
