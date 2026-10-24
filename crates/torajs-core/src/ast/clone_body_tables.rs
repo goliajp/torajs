@@ -102,6 +102,9 @@ pub(crate) fn migrate(cloner: &mut BodyCloner<'_>) {
     copy_set!(async_sm_value_exprs);
     copy_set!(async_ssa.value_exprs);
     copy_set!(async_ssa.return_calls);
+    // the async desugar's own settle calls: a cloned body's are its
+    // own too, and never reach a user's replacement of the static
+    copy_set!(synth_promise_static_calls);
     copy_set!(await_yield_values);
     // The value names another expr of the same body: a cloned origin
     // gets the clone's id, one outside the clone keeps its own.
