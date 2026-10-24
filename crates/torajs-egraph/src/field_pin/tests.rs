@@ -88,6 +88,7 @@ fn module(f: Function, pinned: bool) -> Module {
             entries: vec![FuncId(0)],
             direct_only: true,
             quiet: vec![],
+            scalars: vec![],
         }]
     } else {
         vec![]

@@ -1,36 +1,48 @@
 //! The pinned registers: in the members of a cluster (`Module::pin_regs`,
 //! the e-graph's `field_pin::cluster`) x27 holds the pinned field's
-//! array length and x28 its data pointer.
+//! array length and x28 its data pointer; a cluster with scalars
+//! (`PinFact::scalars`) keeps the first in x26 and the second in x25.
 //!
-//! Two roles, read once per module:
-//! - an *inner* body keeps both out of its register pool and never
-//!   saves or writes them; each `Pinned` value is homed in its register
-//!   and emits nothing. A body may make sibling calls: whatever it
-//!   jumps to keeps x27 / x28 as callee-saved.
-//! - an *entry* saves both with its callee-saved registers, loads them
-//!   from its receiver's field right after the prologue, while x0 still
-//!   holds the receiver, and calls its body; its epilogue puts back the
-//!   caller's. It makes no sibling call, which would skip that restore.
+//! Two roles, read once per module, each with the cluster's number of
+//! scalars:
+//! - an *inner* body keeps its registers out of its register pool and
+//!   never saves them; each `Pinned` value is homed in its register
+//!   and emits nothing, and only a `PinSet` writes a scalar's. A body
+//!   may make sibling calls: whatever it jumps to keeps x25–x28 as
+//!   callee-saved.
+//! - an *entry* saves them with its callee-saved registers, loads x27 /
+//!   x28 from its receiver's field right after the prologue, while x0
+//!   still holds the receiver, and calls its body; its epilogue puts
+//!   back the caller's. It makes no sibling call, which would skip that
+//!   restore.
 
 use torajs_arr::layout::{ARR_DATA_PTR_OFF, ARR_LEN_OFF};
 use torajs_core::ssa::{FuncId, Function, InstKind, Module, Operand, PinWord};
 
+use super::operand::materialize_operand_gpr;
 use super::write_u32;
-use crate::enc::ldr_x_imm12;
+use crate::enc::{ldr_x_imm12, mov_x_reg};
 use crate::reg::{Gpr, Reg};
+use crate::regalloc::Assignment;
 use std::borrow::Cow;
 use torajs_core::ssa::id_hash::{HashMap, HashSet};
 
 pub(crate) const PIN_LEN: Gpr = Gpr::X27;
 pub(crate) const PIN_DATA: Gpr = Gpr::X28;
+/// The registers of a cluster's scalars, by `PinWord::Scalar` index.
+pub(crate) const PIN_SCALARS: [Gpr; 2] = [Gpr::X26, Gpr::X25];
 
+/// Every pinned register, in the order the roles reserve them.
+const PINNED: [Gpr; 4] = [PIN_LEN, PIN_DATA, PIN_SCALARS[0], PIN_SCALARS[1]];
+
+/// A role's `u8` is the number of the cluster's scalars.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) enum PinRole {
     #[default]
     None,
-    Inner,
+    Inner(u8),
     /// The field's offset in the receiver's cell.
-    Entry(u32),
+    Entry(u32, u8),
 }
 
 /// The pin roles of a module's functions, by `FuncId`.
@@ -46,11 +58,13 @@ impl PinPlan {
             return PinPlan::default();
         }
         let mut roles = vec![PinRole::None; module.funcs.len()];
+        let scalars =
+            |f: FuncId| (regs.scalars.iter().find(|(m, _)| *m == f)).map_or(0, |(_, n)| *n);
         for f in &regs.inner {
-            roles[f.0 as usize] = PinRole::Inner;
+            roles[f.0 as usize] = PinRole::Inner(scalars(*f));
         }
         for &(entry, _, off) in &regs.entries {
-            roles[entry.0 as usize] = PinRole::Entry(off as u32);
+            roles[entry.0 as usize] = PinRole::Entry(off as u32, scalars(entry));
         }
         PinPlan { roles }
     }
@@ -65,26 +79,26 @@ impl PinRole {
     pub(crate) fn reserved(self) -> &'static [Gpr] {
         match self {
             PinRole::None => &[],
-            PinRole::Inner | PinRole::Entry(_) => &[PIN_LEN, PIN_DATA],
+            PinRole::Inner(n) | PinRole::Entry(_, n) => &PINNED[..2 + n as usize],
         }
     }
 
     /// The callee-saved registers the frame saves for the role.
     pub(crate) fn saved_mask(self) -> u32 {
         match self {
-            PinRole::Entry(_) => (1 << PIN_LEN.idx()) | (1 << PIN_DATA.idx()),
-            PinRole::None | PinRole::Inner => 0,
+            PinRole::Entry(..) => (self.reserved().iter()).fold(0, |m, g| m | (1 << g.idx())),
+            PinRole::None | PinRole::Inner(_) => 0,
         }
     }
 
     pub(crate) fn is_entry(self) -> bool {
-        matches!(self, PinRole::Entry(_))
+        matches!(self, PinRole::Entry(..))
     }
 
     /// An entry's loads, after the prologue: the field into x28, then
     /// its length into x27 and its data pointer over the field.
     pub(crate) fn emit_entry_loads(self, bytes: &mut Vec<u8>) {
-        if let PinRole::Entry(off) = self {
+        if let PinRole::Entry(off, _) = self {
             write_u32(bytes, ldr_x_imm12(PIN_DATA, Gpr::X0, off));
             write_u32(bytes, ldr_x_imm12(PIN_LEN, PIN_DATA, ARR_LEN_OFF as u32));
             write_u32(
@@ -100,6 +114,16 @@ pub(crate) fn home(word: PinWord) -> Gpr {
     match word {
         PinWord::Len => PIN_LEN,
         PinWord::Data => PIN_DATA,
+        PinWord::Scalar(k) => PIN_SCALARS[k as usize],
+    }
+}
+
+/// `pin_set <word>, %v`: the value into the scalar's register.
+pub(crate) fn emit_pin_set(bytes: &mut Vec<u8>, word: PinWord, v: &Operand, alloc: &Assignment) {
+    let home = home(word);
+    let src = materialize_operand_gpr(bytes, v, home, alloc);
+    if src != home {
+        write_u32(bytes, mov_x_reg(home, src));
     }
 }
 

@@ -57,8 +57,8 @@ pub use arr_layouts::ArrLayouts;
 pub use module_class_layouts::{ClassLayoutMeta, FieldMetaSpec, MethodMetaSpec, field_type_tag_of};
 pub use module_extras::{LOCAL_LABEL_PREFIX, THEN_TWINS_TABLE, demo_fib40, is_local_label};
 pub use module_methods::{
-    BakedDfa, BakedRegexEntry, DataGlobal, FnNameEntry, Module, PinFact, PinRegs, PinWord,
-    StringLiteral, VtableGlobal,
+    BakedDfa, BakedRegexEntry, DataGlobal, FnNameEntry, Module, PinFact, PinRegs, PinScalar,
+    PinWord, StringLiteral, VtableGlobal,
 };
 pub use op_impls::{BinOp, FPred, IPred, Operand};
 pub use suspend::{SuspendFn, SuspendKind, SuspendLane, SuspendRuntime};
@@ -386,6 +386,11 @@ pub enum InstKind {
     /// it into (`Module::pins`). No operands, no machine code; codegen
     /// homes the value in that register.
     Pinned(PinWord),
+    /// `pin_set <word>, %v` — void: a cluster member writes scalar
+    /// `word` (a `PinWord::Scalar`) in the register its entry loaded it
+    /// into; the entry writes it back to memory when the cluster
+    /// returns. Reads and writes no memory.
+    PinSet(PinWord, Operand),
     /// `%v = suspend <kind> <lane>, %src [held…]` — the function parks
     /// here and returns to its caller; it is re-entered here, and `%v`
     /// is the value the suspension produced (see `suspend`). `held`

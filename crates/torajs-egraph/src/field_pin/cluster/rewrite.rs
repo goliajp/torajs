@@ -81,7 +81,7 @@ pub(super) fn pin_words(f: &mut Function, field_off: u64) -> u32 {
     let to = |v: ValueId| match words.get(&v) {
         Some(PinWord::Len) => len,
         Some(PinWord::Data) => data,
-        None => v,
+        Some(PinWord::Scalar(_)) | None => v,
     };
     for block in &mut f.blocks {
         block

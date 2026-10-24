@@ -79,6 +79,7 @@ impl<'a> Clusters<'a> {
                 entries,
                 direct_only,
                 quiet,
+                scalars: Vec::new(),
             });
         }
         out

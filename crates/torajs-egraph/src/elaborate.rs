@@ -408,6 +408,7 @@ fn canonicalize_operands(kind: &InstKind, egraph: &mut Egraph) -> InstKind {
         InstKind::IntToPtr(v) => InstKind::IntToPtr(map_operand(v, egraph)),
         InstKind::PtrToInt(v) => InstKind::PtrToInt(map_operand(v, egraph)),
         InstKind::TruncI64ToBool(v) => InstKind::TruncI64ToBool(map_operand(v, egraph)),
+        InstKind::PinSet(w, v) => InstKind::PinSet(*w, map_operand(v, egraph)),
         InstKind::Suspend(k, lane, v, held) => InstKind::Suspend(
             *k,
             *lane,

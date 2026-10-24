@@ -1,4 +1,4 @@
-use super::pin_reg::{PIN_DATA, PIN_LEN};
+use super::pin_reg::{PIN_DATA, PIN_LEN, PIN_SCALARS, PinRole, home};
 use super::{ModuleFacts, compile_function_at};
 use crate::enc::ldr_x_imm12;
 use crate::reg::{Gpr, Reg};
@@ -84,6 +84,7 @@ fn module() -> Module {
         pin_regs: PinRegs {
             inner: vec![BODY],
             entries: vec![(ENTRY, BODY, OFF)],
+            scalars: Vec::new(),
         },
         ..Default::default()
     }
@@ -147,4 +148,28 @@ fn a_body_reads_the_registers_and_gives_no_other_value_them() {
     // the body compiles, and its frame never saves them
     let w = words(&m, BODY);
     assert!(!w.is_empty());
+}
+
+#[test]
+fn a_cluster_with_scalars_reserves_and_saves_their_registers_too() {
+    let mut m = module();
+    m.pin_regs.scalars = vec![(ENTRY, 2), (BODY, 1)];
+    let plan = ModuleFacts::of(&m).pin;
+    assert_eq!(plan.role(ENTRY), PinRole::Entry(OFF as u32, 2));
+    assert_eq!(plan.role(BODY), PinRole::Inner(1));
+    assert_eq!(plan.role(BODY).reserved(), [PIN_LEN, PIN_DATA, Gpr::X26]);
+    let saved = [PIN_LEN, PIN_DATA, Gpr::X26, Gpr::X25];
+    let mask = saved.iter().fold(0u32, |m, g| m | (1 << g.idx()));
+    assert_eq!(plan.role(ENTRY).saved_mask(), mask);
+    assert_eq!(home(PinWord::Scalar(0)), PIN_SCALARS[0]);
+    assert_eq!(home(PinWord::Scalar(1)), Gpr::X25);
+}
+
+#[test]
+fn a_cluster_without_scalars_keeps_the_two_registers() {
+    let plan = ModuleFacts::of(&module()).pin;
+    assert_eq!(plan.role(BODY), PinRole::Inner(0));
+    assert_eq!(plan.role(BODY).reserved(), [PIN_LEN, PIN_DATA]);
+    let mask = (1 << PIN_LEN.idx()) | (1 << PIN_DATA.idx());
+    assert_eq!(plan.role(ENTRY).saved_mask(), mask);
 }

@@ -175,6 +175,10 @@ pub fn cost_of_kind(kind: &InstKind) -> Cost {
         // `Pinned` reads the register its cluster entry loaded: no code.
         InstKind::Pinned(_) => Cost::ZERO,
 
+        // `PinSet` is a register move, or nothing once codegen homes
+        // the value it writes in the scalar's register.
+        InstKind::PinSet(..) => ALU_COST,
+
         // `Neg(op)` lowers to a single ALU op (aarch64
         // `sub Xd, XZR, Xn`; LLVM `sub i64 0, %x`).
         InstKind::Neg(_) => ALU_COST,

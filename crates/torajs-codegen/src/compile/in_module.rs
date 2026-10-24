@@ -17,7 +17,7 @@ use crate::regalloc::Assignment;
 pub fn compile_function_at(func: &Function, id: FuncId, facts: &ModuleFacts) -> CompiledFunction {
     let role = facts.throw_reg.role(id);
     let pin = facts.pin.role(id);
-    let mut reserved = [throw_reg::THROW_REG; 3];
+    let mut reserved = [throw_reg::THROW_REG; 5];
     let pinned = pin.reserved();
     reserved[1..=pinned.len()].copy_from_slice(pinned);
     let reserved = &reserved[usize::from(!role.reads)..=pinned.len()];

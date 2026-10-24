@@ -118,6 +118,10 @@ pub struct PinRegs {
     /// registers, loads them from the field at `field_off` of its
     /// receiver, and calls `body`, an inner one.
     pub entries: Vec<(FuncId, FuncId, u64)>,
+    /// The members of `inner` and `entries` whose cluster also keeps
+    /// its first one or two scalars (`PinFact::scalars`) in x26 / x25,
+    /// with how many; a member not named keeps none.
+    pub scalars: Vec<(FuncId, u8)>,
 }
 
 /// An array field of class `sid` at `field_off` that only its
@@ -128,7 +132,9 @@ pub struct PinRegs {
 /// cluster calls; `direct_only` holds when nothing reaches a member
 /// but a direct call (no address taken, no vtable row). `quiet` are the
 /// functions that name a member but never run (a method row's adapter
-/// while no name wakes the rows).
+/// while no name wakes the rows). `scalars` are the slots the cluster
+/// could keep in a register while it runs, most accessed first, at
+/// most two.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PinFact {
     pub sid: StructId,
@@ -138,14 +144,30 @@ pub struct PinFact {
     pub entries: Vec<FuncId>,
     pub direct_only: bool,
     pub quiet: Vec<FuncId>,
+    pub scalars: Vec<PinScalar>,
 }
 
-/// A header word of a pinned array field (`PinFact`) that a cluster
-/// member reads as `InstKind::Pinned`: the length, or the data pointer.
+/// A word a cluster could keep in a register while it runs: nothing
+/// reachable from a member but the members reads or writes it, each
+/// member only on its own receiver, and nothing reached enters the
+/// cluster again. It is written back to memory when the cluster
+/// returns, so code that runs outside it reads memory as before.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PinScalar {
+    /// The field at `off` of the receiver's cell, of type `ty`.
+    Field { off: u64, ty: Type },
+    /// The module global `sym`, a `DataGlobal` of type `ty`.
+    Global { sym: String, ty: Type },
+}
+
+/// A word a cluster member reads as `InstKind::Pinned`: a header word
+/// of the pinned array field (`PinFact`), the length or the data
+/// pointer, or the `k`th of the cluster's scalars.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PinWord {
     Len,
     Data,
+    Scalar(u8),
 }
 
 #[derive(Debug, Clone)]

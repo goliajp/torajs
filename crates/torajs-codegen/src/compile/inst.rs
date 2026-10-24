@@ -115,6 +115,7 @@ pub(super) fn emit_plain(
         InstKind::ThrowSignal => {}
         // the value is already in the register its cluster entry loaded
         InstKind::Pinned(_) => {}
+        InstKind::PinSet(word, v) => super::pin_reg::emit_pin_set(bytes, *word, v, alloc),
         InstKind::Suspend(..) => {
             unreachable!("suspend reached aarch64 emit: the suspend split pass did not run")
         }

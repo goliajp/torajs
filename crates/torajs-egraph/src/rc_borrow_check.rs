@@ -219,6 +219,7 @@ fn window_ok(kind: &InstKind, env: &Env) -> bool {
         | InstKind::RcInc(_)
         | InstKind::RcIncAny(_)
         | InstKind::Pinned(_)
+        | InstKind::PinSet(..)
         | InstKind::ThrowSignal => true,
         InstKind::Store(_, Operand::Value(p), _) => env.slots.contains(p),
         InstKind::Call(f, _) => env.readonly.contains(&f.0),

@@ -323,12 +323,10 @@ impl Function {
             InstKind::ThrowSignal => {
                 write!(w, "throw_signal")?;
             }
-            InstKind::Pinned(word) => {
-                let word = match word {
-                    PinWord::Len => "len",
-                    PinWord::Data => "data",
-                };
-                write!(w, "pinned {word}")?;
+            InstKind::Pinned(word) => write!(w, "pinned {}", pin_word(*word))?,
+            InstKind::PinSet(word, v) => {
+                write!(w, "pin_set {}, ", pin_word(*word))?;
+                self.write_operand(w, v)?;
             }
             InstKind::Suspend(kind, lane, src, held) => {
                 match lane {
@@ -462,5 +460,13 @@ fn one_operand_mnemonic(kind: &InstKind) -> String {
         InstKind::Ctpop(_) => "ctpop".into(),
         InstKind::Cttz(_) => "cttz".into(),
         other => unreachable!("not a one-operand instruction: {other:?}"),
+    }
+}
+
+fn pin_word(word: PinWord) -> String {
+    match word {
+        PinWord::Len => "len".to_string(),
+        PinWord::Data => "data".to_string(),
+        PinWord::Scalar(k) => format!("s{k}"),
     }
 }

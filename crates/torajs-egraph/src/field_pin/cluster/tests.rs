@@ -67,6 +67,7 @@ fn module(calls: &[(u32, bool)]) -> Module {
             entries: vec![FuncId(0)],
             direct_only: true,
             quiet: vec![],
+            scalars: vec![],
         }],
         ..Default::default()
     }
