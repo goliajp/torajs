@@ -55,8 +55,11 @@ pub(crate) fn run(
     let mut fn_sigs: Vec<(Vec<Type>, Type)> = Vec::new();
     let dead_twins = arr_head_census::unreachable_twin_exprs(ast, expr_types);
     let live = live_field_census::program_live(ast, expr_types, widths, &dead_twins);
-    let (may_throw, nonint_reads_run_code) =
+    let throws =
         crate::ast_throw_info::compute_may_throw_fns(ast, expr_types, num_f64_slots, &live);
+    let catch_types =
+        crate::ast_throw_info::catch_types::infer(ast, expr_types, num_f64_slots, &live, &throws);
+    let (may_throw, nonint_reads_run_code) = (throws.may_throw, throws.props_run_code);
     let arr_head_pinned = arr_head_census::program_pins_arr_head(ast, expr_types, &dead_twins);
     let mut value_class_names =
         value_class_census::program_value_classes(ast, expr_types, &dead_twins, arr_head_pinned);
@@ -231,6 +234,7 @@ pub(crate) fn run(
             value_inits,
             twins_unreachable: !dead_twins.is_empty(),
             assigned: Default::default(),
+            catch: catch_types,
         }),
         generic_struct_decls,
         struct_layouts,

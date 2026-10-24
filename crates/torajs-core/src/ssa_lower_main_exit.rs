@@ -29,7 +29,7 @@ const MAIN_EXIT_CODE_SYM: &str = "__torajs_main_exit_code";
 /// `emit_throw_check`'s main-frame propagate branch (a throw that
 /// escaped every user frame): reports the pending throw to stderr
 /// and leaves with 1. Runtime lives in torajs-throw.
-const UNCAUGHT_EXIT_SYM: &str = "__torajs_uncaught_exit";
+pub(crate) const UNCAUGHT_EXIT_SYM: &str = "__torajs_uncaught_exit";
 
 /// Declare the `__torajs_main_exit_code` /
 /// `__torajs_uncaught_exit` externs at module setup. Caller

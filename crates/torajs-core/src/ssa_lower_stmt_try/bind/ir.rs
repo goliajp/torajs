@@ -55,3 +55,38 @@ pub(super) fn and(ctx: &mut LowerCtx, a: ValueId, b: ValueId) -> ValueId {
         Type::Bool,
     )
 }
+
+/// The f64 a number slot binds: the bits of an F64 tag, the widened
+/// value of an I64 one.
+pub(super) fn decode_f64(ctx: &mut LowerCtx, tag: ValueId, v: ValueId) -> ValueId {
+    let out = ctx.alloca(Type::F64, None);
+    let (bits_blk, int_blk, join) = (ctx.f.add_block(), ctx.f.add_block(), ctx.f.add_block());
+    let is_f64 = icmp(ctx, IPred::Eq, tag, super::TAG_F64);
+    let cb = ctx.cur_block;
+    ctx.f.set_term(
+        cb,
+        Terminator::CondBr {
+            cond: Operand::Value(is_f64),
+            then_blk: bits_blk,
+            else_blk: int_blk,
+        },
+    );
+    for (blk, inst) in [
+        (bits_blk, InstKind::BitCastI64ToF64(Operand::Value(v))),
+        (int_blk, InstKind::SiToFp(Operand::Value(v))),
+    ] {
+        ctx.cur_block = blk;
+        let f = append(ctx, inst, Type::F64);
+        ctx.f.append_void(
+            blk,
+            InstKind::Store(Operand::Value(f), Operand::Value(out), 0),
+        );
+        ctx.f.set_term(blk, Terminator::Br(join));
+    }
+    ctx.cur_block = join;
+    append(
+        ctx,
+        InstKind::Load(Type::F64, Operand::Value(out), 0),
+        Type::F64,
+    )
+}

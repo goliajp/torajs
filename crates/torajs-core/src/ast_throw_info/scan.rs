@@ -25,7 +25,11 @@ pub(crate) struct Scan<'a> {
     pub(crate) ast: &'a Ast,
     pub(crate) expr_types: &'a HashMap<ExprId, crate::check::Type>,
     pub(crate) widths: &'a WidthTable,
+    /// A raise other than an explicit `throw`: a runtime check, a call
+    /// whose target the scan cannot follow, a method's runtime helper.
     pub(crate) direct: bool,
+    /// The operands of the explicit `throw`s.
+    pub(crate) thrown: Vec<ExprId>,
     pub(crate) called: Vec<String>,
     /// Fn-valued bindings visible to calls in this body: every param
     /// name (a call through one is necessarily fn-typed — the checker
@@ -85,6 +89,7 @@ impl<'a> Scan<'a> {
             expr_types,
             widths,
             direct: false,
+            thrown: Vec::new(),
             called: Vec::new(),
             fn_values: params.iter().map(|p| p.name.clone()).collect(),
             nullish,
@@ -102,6 +107,12 @@ impl<'a> Scan<'a> {
             nonint_read: false,
             code_write: false,
         }
+    }
+
+    /// `this.f` where `this` is a fresh receiver the lowering stores
+    /// without a guard.
+    pub(crate) fn fresh_store(&self, target: ExprId) -> bool {
+        matches!(self.ast.get_expr(target), Expr::Member { obj, .. } if self.fresh_recv.contains(obj))
     }
 
     /// A block: bindings and narrowings made inside die with it.
@@ -229,7 +240,7 @@ impl<'a> Scan<'a> {
     fn stmt(&mut self, s: &Stmt) {
         match s {
             Stmt::Throw(eid) => {
-                self.direct = true;
+                self.thrown.push(*eid);
                 self.expr(*eid);
             }
             Stmt::Expr(eid) | Stmt::Return(Some(eid)) | Stmt::Yield(eid) => self.expr(*eid),

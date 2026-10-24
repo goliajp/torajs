@@ -2,6 +2,8 @@
 mod accessor_override_check_tests;
 mod ast_pipeline;
 #[cfg(test)]
+mod catch_infer_ir_tests;
+#[cfg(test)]
 mod closure_narrow_tests;
 mod cmd_build;
 mod cmd_build_dispatch_judge;

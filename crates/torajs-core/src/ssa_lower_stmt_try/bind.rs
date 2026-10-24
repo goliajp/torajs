@@ -33,6 +33,15 @@
 //! runs on a value its type does not describe, and the binding never
 //! falls back to `any`: that copy of the body would pull the dynamic
 //! runtime into every typed catch.
+//!
+//! Under a type the compiler inferred (`ast_throw_info::catch_types`,
+//! a number, a boolean or a declared class, from a try body whose every
+//! raise is a `throw` of that type) the slot follows the width table
+//! like a throw site does, and a mismatch means the inference missed a
+//! raise: the program stops there with the TypeError reported as
+//! uncaught, and the binding releases nothing (a release of a value of
+//! unknown type links every destructor in the runtime, which a program
+//! that stops does not need).
 
 mod cast;
 mod ir;
@@ -40,7 +49,7 @@ mod nullish;
 
 use crate::ssa::{BlockId, IPred, InstKind, Operand, Terminator, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
-use ir::{and, append, call, guard, icmp, or};
+use ir::{and, append, call, decode_f64, guard, icmp, or};
 
 const TAG_NULL: i64 = 0;
 const TAG_BOOL: i64 = 1;
@@ -50,8 +59,13 @@ const TAG_HEAP: i64 = 4;
 const TAG_UNDEF: i64 = 5;
 
 /// The parameter `p`'s type under the annotation `ann` (`any` when
-/// there is none) and the value it binds.
-pub(super) fn take(ctx: &mut LowerCtx, p: &str, ann: Option<&str>) -> (Type, Operand) {
+/// there is none; one the compiler `inferred`) and the value it binds.
+pub(super) fn take(
+    ctx: &mut LowerCtx,
+    p: &str,
+    ann: Option<&str>,
+    inferred: bool,
+) -> (Type, Operand) {
     let Some(ann) = ann else {
         return (Type::Any, take_any(ctx, p));
     };
@@ -64,16 +78,22 @@ pub(super) fn take(ctx: &mut LowerCtx, p: &str, ann: Option<&str>) -> (Type, Ope
         ctx.struct_layouts,
         ctx.inst_memo,
     );
+    // an inferred `number` holds only what the throw sites wrote, at the
+    // width they wrote it (RFC 20260726-array-elem-width)
+    let thrown_f64 = || (ctx.num_f64_slots).slot_is_f64(&crate::num_width::SlotKey::Thrown);
     let e_ty = match e_ty {
-        Type::I64 if ann.trim() == "number" => Type::F64,
+        Type::I64 if ann.trim() == "number" && (!inferred || thrown_f64()) => Type::F64,
         // the pending slot holds a function as the cell it is, never a
         // bare code address: the slot is a closure's, as a `let` of a
         // function type with an `any` initializer re-reprs
         Type::FnSig(sig) => Type::Closure(sig),
         t => t,
     };
-    // a `void` slot holds no value to compare, and `undefined` is one
-    if matches!(e_ty, Type::Any | Type::Void) {
+    // a `void` slot holds no value to compare, and `undefined` is one;
+    // an inferred class the tag alone cannot decide (a generic half)
+    // stays `any`: the cast route is a written slot's
+    if matches!(e_ty, Type::Any | Type::Void) || (inferred && cast::by_cast(ctx, e_ty, ann.trim()))
+    {
         return (Type::Any, take_any(ctx, p));
     }
     if let Some(slot) = nullish::slot(e_ty, ann.trim()) {
@@ -84,7 +104,7 @@ pub(super) fn take(ctx: &mut LowerCtx, p: &str, ann: Option<&str>) -> (Type, Ope
     if !tested(e_ty) && !cast::by_cast(ctx, e_ty, ann.trim()) {
         return (Type::Any, take_any(ctx, p));
     }
-    (e_ty, take_typed(ctx, p, (e_ty, ann.trim())))
+    (e_ty, take_typed(ctx, p, (e_ty, ann.trim()), inferred))
 }
 
 /// Box the pending throw for an `any` catch parameter `p`.
@@ -146,7 +166,7 @@ pub(super) fn release_unbound(ctx: &mut LowerCtx) {
 
 /// Take the pending throw into a value of `e_ty`, the type `ann`
 /// names, for the catch parameter `p`.
-fn take_typed(ctx: &mut LowerCtx, p: &str, (e_ty, ann): (Type, &str)) -> Operand {
+fn take_typed(ctx: &mut LowerCtx, p: &str, (e_ty, ann): (Type, &str), inferred: bool) -> Operand {
     let (take_tag, take) = (ctx.intrinsics.throw_take_tag, ctx.intrinsics.throw_take);
     let tag = call(ctx, take_tag, None);
     let v = call(ctx, take, Some(p));
@@ -157,7 +177,11 @@ fn take_typed(ctx: &mut LowerCtx, p: &str, (e_ty, ann): (Type, &str)) -> Operand
     admit(ctx, e_ty, ann, tag, v, bad);
     let ok = ctx.cur_block;
     ctx.cur_block = bad;
-    reject(ctx, p, ann, (tag, v));
+    if inferred {
+        missed(ctx, p, ann);
+    } else {
+        reject(ctx, p, ann, (tag, v));
+    }
     ctx.cur_block = ok;
     match e_ty {
         // The slot holds raw 8 bytes; decode them the way the throw
@@ -167,41 +191,6 @@ fn take_typed(ctx: &mut LowerCtx, p: &str, (e_ty, ann): (Type, &str)) -> Operand
         Type::F64 => Operand::Value(decode_f64(ctx, tag, v)),
         _ => Operand::Value(v),
     }
-}
-
-/// The f64 a number slot binds: the bits of an F64 tag, the widened
-/// value of an I64 one.
-fn decode_f64(ctx: &mut LowerCtx, tag: ValueId, v: ValueId) -> ValueId {
-    let out = ctx.alloca(Type::F64, None);
-    let (bits_blk, int_blk, join) = (ctx.f.add_block(), ctx.f.add_block(), ctx.f.add_block());
-    let is_f64 = icmp(ctx, IPred::Eq, tag, TAG_F64);
-    let cb = ctx.cur_block;
-    ctx.f.set_term(
-        cb,
-        Terminator::CondBr {
-            cond: Operand::Value(is_f64),
-            then_blk: bits_blk,
-            else_blk: int_blk,
-        },
-    );
-    for (blk, inst) in [
-        (bits_blk, InstKind::BitCastI64ToF64(Operand::Value(v))),
-        (int_blk, InstKind::SiToFp(Operand::Value(v))),
-    ] {
-        ctx.cur_block = blk;
-        let f = append(ctx, inst, Type::F64);
-        ctx.f.append_void(
-            blk,
-            InstKind::Store(Operand::Value(f), Operand::Value(out), 0),
-        );
-        ctx.f.set_term(blk, Terminator::Br(join));
-    }
-    ctx.cur_block = join;
-    append(
-        ctx,
-        InstKind::Load(Type::F64, Operand::Value(out), 0),
-        Type::F64,
-    )
 }
 
 /// Whether `admit` tests a value of `e_ty` by its tag.
@@ -285,6 +274,22 @@ fn reject(ctx: &mut LowerCtx, p: &str, ann: &str, (tag, v): (ValueId, ValueId)) 
     raise(ctx, p, ann);
 }
 
+/// The inferred type missed a raise: report it as uncaught and stop.
+fn missed(ctx: &mut LowerCtx, p: &str, ann: &str) {
+    let msg = format!(
+        "internal error: catch parameter `{p}` was inferred as `{ann}`, the thrown value is not one"
+    );
+    let msg = Operand::Value(ctx.intern_string_literal(msg.as_str()));
+    let raiser = ctx.intrinsics.throw_type_error_str;
+    let blk = ctx.cur_block;
+    ctx.f.append_void(blk, InstKind::Call(raiser, vec![msg]));
+    let exit = *(ctx.fn_table)
+        .get(crate::ssa_lower_main_exit::UNCAUGHT_EXIT_SYM)
+        .expect("__torajs_uncaught_exit declared in module setup");
+    ctx.f.append_void(blk, InstKind::Call(exit, vec![]));
+    ctx.f.set_term(blk, Terminator::Unreachable);
+}
+
 /// Record the TypeError of a rejected value and leave through the throw
 /// route; the cursor moves to a fresh block no edge reaches.
 fn raise(ctx: &mut LowerCtx, p: &str, ann: &str) {
@@ -294,6 +299,7 @@ fn raise(ctx: &mut LowerCtx, p: &str, ann: &str) {
     ctx.f
         .append_void(ctx.cur_block, InstKind::Call(raiser, vec![msg]));
     let blk = ctx.cur_block;
+    ctx.proofs.log_raise(&ctx.f.name, None);
     ctx.emit_throw_path(blk, None);
     ctx.cur_block = ctx.f.add_block();
 }

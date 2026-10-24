@@ -10,6 +10,7 @@ impl LowerCtx<'_> {
     /// raises: the flag it sets needs no reading. The current block is
     /// left terminated.
     pub(crate) fn emit_throw_now(&mut self) {
+        self.proofs.log_raise(&self.f.name, None);
         let throw_blk = self.f.add_block();
         let cb = self.cur_block;
         self.f.set_term(cb, Terminator::Br(throw_blk));

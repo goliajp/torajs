@@ -60,6 +60,7 @@
 use crate::ast::{Ast, Expr, ExprId, Param, Stmt};
 use std::collections::HashMap;
 
+pub(crate) mod catch_types;
 mod keyed;
 mod nullish;
 pub(crate) mod obj_cast;
@@ -87,6 +88,7 @@ pub(crate) fn fn_throw_info(
     sc.stmts(body);
     crate::ast_throw_info_fixpoint::FnThrow {
         direct: sc.direct,
+        thrown: sc.thrown,
         called: sc.called,
         nonint_read: sc.nonint_read,
         code_write: sc.code_write,
@@ -94,12 +96,6 @@ pub(crate) fn fn_throw_info(
 }
 
 impl Scan<'_> {
-    /// `this.f` where `this` is a fresh receiver the lowering stores
-    /// without a guard.
-    fn fresh_store(&self, target: ExprId) -> bool {
-        matches!(self.ast.get_expr(target), Expr::Member { obj, .. } if self.fresh_recv.contains(obj))
-    }
-
     pub(crate) fn expr(&mut self, eid: ExprId) {
         let ast = self.ast;
         self.code_write |= keyed::spells_reflect_set(ast, eid);
@@ -201,11 +197,14 @@ impl Scan<'_> {
             // FnDecl, not the enclosing fn.
             Expr::ArrowFn { .. } | Expr::Closure { .. } => {}
             Expr::New { args, .. } | Expr::Super { args } => {
+                self.direct |= shapes::new_raises(ast, self.expr_types, eid);
                 for a in args {
                     self.expr(*a);
                 }
             }
+            // the runtime decides whether the callee constructs at all
             Expr::NewDynamic { callee, args } => {
+                self.direct = true;
                 self.expr(*callee);
                 for a in args {
                     self.expr(*a);

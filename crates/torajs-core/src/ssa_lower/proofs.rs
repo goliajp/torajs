@@ -21,6 +21,8 @@
 //!   redefined a field, so the store needs no writable guard, and a
 //!   field's first write finds the factory's nullish default.
 
+pub(crate) mod catch;
+
 use std::collections::{HashMap, HashSet};
 
 use crate::ast::ExprId;
@@ -51,6 +53,9 @@ pub(crate) struct ProgramFacts {
     /// Every name some statement of the program assigns, read once on
     /// first need ([`Proofs::assigned_anywhere`]).
     pub(crate) assigned: std::cell::OnceCell<HashSet<String>>,
+    /// What an unannotated catch parameter is inferred to hold, and the
+    /// lowering's record that confirms it ([`catch`]).
+    pub(crate) catch: catch::CatchFacts,
 }
 
 pub(crate) type ProgramFactsRc = std::rc::Rc<ProgramFacts>;

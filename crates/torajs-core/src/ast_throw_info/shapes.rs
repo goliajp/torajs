@@ -76,3 +76,37 @@ pub(super) fn spread_runs_getters(
         && ast.accessor_field_names.reaches_any()
         && super::obj_cast::object_ty(expr_types.get(&src))
 }
+
+/// Whether `new C(…)` raises (`super(…)` is the parent's own body). A user class's `new` is a factory call by
+/// the time the scan runs (`desugar_classes`), so what is left is a
+/// builtin constructor the lowering intercepts, and every one of those
+/// checks the pending throw after its kernel (`ssa_lower_new`): an
+/// `Iterator` always raises, `Array(n)` / `ArrayBuffer` / a typed array
+/// on a bad length, `RegExp` on a bad pattern, `Proxy` on a non-object,
+/// a collection on an iterable that raises. The ones that cannot are a
+/// collection made empty, `Boolean` (ToBoolean never raises), and
+/// `Number` / `String` of a primitive, whose conversion runs no code.
+pub(crate) fn new_raises(
+    ast: &Ast,
+    types: &HashMap<ExprId, crate::check::Type>,
+    eid: ExprId,
+) -> bool {
+    use crate::check::Type;
+    let Expr::New {
+        class_name, args, ..
+    } = ast.get_expr(eid)
+    else {
+        return false;
+    };
+    match class_name.as_str() {
+        "Map" | "Set" | "WeakMap" | "WeakSet" => !args.is_empty(),
+        "Boolean" => false,
+        "Number" | "String" => !args.first().is_some_and(|a| {
+            matches!(
+                types.get(a),
+                Some(Type::Number | Type::String | Type::Boolean)
+            )
+        }),
+        _ => true,
+    }
+}

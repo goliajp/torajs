@@ -132,6 +132,7 @@ pub(crate) fn lower(
     // exactly as `ssa_lower_stmt_block::lower` does for a bare block.
     crate::ssa_lower_stmt_let_decl_recursive::hoist_forward_boxes(ctx, body.iter());
     let saved = ctx.proofs.region_enter();
+    let body_mark = ctx.proofs.raise_mark(&ctx.f.name);
     for s in body {
         ctx.lower_stmt(s);
         if !ctx.cur_open() {
@@ -160,7 +161,7 @@ pub(crate) fn lower(
         }
         lower_catch(
             ctx,
-            catch_blk,
+            (catch_blk, body_mark),
             catch_param,
             catch_type,
             catch_body,
@@ -183,7 +184,7 @@ pub(crate) fn lower(
 #[allow(clippy::too_many_arguments)]
 fn lower_catch(
     ctx: &mut LowerCtx,
-    catch_blk: BlockId,
+    (catch_blk, body_mark): (BlockId, usize),
     catch_param: Option<&String>,
     catch_type: Option<&String>,
     catch_body: &[Stmt],
@@ -204,6 +205,15 @@ fn lower_catch(
             teardown_depth: ctx.for_of_teardown_stack.len(),
         });
     }
+    // an unannotated parameter the program-wide throw analysis typed,
+    // when the checks the body lowered to agree (`proofs::catch`)
+    let inferred = match (catch_param, catch_type) {
+        (Some(p), None) => (ctx.proofs.catch_type(ctx.ast, catch_body, p))
+            .filter(|(_, want)| ctx.proofs.raises_confirm(&ctx.f.name, body_mark, want))
+            .map(|(ann, _)| ann.clone()),
+        _ => None,
+    };
+    let catch_type = catch_type.or(inferred.as_ref());
     // An annotated parameter the body never reads binds nothing: the
     // value is released as an unbound `catch {}` releases it, so its
     // type is never asked (`catch (e: number) {}` around a RangeError).
@@ -212,7 +222,8 @@ fn lower_catch(
             || crate::ast::body_reads(ctx.ast, catch_body, p) != crate::ast::NameRead::No
     };
     if let Some(p) = catch_param.filter(read) {
-        let (e_ty, slot_v) = bind::take(ctx, p, catch_type.map(|s| s.as_str()));
+        let ann = catch_type.map(|s| s.as_str());
+        let (e_ty, slot_v) = bind::take(ctx, p, ann, inferred.is_some());
         let slot = ctx.alloca(e_ty, Some(p));
         ctx.f.append_void(
             ctx.cur_block,

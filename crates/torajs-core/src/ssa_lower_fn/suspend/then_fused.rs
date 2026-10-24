@@ -253,7 +253,9 @@ fn yield_now(ctx: &mut LowerCtx<'_>, calls: ModuleCalls) {
 /// A throw out of `f` rejects D: the jobs ahead of C run before the
 /// await raises it (the throw is kept aside meanwhile).
 fn rethrow_after_yield(ctx: &mut LowerCtx<'_>, fid: FuncId, calls: ModuleCalls, src: Operand) {
-    if !ctx.may_throw_fns.contains(&ctx.f_name_of(fid)) {
+    let callee = ctx.f_name_of(fid);
+    if !ctx.may_throw_fns.contains(&callee) {
+        ctx.proofs.log_call(&ctx.f.name, callee);
         return;
     }
     let active = ctx.emit_throw_active_load();

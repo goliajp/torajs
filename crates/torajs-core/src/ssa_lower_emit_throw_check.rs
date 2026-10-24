@@ -79,6 +79,7 @@ impl<'a> LowerCtx<'a> {
     }
 
     fn emit_throw_check_inner(&mut self, target: Option<FuncId>, owned: Option<(Operand, Type)>) {
+        let mut callee = None;
         if let Some(fid) = target {
             if self.is_intrinsic(fid) {
                 return;
@@ -90,9 +91,12 @@ impl<'a> LowerCtx<'a> {
             // all (or whose hot fns provably can't reach a throw).
             let callee_name = self.f_name_of(fid);
             if !self.may_throw_fns.contains(&callee_name) {
+                self.proofs.log_call(&self.f.name, callee_name);
                 return;
             }
+            callee = Some(callee_name);
         }
+        self.proofs.log_raise(&self.f.name, callee);
         let active = self.emit_throw_active_load();
         let cmp = self.f.append_inst(
             self.cur_block,

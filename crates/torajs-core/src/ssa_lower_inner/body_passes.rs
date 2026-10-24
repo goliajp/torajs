@@ -102,10 +102,9 @@ pub(crate) fn run(
                 boxed_entries,
                 &scans,
             );
+            facts.catch.mark_lowered(name);
             async_setup::install(module, fid, (f, holds), suspend, intrinsics, arr_layouts);
-            for s in new_strings {
-                module.strings.push(s);
-            }
+            module.strings.extend(new_strings);
             register_fn_name(module, name, params, fid, ast, *span, boxed_entries);
         }
     }
