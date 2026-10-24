@@ -217,24 +217,17 @@ pub(crate) fn judge_and_patch<'a>(
         )?;
         t.tick("elide_reach");
         let mut changed = false;
-        let sites = elided
-            .iter_mut()
-            .zip(cfg.elidable_sites.iter().map(|s| &s.guard));
-        let stubs = applied
-            .iter_mut()
-            .zip(cfg.guarded_stubs.iter().map(|s| &s.guard));
-        let cols = [
-            (&mut dropped.twin, &twin_guard),
-            (&mut dropped.adapter, &adapter_guard),
-        ];
-        let open: Vec<_> = sites.chain(stubs).chain(cols).filter(|g| *g.0).collect();
-        idx.observe(&reach, open.iter().map(|g| g.1));
-        for (on, guard) in open {
-            if guard_live(&reach, guard, &idx) {
+        // the order `idx` was built in: sites, stubs, the two columns
+        let cols = [&mut dropped.twin, &mut dropped.adapter];
+        let flags = elided.iter_mut().chain(applied.iter_mut()).chain(cols);
+        let open: Vec<_> = flags.enumerate().filter(|g| *g.1).collect();
+        idx.observe(&reach, open.iter().map(|g| g.0));
+        for (g, on) in open {
+            if guard_live(&reach, &idx, g) {
                 *on = false;
                 changed = true;
                 if diag {
-                    eprint!("{}", explain_live(&reach, guard));
+                    eprint!("{}", explain_live(&reach, idx.guard(g)));
                 }
             }
         }

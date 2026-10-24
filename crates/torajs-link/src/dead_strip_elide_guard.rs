@@ -19,11 +19,24 @@ type Key = (usize, usize);
 /// only for the names of the guards still open when it is first seen:
 /// the open set only shrinks, so every name still asked has its rows
 /// in every member read so far.
+///
+/// Guards are named by their position in the list the index was built
+/// from, and each name is entered in a table once, when the index is
+/// built. A member is read by probing each of its rows between the
+/// least and the greatest open name against that table, so what one
+/// more guard name costs does not grow with the number of members.
 pub(crate) struct GuardIndex<'n> {
-    /// Every name of every `Symbols` guard, sorted, without repeats.
+    guards: Vec<&'n Guard>,
+    /// Every name of every `Symbols` guard, once each, in the order
+    /// first met.
     names: Vec<&'n str>,
-    /// Indices into `names` of the names some open guard carries.
-    open: Vec<usize>,
+    /// Per guard: the span of `name_ids` that holds its names.
+    spans: Vec<(u32, u32)>,
+    /// Indices into `names`, guard after guard.
+    name_ids: Vec<u32>,
+    table: NameTable,
+    /// Per name of `names`: some open guard carries it.
+    open: Vec<bool>,
     seen: HashSet<Key>,
     /// Per name of `names`: `(member, n_sect, n_value)` of each row.
     rows: Vec<Vec<(Key, u8, u64)>>,
@@ -31,95 +44,158 @@ pub(crate) struct GuardIndex<'n> {
 
 impl<'n> GuardIndex<'n> {
     pub(crate) fn new(guards: impl IntoIterator<Item = &'n Guard>) -> Self {
-        let mut names: Vec<&str> = guards
-            .into_iter()
-            .flat_map(|g| match g {
-                Guard::Symbols(syms) => syms.as_slice(),
-                Guard::Member { .. } => &[],
-            })
-            .map(String::as_str)
-            .collect();
-        names.sort_unstable();
-        names.dedup();
-        let rows = vec![Vec::new(); names.len()];
+        let guards: Vec<&Guard> = guards.into_iter().collect();
+        let syms = |g: &Guard| match g {
+            Guard::Symbols(syms) => syms.len(),
+            Guard::Member { .. } => 0,
+        };
+        let total = guards.iter().map(|g| syms(g)).sum();
+        let mut table = NameTable::with_room(total);
+        let (mut names, mut name_ids) = (Vec::new(), Vec::with_capacity(total));
+        let mut spans = Vec::with_capacity(guards.len());
+        for &g in &guards {
+            let start = name_ids.len() as u32;
+            if let Guard::Symbols(syms) = g {
+                for n in syms {
+                    name_ids.push(table.intern(&mut names, n));
+                }
+            }
+            spans.push((start, name_ids.len() as u32));
+        }
         GuardIndex {
+            open: vec![false; names.len()],
+            rows: vec![Vec::new(); names.len()],
+            guards,
             names,
-            open: Vec::new(),
+            spans,
+            name_ids,
+            table,
             seen: HashSet::default(),
-            rows,
         }
     }
 
+    /// The guard at `g` of the list the index was built from.
+    pub(crate) fn guard(&self, g: usize) -> &'n Guard {
+        self.guards[g]
+    }
+
+    /// Indices into `names` of the names of the guard at `g`.
+    fn names_of(&self, g: usize) -> &[u32] {
+        let (start, end) = self.spans[g];
+        &self.name_ids[start as usize..end as usize]
+    }
+
     /// Read the members of `reach` no earlier probe walked, for the
-    /// names of `open`: the guards still to be asked, a subset of the
-    /// guards open at every earlier call.
-    pub(crate) fn observe<'g>(
+    /// names of the guards at `open`: the guards still to be asked, a
+    /// subset of the guards open at every earlier call.
+    pub(crate) fn observe(
         &mut self,
         reach: &ReachResult<'_>,
-        open: impl IntoIterator<Item = &'g Guard>,
+        open: impl IntoIterator<Item = usize>,
     ) {
-        self.open.clear();
+        self.open.fill(false);
+        let (mut lo, mut hi): (Option<&str>, Option<&str>) = (None, None);
         for g in open {
-            if let Guard::Symbols(syms) = g {
-                for n in syms {
-                    let i = self.index_of(n);
-                    self.open.push(i);
-                }
+            let (start, end) = self.spans[g];
+            for &i in &self.name_ids[start as usize..end as usize] {
+                let n = self.names[i as usize];
+                self.open[i as usize] = true;
+                lo = Some(lo.map_or(n, |l| l.min(n)));
+                hi = Some(hi.map_or(n, |h| h.max(n)));
             }
         }
-        self.open.sort_unstable();
-        self.open.dedup();
-        let (Some(&lo), Some(&hi)) = (self.open.first(), self.open.last()) else {
+        let (Some(lo), Some(hi)) = (lo, hi) else {
             return;
         };
-        let (lo, hi) = (self.names[lo], self.names[hi]);
-        let (mut at, mut hit) = (Vec::new(), Vec::new());
+        let mut at = Vec::new();
         for (&key, m) in &reach.members {
             if !self.seen.insert(key) {
                 continue;
             }
-            // `defined` is sorted by name: only the rows between the
-            // least and the greatest open name can carry one, and the
-            // shorter of the two sorted lists drives the search
+            // `defined` is sorted by name and holds each name once:
+            // only the rows between the least and the greatest open
+            // name can carry one
             let d = &m.defined;
-            let mut d = &d[d.partition_point(|e| e.0 < lo)..d.partition_point(|e| e.0 <= hi)];
-            let (open, names) = (&self.open, &self.names);
-            hit.clear();
-            if d.len() < open.len() {
-                for (j, e) in d.iter().enumerate() {
-                    let first = j == 0 || d[j - 1].0 != e.0;
-                    if first && let Ok(k) = open.binary_search_by(|&i| names[i].cmp(e.0)) {
-                        hit.push(open[k]);
-                    }
+            let d = &d[d.partition_point(|e| e.0 < lo)..d.partition_point(|e| e.0 <= hi)];
+            for &(name, sect, value) in d {
+                let Some(i) = self.table.find(&self.names, name) else {
+                    continue;
+                };
+                if !self.open[i] {
+                    continue;
                 }
-            } else {
-                for &i in open {
-                    d = &d[d.partition_point(|e| e.0 < names[i])..];
-                    let Some(e) = d.first() else { break };
-                    if e.0 == names[i] {
-                        hit.push(i);
-                    }
+                if m.is_dup_defined(name) {
+                    at.clear();
+                    name_positions(m, name, &mut at);
+                    self.rows[i].extend(at.iter().map(|&(s, v)| (key, s, v)));
+                } else {
+                    self.rows[i].push((key, sect, value));
                 }
-            }
-            for &i in &hit {
-                at.clear();
-                name_positions(m, self.names[i], &mut at);
-                self.rows[i].extend(at.iter().map(|&(s, v)| (key, s, v)));
             }
         }
     }
+}
 
-    /// The rows of `name`, which a guard the index was built from
-    /// carries.
-    fn rows_of(&self, name: &str) -> &[(Key, u8, u64)] {
-        &self.rows[self.index_of(name)]
+/// An open-addressing table of the guard names, keyed by a name's
+/// length and last eight bytes: runtime names share long prefixes and
+/// end in what tells them apart, so one load and one multiply place a
+/// row, and the full compare runs only when the stored key matches.
+struct NameTable {
+    /// `(key, index + 1)` per slot; index 0 marks an empty slot.
+    slots: Vec<(u32, u32)>,
+    mask: usize,
+}
+
+impl NameTable {
+    /// A table that stays at most a quarter full with `n` names.
+    fn with_room(n: usize) -> Self {
+        let mask = (n * 4).next_power_of_two().max(8) - 1;
+        NameTable {
+            slots: vec![(0, 0); mask + 1],
+            mask,
+        }
     }
 
-    fn index_of(&self, name: &str) -> usize {
-        self.names
-            .binary_search(&name)
-            .expect("the index holds every Symbols guard name")
+    /// The slot `name` sits in, or the empty slot it would go to.
+    fn slot(&self, names: &[&str], name: &str) -> (usize, u32) {
+        let k = name_key(name);
+        let mut s = k as usize & self.mask;
+        loop {
+            let (sk, i) = self.slots[s];
+            if i == 0 || (sk == (k >> 32) as u32 && names[i as usize - 1] == name) {
+                return (s, (k >> 32) as u32);
+            }
+            s = (s + 1) & self.mask;
+        }
     }
+
+    /// The index of `name` in `names`, the list [`Self::intern`] built.
+    fn find(&self, names: &[&str], name: &str) -> Option<usize> {
+        let (s, _) = self.slot(names, name);
+        self.slots[s].1.checked_sub(1).map(|i| i as usize)
+    }
+
+    /// The index of `name` in `names`, appending it when absent.
+    fn intern<'n>(&mut self, names: &mut Vec<&'n str>, name: &'n str) -> u32 {
+        let (s, k) = self.slot(names, name);
+        if self.slots[s].1 == 0 {
+            names.push(name);
+            self.slots[s] = (k, names.len() as u32);
+        }
+        self.slots[s].1 - 1
+    }
+}
+
+/// The table key of a name: its last eight bytes (zero-padded when
+/// shorter) mixed with its length.
+fn name_key(name: &str) -> u64 {
+    let b = name.as_bytes();
+    let tail = &b[b.len().saturating_sub(8)..];
+    let mut w = [0u8; 8];
+    w[..tail.len()].copy_from_slice(tail);
+    let x = (u64::from_le_bytes(w) ^ (b.len() as u64).rotate_left(40))
+        .wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    x ^ (x >> 29)
 }
 
 /// Is the guard's evidence live? `Member`: any text atom of a
@@ -135,8 +211,8 @@ impl<'n> GuardIndex<'n> {
 /// atom; in any other a section is one atom and its rows sit
 /// anywhere inside it. Both arms look the names up by address
 /// instead of scanning the nlist per atom.
-pub(crate) fn guard_live(reach: &ReachResult<'_>, guard: &Guard, idx: &GuardIndex<'_>) -> bool {
-    match guard {
+pub(crate) fn guard_live(reach: &ReachResult<'_>, idx: &GuardIndex<'_>, g: usize) -> bool {
+    match idx.guard(g) {
         Guard::Member { prefix, ignore } => {
             let mut at: Vec<(u8, u64)> = Vec::new();
             reach
@@ -159,8 +235,8 @@ pub(crate) fn guard_live(reach: &ReachResult<'_>, guard: &Guard, idx: &GuardInde
                     })
                 })
         }
-        Guard::Symbols(syms) => syms.iter().any(|name| {
-            idx.rows_of(name).iter().any(|&(key, sect, start)| {
+        Guard::Symbols(_) => idx.names_of(g).iter().any(|&i| {
+            idx.rows[i as usize].iter().any(|&(key, sect, start)| {
                 reach
                     .members
                     .get(&key)
@@ -263,8 +339,8 @@ mod tests {
     /// a `Symbols` answer must match [`scan_symbols`].
     fn live(reach: &ReachResult<'_>, guard: &Guard) -> bool {
         let mut idx = GuardIndex::new([guard]);
-        idx.observe(reach, [guard]);
-        let got = guard_live(reach, guard, &idx);
+        idx.observe(reach, [0]);
+        let got = guard_live(reach, &idx, 0);
         if let Guard::Symbols(syms) = guard {
             assert_eq!(got, scan_symbols(reach, syms), "{guard}");
         }
@@ -334,21 +410,21 @@ mod tests {
         let g = syms(&["_w"]);
         let mut idx = GuardIndex::new([&g]);
         let first = reach_of(vec![((0, 0), member(&rows, [true, false]))]);
-        idx.observe(&first, [&g]);
-        assert!(guard_live(&first, &g, &idx));
+        idx.observe(&first, [0]);
+        assert!(guard_live(&first, &idx, 0));
         let gone = reach_of(vec![(
             (1, 0),
             member(&[("_x", 0), ("_y", 8)], [true, true]),
         )]);
-        idx.observe(&gone, [&g]);
-        assert!(!guard_live(&gone, &g, &idx));
+        idx.observe(&gone, [0]);
+        assert!(!guard_live(&gone, &idx, 0));
         let dead = reach_of(vec![((0, 0), member(&rows, [false, true]))]);
-        idx.observe(&dead, [&g]);
-        assert!(!guard_live(&dead, &g, &idx));
+        idx.observe(&dead, [0]);
+        assert!(!guard_live(&dead, &idx, 0));
         // a member first walked in a later probe is read then
         let late = reach_of(vec![((2, 0), member(&rows, [true, false]))]);
-        idx.observe(&late, [&g]);
-        assert!(guard_live(&late, &g, &idx));
+        idx.observe(&late, [0]);
+        assert!(guard_live(&late, &idx, 0));
     }
 
     /// Over a run of probes and a shrinking open set, every guard
@@ -373,19 +449,20 @@ mod tests {
         let mut idx = GuardIndex::new(guards);
         for (n, p) in probes.iter().enumerate() {
             // the open set shrinks: probe n leaves out the first n - 1
-            let open = &guards[n.saturating_sub(1).min(2)..];
-            idx.observe(p, open.iter().copied());
+            let open = n.saturating_sub(1).min(2)..guards.len();
+            idx.observe(p, open.clone());
             for g in open {
-                let Guard::Symbols(names) = g else {
+                let Guard::Symbols(names) = guards[g] else {
                     unreachable!()
                 };
-                assert_eq!(guard_live(p, g, &idx), scan_symbols(p, names), "{n} {g}");
+                let want = scan_symbols(p, names);
+                assert_eq!(guard_live(p, &idx, g), want, "{n} {}", guards[g]);
             }
         }
         let mut one = GuardIndex::new([&gw]);
         for p in &probes {
-            one.observe(p, [&gw]);
-            assert_eq!(guard_live(p, &gw, &one), scan_symbols(p, &["_w".into()]));
+            one.observe(p, [0]);
+            assert_eq!(guard_live(p, &one, 0), scan_symbols(p, &["_w".into()]));
         }
     }
 
@@ -397,20 +474,44 @@ mod tests {
         let (gw, gv) = (syms(&["_w"]), syms(&["_v"]));
         let mut idx = GuardIndex::new([&gw, &gv]);
         let first = reach_of(vec![((0, 0), member(&rows, [true, false]))]);
-        idx.observe(&first, [&gw, &gv]);
-        assert!(guard_live(&first, &gw, &idx));
-        assert!(!guard_live(&first, &gv, &idx));
+        idx.observe(&first, [0, 1]);
+        assert!(guard_live(&first, &idx, 0));
+        assert!(!guard_live(&first, &idx, 1));
         let second = reach_of(vec![
             ((0, 0), member(&rows, [false, false])),
             ((1, 0), member(&rows, [false, true])),
         ]);
-        idx.observe(&second, [&gv]);
-        assert!(guard_live(&second, &gv, &idx));
+        idx.observe(&second, [1]);
+        assert!(guard_live(&second, &idx, 1));
         assert_eq!(
-            guard_live(&second, &gv, &idx),
+            guard_live(&second, &idx, 1),
             scan_symbols(&second, &["_v".into()])
         );
-        assert!(idx.rows_of("_w").iter().all(|r| r.0 == (0, 0)));
+        let w = idx.names_of(0)[0] as usize;
+        assert!(idx.rows[w].iter().all(|r| r.0 == (0, 0)));
+    }
+
+    /// Names that agree in length and in their last eight bytes share
+    /// a key; each is still found at its own index, and a name the
+    /// table lacks is not found.
+    #[test]
+    fn the_name_table_tells_apart_names_of_one_key() {
+        let names = ["", "a_suffix_1", "b_suffix_1", "c_suffix_1", "x"];
+        let mut t = NameTable::with_room(names.len());
+        let mut interned = Vec::new();
+        for (i, n) in names.iter().enumerate() {
+            assert_eq!(t.intern(&mut interned, n), i as u32, "{n}");
+        }
+        assert_eq!(t.intern(&mut interned, "b_suffix_1"), 2);
+        assert_eq!(interned, names);
+        let names = interned;
+        for (i, n) in names.iter().enumerate() {
+            assert_eq!(t.find(&names, n), Some(i), "{n}");
+        }
+        for n in ["d_suffix_1", "suffix_1", "y", "xx"] {
+            assert_eq!(t.find(&names, n), None, "{n}");
+        }
+        assert_eq!(name_key("a_suffix_1"), name_key("c_suffix_1"));
     }
 
     /// r506 — an atom carrying two names (MergeFunctions aliases)
