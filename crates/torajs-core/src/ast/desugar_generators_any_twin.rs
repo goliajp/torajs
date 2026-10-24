@@ -241,7 +241,8 @@ fn mint_one(ast: &mut Ast, idx: usize) {
         name: twin,
         type_params: Vec::new(),
         params: twin_params,
-        return_type: None,
+        // the twin serves values of any kind, so its yields are `any`
+        return_type: Some("any".into()),
         body: cloned_body,
         is_generator: true,
         span,

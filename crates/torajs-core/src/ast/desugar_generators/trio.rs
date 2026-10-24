@@ -32,7 +32,7 @@ use crate::ast::{Ast, ClassMethod, Stmt};
 #[allow(clippy::too_many_arguments)]
 pub(super) fn build_iterator_method_trio(
     ast: &mut Ast,
-    yield_ty: &str,
+    (yield_ty, sent_ty): (&str, &str),
     step_ann: &str,
     next_body: Vec<Stmt>,
     has_try_regions: bool,
@@ -45,18 +45,18 @@ pub(super) fn build_iterator_method_trio(
         "next"
     };
     let yield_arg_default_id = ast.add_expr(
-        crate::ast::desugar_generators_methods::yield_arg_undefined(yield_ty),
+        crate::ast::desugar_generators_methods::yield_arg_undefined(sent_ty),
     );
     let next_method = crate::ast::desugar_generators_methods::build_next_method(
         ast,
         yield_arg_default_id,
-        yield_ty,
+        sent_ty,
         step_ann,
         next_body,
     );
     let return_method = crate::ast::desugar_generators_methods::build_return_method(
         ast,
-        yield_ty,
+        (yield_ty, sent_ty),
         step_ann,
         has_finally_ret,
         is_async_gen,
@@ -64,7 +64,7 @@ pub(super) fn build_iterator_method_trio(
     );
     let throw_method = crate::ast::desugar_generators_methods::build_throw_method(
         ast,
-        yield_ty,
+        sent_ty,
         step_ann,
         has_try_regions,
         next_name,

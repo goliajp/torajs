@@ -26,6 +26,7 @@
 pub(super) mod any_slot;
 mod trio;
 
+use super::desugar_generators_prep::YieldInfer;
 use super::{Ast, ClassCtor, Expr, Param, Stmt, default_init_for_type};
 use trio::build_iterator_method_trio;
 
@@ -93,6 +94,8 @@ use trio::build_iterator_method_trio;
 ///     fields. Same name in two scopes is an error (panic) since both
 ///     would map to the same `this.<name>` field.
 pub fn desugar_generators(ast: &mut Ast) {
+    // read before later passes mint `return` reads or lift generators out of scope
+    let infer_yields = YieldInfer::of_program(ast);
     // 393-03 — nested `function*` decls lift to the top level first;
     // the claim walk below reads top-level FnDecls only (rationale
     // in the `_lift` sibling's module doc).
@@ -127,8 +130,9 @@ pub fn desugar_generators(ast: &mut Ast) {
         let idx = gen_indices[k].0;
         let Stmt::FnDecl {
             name,
+            type_params,
             params,
-            return_type,
+            mut return_type,
             body,
             is_generator: true,
             ..
@@ -139,6 +143,11 @@ pub fn desugar_generators(ast: &mut Ast) {
                 gen_indices[k].1
             );
         };
+        // a generic generator's yields name its type parameters, which
+        // the iterator class does not declare
+        if !type_params.is_empty() {
+            return_type.get_or_insert_with(|| "any".into());
+        }
         desugar_one_generator(
             ast,
             idx,
@@ -146,7 +155,7 @@ pub fn desugar_generators(ast: &mut Ast) {
             params,
             return_type,
             body,
-            &fn_sigs,
+            (&fn_sigs, &infer_yields),
             &mut appended,
         );
     }
@@ -185,7 +194,7 @@ fn desugar_one_generator(
     mut gen_params: Vec<Param>,
     gen_ret: Option<String>,
     mut gen_body: Vec<Stmt>,
-    fn_sigs: &std::collections::HashMap<String, String>,
+    (fn_sigs, infer_yields): (&std::collections::HashMap<String, String>, &YieldInfer),
     appended: &mut Vec<Stmt>,
 ) {
     // Un-annotated generator params flow through the Any-tier.
@@ -199,14 +208,10 @@ fn desugar_one_generator(
             p.type_ann = Some("any".into());
         }
     }
-    // P10.7 — Default-Any generator. When the user omits the
-    // return-type annotation (`function* foo() {...}`), infer
-    // `Generator<any>` so the body's `yield` values flow through
-    // the existing Any-tier (NaN-box AnyValue) via the
-    // `Expr::As { …, ty_ann: "any" }` wrap inside
-    // `GenSm::emit_yield_return`. `Generator<T>` /
-    // `IterableIterator<T>` annotations keep their explicit T.
-    let yield_ty = gen_ret.unwrap_or_else(|| "any".into());
+    // The resume channel (`next(v)`, `__sent`) is the declared yield
+    // type's; an unannotated generator's is `any`, and its yield type
+    // is inferred from the prepared body below (`infer_yield_ann`).
+    let sent_ty = gen_ret.clone().unwrap_or_else(|| "any".into());
 
     // Param-destructuring prefix: parse_fn recorded how many
     // synthesized `let leaf = __param_destr_N.<field>` stmts it
@@ -255,9 +260,13 @@ fn desugar_one_generator(
         gen_body,
         &gen_name,
         &rewrite_params,
-        &yield_ty,
+        &sent_ty,
         fn_sigs,
     );
+    let is_async_gen = ast.async_generator_fns.contains(&gen_name);
+    let shape = (&gen_body[..], &rewrite_params[..], &lifted_locals[..]);
+    let yield_ty =
+        gen_ret.unwrap_or_else(|| infer_yields.yield_type(ast, !is_async_gen, shape, fn_sigs));
 
     // Class name + struct return type for next().
     let class_name = format!("__Gen_{gen_name}");
@@ -266,7 +275,6 @@ fn desugar_one_generator(
     // names (`desugar_generators_async`): the driver does every await,
     // the factory stays un-wrapped (`ag()` answers the generator object
     // per §27.6), and the machine yields its operands verbatim.
-    let is_async_gen = ast.async_generator_fns.contains(&gen_name);
     super::gen_fn_expr::register_gen_env_methods(ast, &gen_name, &class_name, is_async_gen);
     let step_ann = format!("__step_{gen_name}");
     // Type alias `type __step_<gen> = { value: T, done: boolean }`.
@@ -317,7 +325,7 @@ fn desugar_one_generator(
     };
     let (mut next_method, mut return_method, mut throw_method) = build_iterator_method_trio(
         ast,
-        &yield_ty,
+        (&yield_ty, &sent_ty),
         &step_ann,
         next_body,
         has_try_regions,
@@ -345,9 +353,9 @@ fn desugar_one_generator(
     // P10.6-A3 — nominal-marker field whose name is unique per
     // generator class. Generator desugar lifts every yield-fn
     // into a class with structurally identical primitives
-    // (`__state: number` + `__sent: <yield_ty>` + params /
+    // (`__state: number` + `__sent: <sent_ty>` + params /
     // lifted locals); two `function* a()` + `function* b()`
-    // sharing the same yield_ty + parameter shape used to
+    // sharing the same sent_ty + parameter shape used to
     // collapse to the same struct sid, and ssa_lower:18693's
     // sibling-class static dispatch picked the first-matching
     // alias from a HashMap iter — non-deterministically
@@ -363,7 +371,7 @@ fn desugar_one_generator(
         idx,
         gen_name,
         gen_params,
-        &yield_ty,
+        &sent_ty,
         class_name,
         &lifted_locals,
         ctor.body,

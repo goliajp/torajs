@@ -1,0 +1,26 @@
+got [1,2]
+inner finally
+outer finally
+all [1,2]
+all [3,4]
+inner finally
+outer finally
+all [5]
+plain [10]
+plain [20,21]
+destr [10] [20,21]
+inner finally
+outer finally
+destr nested [1,2]
+return out 1
+{"value":[1,2],"done":false}
+{"value":[3,4],"done":false}
+inner finally
+outer finally
+{"value":[5],"done":false}
+{"done":true}
+{"done":true}
+typed [7]
+typed inner
+typed outer
+end

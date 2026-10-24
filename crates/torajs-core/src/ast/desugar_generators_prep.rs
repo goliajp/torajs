@@ -25,6 +25,9 @@
 //! Returns `(prepared_body, lifted_locals)` so the caller can pass
 //! both into the class-assembly step.
 
+mod yield_infer;
+pub(super) use yield_infer::YieldInfer;
+
 use super::desugar_generators_walkers::LiftCtx;
 use super::desugar_generators_walkers::lift_lets_in_list;
 use super::{Ast, Expr, Param, Stmt, expand_yield_into_in_stmt};
@@ -34,7 +37,7 @@ pub(super) fn prep_generator_body(
     mut gen_body: Vec<Stmt>,
     gen_name: &str,
     gen_params: &[Param],
-    yield_ty: &str,
+    sent_ty: &str,
     fn_sigs: &std::collections::HashMap<String, String>,
 ) -> (Vec<Stmt>, Vec<(String, String)>) {
     // F1 (RFC 20260728-gen-forof-yieldstar) — pass 0: rewrite every
@@ -49,7 +52,7 @@ pub(super) fn prep_generator_body(
     // `this.__sent` reference picks up whatever was passed to
     // `g.next(arg)` on the resume.
     for s in &mut gen_body {
-        expand_yield_into_in_stmt(ast, s, yield_ty);
+        expand_yield_into_in_stmt(ast, s, sent_ty);
     }
     // RFC 20260915 item 2 — the temporal dead zone of every `let` /
     // `const` this body is about to lift, settled while the statement
