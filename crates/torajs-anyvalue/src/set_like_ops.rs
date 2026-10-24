@@ -169,7 +169,7 @@ unsafe fn keys_walk_probe(this: *mut c_void, rec: &SetRecord, want: bool) -> Opt
         let it = keys_iterator(rec)?;
         loop {
             let mut out = VALUE_UNDEFINED;
-            if generic_iter_step(it, &mut out, false) == 0 {
+            if generic_iter_step(it, &mut out, crate::iter_any_await::AwaitMode::Sync) == 0 {
                 __torajs_anyv_rc_dec(it);
                 if __torajs_throw_check() != 0 {
                     return None;
@@ -204,7 +204,7 @@ unsafe fn op_union(this: *mut c_void, rec: &SetRecord) -> Option<*mut c_void> {
         };
         loop {
             let mut out = VALUE_UNDEFINED;
-            if generic_iter_step(it, &mut out, false) == 0 {
+            if generic_iter_step(it, &mut out, crate::iter_any_await::AwaitMode::Sync) == 0 {
                 __torajs_anyv_rc_dec(it);
                 if __torajs_throw_check() != 0 {
                     __torajs_value_drop_heap(result);
@@ -260,7 +260,7 @@ unsafe fn op_intersection(
             };
             loop {
                 let mut out = VALUE_UNDEFINED;
-                if generic_iter_step(it, &mut out, false) == 0 {
+                if generic_iter_step(it, &mut out, crate::iter_any_await::AwaitMode::Sync) == 0 {
                     __torajs_anyv_rc_dec(it);
                     if __torajs_throw_check() != 0 {
                         __torajs_value_drop_heap(result);
@@ -318,7 +318,7 @@ unsafe fn op_difference(this: *mut c_void, this_size: f64, rec: &SetRecord) -> O
             };
             loop {
                 let mut out = VALUE_UNDEFINED;
-                if generic_iter_step(it, &mut out, false) == 0 {
+                if generic_iter_step(it, &mut out, crate::iter_any_await::AwaitMode::Sync) == 0 {
                     __torajs_anyv_rc_dec(it);
                     if __torajs_throw_check() != 0 {
                         __torajs_value_drop_heap(result);
@@ -349,7 +349,7 @@ unsafe fn op_symmetric_difference(this: *mut c_void, rec: &SetRecord) -> Option<
         };
         loop {
             let mut out = VALUE_UNDEFINED;
-            if generic_iter_step(it, &mut out, false) == 0 {
+            if generic_iter_step(it, &mut out, crate::iter_any_await::AwaitMode::Sync) == 0 {
                 __torajs_anyv_rc_dec(it);
                 if __torajs_throw_check() != 0 {
                     __torajs_value_drop_heap(result);

@@ -3,6 +3,7 @@
 //! vtable-first / generic-fallback step both GetIterator lanes and
 //! the `Tag::Obj` receiver lane drive, sync and `for await` alike.
 
+use crate::iter_any_await::AwaitMode;
 use core::ffi::c_void;
 
 use crate::iter_any_call::{MethodOutcome, call_obj_method_0};
@@ -29,19 +30,19 @@ unsafe extern "C" {
 /// generator object and a hand-written iterator class keep the exact
 /// path they had.
 ///
-/// `await_mode` (§14.7.5.6 async-iterate): a `next()` that answered a
-/// Promise — an async generator's, a user async iterator's — is
-/// awaited before §7.4.4 reads the result; a sync result's VALUE is
-/// awaited instead, standing in for the §27.1.4.4 Async-from-Sync
-/// wrapper. The Promise-or-not probe on the step result IS the
-/// protocol split — no lane bookkeeping needed.
+/// An async `mode` (§14.7.5.6 async-iterate): the answer of an async
+/// iterator's `next()` — an async generator's, a user async
+/// iterator's — is awaited before §7.4.4 reads the result; a sync
+/// result's VALUE is awaited instead, standing in for the §27.1.4.4
+/// Async-from-Sync wrapper. The mode names the protocol
+/// ([`AwaitMode::for_lane`]).
 ///
 /// # Safety
 /// `iter` is the caller's live iterator box; `out` is writable.
 pub(crate) unsafe fn step_derived_iterator(
     iter: AnyValue,
     out: *mut AnyValue,
-    await_mode: bool,
+    mode: AwaitMode,
 ) -> i64 {
     unsafe {
         if !is_cell(iter) {
@@ -51,7 +52,7 @@ pub(crate) unsafe fn step_derived_iterator(
         }
         let iter_ptr = as_void_ptr(iter);
         if (iter_ptr.cast::<u8>().add(4) as *const u16).read() != Tag::Obj as u16 {
-            return crate::iter_any_get_method::generic_iter_step(iter, out, await_mode);
+            return crate::iter_any_get_method::generic_iter_step(iter, out, mode);
         }
         // ES §7.4.6 IteratorNext — a step that throws forwards the
         // abrupt completion; there is no result to inspect.
@@ -61,19 +62,17 @@ pub(crate) unsafe fn step_derived_iterator(
             // a closure-valued field. Same iterator, other tier; the
             // "no next()" diagnostic belongs to that tier's dispatcher.
             MethodOutcome::Missing => {
-                return crate::iter_any_get_method::generic_iter_step(iter, out, await_mode);
+                return crate::iter_any_get_method::generic_iter_step(iter, out, mode);
             }
             MethodOutcome::Threw => {
                 *out = VALUE_UNDEFINED;
                 return 0;
             }
         };
-        let was_async = await_mode && crate::iter_any_await::await_settle(&mut step);
-        if was_async && __torajs_throw_check() != 0 {
-            __torajs_anyv_rc_dec(step);
-            *out = VALUE_UNDEFINED;
-            return 0;
-        }
+        let was_async = match crate::iter_any_await::step_result(mode, &mut step, out) {
+            Ok(was_async) => was_async,
+            Err(code) => return code,
+        };
         // §7.4.4 step 1 — the result must be an OBJECT; a primitive
         // heap cell (a string is a Str cell in tr) is not one, and
         // reading done/value off it spun this driver forever (the
@@ -119,8 +118,8 @@ pub(crate) unsafe fn step_derived_iterator(
         };
         __torajs_anyv_rc_dec(step);
         *out = value;
-        if await_mode && !was_async {
-            return crate::iter_any_await::settle_out(out);
+        if mode.awaits_value() && !was_async {
+            return crate::iter_any_await::settle_out(out, mode);
         }
         1
     }

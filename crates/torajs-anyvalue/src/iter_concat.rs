@@ -1,5 +1,4 @@
-//! `Iterator.concat(...items)` — RFC 20260730-iterator-global 刀 5a
-//! (proposal-iterator-sequencing, stage 3).
+//! `Iterator.concat(...items)` (proposal-iterator-sequencing, stage 3).
 //!
 //! The static runs step 2's `GetMethod(item, @@iterator)` EAGERLY for
 //! every item and PARKS the answer — that is what the spec means by
@@ -35,6 +34,7 @@ use crate::iter_helper::{
 use crate::method_call_closure_dispatch::{closure_cell_entry, invoke_with_this};
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr, is_cell, is_short_str};
 use crate::nanbox_ffi::__torajs_anyv_rc_dec;
+use crate::{iter_any_await::AwaitMode, iter_any_step::step_derived_iterator};
 use torajs_rc::Tag;
 
 unsafe extern "C" {
@@ -236,7 +236,7 @@ pub(crate) unsafe fn iter_concat_step(ptr: *mut c_void, out: *mut AnyValue) -> i
             let inner = (p.add(INNER_OFF) as *const u64).read();
             if inner != VALUE_UNDEFINED {
                 let mut item: AnyValue = VALUE_UNDEFINED;
-                let hit = crate::iter_any_step::step_derived_iterator(inner, &mut item, false);
+                let hit = step_derived_iterator(inner, &mut item, AwaitMode::Sync);
                 if hit == 1 {
                     *out = item;
                     return 1;

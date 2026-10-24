@@ -20,6 +20,7 @@
 //! never closed.
 
 use crate::iter_any::{USER_ITERATOR_LANE, iter_next_inner};
+use crate::iter_any_await::AwaitMode;
 use crate::iter_dstr_rest::{ParkCursor, ParkLane, is_cursor_cell, park_decode};
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED, box_int32};
 use crate::nanbox_ffi::__torajs_anyv_rc_dec;
@@ -68,7 +69,14 @@ pub unsafe extern "C" fn __torajs_dstr_step_one(
             lane,
         } = park_decode(park, recv);
         let mut out: AnyValue = VALUE_UNDEFINED;
-        let live = iter_next_inner(recv_eff, &mut idx, &mut iter_slot, &mut out, false, false);
+        let live = iter_next_inner(
+            recv_eff,
+            &mut idx,
+            &mut iter_slot,
+            &mut out,
+            false,
+            AwaitMode::Sync,
+        );
         if __torajs_throw_check() != 0 || live == 0 {
             release_park(park, iter_slot, &lane);
             return VALUE_UNDEFINED;

@@ -175,7 +175,8 @@ pub(crate) fn lower(
         crate::ssa_lower_for_of_written::LoopVarInit::Alias
     };
     crate::ssa_lower_for_of_written::bind_loop_var(ctx, var_name, v_val, v_ty, body, init);
-    // the step's own throw closes nothing; the body's leaves close
+    // a rejected element's close runs nothing (an array iterator has no
+    // `return`); the body's exits close
     if steps_await {
         ctx.for_of_teardown_stack
             .push(crate::ssa_lower_for_of_teardown::ForOfTeardown::AsyncFromSync);

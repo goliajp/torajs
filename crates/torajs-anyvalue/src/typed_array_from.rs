@@ -149,7 +149,7 @@ unsafe fn drain_user_iterator(it: AnyValue) -> Option<Vec<AnyValue>> {
         let mut values = Vec::new();
         let mut out: AnyValue = VALUE_UNDEFINED;
         loop {
-            let live = generic_iter_step(it, &mut out, false);
+            let live = generic_iter_step(it, &mut out, crate::iter_any_await::AwaitMode::Sync);
             if __torajs_throw_check() != 0 {
                 release_all(values);
                 return None;

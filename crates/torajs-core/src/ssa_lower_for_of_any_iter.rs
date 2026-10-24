@@ -113,33 +113,33 @@ pub(crate) fn lower(
     ctx.f.set_term(ctx.cur_block, Terminator::Br(header));
 
     ctx.cur_block = header;
-    // `for await` — drain microtasks before each step (same as the
-    // typed await route) so the kernel's settle taps see settled
-    // cells, then drive the await entry of the same cascade.
-    let step_fid = if is_await {
-        ctx.f.append_void(
-            ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.microtask_drain, vec![]),
-        );
-        ctx.intrinsics.any_iter_next_await
+    let live = if is_await && crate::ssa_lower_fn::suspend::in_module_body(ctx) {
+        // the module body awaits each step in place
+        crate::ssa_lower_fn::suspend::any_await_step(ctx, src_op, idx_slot, iter_slot, out_slot)
     } else {
-        ctx.intrinsics.any_iter_next
+        // `for await` elsewhere drains the microtasks before each step
+        // so the kernel's settle taps see settled cells, then drives
+        // the await entry of the same cascade
+        let step_fid = if is_await {
+            ctx.f.append_void(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.microtask_drain, vec![]),
+            );
+            ctx.intrinsics.any_iter_next_await
+        } else {
+            ctx.intrinsics.any_iter_next
+        };
+        let args = vec![
+            src_op,
+            Operand::Value(idx_slot),
+            Operand::Value(iter_slot),
+            Operand::Value(out_slot),
+        ];
+        let call = InstKind::Call(step_fid, args);
+        let live = ctx.f.append_inst(ctx.cur_block, call, Type::I64, None);
+        ctx.emit_throw_check(None);
+        live
     };
-    let live = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Call(
-            step_fid,
-            vec![
-                src_op,
-                Operand::Value(idx_slot),
-                Operand::Value(iter_slot),
-                Operand::Value(out_slot),
-            ],
-        ),
-        Type::I64,
-        None,
-    );
-    ctx.emit_throw_check(None);
     let done = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::ICmp(IPred::Eq, Operand::Value(live), Operand::ConstI64(0)),
@@ -181,9 +181,17 @@ pub(crate) fn lower(
         body,
         crate::ssa_lower_for_of_written::LoopVarInit::Owned,
     );
-    let teardown = crate::ssa_lower_for_of_teardown::ForOfTeardown::Any {
-        src: src_op,
-        iter_slot,
+    let teardown = if is_await && crate::ssa_lower_fn::suspend::in_module_body(ctx) {
+        crate::ssa_lower_for_of_teardown::ForOfTeardown::AnyAsync {
+            src: src_op,
+            idx_slot,
+            iter_slot,
+        }
+    } else {
+        crate::ssa_lower_for_of_teardown::ForOfTeardown::Any {
+            src: src_op,
+            iter_slot,
+        }
     };
     ctx.for_of_teardown_stack.push(teardown.clone());
     // RFC 20260901-scope-exit-drops — body frame already pushed and

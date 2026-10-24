@@ -3,6 +3,7 @@
 //! module keeps to its cap; the lane order and the `iter_slot` /
 //! `idx_slot` contract are the parent's.
 
+use crate::iter_any_await::AwaitMode;
 use core::ffi::c_void;
 
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr};
@@ -30,7 +31,7 @@ pub(crate) unsafe fn string_step(
     idx_slot: *mut i64,
     iter_slot: *mut AnyValue,
     out: *mut AnyValue,
-    await_mode: bool,
+    mode: AwaitMode,
 ) -> i64 {
     unsafe {
         if *iter_slot == VALUE_UNDEFINED {
@@ -51,8 +52,8 @@ pub(crate) unsafe fn string_step(
         // §27.1.4.4 — a sync lane's value is awaited under
         // `for await` (a string never yields a thenable, but the
         // tick count is the protocol's).
-        if await_mode {
-            return crate::iter_any_await::settle_out(out);
+        if mode.is_async() {
+            return crate::iter_any_await::settle_out(out, mode);
         }
         1
     }

@@ -2,7 +2,8 @@
 //! the `return()` call, through the vtable tier a class instance
 //! answers or the generic member read every other cell takes. Split
 //! from [`crate::iter_any_close`] and [`crate::iter_any_get_method`]
-//! at the size cap; the bodies are theirs verbatim.
+//! at the size cap. The call alone ([`iter_return`]) is what the
+//! module body's `for await` close builds on (`iter_any_close_defer`).
 
 use torajs_rc::Tag;
 
@@ -32,8 +33,37 @@ unsafe extern "C" {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_iter_close_value(iter: AnyValue) {
     unsafe {
-        if !is_cell(iter) {
+        let ReturnCall::Answered(result) = iter_return(iter) else {
             return;
+        };
+        // an IterHelper's own close answers its result unchecked
+        if is_helper(iter) {
+            __torajs_anyv_rc_dec(result);
+        } else {
+            reject_non_object_close_result(result);
+        }
+    }
+}
+
+/// What the `return()` call of a close came to.
+pub(crate) enum ReturnCall {
+    /// There was no `return` to call (§7.4.9 step 4).
+    Absent,
+    /// It answered this, owned.
+    Answered(AnyValue),
+    /// A throw is in flight: a throwing `return` getter, one that is
+    /// not callable, or a call that threw.
+    Threw,
+}
+
+/// [`__torajs_iter_close_value`] up to the `return()` call.
+///
+/// # Safety
+/// `iter` is `undefined` or a live AnyValue.
+pub(crate) unsafe fn iter_return(iter: AnyValue) -> ReturnCall {
+    unsafe {
+        if !is_cell(iter) {
+            return ReturnCall::Absent;
         }
         let iter_ptr = as_void_ptr(iter);
         let tag = (iter_ptr.cast::<u8>().add(4) as *const u16).read();
@@ -49,24 +79,33 @@ pub unsafe extern "C" fn __torajs_iter_close_value(iter: AnyValue) {
                 core::ptr::null(),
                 0,
             );
-            __torajs_anyv_rc_dec(r);
-            return;
+            return ReturnCall::Answered(r);
         }
         // Same tier cascade the step takes, for the same reason: an
         // anon-stamped literal wears `Tag::Obj` but keeps `return` as
         // a field, so a vtable miss is a tier hand-off, not "no
         // return method".
         if tag != Tag::Obj as u16 {
-            generic_iter_close(iter);
-            return;
+            return generic_iter_return(iter);
         }
         // A `return()` that throws propagates on a normal completion
         // (§7.4.9 step 6) — leave the throw in flight and touch nothing.
         match call_obj_method_0(iter_ptr, b"return") {
-            MethodOutcome::Ok(result) => reject_non_object_close_result(result),
-            MethodOutcome::Missing => generic_iter_close(iter),
-            MethodOutcome::Threw => {}
+            MethodOutcome::Ok(result) => ReturnCall::Answered(result),
+            MethodOutcome::Missing => generic_iter_return(iter),
+            MethodOutcome::Threw => ReturnCall::Threw,
         }
+    }
+}
+
+/// The box is an IterHelper cell.
+///
+/// # Safety
+/// A cell-tagged `av` points at a live heap header.
+pub(crate) unsafe fn is_helper(av: AnyValue) -> bool {
+    unsafe {
+        is_cell(av)
+            && (as_void_ptr(av).cast::<u8>().add(4) as *const u16).read() == Tag::IterHelper as u16
     }
 }
 
@@ -83,34 +122,47 @@ pub unsafe extern "C" fn __torajs_iter_close_value(iter: AnyValue) {
 /// `iter` is a live cell.
 pub(crate) unsafe fn generic_iter_close(iter: AnyValue) {
     unsafe {
+        if let ReturnCall::Answered(result) = generic_iter_return(iter) {
+            // §7.4.6 step 9 — non-Object answer → TypeError (the
+            // shared reject; original-throw precedence is the abrupt
+            // wrapper's job, same as the Tag::Obj arm).
+            reject_non_object_close_result(result);
+        }
+    }
+}
+
+/// [`generic_iter_close`] up to the `return()` call.
+///
+/// # Safety
+/// As [`generic_iter_close`].
+unsafe fn generic_iter_return(iter: AnyValue) -> ReturnCall {
+    unsafe {
         // GetMethod is a [[Get]]: an accessor `return` (a class's `get
         // return()`) runs its getter, whose throw is the close's
         // completion (§7.4.9 step 5); the read answers an owned value
         let Some(method) =
             crate::iter_any_result::iter_result_get(iter, as_void_ptr(iter), b"return")
         else {
-            return;
+            return ReturnCall::Threw;
         };
         // §7.4.9 step 4 — GetMethod answering undefined ends the
         // close; an iterator without a `return` is closed already.
         if method == VALUE_UNDEFINED || method == VALUE_NULL {
-            return;
+            return ReturnCall::Absent;
         }
         let result = {
             let Some(m) = crate::callback_resolve::resolve(method, iter) else {
                 __torajs_anyv_rc_dec(method);
                 __torajs_throw_type_error(c"return is not a function".as_ptr());
-                return;
+                return ReturnCall::Threw;
             };
             let argv: [u64; 0] = [];
             invoke_with_this(m.env(), m.entry(), iter, argv.as_ptr(), 0)
         };
         __torajs_anyv_rc_dec(method);
-        if __torajs_throw_check() == 0 {
-            // §7.4.6 step 9 — non-Object answer → TypeError (the
-            // shared reject; original-throw precedence is the abrupt
-            // wrapper's job, same as the Tag::Obj arm).
-            crate::iter_any_close::reject_non_object_close_result(result);
+        if __torajs_throw_check() != 0 {
+            return ReturnCall::Threw;
         }
+        ReturnCall::Answered(result)
     }
 }

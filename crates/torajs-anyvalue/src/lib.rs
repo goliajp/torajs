@@ -138,6 +138,7 @@ mod iter_any_await;
 mod iter_any_call;
 mod iter_any_claims;
 mod iter_any_close;
+mod iter_any_close_defer;
 mod iter_any_close_value;
 mod iter_any_get_method;
 mod iter_any_result;
@@ -2223,6 +2224,11 @@ mod tests {
         __torajs_promise_alloc_pending,
         __torajs_microtask_enqueue,
         __torajs_microtask_run_until_idle,
+        __torajs_microtask_yield,
+        __torajs_module_await_promise,
+        __torajs_module_await_slow,
+        __torajs_module_yield_rethrow,
+        __torajs_module_cancelled,
         __torajs_promise_allsettled_keyed_dyn,
         __torajs_promise_combinator_dyn_c,
         __torajs_promise_allsettled_dyn,

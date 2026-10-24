@@ -41,6 +41,7 @@ use crate::ssa::{InstKind, Operand, SuspendKind, SuspendLane, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
 use crate::ssa_lower_member_promise_value as pv;
 
+mod any_step;
 mod cancel;
 mod held;
 mod in_place;
@@ -49,6 +50,7 @@ mod read;
 mod sync_step;
 mod then_fused;
 
+pub(crate) use any_step::{any_await_step, any_close, close_rejected_step};
 pub(crate) use cancel::CANCELLED_PROBE;
 use held::held;
 pub(crate) use object::{cell_of, is_object_cell};

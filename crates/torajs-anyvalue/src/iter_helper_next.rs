@@ -22,6 +22,7 @@
 //! through the legacy driver (the spec caches their next too, but no
 //! failing shape reaches them and the inner slot carries no record).
 
+use crate::iter_any_await::AwaitMode;
 use core::ffi::c_void;
 
 use crate::iter_any_result::iter_result_get;
@@ -116,13 +117,13 @@ pub(crate) unsafe fn resolve_next_method(recv: AnyValue) -> Result<AnyValue, ()>
 pub(crate) unsafe fn step_via(iter: AnyValue, next: AnyValue, out: *mut AnyValue) -> i64 {
     unsafe {
         if next == VALUE_UNDEFINED {
-            return crate::iter_any_step::step_derived_iterator(iter, out, false);
+            return crate::iter_any_step::step_derived_iterator(iter, out, AwaitMode::Sync);
         }
         *out = VALUE_UNDEFINED;
         let Some((env, entry)) = closure_cell_entry(as_void_ptr(next)) else {
             // Unreachable by construction (resolve cached a callable)
             // — keep the legacy driver rather than UB.
-            return crate::iter_any_step::step_derived_iterator(iter, out, false);
+            return crate::iter_any_step::step_derived_iterator(iter, out, AwaitMode::Sync);
         };
         let argv: [u64; 0] = [];
         let step = invoke_with_this(env, entry, iter, argv.as_ptr(), 0);

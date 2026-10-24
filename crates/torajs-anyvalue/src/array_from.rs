@@ -251,7 +251,7 @@ unsafe fn from_user_iterator(
         let mut out: AnyValue = VALUE_UNDEFINED;
         let mut k: i64 = 0;
         loop {
-            let live = generic_iter_step(it, &mut out, false);
+            let live = generic_iter_step(it, &mut out, crate::iter_any_await::AwaitMode::Sync);
             if __torajs_throw_check() != 0 {
                 crate::nanbox_ffi::__torajs_anyv_rc_dec(product);
                 return VALUE_UNDEFINED;

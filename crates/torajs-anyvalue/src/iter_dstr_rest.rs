@@ -23,6 +23,7 @@
 //! a non-cell park is nothing to close (`iter_close_value`'s
 //! `!is_cell` early-out).
 
+use crate::iter_any_await::AwaitMode;
 use core::ffi::c_void;
 
 use torajs_rc::Tag;
@@ -252,7 +253,14 @@ pub unsafe extern "C" fn __torajs_dstr_drain_rest(park: AnyValue, recv: AnyValue
         let borrowed_iter = matches!(lane, ParkLane::Iterator);
         let mut out: AnyValue = VALUE_UNDEFINED;
         loop {
-            let live = iter_next_inner(recv_eff, &mut idx, &mut iter_slot, &mut out, false, false);
+            let live = iter_next_inner(
+                recv_eff,
+                &mut idx,
+                &mut iter_slot,
+                &mut out,
+                false,
+                AwaitMode::Sync,
+            );
             if __torajs_throw_check() != 0 {
                 __torajs_anyv_rc_dec(box_void_ptr(arr as *mut c_void));
                 if !borrowed_iter {

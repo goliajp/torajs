@@ -8,7 +8,8 @@
 //! of that promise goes on one job after it (§14.7.5.6 step 6.d). The
 //! step that finds the array exhausted takes the same two. A rejected
 //! element rejects the step's promise from that reaction, raised a job
-//! later, and closes nothing: the throw is the step's, not the body's.
+//! later; the reaction first closes the array's iterator
+//! (closeOnRejection), which has no `return`, so nothing runs.
 //! Leaving the loop early (`break`, a throw out of the body, a jump
 //! past it) runs AsyncIteratorClose (§7.4.11): the wrapper's `return`
 //! answers a promise fulfilled at once (an array iterator has no

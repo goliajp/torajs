@@ -20,6 +20,7 @@
 
 use crate::coerce::any_to_number;
 use crate::index_any::__torajs_any_index_get;
+use crate::iter_any_await::AwaitMode;
 use crate::member_get::__torajs_any_member_get_tag;
 use crate::member_get_value::__torajs_any_member_get_value;
 use crate::nanbox::{
@@ -112,10 +113,10 @@ pub(crate) unsafe fn array_like_length(recv: AnyValue) -> i32 {
 /// OWNED element (the indexed lane's contract — `__torajs_any_index_get`
 /// hands back a fresh reference), 0 when the walk is done.
 ///
-/// `await_mode` is proposal-array-from-async §2.1.1 step 3.k.v.4:
+/// An async `mode` is proposal-array-from-async §2.1.1 step 3.k.v.4:
 /// the async walk awaits every indexed element before it joins the
 /// result, exactly as `for await`'s indexed lane does. `Array.from`
-/// passes false — its walk is sync end to end.
+/// walks in the sync mode, end to end.
 ///
 /// # Safety
 /// `recv` is a live AnyValue; `idx_slot` / `iter_slot` / `out` are
@@ -125,7 +126,7 @@ pub(crate) unsafe fn step(
     idx_slot: *mut i64,
     iter_slot: *mut AnyValue,
     out: *mut AnyValue,
-    await_mode: bool,
+    mode: AwaitMode,
 ) -> i64 {
     unsafe {
         let len = if is_int32(*iter_slot) {
@@ -144,8 +145,8 @@ pub(crate) unsafe fn step(
         // Every absent index answers undefined, which is exactly what
         // §23.1.2.1 step 3.e.iv's Get produces for a hole.
         *out = __torajs_any_index_get(recv, idx);
-        if await_mode {
-            return crate::iter_any_await::settle_out(out);
+        if mode.is_async() {
+            return crate::iter_any_await::settle_out(out, mode);
         }
         1
     }
@@ -163,7 +164,7 @@ pub(crate) unsafe fn step_uncached(
     recv: AnyValue,
     idx_slot: *mut i64,
     out: *mut AnyValue,
-    await_mode: bool,
+    mode: AwaitMode,
 ) -> i64 {
     unsafe {
         let len = array_like_length(recv);
@@ -174,8 +175,8 @@ pub(crate) unsafe fn step_uncached(
         }
         *idx_slot = idx + 1;
         *out = __torajs_any_index_get(recv, idx);
-        if await_mode {
-            return crate::iter_any_await::settle_out(out);
+        if mode.is_async() {
+            return crate::iter_any_await::settle_out(out, mode);
         }
         1
     }

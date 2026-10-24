@@ -24,6 +24,7 @@
 //! sibling to agree. Options parsing / column bookkeeping shared with
 //! zipKeyed in [`crate::iter_zip_shared`].
 
+use crate::iter_any_await::AwaitMode;
 use core::ffi::c_void;
 
 use crate::iter_from::derive_flattenable;
@@ -81,7 +82,8 @@ pub unsafe extern "C" fn __torajs_iterator_zip(iterables: AnyValue, options: Any
         let mut iters = __torajs_arr_alloc_any(0) as *mut c_void;
         loop {
             let mut item: AnyValue = VALUE_UNDEFINED;
-            let hit = crate::iter_any_step::step_derived_iterator(outer, &mut item, false);
+            let hit =
+                crate::iter_any_step::step_derived_iterator(outer, &mut item, AwaitMode::Sync);
             if hit == 0 {
                 if __torajs_throw_check() != 0 {
                     let n = (iters.cast::<u8>().add(ARR_LEN_OFF) as *const u64).read();
@@ -122,7 +124,9 @@ pub unsafe extern "C" fn __torajs_iterator_zip(iterables: AnyValue, options: Any
                         while filled < count {
                             let mut item: AnyValue = VALUE_UNDEFINED;
                             let hit = crate::iter_any_step::step_derived_iterator(
-                                pad_iter, &mut item, false,
+                                pad_iter,
+                                &mut item,
+                                AwaitMode::Sync,
                             );
                             if hit == 0 {
                                 if __torajs_throw_check() != 0 {
@@ -231,7 +235,8 @@ pub(crate) unsafe fn iter_zip_step(ptr: *mut c_void, out: *mut AnyValue, keyed: 
                 continue;
             }
             let mut item: AnyValue = VALUE_UNDEFINED;
-            let hit = crate::iter_any_step::step_derived_iterator(iter_av, &mut item, false);
+            let hit =
+                crate::iter_any_step::step_derived_iterator(iter_av, &mut item, AwaitMode::Sync);
             if hit == 1 {
                 let (t, v) = (
                     crate::__torajs_anyv_unbox_tag(item),
@@ -277,7 +282,11 @@ pub(crate) unsafe fn iter_zip_step(ptr: *mut c_void, out: *mut AnyValue, keyed: 
                             continue;
                         }
                         let mut sv: AnyValue = VALUE_UNDEFINED;
-                        let shit = crate::iter_any_step::step_derived_iterator(sib, &mut sv, false);
+                        let shit = crate::iter_any_step::step_derived_iterator(
+                            sib,
+                            &mut sv,
+                            AwaitMode::Sync,
+                        );
                         if shit == 1 {
                             // Sibling still has values — strict
                             // refuses; it stays open and gets closed

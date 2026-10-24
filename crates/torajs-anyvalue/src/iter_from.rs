@@ -14,6 +14,7 @@
 //! next/return forward to the underlying (§27.1.6.3
 //! %WrapForValidIterator%).
 
+use crate::iter_any_await::AwaitMode;
 use core::ffi::c_void;
 
 use crate::iter_any_call::{MethodOutcome, call_obj_method_0};
@@ -211,7 +212,8 @@ pub(crate) unsafe fn iter_flat_map_step(ptr: *mut c_void, out: *mut AnyValue) ->
             let inner = (p.add(INNER_OFF) as *const u64).read();
             if inner != VALUE_UNDEFINED {
                 let mut item: AnyValue = VALUE_UNDEFINED;
-                let hit = crate::iter_any_step::step_derived_iterator(inner, &mut item, false);
+                let hit =
+                    crate::iter_any_step::step_derived_iterator(inner, &mut item, AwaitMode::Sync);
                 if hit == 1 {
                     *out = item;
                     return 1;

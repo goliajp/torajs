@@ -32,6 +32,9 @@ const YIELD_RETHROW: &str = "__torajs_module_yield_rethrow";
 const BODY_END: &str = "__torajs_module_body_end";
 const EXIT_CODE: &str = "__torajs_module_exit_code";
 const CANCELLED: &str = "__torajs_module_cancelled";
+const ANY_NEXT_DEFER: &str = "__torajs_any_iter_next_defer";
+const ANY_RESULT_STEP: &str = "__torajs_any_iter_result_step";
+const ANY_CLOSE_DEFER: &str = "__torajs_any_iter_close_defer";
 
 /// The runtime calls of the module body and its wrapper.
 #[derive(Clone, Copy)]
@@ -45,6 +48,9 @@ pub(crate) struct ModuleCalls {
     pub(crate) body_end: FuncId,
     pub(crate) exit_code: FuncId,
     pub(crate) cancelled: FuncId,
+    pub(crate) any_next_defer: FuncId,
+    pub(crate) any_result_step: FuncId,
+    pub(crate) any_close_defer: FuncId,
 }
 
 impl ModuleCalls {
@@ -61,6 +67,9 @@ impl ModuleCalls {
             body_end: t[BODY_END],
             exit_code: t[EXIT_CODE],
             cancelled: t[CANCELLED],
+            any_next_defer: t[ANY_NEXT_DEFER],
+            any_result_step: t[ANY_RESULT_STEP],
+            any_close_defer: t[ANY_CLOSE_DEFER],
         }
     }
 }
@@ -87,6 +96,14 @@ pub(crate) fn declare(ast: &Ast, module: &mut Module, fn_table: &mut HashMap<Str
     decl(BODY_END, &[], Type::Void);
     decl(EXIT_CODE, &[], Type::I32);
     decl(CANCELLED, &[], Type::I64);
+    let slots = [Type::Any, Type::Ptr, Type::Ptr, Type::Ptr];
+    decl(ANY_NEXT_DEFER, &slots, Type::I64);
+    decl(ANY_RESULT_STEP, &[Type::Any, Type::Ptr], Type::I64);
+    decl(
+        ANY_CLOSE_DEFER,
+        &[Type::Any, Type::Ptr, Type::Ptr, Type::I64],
+        Type::Void,
+    );
 }
 
 /// The wrapper's start: run the body, then take a throw that escaped

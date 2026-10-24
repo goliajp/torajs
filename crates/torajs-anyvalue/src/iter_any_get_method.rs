@@ -35,6 +35,7 @@
 //! `@@iterator` typically returns — steps through the `any` method
 //! dispatcher and reads `done` / `value` as ordinary members.
 
+use crate::iter_any_await::AwaitMode;
 use core::ffi::c_void;
 use core::sync::atomic::{AtomicPtr, Ordering};
 
@@ -314,18 +315,14 @@ unsafe fn iterator_from_method(
 /// Returns 1 with `*out` owned, or 0 with `*out` undefined (done, or
 /// a throw left in flight for the caller's check).
 ///
-/// `await_mode` (§14.7.5.6 async-iterate): a `next()` that answered
+/// An async `mode` (§14.7.5.6 async-iterate): a `next()` that answered
 /// a Promise is awaited before §7.4.4 reads the result; a sync
 /// result's VALUE is awaited instead, per the §27.1.4.4
 /// Async-from-Sync wrapper this lane stands in for.
 ///
 /// # Safety
 /// `iter` is a live cell; `out` is a valid writable pointer.
-pub(crate) unsafe fn generic_iter_step(
-    iter: AnyValue,
-    out: *mut AnyValue,
-    await_mode: bool,
-) -> i64 {
+pub(crate) unsafe fn generic_iter_step(iter: AnyValue, out: *mut AnyValue, mode: AwaitMode) -> i64 {
     unsafe {
         *out = VALUE_UNDEFINED;
         let name_next = interned(&NAME_NEXT, b"next");
@@ -344,11 +341,10 @@ pub(crate) unsafe fn generic_iter_step(
         if __torajs_throw_check() != 0 {
             return 0;
         }
-        let was_async = await_mode && crate::iter_any_await::await_settle(&mut step);
-        if was_async && __torajs_throw_check() != 0 {
-            __torajs_anyv_rc_dec(step);
-            return 0;
-        }
+        let was_async = match crate::iter_any_await::step_result(mode, &mut step, out) {
+            Ok(was_async) => was_async,
+            Err(code) => return code,
+        };
         if !is_cell(step) {
             __torajs_anyv_rc_dec(step);
             __torajs_throw_type_error(c"iterator result is not an object".as_ptr());
@@ -386,8 +382,8 @@ pub(crate) unsafe fn generic_iter_step(
         };
         __torajs_anyv_rc_dec(step);
         *out = value;
-        if await_mode && !was_async {
-            return crate::iter_any_await::settle_out(out);
+        if mode.awaits_value() && !was_async {
+            return crate::iter_any_await::settle_out(out, mode);
         }
         1
     }
