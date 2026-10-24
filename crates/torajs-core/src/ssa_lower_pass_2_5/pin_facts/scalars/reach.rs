@@ -3,36 +3,11 @@
 
 use std::collections::HashSet;
 
-use crate::ssa::{
-    ANY_SLOT_TAG_HEAP, FuncId, Function, InstKind, Module, Operand, StructId, Type, ValueId,
-};
+use crate::ssa::{FuncId, InstKind, Module, Operand, StructId};
 
-use super::super::super::cell_slot_flow::is_prefix;
+pub(super) use super::super::super::cell_release::reached;
+use super::super::super::cell_release::{BORROWS, MayHold, immediates};
 use super::ty;
-
-/// The functions with a body the members reach by direct calls,
-/// themselves included: the walk F2 makes.
-pub(super) fn reached(module: &Module, cluster: &[FuncId]) -> Vec<FuncId> {
-    let mut seen: HashSet<FuncId> = cluster.iter().copied().collect();
-    let mut out = cluster.to_vec();
-    let mut i = 0;
-    while let Some(&fid) = out.get(i) {
-        i += 1;
-        for inst in module.funcs[fid.0 as usize]
-            .blocks
-            .iter()
-            .flat_map(|b| &b.insts)
-        {
-            if let InstKind::Call(t, _) = &inst.kind
-                && !module.funcs[t.0 as usize].is_declaration()
-                && seen.insert(*t)
-            {
-                out.push(*t);
-            }
-        }
-    }
-    out
-}
 
 /// S5: the first function of `reach` that calls a member from outside
 /// the cluster or takes a member's address.
@@ -59,15 +34,6 @@ pub(super) fn reentered(module: &Module, cluster: &[FuncId], reach: &[FuncId]) -
     })
 }
 
-/// Runtime functions that only read the cells they are handed: they
-/// test and throw, and never release a reference.
-const BORROWS: &[&str] = &[
-    "__torajs_heap_nullish_check",
-    "__torajs_arr_null_check",
-    "__torajs_arr_oob_throw",
-    "__torajs_arr_mark_kind",
-];
-
 /// S6: the first function of `reach` that may release a reference to a
 /// cell of class sid `sid`. An entry borrows its receiver from its
 /// caller and writes the scalars back into it after the body returns,
@@ -84,7 +50,7 @@ pub(super) fn released(
     open: &[bool],
 ) -> Option<String> {
     let drops: HashSet<FuncId> = module.class_drop_fns.iter().copied().collect();
-    let holds = Holds { module, sid, open };
+    let holds = MayHold { module, sid, open };
     for fid in reach.iter().filter(|f| !drops.contains(f)) {
         let f = &module.funcs[fid.0 as usize];
         let immediates = immediates(f);
@@ -109,48 +75,4 @@ pub(super) fn released(
         }
     }
     None
-}
-
-/// The values of `f` that box an immediate, which no release frees.
-fn immediates(f: &Function) -> HashSet<ValueId> {
-    (f.blocks.iter().flat_map(|b| &b.insts))
-        .filter(|i| matches!(i.kind, InstKind::BoxAny(tag, _) if tag != ANY_SLOT_TAG_HEAP))
-        .filter_map(|i| i.result)
-        .collect()
-}
-
-/// Which types may hold a reference to a cell of class sid `sid`: the
-/// class itself and any layout that is a prefix of its own by field
-/// name (the types a cell of it widens to), a layout whose slots may
-/// hold a cell of another layout (an interface a class instance enters,
-/// a slot an `any` crosses into), anything untyped, and every type
-/// that refers to one of those.
-struct Holds<'m> {
-    module: &'m Module,
-    sid: StructId,
-    open: &'m [bool],
-}
-
-impl Holds<'_> {
-    fn of(&self, t: Type) -> bool {
-        self.walk(t, &mut HashSet::new())
-    }
-
-    fn walk(&self, t: Type, seen: &mut HashSet<StructId>) -> bool {
-        let layouts = &self.module.struct_layouts;
-        match t {
-            Type::I64 | Type::F64 | Type::I32 | Type::Bool | Type::Void => false,
-            Type::Str | Type::Substr | Type::RegExp | Type::Date | Type::Symbol => false,
-            Type::BigInt | Type::FnSig(_) | Type::Vec(_) => false,
-            Type::Obj(s) | Type::Inline(s) => {
-                let fields = &layouts[s.0 as usize];
-                seen.insert(s)
-                    && (self.open[s.0 as usize]
-                        || is_prefix(fields, &layouts[self.sid.0 as usize])
-                        || fields.iter().any(|(_, t)| self.walk(*t, seen)))
-            }
-            Type::Arr(a) => self.walk(self.module.arr_elem(a), seen),
-            _ => true,
-        }
-    }
 }

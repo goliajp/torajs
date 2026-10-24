@@ -10,6 +10,7 @@
 //! substrate codegen invariant.
 
 pub(crate) mod any_holds;
+pub(crate) mod cell_release;
 pub(crate) mod cell_size;
 pub(crate) mod cell_slot_flow;
 pub(crate) mod drop_proofs;
