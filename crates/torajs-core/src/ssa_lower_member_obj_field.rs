@@ -211,14 +211,17 @@ fn try_accessor_getter(
         ctx.emit_throw_check(Some(fid));
         Operand::Value(v)
     };
-    if !ctx.ast.program_reparents {
-        return Some(call(ctx));
-    }
-    // RFC 20260920-struct-user-proto K4 — a re-parented instance
-    // reads its getter from its user chain.
-    Some(crate::ssa_lower_call_reparent_guard::guarded_getter(
-        ctx, eid, obj_val, name, call,
-    ))
+    let mut holds = crate::ssa_lower::call_hold::Holds::default();
+    holds.take(ctx, obj, obj_val);
+    let v = if !ctx.ast.program_reparents {
+        call(ctx)
+    } else {
+        // RFC 20260920-struct-user-proto K4 — a re-parented instance
+        // reads its getter from its user chain.
+        crate::ssa_lower_call_reparent_guard::guarded_getter(ctx, eid, obj_val, name, call)
+    };
+    holds.release(ctx);
+    Some(v)
 }
 
 fn lower_struct_field(

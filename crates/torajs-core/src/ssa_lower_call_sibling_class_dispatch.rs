@@ -122,7 +122,14 @@ pub(crate) fn try_lower(
     // undefined below, and a tail that was never reached is empty.
     let tail_from = tail_at.map_or(args.len(), |n| n.min(args.len()));
     let head = &args[..tail_from];
-    let mut arg_ops: Vec<Operand> = head.iter().map(|a| ctx.lower_expr(*a)).collect();
+    let mut holds = crate::ssa_lower::call_hold::Holds::default();
+    holds.take(ctx, recv_id, recv_op);
+    let mut arg_ops: Vec<Operand> = Vec::with_capacity(head.len());
+    for a in head {
+        let v = ctx.lower_expr(*a);
+        holds.take(ctx, *a, v);
+        arg_ops.push(v);
+    }
     // S2.42 (rotation 240) — this lane handed every argument verbatim
     // while all its sibling call lanes route through the `arg_conv`
     // contract; an i64 into the callee's Any param arrived as raw
@@ -191,6 +198,7 @@ pub(crate) fn try_lower(
     if may_throw {
         ctx.emit_throw_check(None);
     }
+    holds.release(ctx);
     for (op, ty) in coerce_owned {
         ctx.emit_drop_value(op, ty);
     }

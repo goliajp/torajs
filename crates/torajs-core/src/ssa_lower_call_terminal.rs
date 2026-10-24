@@ -75,6 +75,8 @@ pub(crate) fn emit(
     // drops it (`f({} as any, boom())` stranded the object per caught
     // throw, 175MB over 600k). Unparked after the post-call check.
     let mut arg_toks: Vec<usize> = Vec::new();
+    let user = crate::ssa_lower::call_hold::user_callee(ctx, target);
+    let mut holds = crate::ssa_lower::call_hold::Holds::default();
     let mut argv: Vec<Operand> = args
         .iter()
         .enumerate()
@@ -128,6 +130,9 @@ pub(crate) fn emit(
             };
             if let Some((op, ty)) = ctx.throw_temp_of(*a, &v) {
                 arg_toks.push(ctx.push_throw_temp(op, ty));
+            }
+            if user {
+                holds.take(ctx, *a, v);
             }
             v
         })
@@ -202,6 +207,7 @@ pub(crate) fn emit(
     for t in arg_toks.into_iter().chain(coerce_toks) {
         ctx.pop_throw_temp(t);
     }
+    holds.release(ctx);
     for (i, op) in owned_temps {
         ctx.release_owned_temp(args[i], &op);
     }

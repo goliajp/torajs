@@ -1,0 +1,15 @@
+pos 7
+pos 8
+pos 9
+arg 20
+arg 21
+arg 22
+get 30
+set 45
+global-arg 50
+global-recv 80 0
+elem-recv 100
+elem-arg 90
+vtable 111
+vtable-base 120
+set-value 1

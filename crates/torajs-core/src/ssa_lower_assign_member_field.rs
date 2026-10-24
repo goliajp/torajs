@@ -40,7 +40,10 @@ pub(crate) fn try_lower_setter_call(
             ctx.fn_table.get(mono).copied()?
         }
     };
+    let mut holds = crate::ssa_lower::call_hold::Holds::default();
+    holds.take(ctx, obj, obj_val);
     let v = ctx.lower_expr(value);
+    holds.take(ctx, value, v);
     // Chunk 566 — SHARE: no consume. The value passes to the setter
     // as a +0 borrow; the setter body's own field store takes the
     // field's +1 (struct-field share below).
@@ -70,11 +73,13 @@ pub(crate) fn try_lower_setter_call(
     }
     // The setter borrowed the value; the assignment's consumer gets the
     // owned stake, so a non-storing setter no longer leaves a kept result
-    // pointing at a released temp.
+    // pointing at a released temp. The call's own hold drops only after
+    // that stake is taken: a setter that clears the place the value came
+    // from would otherwise free it before the consumer's inc.
     let v_ty = ctx.operand_ty(&v);
-    Some(crate::ssa_lower_assign_member::finish_assign_value(
-        ctx, eid, v, v_ty, transfers,
-    ))
+    let out = crate::ssa_lower_assign_member::finish_assign_value(ctx, eid, v, v_ty, transfers);
+    holds.release(ctx);
+    Some(out)
 }
 
 /// The setter call's argument list for the lowered `value`. F2-fix,

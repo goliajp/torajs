@@ -26,6 +26,7 @@
 use std::collections::HashMap;
 
 pub(crate) mod alias_hazard;
+pub(crate) mod call_hold;
 pub(crate) mod inline_elem;
 pub(crate) mod inline_push;
 pub(crate) mod proofs;

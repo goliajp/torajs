@@ -92,7 +92,14 @@ pub(crate) fn try_lower(
             (None, Some(sig), ctx.f_ret_type_hint(base_fid))
         }
     };
-    let mut arg_ops: Vec<Operand> = args.iter().map(|a| ctx.lower_expr(*a)).collect();
+    // every body the slot resolves to is a user method
+    let mut holds = crate::ssa_lower::call_hold::Holds::default();
+    let mut arg_ops: Vec<Operand> = Vec::with_capacity(args.len());
+    for a in args {
+        let v = ctx.lower_expr(*a);
+        holds.take(ctx, *a, v);
+        arg_ops.push(v);
+    }
     let owned_temps: Vec<(usize, Operand)> = args
         .iter()
         .zip(arg_ops.iter())
@@ -150,6 +157,7 @@ pub(crate) fn try_lower(
     if slot_may_throw(ctx, args[0], method_name, &suffix, &owners) {
         ctx.emit_throw_check(None);
     }
+    holds.release(ctx);
     for (op, ty) in coerce_owned {
         ctx.emit_drop_value(op, ty);
     }
