@@ -75,10 +75,12 @@ pub struct PromiseThen {
 impl PromiseThen {
     /// `None` leaves every `then` a plain call: a module that declares
     /// neither kernel, a census compiler (whose allocator counters the
-    /// row pop would bypass), and `TORAJS_PROMISE_THEN_INLINE_OFF=1`
-    /// (bisect gate).
+    /// row pop would bypass), a use-after-free detector compiler (whose
+    /// rows stay empty), and `TORAJS_PROMISE_THEN_INLINE_OFF=1` (bisect
+    /// gate).
     pub fn of_module(module: &Module) -> Option<PromiseThen> {
         if cfg!(torajs_census)
+            || cfg!(torajs_uaf_detect)
             || std::env::var_os("TORAJS_PROMISE_THEN_INLINE_OFF").is_some_and(|v| v == "1")
         {
             return None;

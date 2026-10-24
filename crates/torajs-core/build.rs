@@ -80,6 +80,8 @@ fn main() {
     // Opt-in flag the census build sets (RUSTFLAGS=--cfg=torajs_census);
     // this crate has no [lints] table, so it declares the name itself.
     println!("cargo::rustc-check-cfg=cfg(torajs_census)");
+    // the use-after-free detector build (RUSTFLAGS=--cfg=torajs_uaf_detect)
+    println!("cargo::rustc-check-cfg=cfg(torajs_uaf_detect)");
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR not set by cargo"));
     require_dependency_edges();
 

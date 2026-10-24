@@ -33,6 +33,8 @@ pub(crate) mod deleted_accessor;
 pub(crate) use deleted_accessor::declare as declare_deletable_accessor;
 pub(crate) mod exotic_read;
 pub(crate) mod shadow_read;
+#[cfg(torajs_uaf_detect)]
+mod uaf_check;
 
 use crate::ast::ExprId;
 use crate::ssa::{InstKind, Operand, StructId, Type};
@@ -246,6 +248,8 @@ fn lower_struct_field(
     if let Some(v) = exotic_read::guarded_load(ctx, eid, obj, obj_val, (offset, field_ty), name) {
         return v;
     }
+    #[cfg(torajs_uaf_detect)]
+    uaf_check::emit(ctx, obj_val);
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(
         cur_block,

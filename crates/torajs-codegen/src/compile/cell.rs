@@ -50,9 +50,12 @@ pub struct CellOps {
 impl CellOps {
     /// `None` leaves every cell call a plain call: in a census
     /// compiler, whose allocator counters the inline arms would
-    /// bypass, and under `TORAJS_CELL_INLINE_OFF=1` (bisect gate).
+    /// bypass, in a use-after-free detector compiler, whose allocator
+    /// keeps every freed block out of the rows, and under
+    /// `TORAJS_CELL_INLINE_OFF=1` (bisect gate).
     pub fn of_module(module: &Module) -> Option<CellOps> {
         if cfg!(torajs_census)
+            || cfg!(torajs_uaf_detect)
             || std::env::var_os("TORAJS_CELL_INLINE_OFF").is_some_and(|v| v == "1")
         {
             return None;

@@ -89,6 +89,7 @@ unexpected_cfgs = { level = "deny", check-cfg = [
   'cfg(torajs_census)',
   'cfg(torajs_checks)',
   'cfg(torajs_alloc_guard)',
+  'cfg(torajs_uaf_detect)',
 ] }
 
 [workspace.lints.clippy]

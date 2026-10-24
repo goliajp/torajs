@@ -31,6 +31,11 @@ use crate::arena::Arena;
 use crate::size_class::{N_ALL, N_CLASSES};
 use crate::span::SpanMeta;
 
+mod quarantine;
+
+pub use quarantine::UAF_POISON;
+use quarantine::quarantine;
+
 /// Row length at which a push spills. A power of two, so the inline
 /// template tests one bit; a row's length never exceeds it.
 pub const SPILL_AT: usize = 256;
@@ -108,6 +113,9 @@ impl LiftedRow {
         if self.len & SPILL_AT != 0 {
             return false;
         }
+        if unsafe { quarantine(p) } {
+            return true;
+        }
         #[cfg(torajs_alloc_guard)]
         {
             let mut q = self.head;
@@ -183,6 +191,9 @@ impl TlabCache {
         };
         if row.len & SPILL_AT != 0 {
             return false;
+        }
+        if unsafe { quarantine(p) } {
+            return true;
         }
         #[cfg(torajs_alloc_guard)]
         {
