@@ -11,11 +11,19 @@ pub(crate) struct Case {
     /// the exit status bun, `tr run` and the AOT binary must all end
     /// with; a case declares a non-zero one in its leading comment
     pub(crate) expected_exit: i32,
+    /// the spec clause a case cites for ending with a status bun does
+    /// not; without one, bun ending otherwise than declared is a failure
+    pub(crate) bun_differs: Option<String>,
 }
 
 /// The marker a case writes in its leading `//` comment block to
 /// declare a non-zero exit status, e.g. `// exit-code: 1`.
 const EXIT_MARKER: &str = "exit-code:";
+
+/// The marker a case writes in the same block when it ends on purpose
+/// with a status bun does not, followed by the spec clause it rests on,
+/// e.g. `// bun-differs: ECMA-262 §16.1.7 early errors`.
+const BUN_DIFFERS_MARKER: &str = "bun-differs:";
 
 pub(crate) fn collect_cases(dir: &Path) -> Vec<Case> {
     let entries = match std::fs::read_dir(dir) {
@@ -41,12 +49,14 @@ pub(crate) fn collect_cases(dir: &Path) -> Vec<Case> {
         } else {
             continue;
         };
-        let expected_exit = match std::fs::read_to_string(&src) {
-            Ok(text) => match declared_exit(&text) {
-                Ok(code) => code,
-                Err(e) => die(&format!("{}: {e}", src.display())),
-            },
+        let text = match std::fs::read_to_string(&src) {
+            Ok(text) => text,
             Err(e) => die(&format!("read {}: {e}", src.display())),
+        };
+        let (expected_exit, bun_differs) = match (declared_exit(&text), declared_bun_differs(&text))
+        {
+            (Ok(code), Ok(clause)) => (code, clause),
+            (Err(e), _) | (_, Err(e)) => die(&format!("{}: {e}", src.display())),
         };
         let expected = src.with_extension("expected");
         out.push(Case {
@@ -54,6 +64,7 @@ pub(crate) fn collect_cases(dir: &Path) -> Vec<Case> {
             expected_override: expected.is_file().then_some(expected),
             src,
             expected_exit,
+            bun_differs,
         });
     }
     out
@@ -69,30 +80,56 @@ fn file_name(p: &Path, part: fn(&Path) -> Option<&std::ffi::OsStr>) -> String {
 /// declare anything; a marker that does not parse is an error rather
 /// than a silent 0.
 fn declared_exit(text: &str) -> Result<i32, String> {
+    if let Some(rest) = leading_marker(text, EXIT_MARKER) {
+        return match rest.trim().parse::<i32>() {
+            Ok(code) if (0..=255).contains(&code) => Ok(code),
+            _ => Err(format!(
+                "`{EXIT_MARKER}` expects 0..=255, got `{}`",
+                rest.trim()
+            )),
+        };
+    }
+    Ok(0)
+}
+
+/// The spec clause after `bun-differs:` in the leading comment block.
+/// The clause must name the spec (`§`, `sec-` or `ECMA-262`): the
+/// marker turns a disagreement with bun into a skip, and one that
+/// cites nothing would hide a wrong declaration the same way a skip
+/// on every mismatch did.
+fn declared_bun_differs(text: &str) -> Result<Option<String>, String> {
+    let Some(rest) = leading_marker(text, BUN_DIFFERS_MARKER) else {
+        return Ok(None);
+    };
+    let clause = rest.trim();
+    if ["§", "sec-", "ECMA-262"].iter().any(|k| clause.contains(k)) {
+        Ok(Some(clause.to_string()))
+    } else {
+        Err(format!(
+            "`{BUN_DIFFERS_MARKER}` must cite a spec clause (§, sec- or ECMA-262), got `{clause}`"
+        ))
+    }
+}
+
+/// The text after `marker` on a line of the `//` block the file starts
+/// with, so a program that merely prints a marker declares nothing.
+fn leading_marker<'a>(text: &'a str, marker: &str) -> Option<&'a str> {
     for line in text.lines() {
         let line = line.trim();
         if line.is_empty() {
             continue;
         }
-        let Some(comment) = line.strip_prefix("//") else {
-            break;
-        };
-        if let Some(rest) = comment.trim().strip_prefix(EXIT_MARKER) {
-            return match rest.trim().parse::<i32>() {
-                Ok(code) if (0..=255).contains(&code) => Ok(code),
-                _ => Err(format!(
-                    "`{EXIT_MARKER}` expects 0..=255, got `{}`",
-                    rest.trim()
-                )),
-            };
+        let comment = line.strip_prefix("//")?;
+        if let Some(rest) = comment.trim().strip_prefix(marker) {
+            return Some(rest);
         }
     }
-    Ok(0)
+    None
 }
 
 #[cfg(test)]
 mod tests {
-    use super::declared_exit;
+    use super::{declared_bun_differs, declared_exit};
 
     #[test]
     fn reads_the_marker_from_the_leading_comment_block() {
@@ -112,5 +149,16 @@ mod tests {
     fn rejects_a_marker_that_does_not_parse() {
         assert!(declared_exit("// exit-code: one\n").is_err());
         assert!(declared_exit("// exit-code: 256\n").is_err());
+    }
+
+    #[test]
+    fn a_bun_differs_marker_must_cite_the_spec() {
+        let src = "// exit-code: 1\n// bun-differs: ECMA-262 §16.1.7\nthrow 1;\n";
+        assert_eq!(
+            declared_bun_differs(src),
+            Ok(Some("ECMA-262 §16.1.7".to_string()))
+        );
+        assert_eq!(declared_bun_differs("// a case\n"), Ok(None));
+        assert!(declared_bun_differs("// bun-differs: bun is wrong\n").is_err());
     }
 }

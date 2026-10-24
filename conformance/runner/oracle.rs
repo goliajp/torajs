@@ -34,10 +34,24 @@ use std::path::{Path, PathBuf};
 /// and you can see which bun each answer came from, and drop the
 /// retired ones.
 ///
+/// Why bun gave no oracle answer for a case.
+#[derive(Debug)]
+pub(crate) enum OracleError {
+    /// bun could not be run to completion (spawn failure, timeout)
+    Unavailable(String),
+    /// bun ended with a status other than the one the case declares:
+    /// the declaration or the case is wrong unless the case cites why
+    /// it differs from bun on purpose
+    ExitMismatch(String),
+}
+
 /// bun must end with the status the case declares (`expected_exit`);
 /// an answer it gave while exiting otherwise is not an oracle.
-pub(crate) fn get_or_fill_bun_oracle(src: &Path, expected_exit: i32) -> Result<String, String> {
-    let hash = content_hash(&oracle_inputs(src)?);
+pub(crate) fn get_or_fill_bun_oracle(
+    src: &Path,
+    expected_exit: i32,
+) -> Result<String, OracleError> {
+    let hash = content_hash(&oracle_inputs(src).map_err(OracleError::Unavailable)?);
     // No readable version means no trustworthy key, so there is no
     // cache — every case pays the bun spawn rather than risk being
     // served an answer from an unknown oracle.
@@ -54,13 +68,14 @@ pub(crate) fn get_or_fill_bun_oracle(src: &Path, expected_exit: i32) -> Result<S
     Ok(out)
 }
 
-fn bun_run(src: &Path, expected_exit: i32) -> Result<String, String> {
-    let (out, err, code) = exec_code("bun", &["run", src.to_str().unwrap()])?;
+fn bun_run(src: &Path, expected_exit: i32) -> Result<String, OracleError> {
+    let (out, err, code) =
+        exec_code("bun", &["run", src.to_str().unwrap()]).map_err(OracleError::Unavailable)?;
     if code != expected_exit {
-        return Err(format!(
+        return Err(OracleError::ExitMismatch(format!(
             "bun exited {code}, the case declares {expected_exit}: {}",
             err.trim()
-        ));
+        )));
     }
     Ok(out)
 }

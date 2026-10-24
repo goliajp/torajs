@@ -8,7 +8,11 @@
 //!
 //! All three outputs must match, and all three must end with the exit
 //! status the case declares (`// exit-code: N` in its leading comment
-//! block; 0 when it declares none). A case can opt out of bun (when the
+//! block; 0 when it declares none). bun ending with another status
+//! fails the case: a wrong declaration would otherwise turn into a
+//! quiet skip. A case that ends otherwise than bun on purpose says so
+//! with `// bun-differs: <spec clause>` and is skipped with that
+//! clause in the log. A case can opt out of bun (when the
 //! TS spec output diverges from torajs's subset semantics — e.g. JS's
 //! reference-shape mutable closure capture vs torajs's value-shape) by
 //! placing an `.expected` file alongside the `.ts`; presence of
@@ -34,7 +38,7 @@ mod oracle;
 
 use cases::{Case, collect_cases};
 use exec::{exec, exec_code};
-use oracle::get_or_fill_bun_oracle;
+use oracle::{OracleError, get_or_fill_bun_oracle};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Mutex;
@@ -305,9 +309,19 @@ fn run_case(c: &Case, tr_bin: &Path, slot: usize, no_aot: bool) -> Outcome {
         },
         None => match get_or_fill_bun_oracle(&c.src, c.expected_exit) {
             Ok(s) => s,
-            Err(e) => {
+            Err(OracleError::Unavailable(e)) => {
                 return Outcome::Skip {
                     reason: format!("bun: {e}"),
+                };
+            }
+            Err(OracleError::ExitMismatch(e)) => {
+                return match &c.bun_differs {
+                    Some(clause) => Outcome::Skip {
+                        reason: format!("bun differs on purpose ({clause}): {e}"),
+                    },
+                    None => Outcome::Fail {
+                        reason: format!("bun: {e}"),
+                    },
                 };
             }
         },
