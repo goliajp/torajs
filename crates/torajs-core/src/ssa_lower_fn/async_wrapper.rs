@@ -38,18 +38,13 @@ const ARGV: &str = "__torajs_argv";
 /// Whether the frame holds a reference on a parameter of `ty`. The
 /// closure env (`__env`, a `Ptr`) is a cell like any other. The argv
 /// buffer is no cell: the frame keeps its word, unowned, for the run
-/// the call makes ([`assert_argv_read_before_awaits`]). No other
-/// `Ptr`-shaped parameter reaches a frame.
+/// the call makes ([`assert_argv_read_before_awaits`]). Any other
+/// `Ptr` parameter is typed `null` or `undefined` (a specialization of
+/// an unannotated parameter for such an argument): its word is the
+/// null pointer, no cell to hold.
 pub(crate) fn param_held(name: &str, ty: Type) -> bool {
     match ty {
-        Type::Ptr if name == ARGV => false,
-        Type::Ptr => {
-            assert!(
-                name == "__env",
-                "internal error: async parameter `{name}` is a raw pointer the frame cannot keep"
-            );
-            true
-        }
+        Type::Ptr => name == "__env",
         Type::Inline(_) => panic!(
             "internal error: async parameter `{name}` borrows an array element the frame cannot keep"
         ),
