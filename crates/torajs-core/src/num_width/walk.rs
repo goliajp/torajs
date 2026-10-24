@@ -120,12 +120,19 @@ impl<'a> Analysis<'a> {
                 // `value` shape. Gated on the number domain for the
                 // same reason that one is: a slot carries any type, and
                 // gluing a non-numeric face into the numeric class
-                // poisons it.
+                // poisons it. A written `number` binds at f64 whatever
+                // the throws wrote (the binding reads the slot's tag and
+                // widens an integer), so it is an f64 write of its own
+                // and leaves the throw sites' class alone.
                 if let Some(p) = catch_param
                     && super::container_methods::in_number_domain(catch_type)
                     && let Some(k) = self.resolve(p, scope)
                 {
-                    self.uf.union(&self.keys, self.keys.thrown(), k);
+                    if catch_type.as_deref().map(str::trim) == Some("number") {
+                        self.add_constraint(k, super::magnitude::f64_flow());
+                    } else {
+                        self.uf.union(&self.keys, self.keys.thrown(), k);
+                    }
                 }
                 for bs in body {
                     self.walk_stmt(bs, scope);
