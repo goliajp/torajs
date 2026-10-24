@@ -127,6 +127,13 @@ pub(crate) fn lower(
     let step_blk = ctx.f.add_block();
     let after = ctx.f.add_block();
     ctx.f.set_term(ctx.cur_block, Terminator::Br(header));
+    // the module body awaits each step in place
+    let steps_await = is_await && crate::ssa_lower_fn::suspend::in_module_body(ctx);
+    let (exhausted, brk) = if steps_await {
+        crate::ssa_lower_fn::suspend::sync_iter_exits(ctx, after)
+    } else {
+        (after, after)
+    };
 
     ctx.cur_block = header;
     let i_now = ctx.f.append_inst(
@@ -146,7 +153,7 @@ pub(crate) fn lower(
         Terminator::CondBr {
             cond: Operand::Value(cond_val),
             then_blk: body_blk,
-            else_blk: after,
+            else_blk: exhausted,
         },
     );
 
@@ -158,11 +165,14 @@ pub(crate) fn lower(
     // drain + value cast + rc_inc, same route the `await e` Member arm
     // takes); every other element awaits to itself per §27.2 and the
     // plain Index load stands.
-    let v_val = if is_await
+    let v_val = if steps_await {
+        crate::ssa_lower_fn::suspend::await_sync_step(ctx, elem_expr)
+    } else if is_await
         && matches!(
             ctx.expr_types.get(&elem_expr),
             Some(crate::check::Type::Promise(_))
-        ) {
+        )
+    {
         crate::ssa_lower_member_promise_value::lower_promise_get_value(ctx, elem_expr)
     } else {
         let v = ctx.lower_expr(elem_expr);
@@ -181,27 +191,34 @@ pub(crate) fn lower(
         emit_forin_guard(ctx, obj_eid, &v_val, step_blk);
     }
     crate::ssa_lower_for_of_written::note_sentinel_loop_var(ctx, var_name, v_ty, src_ref_eid);
-    crate::ssa_lower_for_of_written::bind_loop_var(
-        ctx,
-        var_name,
-        v_val,
-        v_ty,
-        body,
-        crate::ssa_lower_for_of_written::LoopVarInit::Alias,
-    );
+    // an awaited step answers its value owned
+    let init = if steps_await {
+        crate::ssa_lower_for_of_written::LoopVarInit::Owned
+    } else {
+        crate::ssa_lower_for_of_written::LoopVarInit::Alias
+    };
+    crate::ssa_lower_for_of_written::bind_loop_var(ctx, var_name, v_val, v_ty, body, init);
+    // the step's own throw closes nothing; the body's leaves close
+    if steps_await {
+        ctx.for_of_teardown_stack
+            .push(crate::ssa_lower_for_of_teardown::ForOfTeardown::AsyncFromSync);
+    }
     // RFC 20260901-scope-exit-drops — the body frame (already pushed,
     // holding the loop variable) is only closed by `close_body_scope`
     // on fall-through, so a jump out owes it too: depth = its index.
     ctx.loop_stack
         .push(crate::ssa_lower_scope_exit::LoopTargets {
             cont: Some(step_blk),
-            brk: after,
+            brk,
             scope_depth: ctx.scope_stack.len() - 1,
             teardown_depth: ctx.for_of_teardown_stack.len(),
         });
     ctx.lower_stmt(body);
     let body_open_at_end = ctx.cur_open();
     ctx.loop_stack.pop();
+    if steps_await {
+        ctx.for_of_teardown_stack.pop();
+    }
 
     close_body_scope(ctx, step_blk, body_open_at_end);
 

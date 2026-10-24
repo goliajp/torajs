@@ -1,16 +1,16 @@
-// `for await` over an array of typed promises: an element still
-// pending once every queued job has run raises instead of binding
-// `0` / `false`, so the loop body never runs on a value that does not
-// exist. Settled elements before it still bind their values.
+// exit-code: 13
+// `for await` over an array of typed promises at the top level: an
+// element still pending once every queued job has run cannot settle
+// any more, so the module body never goes on (§16.2.1.5.3): the loop
+// body never runs on a value that does not exist, and neither the
+// `catch` around the loop nor anything after it runs. Settled elements
+// before it still bind their values. The program ends with the job
+// queue empty and exits 13 with a warning on stderr, as Node does for
+// an unsettled top-level await.
 //
-// The raise is a transition: the specification suspends here forever
-// (the module never finishes evaluating), which needs the event loop
-// this runtime does not have yet. bun spins on the pending element, so
-// the expected output is pinned beside this file.
+// bun spins on the pending element, so the expected output is pinned
+// beside this file.
 function neverNum(): Promise<number> {
-  return new Promise(() => {});
-}
-function neverBool(): Promise<boolean> {
   return new Promise(() => {});
 }
 
@@ -24,13 +24,6 @@ try {
   }
   console.log("number loop finished");
 } catch (e) {
-  console.log("number raised", e instanceof TypeError);
+  console.log("number raised", e);
 }
-try {
-  for await (const b of [neverBool()]) {
-    console.log("boolean element", b);
-  }
-  console.log("boolean loop finished");
-} catch (e) {
-  console.log("boolean raised", e instanceof TypeError);
-}
+console.log("unreachable");

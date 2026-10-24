@@ -39,6 +39,10 @@ pub(crate) enum ForOfTeardown {
         iter_slot: ValueId,
         iter_ret_ty: Type,
     },
+    /// The module body's `for await` over an array: the close is the
+    /// await of what the Async-from-Sync wrapper's `return` answers
+    /// (`ssa_lower_fn::suspend::sync_step`).
+    AsyncFromSync,
 }
 
 /// The `return()` call alone. An iterator with no `return` closes as
@@ -47,6 +51,7 @@ pub(crate) enum ForOfTeardown {
 /// lane the kernel drives.
 fn emit_close_call(ctx: &mut LowerCtx, td: &ForOfTeardown) {
     match td {
+        ForOfTeardown::AsyncFromSync => crate::ssa_lower_fn::suspend::close_sync_iter(ctx, false),
         ForOfTeardown::Any { src, iter_slot } => {
             ctx.f.append_void(
                 ctx.cur_block,
@@ -79,7 +84,10 @@ fn emit_close_call(ctx: &mut LowerCtx, td: &ForOfTeardown) {
 /// / `return` / labeled jump): a throw out of `return()` propagates.
 pub(crate) fn emit_close(ctx: &mut LowerCtx, td: &ForOfTeardown) {
     emit_close_call(ctx, td);
-    ctx.emit_throw_check(None);
+    // the await of a promise fulfilled at once raises nothing
+    if !matches!(td, ForOfTeardown::AsyncFromSync) {
+        ctx.emit_throw_check(None);
+    }
 }
 
 /// §7.4.9 on a throw completion: the original throw wins. The runtime
@@ -92,6 +100,9 @@ pub(crate) fn emit_close(ctx: &mut LowerCtx, td: &ForOfTeardown) {
 /// that path's drops.
 pub(crate) fn emit_close_under_pending_throw(ctx: &mut LowerCtx, td: &ForOfTeardown) {
     let call = match td {
+        ForOfTeardown::AsyncFromSync => {
+            return crate::ssa_lower_fn::suspend::close_sync_iter(ctx, true);
+        }
         ForOfTeardown::Any { src, iter_slot } => InstKind::Call(
             ctx.intrinsics.any_iter_close_abrupt,
             vec![*src, Operand::Value(*iter_slot)],

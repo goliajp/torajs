@@ -37,7 +37,7 @@
 //! report.
 
 use crate::ast::ExprId;
-use crate::ssa::{InstKind, Operand, SuspendKind, SuspendLane, Type};
+use crate::ssa::{InstKind, Operand, SuspendKind, SuspendLane, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
 use crate::ssa_lower_member_promise_value as pv;
 
@@ -46,12 +46,19 @@ mod held;
 mod in_place;
 mod object;
 mod read;
+mod sync_step;
 mod then_fused;
 
 pub(crate) use cancel::CANCELLED_PROBE;
 use held::held;
 pub(crate) use object::{cell_of, is_object_cell};
 use read::read_settled;
+pub(crate) use sync_step::{await_sync_step, close_sync_iter, sync_iter_exits};
+
+/// The lowering is the module body's, which awaits in place.
+pub(crate) fn in_module_body(ctx: &LowerCtx<'_>) -> bool {
+    in_place::in_module_body(ctx)
+}
 
 /// The suspension releases the cell it awaited, so an operand that does
 /// not hand over a reference of its own (a promise a binding, a field
@@ -74,10 +81,10 @@ pub(crate) fn lower_await(ctx: &mut LowerCtx<'_>, eid: ExprId, obj: ExprId) -> O
         }
         let inner = inner_lane(ctx, eid, obj);
         if held_any {
-            return await_any_in(ctx, src, inner.unwrap_or(Type::Any));
+            return await_any_in(ctx, src, inner.unwrap_or(Type::Any), false);
         }
         let undef = pv::undef_cell_slot(ctx, obj, inner.as_ref());
-        return await_cell(ctx, src, Some(obj), inner, undef);
+        return await_cell(ctx, src, Some(obj), inner, undef, false);
     }
     let op = ctx.lower_expr(obj);
     match ctx.operand_ty(&op) {
@@ -87,7 +94,7 @@ pub(crate) fn lower_await(ctx: &mut LowerCtx<'_>, eid: ExprId, obj: ExprId) -> O
             }
             let inner = inner_lane(ctx, eid, obj);
             let undef = pv::undef_cell_slot(ctx, obj, inner.as_ref());
-            await_cell(ctx, op, Some(obj), inner, undef)
+            await_cell(ctx, op, Some(obj), inner, undef, false)
         }
         Type::Any => {
             if !ctx.expr_transfers_ownership(obj) {
@@ -104,6 +111,17 @@ pub(crate) fn lower_await(ctx: &mut LowerCtx<'_>, eid: ExprId, obj: ExprId) -> O
             await_any(ctx, boxed)
         }
     }
+}
+
+/// The await of the step promise a typed async iterator's `next()`
+/// answered (owned): the settled cell, owned, and its value word, the
+/// IteratorResult pointer it settled to (borrowed from the cell).
+pub(crate) fn await_step(ctx: &mut LowerCtx<'_>, src: Operand) -> (Operand, ValueId) {
+    if in_place::in_module_body(ctx) {
+        return (src, in_place::await_read(ctx, src, None, 0, false));
+    }
+    let settled = suspend_on(ctx, src, Type::Any);
+    (settled, read_settled(ctx, settled, 0))
 }
 
 /// The lanes no thenable comes in.
@@ -141,36 +159,40 @@ fn awaits_any(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
 /// PromiseResolve of the owned `any` box `op` through the any-lane
 /// kernel, then the cell's await in the `any` lane.
 fn await_any(ctx: &mut LowerCtx<'_>, op: Operand) -> Operand {
-    await_any_in(ctx, op, Type::Any)
+    await_any_in(ctx, op, Type::Any, false)
 }
 
 /// PromiseResolve of the owned `any` box `op`, then the cell's await
-/// read in the `lane` its await is typed as.
-fn await_any_in(ctx: &mut LowerCtx<'_>, op: Operand, lane: Type) -> Operand {
+/// read in the `lane` its await is typed as; `fused` as for
+/// [`await_cell`].
+fn await_any_in(ctx: &mut LowerCtx<'_>, op: Operand, lane: Type, fused: bool) -> Operand {
     let cb = ctx.cur_block;
     let call = InstKind::Call(ctx.intrinsics.promise_resolve_any, vec![op]);
     let cell = ctx.f.append_inst(cb, call, Type::Promise, None);
     // the thenable's `then` read may raise
     ctx.emit_throw_check(None);
-    await_cell(ctx, Operand::Value(cell), None, Some(lane), None)
+    await_cell(ctx, Operand::Value(cell), None, Some(lane), None, fused)
 }
 
 /// Await the owned cell `src`, the value of the operand `obj` when
 /// there is one, then read its settled value in the `inner` lane (the
 /// read releases nothing; `src` is dropped after); `undef` names the
 /// slot whose undefined cell an undefined result is answered as
-/// (`pv::undef_cell_slot`).
+/// (`pv::undef_cell_slot`). `fused` (the module body's alone): a
+/// rejection is raised one job after the continuation, behind the jobs
+/// queued meanwhile (`in_place::await_read`).
 fn await_cell(
     ctx: &mut LowerCtx<'_>,
     src: Operand,
     obj: Option<ExprId>,
     inner: Option<Type>,
     undef: Option<Type>,
+    fused: bool,
 ) -> Operand {
     let want = pv::awaited_lane_repr(inner.as_ref());
     let (settled, raw) = if in_place::in_module_body(ctx) {
         // the module body awaits in place; the cell it holds settles
-        (src, in_place::await_read(ctx, src, obj, want, false))
+        (src, in_place::await_read(ctx, src, obj, want, fused))
     } else {
         let settled = suspend_on(ctx, src, inner.unwrap_or(Type::Any));
         (settled, read_settled(ctx, settled, want))

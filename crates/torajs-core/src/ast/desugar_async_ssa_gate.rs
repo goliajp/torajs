@@ -108,8 +108,11 @@ pub fn mark_async_ssa_fns(ast: &mut Ast) {
     // the walks stop at declarations' bodies, so these are the
     // module's own awaits; a script's `await` is an identifier
     ast.async_ssa.main = !ast.sloppy_script_goal
-        && ast.stmts.iter().any(|s| stmt_awaits(ast, s))
-        && !ast.stmts.iter().any(|s| stmt_blocks(ast, s));
+        && ast
+            .stmts
+            .iter()
+            .any(|s| stmt_awaits(ast, s) || stmt_for_awaits(s))
+        && !ast.stmts.iter().any(|s| stmt_blocks(ast, s, Owner::Module));
 }
 
 /// A method's receiver-polymorphic twin (`__cmany_` / `__smany_`) is
@@ -132,7 +135,8 @@ fn method_moves(ast: &Ast, m: &ClassMethod) -> bool {
 }
 
 fn moves(ast: &Ast, params: &[Param], body: &[Stmt]) -> bool {
-    !params.iter().any(|p| p.name.starts_with("__")) && !body.iter().any(|s| stmt_blocks(ast, s))
+    !params.iter().any(|p| p.name.starts_with("__"))
+        && !body.iter().any(|s| stmt_blocks(ast, s, Owner::Function))
 }
 
 /// The body holds one of the function's own awaits: without one it
@@ -158,16 +162,26 @@ fn expr_awaits(ast: &Ast, eid: ExprId) -> bool {
             .any(|c| expr_awaits(ast, c))
 }
 
-/// The statement keeps the function off the frame: an await in a class
-/// body or a generator step, a `for await`, or a dynamic `import()`
-/// anywhere.
-fn stmt_blocks(ast: &Ast, s: &Stmt) -> bool {
+/// Whose body [`stmt_blocks`] judges.
+#[derive(Clone, Copy, PartialEq)]
+enum Owner {
+    Function,
+    Module,
+}
+
+/// The statement keeps the body off the SSA lowering: an await in a
+/// class body or a generator step, a function's `for await` (its steps
+/// await without spelling one, and only the state machine suspends
+/// them; the module body awaits its steps in place), or a dynamic
+/// `import()` anywhere.
+fn stmt_blocks(ast: &Ast, s: &Stmt, owner: Owner) -> bool {
     let protocol = matches!(
         s,
         Stmt::ClassDecl { .. } | Stmt::Yield(_) | Stmt::YieldInto { .. }
     );
-    // a `for await` steps by awaiting without spelling one
-    if (protocol && stmt_awaits(ast, s)) || matches!(s, Stmt::ForOf { is_await: true, .. }) {
+    if (protocol && stmt_awaits(ast, s))
+        || (owner == Owner::Function && matches!(s, Stmt::ForOf { is_await: true, .. }))
+    {
         return true;
     }
     if loop_head_closes_over(ast, s) {
@@ -178,7 +192,13 @@ fn stmt_blocks(ast: &Ast, s: &Stmt) -> bool {
         .any(|e| expr_reserved(ast, e))
         || walk::stmt_children_ref(s)
             .into_iter()
-            .any(|c| stmt_blocks(ast, c))
+            .any(|c| stmt_blocks(ast, c, owner))
+}
+
+/// The statement is a `for await`, whose steps await.
+fn stmt_for_awaits(s: &Stmt) -> bool {
+    matches!(s, Stmt::ForOf { is_await: true, .. })
+        || walk::stmt_children_ref(s).into_iter().any(stmt_for_awaits)
 }
 
 /// A `for` whose head makes a function: §14.7.4.4 gives each iteration

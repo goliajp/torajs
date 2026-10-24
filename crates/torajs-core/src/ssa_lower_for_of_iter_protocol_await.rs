@@ -78,6 +78,11 @@ pub(crate) fn emit_await_step(
     promise_val: crate::ssa::ValueId,
     step_ret_ty: Type,
 ) -> crate::ssa::ValueId {
+    if ctx.suspend_body {
+        let src = Operand::Value(promise_val);
+        let (settled, raw) = crate::ssa_lower_fn::suspend::await_step(ctx, src);
+        return adopt_step(ctx, raw, settled, step_ret_ty);
+    }
     ctx.f.append_void(
         ctx.cur_block,
         InstKind::Call(ctx.intrinsics.microtask_drain, vec![]),
@@ -96,6 +101,17 @@ pub(crate) fn emit_await_step(
     // struct — checking before the IntToPtr keeps the field loads
     // below off a wild pointer.
     ctx.emit_throw_check(None);
+    adopt_step(ctx, raw, Operand::Value(promise_val), step_ret_ty)
+}
+
+/// The settled step's IteratorResult out of its value word `raw`, with
+/// a reference of its own, and the release of the cell `settled`.
+fn adopt_step(
+    ctx: &mut LowerCtx<'_>,
+    raw: crate::ssa::ValueId,
+    settled: Operand,
+    step_ret_ty: Type,
+) -> crate::ssa::ValueId {
     let step = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::IntToPtr(Operand::Value(raw)),
@@ -103,6 +119,6 @@ pub(crate) fn emit_await_step(
         None,
     );
     ctx.emit_rc_inc(Operand::Value(step));
-    ctx.emit_drop_value(Operand::Value(promise_val), Type::Promise);
+    ctx.emit_drop_value(settled, Type::Promise);
     step
 }

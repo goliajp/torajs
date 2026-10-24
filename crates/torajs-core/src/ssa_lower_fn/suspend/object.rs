@@ -60,7 +60,7 @@ pub(super) fn await_object(
         };
         let borrowed = !ctx.expr_transfers_ownership(obj);
         let boxed = ctx.box_owned_from_expr(obj, op, borrowed);
-        await_any_in(ctx, boxed, lane)
+        await_any_in(ctx, boxed, lane, false)
     };
     ctx.owned_member_reads.insert(eid);
     v
@@ -75,7 +75,7 @@ fn await_cell_or_direct(ctx: &mut LowerCtx<'_>, eid: ExprId, op: Operand, ty: Ty
     for (blk, cell) in [(cell_blk, true), (direct_blk, false)] {
         ctx.cur_block = blk;
         let v = if cell {
-            let settled = await_cell(ctx, op, None, Some(Type::Any), None);
+            let settled = await_cell(ctx, op, None, Some(Type::Any), None, false);
             cell_of(ctx, settled, ty)
         } else {
             suspend_direct(ctx, eid, op, ty)

@@ -196,7 +196,7 @@ fn lower_called(ctx: &mut LowerCtx<'_>, fused: &Fused, src: Operand) -> Operand 
     let h = ctx.lower_expr(fused.handler);
     let token = ctx.push_throw_temp(src, Type::Promise);
     let d = own_then::lower_own_then_invoke(ctx, src, "then", &[fused.handler], &[h], false);
-    let v = super::await_cell(ctx, d, None, Some(fused.ret), None);
+    let v = super::await_cell(ctx, d, None, Some(fused.ret), None, false);
     ctx.pop_throw_temp(token);
     v
 }
