@@ -20,13 +20,16 @@
 //!   puts both out.
 //!
 //! F4, that nothing but a direct call enters a member, is recorded
-//! (`PinFact::direct_only`), not required. Only facts are written; no
-//! instruction changes. `TORAJS_PIN_STATS=1` prints each field's answer.
+//! (`PinFact::direct_only`), not required. Each cluster also records
+//! the words it could keep in a register while it runs ([`scalars`]).
+//! Only facts are written; no instruction changes. `TORAJS_PIN_STATS=1`
+//! prints each field's answer.
 
 mod cluster;
 mod grow;
 mod names;
 mod roots;
+mod scalars;
 #[cfg(test)]
 mod tests;
 pub(crate) mod woken;

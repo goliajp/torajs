@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 use crate::ssa::{ArrId, FuncId, InstKind, Module, PinFact, StructId, Type};
 
 use super::roots::{Root, Roots};
-use super::{Watch, grow, stats};
+use super::{Watch, grow, scalars, stats};
 
 const ADAPTER_PREFIX: &str = "__boxed_";
 
@@ -63,11 +63,14 @@ impl<'a> Clusters<'a> {
                 continue;
             }
             let (entries, direct_only) = self.entries(&cluster);
+            let (module, skip, alloc) = (self.module, self.skip, self.alloc);
+            let scalars = scalars::census(module, sid, &cluster, skip, alloc, label);
             if stats() {
                 let direct = if direct_only { "direct" } else { "taken" };
                 let e = self.names(&entries);
+                let s = scalars::names(module, sid, &scalars);
                 eprintln!(
-                    "[pin] {label}: cluster {{{names}}} entries {{{e}}} reads {reads} {direct}"
+                    "[pin] {label}: cluster {{{names}}} entries {{{e}}} reads {reads} {direct} scalars {{{s}}}"
                 );
             }
             let quiet = self.quiet(&cluster);
@@ -79,7 +82,7 @@ impl<'a> Clusters<'a> {
                 entries,
                 direct_only,
                 quiet,
-                scalars: Vec::new(),
+                scalars,
             });
         }
         out
