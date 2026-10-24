@@ -42,7 +42,7 @@ use torajs_rc::ANY_METHOD_NEXT;
 
 use crate::method_call::__torajs_any_method_call;
 use crate::method_call_closure_dispatch::invoke_with_this;
-use crate::nanbox::{AnyValue, VALUE_NULL, VALUE_UNDEFINED, as_void_ptr, is_cell};
+use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr, is_cell};
 use crate::nanbox_encode::__torajs_anyv_box_from_pair;
 use crate::nanbox_ffi::{__torajs_anyv_rc_dec, __torajs_anyv_to_bool};
 
@@ -390,51 +390,6 @@ pub(crate) unsafe fn generic_iter_step(
             return crate::iter_any_await::settle_out(out);
         }
         1
-    }
-}
-
-/// §7.4.9 IteratorClose for an iterator whose `return` is an ordinary
-/// property rather than a vtable method.
-///
-/// An iterator with no `return` closes silently (step 4), while one
-/// whose `return` is not callable throws. A `return`
-/// that throws leaves its throw in flight — on a normal completion
-/// §7.4.9 step 6 propagates it, and touching the result would be
-/// reading an aborted call's sentinel.
-///
-/// # Safety
-/// `iter` is a live cell.
-pub(crate) unsafe fn generic_iter_close(iter: AnyValue) {
-    unsafe {
-        // GetMethod is a [[Get]]: an accessor `return` (a class's `get
-        // return()`) runs its getter, whose throw is the close's
-        // completion (§7.4.9 step 5); the read answers an owned value
-        let Some(method) =
-            crate::iter_any_result::iter_result_get(iter, as_void_ptr(iter), b"return")
-        else {
-            return;
-        };
-        // §7.4.9 step 4 — GetMethod answering undefined ends the
-        // close; an iterator without a `return` is closed already.
-        if method == VALUE_UNDEFINED || method == VALUE_NULL {
-            return;
-        }
-        let result = {
-            let Some(m) = crate::callback_resolve::resolve(method, iter) else {
-                __torajs_anyv_rc_dec(method);
-                __torajs_throw_type_error(c"return is not a function".as_ptr());
-                return;
-            };
-            let argv: [u64; 0] = [];
-            invoke_with_this(m.env(), m.entry(), iter, argv.as_ptr(), 0)
-        };
-        __torajs_anyv_rc_dec(method);
-        if __torajs_throw_check() == 0 {
-            // §7.4.6 step 9 — non-Object answer → TypeError (the
-            // shared reject; original-throw precedence is the abrupt
-            // wrapper's job, same as the Tag::Obj arm).
-            crate::iter_any_close::reject_non_object_close_result(result);
-        }
     }
 }
 

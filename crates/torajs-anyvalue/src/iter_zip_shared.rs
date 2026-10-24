@@ -9,6 +9,7 @@
 
 use core::ffi::c_void;
 
+use crate::iter_helper::UNDERLYING_OFF;
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr, is_cell, is_short_str};
 use torajs_rc::Tag;
 
@@ -213,5 +214,20 @@ impl RowSink {
                 RowSink::Obj(obj, _) => __torajs_value_drop_heap(obj),
             }
         }
+    }
+}
+
+/// Close every still-open column — the return() face and any other
+/// early finish.
+///
+/// # Safety
+/// `ptr` is a live IterHelper cell of kind ZIP / ZIP_KEYED.
+pub(crate) unsafe fn iter_zip_close_all(ptr: *mut c_void) {
+    unsafe {
+        let p = ptr.cast::<u8>();
+        let iters_av = (p.add(UNDERLYING_OFF) as *const u64).read();
+        let iters = as_void_ptr(iters_av) as *const c_void;
+        let count = (iters.cast::<u8>().add(ARR_LEN_OFF) as *const u64).read();
+        close_open_iters(iters, count, u64::MAX);
     }
 }

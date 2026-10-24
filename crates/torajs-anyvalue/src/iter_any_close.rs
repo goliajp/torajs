@@ -9,6 +9,8 @@ use crate::iter_any_call::{MethodOutcome, call_obj_method_0};
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr, is_cell, is_short_str};
 use crate::nanbox_ffi::__torajs_anyv_rc_dec;
 
+pub use crate::iter_any_close_value::__torajs_iter_close_value;
+
 unsafe extern "C" {
     /// torajs-throw — record a pending catchable TypeError; returns
     /// normally (caller's throw-check propagates).
@@ -125,59 +127,6 @@ pub unsafe extern "C" fn __torajs_any_iter_close(recv: AnyValue, iter_slot: *mut
             return;
         }
         __torajs_iter_close_value(*iter_slot);
-    }
-}
-
-/// `__torajs_iter_close_value(iter)` — §7.4.9 over an iterator the
-/// caller already holds, without the slot / GetIterator bookkeeping.
-///
-/// The statically-typed class-iterator lowering keeps its iterator in
-/// a typed local rather than an `Any` park slot, so it closes through
-/// this face; the slot-shaped extern above resolves its slot and then
-/// lands here, which is what keeps one copy of the cascade.
-///
-/// The reference stays the caller's — this only borrows it.
-///
-/// # Safety
-/// `iter` is `undefined` or a live AnyValue.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_iter_close_value(iter: AnyValue) {
-    unsafe {
-        if !is_cell(iter) {
-            return;
-        }
-        let iter_ptr = as_void_ptr(iter);
-        let tag = (iter_ptr.cast::<u8>().add(4) as *const u16).read();
-        // An IterHelper closes through its own §27.1.5.2 return()
-        // arm directly — the generic tier below resolves `return`
-        // through the member-VALUE face, which the helper cell does
-        // not carry (RFC 20260730-iterator-global 刀 2; the reified
-        // method-value face is the 刀 2b supported-table work).
-        if tag == Tag::IterHelper as u16 {
-            let r = crate::iter_helper::iter_helper_method(
-                iter_ptr,
-                torajs_rc::any_method::ANY_METHOD_ITER_RETURN,
-                core::ptr::null(),
-                0,
-            );
-            __torajs_anyv_rc_dec(r);
-            return;
-        }
-        // Same tier cascade the step takes, for the same reason: an
-        // anon-stamped literal wears `Tag::Obj` but keeps `return` as
-        // a field, so a vtable miss is a tier hand-off, not "no
-        // return method".
-        if tag != Tag::Obj as u16 {
-            crate::iter_any_get_method::generic_iter_close(iter);
-            return;
-        }
-        // A `return()` that throws propagates on a normal completion
-        // (§7.4.9 step 6) — leave the throw in flight and touch nothing.
-        match call_obj_method_0(iter_ptr, b"return") {
-            MethodOutcome::Ok(result) => reject_non_object_close_result(result),
-            MethodOutcome::Missing => crate::iter_any_get_method::generic_iter_close(iter),
-            MethodOutcome::Threw => {}
-        }
     }
 }
 

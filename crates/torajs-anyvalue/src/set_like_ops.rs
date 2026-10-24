@@ -23,7 +23,6 @@
 use core::ffi::c_void;
 use core::ptr::{null, null_mut};
 
-use crate::iter_any_get_method::{generic_iter_close, generic_iter_step};
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED};
 use crate::nanbox_encode::{
     __torajs_anyv_box_from_pair, __torajs_anyv_unbox_tag, __torajs_anyv_unbox_value_owned,
@@ -32,6 +31,7 @@ use crate::nanbox_ffi::__torajs_anyv_rc_dec;
 use crate::set_like::{
     SetRecord, call_has, canonical, get_set_record, keys_iterator, release_record,
 };
+use crate::{iter_any_close_value::generic_iter_close, iter_any_get_method::generic_iter_step};
 
 unsafe extern "C" {
     /// torajs-collections — the Set-storage kernels (pair ABI; heap

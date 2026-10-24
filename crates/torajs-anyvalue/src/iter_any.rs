@@ -321,7 +321,8 @@ pub(crate) unsafe fn iter_next_inner(
     // step a `length` read and an index read, both through the traps.
     // A proxy over a shape with a different builtin lane (a Map) has
     // no such reading, and falls through to this fn's TypeError.
-    if matches!(cell_tag, Some(t) if t == Tag::Proxy as u16) && unsafe { proxy_wraps_indexed(recv) }
+    if matches!(cell_tag, Some(t) if t == Tag::Proxy as u16)
+        && unsafe { crate::iter_any_array_like::proxy_wraps_indexed(recv) }
     {
         return unsafe {
             crate::iter_any_array_like::step_uncached(recv, idx_slot, out, await_mode)
@@ -431,27 +432,4 @@ pub(crate) unsafe fn iter_next_inner(
         *out = VALUE_UNDEFINED;
     }
     0
-}
-
-/// Does this proxy chain bottom out at a shape the array-like walk
-/// reads — an Array, a TypedArray or a String object?
-///
-/// # Safety
-/// `recv` is a live Proxy AnyValue.
-unsafe fn proxy_wraps_indexed(recv: AnyValue) -> bool {
-    let mut cur = recv;
-    for _ in 0..64 {
-        if !is_cell(cur) {
-            return false;
-        }
-        let t = unsafe { (as_void_ptr(cur).cast::<u8>().add(4) as *const u16).read() };
-        if t != Tag::Proxy as u16 {
-            return t == Tag::Arr as u16
-                || t == Tag::TypedArray as u16
-                || t == Tag::Str as u16
-                || t == Tag::StringWrapper as u16;
-        }
-        cur = unsafe { crate::proxy::slots(as_void_ptr(cur)).0 };
-    }
-    false
 }

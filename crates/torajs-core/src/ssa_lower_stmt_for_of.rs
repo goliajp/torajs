@@ -42,8 +42,10 @@ use crate::ssa_lower::{ARR_LEN_OFF, LocalInfo, LowerCtx};
 use forin_guard::emit_forin_guard;
 pub(crate) use forin_guard::forin_key_live;
 
+mod element;
 mod forin_guard;
 mod source_class;
+use element::element_value;
 use source_class::src_class_name;
 
 pub(crate) fn lower(
@@ -160,32 +162,7 @@ pub(crate) fn lower(
     ctx.cur_block = body_blk;
     ctx.scope_stack.push(Vec::new());
     ctx.shadow_stack.push(Vec::new());
-    // Hole Z — for-await element await by the checker's verdict: a
-    // Promise-typed element loads through promise_get_value (microtask
-    // drain + value cast + rc_inc, same route the `await e` Member arm
-    // takes); every other element awaits to itself per §27.2 and the
-    // plain Index load stands.
-    let v_val = if steps_await {
-        crate::ssa_lower_fn::suspend::await_sync_step(ctx, elem_expr)
-    } else if is_await
-        && matches!(
-            ctx.expr_types.get(&elem_expr),
-            Some(crate::check::Type::Promise(_))
-        )
-    {
-        crate::ssa_lower_member_promise_value::lower_promise_get_value(ctx, elem_expr)
-    } else {
-        let v = ctx.lower_expr(elem_expr);
-        // rotation 233 — an `any` element only knows its form at
-        // runtime: the `__torajs_anyv_await` hook unwraps a heap
-        // Promise cell (promise-in-any used to bind verbatim) and
-        // passes everything else through identity.
-        if is_await && matches!(ctx.operand_ty(&v), Type::Any) {
-            crate::ssa_lower_member_promise_value::lower_any_await(ctx, v, elem_expr)
-        } else {
-            v
-        }
-    };
+    let v_val = element_value(ctx, elem_expr, is_await, steps_await);
     let v_ty = ctx.operand_ty(&v_val);
     if let Some(obj_eid) = forin_obj {
         emit_forin_guard(ctx, obj_eid, &v_val, step_blk);

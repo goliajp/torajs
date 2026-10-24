@@ -38,6 +38,8 @@ use crate::iter_zip_shared::{
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr};
 use crate::nanbox_ffi::__torajs_anyv_rc_dec;
 
+pub(crate) use crate::iter_zip_shared::iter_zip_close_all;
+
 unsafe extern "C" {
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
     fn __torajs_throw_check() -> i64;
@@ -337,20 +339,5 @@ pub(crate) unsafe fn iter_zip_step(ptr: *mut c_void, out: *mut AnyValue, keyed: 
         }
         *out = sink.finish();
         1
-    }
-}
-
-/// Close every still-open column — the return() face and any other
-/// early finish.
-///
-/// # Safety
-/// `ptr` is a live IterHelper cell of kind ZIP / ZIP_KEYED.
-pub(crate) unsafe fn iter_zip_close_all(ptr: *mut c_void) {
-    unsafe {
-        let p = ptr.cast::<u8>();
-        let iters_av = (p.add(UNDERLYING_OFF) as *const u64).read();
-        let iters = as_void_ptr(iters_av) as *const c_void;
-        let count = (iters.cast::<u8>().add(ARR_LEN_OFF) as *const u64).read();
-        close_open_iters(iters, count, u64::MAX);
     }
 }

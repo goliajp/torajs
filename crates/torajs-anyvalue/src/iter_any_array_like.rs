@@ -22,8 +22,11 @@ use crate::coerce::any_to_number;
 use crate::index_any::__torajs_any_index_get;
 use crate::member_get::__torajs_any_member_get_tag;
 use crate::member_get_value::__torajs_any_member_get_value;
-use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_int32, box_int32, is_int32};
+use crate::nanbox::{
+    AnyValue, VALUE_UNDEFINED, as_int32, as_void_ptr, box_int32, is_cell, is_int32,
+};
 use core::sync::atomic::{AtomicPtr, Ordering};
+use torajs_rc::Tag;
 
 unsafe extern "C" {
     fn __torajs_str_alloc_ascii(src: *const u8, len: i64) -> *mut u8;
@@ -176,4 +179,27 @@ pub(crate) unsafe fn step_uncached(
         }
         1
     }
+}
+
+/// Does this proxy chain bottom out at a shape the array-like walk
+/// reads — an Array, a TypedArray or a String object?
+///
+/// # Safety
+/// `recv` is a live Proxy AnyValue.
+pub(crate) unsafe fn proxy_wraps_indexed(recv: AnyValue) -> bool {
+    let mut cur = recv;
+    for _ in 0..64 {
+        if !is_cell(cur) {
+            return false;
+        }
+        let t = unsafe { (as_void_ptr(cur).cast::<u8>().add(4) as *const u16).read() };
+        if t != Tag::Proxy as u16 {
+            return t == Tag::Arr as u16
+                || t == Tag::TypedArray as u16
+                || t == Tag::Str as u16
+                || t == Tag::StringWrapper as u16;
+        }
+        cur = unsafe { crate::proxy::slots(as_void_ptr(cur)).0 };
+    }
+    false
 }
