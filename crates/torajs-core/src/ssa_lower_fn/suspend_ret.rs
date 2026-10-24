@@ -143,14 +143,24 @@ fn returns_thenable(
 
 /// The expression a `return` in a suspending body hands back: the
 /// argument of the `Promise.resolve` `desugar_async` wrapped it in
-/// (the frame settles the result with it).
+/// (the frame settles the result with it). Every such wrap is marked
+/// in `return_calls`; one that lost its mark (a rewrite gave the call a
+/// fresh id) would settle the result with the wrapping promise, two
+/// jobs later than the body's value, so it fails the build instead.
 pub(crate) fn returned_expr(ctx: &LowerCtx<'_>, maybe: Option<ExprId>) -> Option<ExprId> {
     let eid = maybe?;
-    if !ctx.suspend_body || !ctx.ast.async_ssa.return_calls.contains(&eid) {
+    if !ctx.suspend_body {
         return Some(eid);
     }
     match ctx.ast.get_expr(eid) {
-        Expr::Call { args, .. } if args.len() == 1 => Some(args[0]),
-        _ => Some(eid),
+        Expr::Call { args, .. }
+            if args.len() == 1 && ctx.ast.async_ssa.return_calls.contains(&eid) =>
+        {
+            Some(args[0])
+        }
+        _ => panic!(
+            "internal error: a return of async function `{}` lost its settle mark",
+            ctx.f.name
+        ),
     }
 }
