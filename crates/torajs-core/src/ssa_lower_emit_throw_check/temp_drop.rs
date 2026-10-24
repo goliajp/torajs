@@ -24,6 +24,9 @@ impl<'a> LowerCtx<'a> {
     pub(crate) fn emit_drop_throw_temp(&mut self, t: ThrowTemp) {
         match t {
             ThrowTemp::Value(op, ty) => self.emit_drop_value(op, ty),
+            ThrowTemp::Held(op, ty, hold) => {
+                crate::ssa_lower::call_hold::emit_drop(self, hold, op, ty, false)
+            }
             ThrowTemp::Slot(slot, ty) => {
                 let v = self.f.append_inst(
                     self.cur_block,

@@ -43,6 +43,10 @@ pub(crate) struct TempScratch {
     /// One slot per function: a slot per read keeps one more stack
     /// address live across the body for each read site.
     pub(crate) get_pair_slot: Option<ValueId>,
+    /// The references this function's calls hold on values read out
+    /// of a place (`ssa_lower::call_hold`), each piece behind its own
+    /// guard, for the module-wide pass to keep or remove.
+    pub(crate) holds: Vec<crate::ssa::CallHold>,
 }
 
 /// One parked temp: a value with its drop type, or a relocation slot
@@ -69,4 +73,8 @@ pub(crate) enum ThrowTemp {
     /// cell before the typed drop — otherwise the drop walks a stale
     /// (shorter) length and every element already pushed leaks.
     ArrSlotDeferLen(ValueId, Type, ValueId),
+    /// A call's own reference on a value it read out of a place, the
+    /// hold at this index of `TempScratch::holds`: the throw path
+    /// releases it behind a guard of that hold.
+    Held(Operand, Type, usize),
 }

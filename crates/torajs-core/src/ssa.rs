@@ -12,6 +12,7 @@
 mod arr_layouts;
 pub mod block_freq;
 pub mod branch_prob;
+pub mod call_hold;
 mod consts;
 pub mod dominator;
 mod function_methods;
@@ -34,6 +35,7 @@ mod visit;
 pub use torajs_anyvalue::nanbox::{DOUBLE_ENCODE_OFFSET, TAG_TYPE_NUMBER};
 
 pub use arr_layouts::ArrLayouts;
+pub use call_hold::{CallHold, CallHolds, HoldGuard};
 pub use consts::{
     ANY_SLOT_TAG_HEAP, HEADER_FLAGS_COLLECTOR, HEADER_WORD_ARR_ANY, THROW_ACTIVE_SYM,
     WEAKREF_ACTIVE_SYM,

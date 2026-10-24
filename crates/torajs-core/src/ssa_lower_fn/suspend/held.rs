@@ -35,7 +35,7 @@ pub(super) fn held(
     let mut held: Vec<Operand> = aside.to_vec();
     for t in temps {
         match t {
-            ThrowTemp::Value(op, ty) if traced(*ty) => held.push(*op),
+            ThrowTemp::Value(op, ty) | ThrowTemp::Held(op, ty, _) if traced(*ty) => held.push(*op),
             ThrowTemp::Slot(slot, ty) if traced(*ty) => slots.push((*slot, *ty)),
             _ => {}
         }

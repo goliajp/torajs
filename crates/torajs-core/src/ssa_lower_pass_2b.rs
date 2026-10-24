@@ -158,7 +158,7 @@ pub(crate) fn run(
                 continue;
             }
             let string_id_base = module.strings.len();
-            let (f, new_strings) = crate::ssa_lower_fn::lower_fn(
+            let (f, new_strings, holds) = crate::ssa_lower_fn::lower_fn(
                 name,
                 params,
                 return_type.as_deref(),
@@ -194,7 +194,7 @@ pub(crate) fn run(
                 boxed_entries,
                 scans,
             );
-            async_setup::install(module, fid, f, suspend, intrinsics, arr_layouts);
+            async_setup::install(module, fid, (f, holds), suspend, intrinsics, arr_layouts);
             for s in new_strings {
                 module.strings.push(s);
             }

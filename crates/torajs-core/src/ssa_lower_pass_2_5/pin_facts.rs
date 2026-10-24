@@ -26,7 +26,7 @@
 //! prints each field's answer.
 
 mod cluster;
-mod grow;
+pub(super) mod grow;
 mod names;
 mod roots;
 mod scalars;

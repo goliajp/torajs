@@ -42,8 +42,9 @@ pub(crate) fn declare_intrinsic(
 /// The top level as `main`, or, given the id the module body will
 /// have, as that body plus the wrapper `main` around it. Answers the
 /// function lowered from the statements, the wrapper, and the strings
-/// both interned (numbered from `string_id_base`). `frame_result_reprs`
-/// is `ModuleScans::frame_result_reprs`.
+/// both interned (numbered from `string_id_base`), and the holds of the
+/// function lowered from the statements when it stays as lowered.
+/// `frame_result_reprs` is `ModuleScans::frame_result_reprs`.
 pub(crate) fn synthesize_main(
     stmts: &[&Stmt],
     mut env: MainEnv<'_>,
@@ -54,6 +55,7 @@ pub(crate) fn synthesize_main(
     ssa::Function,
     Option<ssa::Function>,
     Vec<ssa::StringLiteral>,
+    Vec<ssa::CallHold>,
 ) {
     let (name, ret) = match body {
         Some(_) => (BODY_NAME, Type::Void),
@@ -64,7 +66,7 @@ pub(crate) fn synthesize_main(
     let mut new_strings: Vec<ssa::StringLiteral> = Vec::new();
     let mut scans = crate::ssa_lower_ctx_state::ModuleScans::of(env.ast, env.expr_types);
     scans.frame_result_reprs = frame_result_reprs;
-    {
+    let holds = {
         let target = MainTarget {
             f: &mut f,
             entry,
@@ -84,9 +86,10 @@ pub(crate) fn synthesize_main(
                 drain_and_exit(&mut ctx, None);
             }
         }
-    }
+        std::mem::take(&mut ctx.temps.holds)
+    };
     let Some(body) = body else {
-        return (f, None, new_strings);
+        return (f, None, new_strings, holds);
     };
     let mut wrapper = ssa::Function::new("main", Type::I32);
     let entry = wrapper.add_block();
@@ -105,7 +108,9 @@ pub(crate) fn synthesize_main(
         drain_and_exit(&mut ctx, Some(exit_code));
     }
     new_strings.extend(wrapper_strings);
-    (f, Some(wrapper), new_strings)
+    // the module body becomes a frame's state machine: its blocks are
+    // rewritten, so it keeps every hold
+    (f, Some(wrapper), new_strings, Vec::new())
 }
 
 /// Prime the binding sets and lower each top-level statement, up to

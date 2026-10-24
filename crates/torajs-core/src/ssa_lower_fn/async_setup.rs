@@ -174,7 +174,7 @@ fn frame_trace(name: &str, calls: &FrameCalls, traced: &[u32]) -> ssa::Function 
 pub(crate) fn install(
     module: &mut Module,
     fid: FuncId,
-    mut f: ssa::Function,
+    (mut f, holds): (ssa::Function, Vec<ssa::CallHold>),
     setup: &SuspendSetup,
     intrinsics: &crate::ssa_lower::Intrinsics,
     arr_layouts: &ssa::ArrLayouts,
@@ -182,6 +182,11 @@ pub(crate) fn install(
     let frame = setup.slots.get(&f.name).copied().zip(setup.calls);
     if frame.is_none() && !setup.sync.holds(&f.name) {
         module.funcs[fid.0 as usize] = f;
+        // only a body kept as lowered still has the blocks the holds
+        // name; a rewritten one keeps every hold
+        if !holds.is_empty() {
+            module.call_holds.push((fid, holds));
+        }
         return;
     }
     mark_returned_arrays(&mut f, arr_layouts, intrinsics.arr_mark_kind);

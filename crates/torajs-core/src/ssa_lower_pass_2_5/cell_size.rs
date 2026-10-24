@@ -82,27 +82,36 @@ pub(crate) fn settle(
         None => (open_sids(module, &envs), None),
     };
     let disagree = settle_typed_frees(module, &unsettled, ast, facts, &open);
-    if disagree.is_empty()
-        && let Some((flow, pins)) = flow
-    {
-        let asked = pins.as_ref().map_or(Vec::new(), |(w, _)| w.sids());
-        let skip = pins.as_ref().map(|_| (flow.2.clone(), flow.0.clone()));
-        let seals = super::drop_proofs::settle(module, &envs, drop_hooks, flow, &asked);
-        // the census reads the release fns once their settled tests'
-        // dead legs are gone, so it runs after them; the store bases
-        // the scan recorded before still hold, since settling only
-        // drops instructions and adds values, never renumbers one
-        match (pins, skip, seals) {
-            (Some((w, _)), Some((skip, open)), Ok(seals)) => {
-                let flow = (skip.as_slice(), open.as_slice());
-                super::pin_facts::settle(module, w, &seals, drop_hooks, facts, flow);
-            }
-            (Some((w, scanned)), Some((skip, _)), Err(exposed)) => {
-                let first = (w, scanned, skip.as_slice());
-                super::pin_facts::woken::settle(module, &envs, drop_hooks, facts, first, exposed);
-            }
-            _ => {}
+    if !disagree.is_empty() {
+        return disagree;
+    }
+    let Some((flow, pins)) = flow else {
+        super::call_holds::settle(module, &open, None);
+        return disagree;
+    };
+    let asked = pins.as_ref().map_or(Vec::new(), |(w, _)| w.sids());
+    let skip = pins.as_ref().map(|_| (flow.2.clone(), flow.0.clone()));
+    let asleep = flow.2.clone();
+    let seals = super::drop_proofs::settle(module, &envs, drop_hooks, flow, &asked);
+    // the functions the scans ruled out stay out of the runtime's
+    // reach only while no class instance reaches it; the census
+    // reads the holds' releases as any other, so they settle first
+    let asleep = seals.is_ok().then_some(asleep.as_slice());
+    super::call_holds::settle(module, &open, asleep);
+    // the census reads the release fns once their settled tests'
+    // dead legs are gone, so it runs after them; the store bases
+    // the scan recorded before still hold, since settling only
+    // drops instructions and adds values, never renumbers one
+    match (pins, skip, seals) {
+        (Some((w, _)), Some((skip, open)), Ok(seals)) => {
+            let flow = (skip.as_slice(), open.as_slice());
+            super::pin_facts::settle(module, w, &seals, drop_hooks, facts, flow);
         }
+        (Some((w, scanned)), Some((skip, _)), Err(exposed)) => {
+            let first = (w, scanned, skip.as_slice());
+            super::pin_facts::woken::settle(module, &envs, drop_hooks, facts, first, exposed);
+        }
+        _ => {}
     }
     disagree
 }

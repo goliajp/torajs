@@ -48,7 +48,7 @@ const ARR_HEAD_OFF: u64 = ARR_CAP_HEAD_OFF + 4;
 /// run), the cycle buffer (whose collection frees only garbage and
 /// marks colours in the header), the untyped release. So are the
 /// pieces of a throw: building its message, boxing it, recording it.
-const READ_ONLY: &[&str] = &[
+pub(in crate::ssa_lower_pass_2_5) const READ_ONLY: &[&str] = &[
     "__torajs_heap_nullish_check",
     "__torajs_arr_null_check",
     "__torajs_arr_oob_throw",

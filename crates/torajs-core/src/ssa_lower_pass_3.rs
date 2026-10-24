@@ -103,10 +103,14 @@ pub(crate) fn run(
         class_drop_fids,
         boxed_entries,
     };
-    let (main_fn, wrapper, new_strings) =
+    let (main_fn, wrapper, new_strings, holds) =
         synthesize_main(&top_level, env, string_id_base, body, frame_result_reprs);
     for s in new_strings {
         module.strings.push(s);
+    }
+    if !holds.is_empty() {
+        let fid = crate::ssa::FuncId(module.funcs.len() as u32);
+        module.call_holds.push((fid, holds));
     }
     module.funcs.push(main_fn);
     if let Some(wrapper) = wrapper {

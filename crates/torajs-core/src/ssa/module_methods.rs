@@ -25,6 +25,11 @@ pub struct Module {
     /// to one as a release. Identified by fid, never by name — a user
     /// fn may spell the same one.
     pub class_drop_fns: Vec<FuncId>,
+    /// The references calls hold on values read out of a place, as
+    /// lowering left them (`call_hold`). Read and emptied by the pass
+    /// that removes the needless ones before the module leaves
+    /// lowering.
+    pub call_holds: super::CallHolds,
     /// Interned string literals. StringId = index. Backend emits each
     /// as a raw-byte `[N x i8]` global (consumed by `InstKind::StringRef`)
     /// and a Str-shaped global with header / length / encoding flag bit

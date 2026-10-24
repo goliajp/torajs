@@ -56,6 +56,13 @@ pub(crate) fn immediates(f: &Function) -> HashSet<ValueId> {
 /// a slot an `any` crosses into), anything untyped, and every type
 /// that refers to one of those. `open` names the sids whose slots may
 /// hold a cell of another layout (`cell_slot_flow`).
+///
+/// An expando bag (a struct cell's, an array's, a RegExp's or a
+/// Date's) adds nothing: typed code reads a value out of a bag only
+/// through a read of `any`, which answers it owned
+/// (`LowerCtx::expr_owned_shape`), so a borrow the judges rely on is
+/// held up by typed references only, and releasing a bag cannot drop
+/// one of those.
 pub(crate) struct MayHold<'m> {
     pub(crate) module: &'m Module,
     pub(crate) sid: StructId,

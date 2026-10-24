@@ -87,7 +87,7 @@ pub(crate) fn lower_fn(
     class_drop_fids: &std::collections::HashMap<u32, crate::ssa::FuncId>,
     boxed_entries: &HashMap<FuncId, (FuncId, ssa::SigId)>,
     scans: &crate::ssa_lower_ctx_state::ModuleScans,
-) -> (ssa::Function, Vec<ssa::StringLiteral>) {
+) -> (ssa::Function, Vec<ssa::StringLiteral>, Vec<ssa::CallHold>) {
     let (suspend_body, ret_ann) =
         suspend_ret::ret_ann(ast, expr_types, fn_table, name, return_type, body);
     let ret_ty = suspend_ret::ret_slot_ty(
@@ -244,8 +244,9 @@ pub(crate) fn lower_fn(
         let cb = ctx.cur_block;
         close_fallthrough_path(&mut ctx, cb);
     }
+    let holds = std::mem::take(&mut ctx.temps.holds);
 
-    (f, new_strings)
+    (f, new_strings, holds)
 }
 
 /// What the body's statements can rely on before the first is lowered.
