@@ -358,10 +358,12 @@ mod tests {
         unsafe {
             std::env::set_var("TORAJS_ANYNUM_DEC_SPLIT_OFF", "1");
         }
+        crate::pass_gates::arm();
         let ran = gated_pass("ANYNUM_DEC_SPLIT", &mut off, split);
         unsafe {
             std::env::remove_var("TORAJS_ANYNUM_DEC_SPLIT_OFF");
         }
+        crate::pass_gates::arm();
         assert!(ran.is_none());
         assert_eq!(format!("{off:?}"), before);
     }

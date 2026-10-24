@@ -161,6 +161,7 @@ pub fn transform_module(mut module: Module) -> Module {
         return module;
     }
     pass_timer::arm();
+    pass_gates::arm();
     pipeline_head::inline_and_forward(&mut module);
     pass_timer::timed("EGRAPH", || egraph_functions(&mut module));
     dump_after("EGRAPH", &module);

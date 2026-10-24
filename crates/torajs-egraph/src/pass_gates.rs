@@ -1,9 +1,41 @@
 //! The environment gates every module pass of the pipeline runs
 //! behind, and the per-pass module dump.
 
+use std::cell::RefCell;
+
 use torajs_core::ssa::Module;
 
 use crate::pass_timer;
+
+thread_local! {
+    /// The `TORAJS_*` variables of the environment, read once by
+    /// [`arm`] for the pipeline about to run on this thread: a lookup
+    /// in the environment costs thousands of instructions, and the
+    /// pipeline asks three per pass.
+    static GATES: RefCell<Vec<(String, String)>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Read the gate variables for the pipeline about to run on this
+/// thread. A variable set after this is not seen until the next call.
+pub(crate) fn arm() {
+    let vars = std::env::vars_os()
+        .filter_map(|(k, v)| Some((k.into_string().ok()?, v.into_string().ok()?)))
+        .filter(|(k, _)| k.starts_with("TORAJS_"))
+        .collect();
+    GATES.set(vars);
+}
+
+/// Is `TORAJS_<key><suffix>` set to `want`?
+fn gate_is(key: &str, suffix: &str, want: &str) -> bool {
+    GATES.with_borrow(|g| {
+        g.iter().any(|(k, v)| {
+            v == want
+                && k.strip_prefix("TORAJS_")
+                    .and_then(|k| k.strip_prefix(key))
+                    .is_some_and(|k| k == suffix)
+        })
+    })
+}
 
 /// Run one module pass behind the pair of environment gates every
 /// pass in the pipeline carries: `TORAJS_<KEY>_OFF=1` skips it
@@ -18,11 +50,11 @@ pub(crate) fn gated_pass<S: std::fmt::Debug>(
     module: &mut Module,
     pass: impl FnOnce(&mut Module) -> S,
 ) -> Option<S> {
-    if std::env::var(format!("TORAJS_{key}_OFF")).as_deref() == Ok("1") {
+    if gate_is(key, "_OFF", "1") {
         return None;
     }
     let stats = pass_timer::timed(key, || pass(module));
-    if std::env::var(format!("TORAJS_{key}_STATS")).as_deref() == Ok("1") {
+    if gate_is(key, "_STATS", "1") {
         let label = key.to_lowercase().replace('_', "-");
         eprintln!("torajs-{label}-stats: {stats:?}");
     }
@@ -45,7 +77,7 @@ pub(crate) fn gated_pass<S: std::fmt::Debug>(
 /// A pass gated off never reaches here, so asking to dump after a
 /// disabled pass prints nothing.
 pub(crate) fn dump_after(key: &str, module: &Module) {
-    if std::env::var("TORAJS_SSA_DUMP_AFTER").as_deref() == Ok(key) {
+    if gate_is("SSA_DUMP_AFTER", "", key) {
         module.print();
     }
 }
