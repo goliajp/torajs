@@ -6,11 +6,14 @@
 
 use torajs_core::ssa::id_hash::{HashMap, HashSet};
 use torajs_core::ssa::{
-    Block, BlockId, Function, IPred, Inst, InstKind, Operand, PinWord, THROW_ACTIVE_SYM,
-    Terminator, Type, ValueId,
+    Block, BlockId, Function, IPred, Inst, InstKind, Operand, THROW_ACTIVE_SYM, Terminator, Type,
+    ValueId,
 };
 
 use super::throw_reg::ThrowRegPlan;
+use write_back::WriteBack;
+
+mod write_back;
 
 /// `%g = global_ref @throw_active; %l = load i64, %g; %c = icmp ne %l, 0`.
 pub(super) fn is_throw_probe(g: &Inst, l: &Inst, test: &Inst, c: ValueId) -> bool {
@@ -155,56 +158,6 @@ pub(super) fn targets(term: &Terminator) -> Vec<BlockId> {
             then_blk, else_blk, ..
         } => vec![then_blk, else_blk],
         Terminator::Ret(_) | Terminator::Unreachable => Vec::new(),
-    }
-}
-
-/// A cluster entry's write-back of its scalars in `func`, which neither
-/// calls nor reads x21: the `pinned` read of each scalar, with the
-/// offset of the receiver's field the entry loaded the scalar from.
-struct WriteBack {
-    this: Option<ValueId>,
-    reads: HashMap<ValueId, u64>,
-}
-
-impl WriteBack {
-    fn of(func: &Function) -> Self {
-        let this = func.params.first().copied();
-        let insts = || func.blocks.iter().flat_map(|b| &b.insts);
-        let loaded: HashMap<ValueId, u64> = (insts())
-            .filter_map(|i| match (&i.kind, i.result) {
-                (InstKind::Load(_, Operand::Value(b), off), Some(r)) if Some(*b) == this => {
-                    Some((r, *off))
-                }
-                _ => None,
-            })
-            .collect();
-        let offs: HashMap<u8, u64> = (insts())
-            .filter_map(|i| match &i.kind {
-                InstKind::PinSet(PinWord::Scalar(k), Operand::Value(l)) => {
-                    loaded.get(l).map(|o| (*k, *o))
-                }
-                _ => None,
-            })
-            .collect();
-        let reads = (insts())
-            .filter_map(|i| match (&i.kind, i.result) {
-                (InstKind::Pinned(PinWord::Scalar(k)), Some(r)) => offs.get(k).map(|o| (r, *o)),
-                _ => None,
-            })
-            .collect();
-        WriteBack { this, reads }
-    }
-
-    /// Whether `kind` is part of the write-back: a `pinned` read of a
-    /// scalar, or its store into the scalar's field of the receiver.
-    fn contains(&self, kind: &InstKind) -> bool {
-        match kind {
-            InstKind::Pinned(PinWord::Scalar(_)) => true,
-            InstKind::Store(Operand::Value(v), Operand::Value(b), off) => {
-                Some(*b) == self.this && self.reads.get(v) == Some(off)
-            }
-            _ => false,
-        }
     }
 }
 
