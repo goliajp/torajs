@@ -12,7 +12,7 @@
 //! one heap frame (the layout `torajs-promise` `frame` documents), with
 //! a wrapper that makes the frame and a drop that unwinds it.
 
-use super::{FuncId, Type};
+use super::{FuncId, InstKind, Operand, Type};
 
 /// What the suspension waits for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -120,6 +120,36 @@ pub const TRACE_STATE_WORD: i64 = 1 << 40;
 /// The base of the frame-size placeholders: the high half no
 /// allocation size has, the function's index in the low half.
 pub const FRAME_SIZE_PLACEHOLDER_BASE: i64 = 0x5AF7_0000_0000;
+
+/// How a value an async body returns becomes the i64 word its result
+/// promise holds, in the form the body's `REPR_*` names: a number at
+/// the width the body returns it, as its bits.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ValueWord {
+    /// The word itself: a constant, or a value already an i64.
+    Ready(Operand),
+    /// The instruction (with an i64 result) that converts the value.
+    Convert(InstKind),
+}
+
+/// The word for `op`, which the body returns at type `ty`.
+pub fn value_word(op: Operand, ty: Type) -> ValueWord {
+    let kind = match (op, ty) {
+        (Operand::ConstBool(b), _) => return ValueWord::Ready(Operand::ConstI64(b as i64)),
+        (Operand::ConstF64(x), _) => {
+            return ValueWord::Ready(Operand::ConstI64(x.to_bits() as i64));
+        }
+        (Operand::ConstI64(c), Type::F64) => {
+            return ValueWord::Ready(Operand::ConstI64((c as f64).to_bits() as i64));
+        }
+        (Operand::ConstI64(_), _) | (_, Type::I64) => return ValueWord::Ready(op),
+        (_, Type::F64) => InstKind::BitCastF64ToI64(op),
+        (_, Type::Bool) => InstKind::ZExtBoolToI64(op),
+        (_, t) if t.is_pointer_shaped() => InstKind::PtrToInt(op),
+        (_, t) => panic!("internal error: an async body returns {}", t.as_str()),
+    };
+    ValueWord::Convert(kind)
+}
 
 #[cfg(test)]
 mod tests {

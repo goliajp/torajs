@@ -176,21 +176,13 @@ fn settle_in_place(
     f
 }
 
-/// The returned value as the i64 the result's value word holds, in the
-/// form the body's `REPR_*` names: a number at the width the body
-/// returns it, as its bits.
+/// The returned value as the i64 the result's value word holds
+/// (`ssa::suspend::value_word`).
 fn value_bits(f: &mut ssa::Function, b: ssa::BlockId, op: Operand, ty: Type) -> Operand {
-    let kind = match (op, ty) {
-        (Operand::ConstBool(x), _) => return Operand::ConstI64(x as i64),
-        (Operand::ConstF64(x), _) => return Operand::ConstI64(x.to_bits() as i64),
-        (Operand::ConstI64(c), Type::F64) => return Operand::ConstI64((c as f64).to_bits() as i64),
-        (Operand::ConstI64(_), _) | (_, Type::I64) => return op,
-        (_, Type::F64) => InstKind::BitCastF64ToI64(op),
-        (_, Type::Bool) => InstKind::ZExtBoolToI64(op),
-        (_, t) if t.is_pointer_shaped() => InstKind::PtrToInt(op),
-        (_, t) => panic!("internal error: an async body returns {}", t.as_str()),
-    };
-    Operand::Value(push(f, b, kind, Type::I64))
+    match ssa::suspend::value_word(op, ty) {
+        ssa::suspend::ValueWord::Ready(word) => word,
+        ssa::suspend::ValueWord::Convert(kind) => Operand::Value(push(f, b, kind, Type::I64)),
+    }
 }
 
 /// Append to a block whose return is already set.

@@ -1,7 +1,7 @@
 //! The resume function's control flow: how the body ends, how it
 //! parks, where each landing picks it up, and the entry that chooses.
 
-use torajs_core::ssa::suspend::FRAME_STATE_OFF;
+use torajs_core::ssa::suspend::{FRAME_STATE_OFF, ValueWord};
 use torajs_core::ssa::{
     BlockId, Function, Inst, InstKind, Operand, SuspendFn, SuspendLane, SuspendRuntime, Terminator,
     Type, ValueId,
@@ -46,19 +46,12 @@ pub(super) fn settle_returns(f: &mut Function, s: &SuspendFn, rt: &SuspendRuntim
     f.ret = Type::Void;
 }
 
-/// The returned value as the i64 the result's value word holds, in the
-/// form the body's `REPR_*` names: a number at the width the body
-/// returns it, as its bits.
+/// The returned value as the i64 the result's value word holds
+/// (`torajs_core::ssa::suspend::value_word`).
 fn value_bits(f: &mut Function, bi: usize, op: Operand, ty: Type) -> Operand {
-    let kind = match (op, ty) {
-        (Operand::ConstBool(b), _) => return Operand::ConstI64(b as i64),
-        (Operand::ConstF64(x), _) => return Operand::ConstI64(x.to_bits() as i64),
-        (Operand::ConstI64(c), Type::F64) => return Operand::ConstI64((c as f64).to_bits() as i64),
-        (Operand::ConstI64(_), _) | (_, Type::I64) => return op,
-        (_, Type::F64) => InstKind::BitCastF64ToI64(op),
-        (_, Type::Bool) => InstKind::ZExtBoolToI64(op),
-        (_, t) if t.is_pointer_shaped() => InstKind::PtrToInt(op),
-        (_, t) => panic!("internal error: an async body returns {}", t.as_str()),
+    let kind = match torajs_core::ssa::suspend::value_word(op, ty) {
+        ValueWord::Ready(word) => return word,
+        ValueWord::Convert(kind) => kind,
     };
     let r = new_value(f, Type::I64);
     f.blocks[bi].insts.push(Inst {
