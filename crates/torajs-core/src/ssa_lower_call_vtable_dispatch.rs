@@ -94,9 +94,15 @@ pub(crate) fn try_lower(
     };
     // every body the slot resolves to is a user method
     let mut holds = crate::ssa_lower::call_hold::Holds::default();
+    // the owned temps below release after the call; a throw in a later
+    // argument or in the body reached drops them on the way out
+    let mut arg_toks: Vec<usize> = Vec::new();
     let mut arg_ops: Vec<Operand> = Vec::with_capacity(args.len());
     for a in args {
         let v = ctx.lower_expr(*a);
+        if let Some((op, ty)) = ctx.throw_temp_of(*a, &v) {
+            arg_toks.push(ctx.push_throw_temp(op, ty));
+        }
         holds.take(ctx, *a, v);
         arg_ops.push(v);
     }
@@ -156,6 +162,9 @@ pub(crate) fn try_lower(
     // ran the statement after it).
     if slot_may_throw(ctx, args[0], method_name, &suffix, &owners) {
         ctx.emit_throw_check(None);
+    }
+    for t in arg_toks {
+        ctx.pop_throw_temp(t);
     }
     holds.release(ctx);
     for (op, ty) in coerce_owned {
