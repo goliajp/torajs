@@ -11,7 +11,7 @@
 //! other way only costs one cold throw check per call site.
 
 use super::Scan;
-use crate::ast::{BinOp, Expr, ExprId, UnaryOp};
+use crate::ast::{BinOp, Expr, ExprId, Stmt, UnaryOp};
 use crate::check::Type;
 use crate::ssa_lower_nullable_guard::{passed_through, spells_undef_with_generic_cell};
 
@@ -238,5 +238,20 @@ impl Scan<'_> {
             }
             _ => None,
         }
+    }
+}
+
+/// True when control cannot run past `s` into the statement after it.
+pub(super) fn diverges(s: &Stmt) -> bool {
+    match s {
+        Stmt::Return(_) | Stmt::Throw(_) | Stmt::Break(_) | Stmt::Continue(_) => true,
+        Stmt::Block(stmts) | Stmt::Multi(stmts) => stmts.iter().any(diverges),
+        Stmt::If {
+            then_branch,
+            else_branch,
+            ..
+        } => diverges(then_branch) && else_branch.as_deref().is_some_and(diverges),
+        Stmt::Labeled { body, .. } => diverges(body),
+        _ => false,
     }
 }

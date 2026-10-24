@@ -74,6 +74,8 @@ use crate::ssa_lower::{LocalInfo, LowerCtx};
 use crate::ssa_lower_parse_type::parse_type;
 use crate::ssa_lower_scope_exit::ExitTarget;
 
+mod bind;
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn lower(
     ctx: &mut LowerCtx,
@@ -222,49 +224,9 @@ fn lower_catch(
             e_ty
         };
         let slot_v = if matches!(e_ty, Type::Any) {
-            let tag_v = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.throw_take_tag, vec![]),
-                Type::I64,
-                None,
-            );
-            let val_v = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.throw_take, vec![]),
-                Type::I64,
-                Some(p),
-            );
-            let boxed = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Call(
-                    ctx.intrinsics.any_box,
-                    vec![Operand::Value(tag_v), Operand::Value(val_v)],
-                ),
-                Type::Any,
-                None,
-            );
-            Operand::Value(boxed)
+            bind::take_any(ctx, p)
         } else {
-            let v = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.throw_take, vec![]),
-                Type::I64,
-                Some(p),
-            );
-            if e_ty == Type::F64 {
-                // The slot holds raw 8 bytes; decode them the way the
-                // throw site encoded them rather than converting the
-                // number (the symmetric `BitCastF64ToI64` the promise
-                // value point uses).
-                Operand::Value(ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::BitCastI64ToF64(Operand::Value(v)),
-                    Type::F64,
-                    None,
-                ))
-            } else {
-                Operand::Value(v)
-            }
+            bind::take_raw(ctx, p, e_ty)
         };
         let slot = ctx.alloca(e_ty, Some(p));
         ctx.f.append_void(
@@ -299,33 +261,7 @@ fn lower_catch(
         );
         ctx.scope_stack.last_mut().unwrap().push(p.clone());
     } else {
-        // Unbound `catch {}` still owns the taken value — take
-        // (tag, value), box, and drop it. Pre-fix this arm only
-        // cleared the active flag via a discarded throw_take,
-        // stranding the whole thrown heap payload (Error inst +
-        // message + stack) per catch.
-        let tag_v = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.throw_take_tag, vec![]),
-            Type::I64,
-            None,
-        );
-        let val_v = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.throw_take, vec![]),
-            Type::I64,
-            None,
-        );
-        let boxed = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Call(
-                ctx.intrinsics.any_box,
-                vec![Operand::Value(tag_v), Operand::Value(val_v)],
-            ),
-            Type::Any,
-            None,
-        );
-        ctx.emit_drop_value(Operand::Value(boxed), Type::Any);
+        bind::release_unbound(ctx);
     }
     if let Some(fb) = finally_blk {
         // A throw out of the catch body routes to the finally and

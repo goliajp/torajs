@@ -27,6 +27,7 @@
 
 mod decl;
 mod program;
+pub(crate) mod queries;
 mod view;
 mod walk;
 

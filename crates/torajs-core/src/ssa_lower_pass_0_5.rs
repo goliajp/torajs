@@ -21,6 +21,7 @@ use std::collections::{HashMap, HashSet};
 pub(crate) mod arr_head_census;
 pub(crate) mod live_field_census;
 pub(crate) mod value_class_census;
+pub use value_class_census::queries::{value_class_inits, value_class_verdicts};
 
 use crate::ast::{Ast, ExprId, Stmt};
 use crate::check_monomorph::MonoOutput;
@@ -248,31 +249,6 @@ pub fn value_class_names(artifacts: &crate::check::CheckArtifacts) -> Vec<String
         .collect();
     out.sort();
     out
-}
-
-/// The classes the value-class census admits, by name, sorted, each
-/// field with what a new instance holds there.
-pub fn value_class_inits(
-    artifacts: &crate::check::CheckArtifacts,
-) -> Vec<value_class_census::Admitted> {
-    let (ast, types) = (&artifacts.5.mono_ast, &artifacts.1);
-    let dead = arr_head_census::unreachable_twin_exprs(ast, types);
-    let pinned = arr_head_census::program_pins_arr_head(ast, types, &dead);
-    value_class_census::program_value_classes(ast, types, &dead, pinned)
-}
-
-/// Each candidate of the value-class census, by name, with the reason
-/// it is kept out (`None`: admitted).
-pub fn value_class_verdicts(
-    artifacts: &crate::check::CheckArtifacts,
-) -> Vec<(String, Option<String>)> {
-    let (ast, types) = (&artifacts.5.mono_ast, &artifacts.1);
-    let dead = arr_head_census::unreachable_twin_exprs(ast, types);
-    let pinned = arr_head_census::program_pins_arr_head(ast, types, &dead);
-    value_class_census::verdicts(ast, types, &dead, pinned)
-        .into_iter()
-        .map(|(c, v)| (c.to_string(), v.err()))
-        .collect()
 }
 
 /// Settle a declared class's freshly parsed layout: intern onto an

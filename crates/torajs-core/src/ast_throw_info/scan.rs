@@ -16,7 +16,7 @@
 //! anywhere in the program writes, so the value the test saw is the
 //! value the read sees.
 
-use super::nullish::{ANY, Form, UNDEF};
+use super::nullish::{ANY, Form, UNDEF, diverges};
 use crate::ast::{Ast, Expr, ExprId, Param, Stmt};
 use crate::num_width::WidthTable;
 use std::collections::{HashMap, HashSet};
@@ -367,20 +367,5 @@ impl<'a> Scan<'a> {
                 }
             }
         }
-    }
-}
-
-/// True when control cannot run past `s` into the statement after it.
-fn diverges(s: &Stmt) -> bool {
-    match s {
-        Stmt::Return(_) | Stmt::Throw(_) | Stmt::Break(_) | Stmt::Continue(_) => true,
-        Stmt::Block(stmts) | Stmt::Multi(stmts) => stmts.iter().any(diverges),
-        Stmt::If {
-            then_branch,
-            else_branch,
-            ..
-        } => diverges(then_branch) && else_branch.as_deref().is_some_and(diverges),
-        Stmt::Labeled { body, .. } => diverges(body),
-        _ => false,
     }
 }
