@@ -20,19 +20,18 @@
 //!   (the pending return, the throw a `finally` set aside, the
 //!   iterator) are stack slots the frame carries across, and a frame
 //!   dropped while it waits there unwinds past the handlers
-//!   (`ssa_lower_fn::suspend::cancel`);
-//! - it makes no dynamic `import()`: the imported module's top-level
-//!   await and a suspended caller's resumption do not agree yet.
-//!   (`arguments` and `new.target` move: the arguments object is built
-//!   from the parameters on entry, before the first await, and an
-//!   async function is never a constructor, so its `new.target` is
+//!   (`ssa_lower_fn::suspend::cancel`). A dynamic `import()` moves:
+//!   its promise is awaited as any other. (`arguments` and
+//!   `new.target` move too: the arguments object is built from the
+//!   parameters on entry, before the first await, and an async
+//!   function is never a constructor, so its `new.target` is
 //!   undefined wherever it is read);
 //! - no parameter is a synthesized `__` one, and it is no generator,
 //!   no async generator and not generic (a specialized copy of a
 //!   generic body is minted later under another name).
 //!
 //! The module body moves by the same rules, except that a `for await`
-//! or a dynamic `import()` in it moves too: it awaits in place
+//! in it moves too: it awaits in place
 //! (`ssa_lower_fn::suspend::in_place`), with no frame to resume.
 //!
 //! Declarations and class methods are marked by name (a method by its
@@ -176,8 +175,8 @@ enum Owner {
 /// The statement keeps the body off the SSA lowering: an await in a
 /// class body or a generator step, a `for` whose head makes a function,
 /// or in a function a `for await` (its steps await without spelling
-/// one, and only the state machine suspends them) or a dynamic
-/// `import()` anywhere. The module body awaits both in place.
+/// one, and only the state machine suspends them). The module body
+/// awaits those steps in place.
 fn stmt_blocks(ast: &Ast, s: &Stmt, owner: Owner) -> bool {
     let protocol = matches!(
         s,
@@ -189,14 +188,6 @@ fn stmt_blocks(ast: &Ast, s: &Stmt, owner: Owner) -> bool {
         return true;
     }
     if loop_head_closes_over(ast, s) {
-        return true;
-    }
-    // the module body awaits an import's promise in place, as any other
-    if owner == Owner::Function
-        && walk::stmt_exprs(s)
-            .into_iter()
-            .any(|e| expr_reserved(ast, e))
-    {
         return true;
     }
     walk::stmt_children_ref(s)
@@ -237,25 +228,4 @@ fn expr_makes_fn(ast: &Ast, eid: ExprId) -> bool {
         || walk::expr_children(ast, eid)
             .into_iter()
             .any(|c| expr_makes_fn(ast, c))
-}
-
-/// A dynamic `import()` anywhere in the expression, nested function
-/// bodies included.
-fn expr_reserved(ast: &Ast, eid: ExprId) -> bool {
-    match ast.get_expr(eid) {
-        Expr::Ident(n) => n == "__torajs_dyn_import",
-        Expr::ArrowFn { body, .. } => body.iter().any(|s| stmt_reserved(ast, s)),
-        _ => walk::expr_children(ast, eid)
-            .into_iter()
-            .any(|c| expr_reserved(ast, c)),
-    }
-}
-
-fn stmt_reserved(ast: &Ast, s: &Stmt) -> bool {
-    walk::stmt_exprs(s)
-        .into_iter()
-        .any(|e| expr_reserved(ast, e))
-        || walk::stmt_children_ref(s)
-            .into_iter()
-            .any(|c| stmt_reserved(ast, c))
 }
