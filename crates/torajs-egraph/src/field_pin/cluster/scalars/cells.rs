@@ -14,7 +14,7 @@ use super::def_counts;
 /// Only values a chain of copies reaches from the receiver are asked,
 /// so copies of one another that never start from it are not taken.
 /// Empty when something redefines the receiver itself.
-pub(super) fn receivers(f: &Function) -> HashSet<ValueId> {
+pub(in super::super) fn receivers(f: &Function) -> HashSet<ValueId> {
     let this = f.params[0];
     let mut srcs: HashMap<ValueId, Vec<Option<ValueId>>> = HashMap::default();
     for inst in f.blocks.iter().flat_map(|b| &b.insts) {

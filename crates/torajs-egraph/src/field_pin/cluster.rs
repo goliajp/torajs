@@ -20,9 +20,10 @@
 //! the flag after the call, so a body that hands throws back in x21
 //! keeps doing so.
 //!
-//! A cluster with scalar fields (`PinFact::scalars`) keeps them in
-//! x26 / x25 the same way: its entries load them and store them back,
-//! and its bodies read and write the registers (`scalars`).
+//! A cluster with scalars (`PinFact::scalars`: fields of the receiver
+//! or module globals) keeps them in x26 / x25 the same way: its entries
+//! load them and store them back, and its bodies read and write the
+//! registers (`scalars`).
 //!
 //! A cluster whose members never call each other with their receiver
 //! gains nothing: every call would go through an entry, which loads
@@ -55,6 +56,11 @@ pub struct PinClusterStats {
     pub copies: u32,
 }
 
+/// The values of each member that hold its receiver on every path
+/// (`scalars::receivers`), asked once on the member as the cluster pass
+/// finds it; its body, a copy, has the same values.
+type Receivers = HashMap<FuncId, HashSet<ValueId>>;
+
 pub fn pin_clusters(module: &mut Module) -> PinClusterStats {
     let mut stats = PinClusterStats::default();
     let mut claimed: HashSet<FuncId> = HashSet::default();
@@ -62,11 +68,14 @@ pub fn pin_clusters(module: &mut Module) -> PinClusterStats {
         let Some(members) = members(module, &fact, &claimed) else {
             continue;
         };
-        if !calls_within(module, &members) {
+        let recv: Receivers = (members.iter())
+            .map(|m| (*m, scalars::receivers(&module.funcs[m.0 as usize])))
+            .collect();
+        if !calls_within(module, &members, &recv) {
             continue;
         }
         claimed.extend(members.iter().copied());
-        place(module, &fact, &members, &mut stats);
+        place(module, &fact, &members, &recv, &mut stats);
     }
     stats
 }
@@ -97,12 +106,11 @@ fn members(module: &Module, fact: &PinFact, claimed: &HashSet<FuncId>) -> Option
 }
 
 /// Whether some member calls a member with its own receiver.
-fn calls_within(module: &Module, members: &[FuncId]) -> bool {
+fn calls_within(module: &Module, members: &[FuncId], recv: &Receivers) -> bool {
     members.iter().any(|m| {
         let f = &module.funcs[m.0 as usize];
-        let alias = aliases(f);
         (f.blocks.iter().flat_map(|b| &b.insts)).any(|i| match &i.kind {
-            InstKind::Call(t, args) => members.contains(t) && passes_own(f, &alias, args),
+            InstKind::Call(t, args) => members.contains(t) && passes_own(&recv[m], args),
             _ => false,
         })
     })
@@ -164,23 +172,27 @@ fn aliases(f: &Function) -> HashMap<ValueId, ValueId> {
     out
 }
 
-/// Whether a call with `args` in `f` passes `f`'s own receiver.
-fn passes_own(f: &Function, alias: &HashMap<ValueId, ValueId>, args: &[Operand]) -> bool {
-    match args.first() {
-        Some(Operand::Value(a)) => *alias.get(a).unwrap_or(a) == f.params[0],
-        _ => false,
-    }
+/// Whether a call with `args` passes the caller's own receiver: one of
+/// the values `recv` holds it in on every path (`scalars::receivers`).
+fn passes_own(recv: &HashSet<ValueId>, args: &[Operand]) -> bool {
+    matches!(args.first(), Some(Operand::Value(a)) if recv.contains(a))
 }
 
 /// Give `members` the registers: entries for those something else
 /// reaches, the loads of the two words read from the registers.
-fn place(module: &mut Module, fact: &PinFact, members: &[FuncId], stats: &mut PinClusterStats) {
+fn place(
+    module: &mut Module,
+    fact: &PinFact,
+    members: &[FuncId],
+    recv: &Receivers,
+    stats: &mut PinClusterStats,
+) {
     let set: HashSet<FuncId> = members.iter().copied().collect();
     let quiet: HashSet<FuncId> = fact.quiet.iter().copied().collect();
-    let reached = reached_from_outside(module, &set, &quiet);
+    let reached = reached_from_outside(module, &quiet, recv);
     let mut body_of: HashMap<FuncId, FuncId> = HashMap::default();
     let mut names: HashSet<String> = module.funcs.iter().map(|f| f.name.clone()).collect();
-    let fields = scalars::held(module, fact, members);
+    let fields = scalars::held(module, fact, members, &quiet, recv);
     let n = fields.len() as u8;
     for &m in members.iter().filter(|m| reached.contains(m)) {
         let mut name = format!(
@@ -210,7 +222,7 @@ fn place(module: &mut Module, fact: &PinFact, members: &[FuncId], stats: &mut Pi
         let at = body_of.get(&m).copied().unwrap_or(m);
         let f = &mut module.funcs[at.0 as usize];
         stats.loads += pin_words(f, fact.field_off);
-        retarget(f, &set, &body_of);
+        retarget(f, &set, &body_of, &recv[&m]);
         if n > 0 {
             let r = scalars::body(f, &fields, &writes, strict);
             stats.scalars += r.accesses;
@@ -223,33 +235,29 @@ fn place(module: &mut Module, fact: &PinFact, members: &[FuncId], stats: &mut Pi
     stats.clusters += 1;
 }
 
-/// The members something reaches other than a call from a member with
-/// that member's own receiver; what a function that never runs
-/// (`quiet`) names reaches nothing.
+/// The members (the keys of `recv`) something reaches other than a
+/// call from a member with that member's own receiver; what a function
+/// that never runs (`quiet`) names reaches nothing.
 fn reached_from_outside(
     module: &Module,
-    set: &HashSet<FuncId>,
     quiet: &HashSet<FuncId>,
+    recv: &Receivers,
 ) -> HashSet<FuncId> {
+    let set = |t: &FuncId| recv.contains_key(t);
     let mut out: HashSet<FuncId> = HashSet::default();
     for (i, f) in module.funcs.iter().enumerate() {
         if quiet.contains(&FuncId(i as u32)) {
             continue;
         }
-        let inside = set.contains(&FuncId(i as u32));
-        let alias = if inside {
-            aliases(f)
-        } else {
-            HashMap::default()
-        };
+        let own = recv.get(&FuncId(i as u32));
         for inst in f.blocks.iter().flat_map(|b| &b.insts) {
             match &inst.kind {
-                InstKind::Call(t, args) if set.contains(t) => {
-                    if !(inside && passes_own(f, &alias, args)) {
+                InstKind::Call(t, args) if set(t) => {
+                    if !own.is_some_and(|r| passes_own(r, args)) {
                         out.insert(*t);
                     }
                 }
-                InstKind::FnAddr(t) | InstKind::BoxedEntryAddr(t) if set.contains(t) => {
+                InstKind::FnAddr(t) | InstKind::BoxedEntryAddr(t) if set(t) => {
                     out.insert(*t);
                 }
                 _ => {}
@@ -265,8 +273,8 @@ fn reached_from_outside(
             (module.class_layouts.iter().flat_map(|c| &c.methods))
                 .flat_map(|m| std::iter::once(m.adapter_fid).chain(m.twin_adapter_fid)),
         );
-    out.extend(tables.filter(|t| set.contains(t)));
-    for &m in set {
+    out.extend(tables.filter(set));
+    for &m in recv.keys() {
         let name = &module.funcs[m.0 as usize].name;
         if name == "main" || name.starts_with("__torajs_") {
             out.insert(m);

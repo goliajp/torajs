@@ -4,8 +4,8 @@
 use super::census;
 use crate::ast::PropKey;
 use crate::ssa::{
-    ArrId, BlockId, DataGlobal, FuncId, Function, InstKind, Module, Operand, PinScalar, StructId,
-    Terminator, Type,
+    ArrId, BlockId, DataGlobal, FuncId, Function, Inst, InstKind, Module, Operand, PinScalar,
+    StructId, Terminator, Type,
 };
 use crate::ssa_lower::OBJ_HEADER_SIZE;
 
@@ -183,6 +183,21 @@ fn the_globals_address_passed_anywhere_keeps_it_in_memory() {
         f.append_void(b, InstKind::Call(FuncId(3), vec![Operand::Value(g)]));
     }));
     fs.push(func("sink", &[Type::Ptr], |_, _, _| {}));
+    assert_eq!(run(fs), vec![pos()]);
+}
+
+#[test]
+fn a_global_address_value_with_another_def_keeps_it_in_memory() {
+    let mut fs = members(|_, _, _| {});
+    fs.push(func("main", &[], |f, b, _| {
+        let g = f.append_inst(b, InstKind::GlobalRef("nodes".into()), Type::Ptr, None);
+        f.blocks[b.0 as usize].insts.push(Inst {
+            result: Some(g),
+            kind: InstKind::Identity(Operand::ConstPtrNull),
+            origin: None,
+        });
+        bump(f, b, &Operand::Value(g), 0, Type::I64);
+    }));
     assert_eq!(run(fs), vec![pos()]);
 }
 

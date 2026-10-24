@@ -214,7 +214,7 @@ impl<'a> ProbedCalls<'a> {
         let rest = &b.insts[from..];
         let quiet = rest.iter().all(|i| match &i.kind {
             InstKind::Copy(..) => true,
-            InstKind::GlobalRef(s) => s == THROW_ACTIVE_SYM,
+            InstKind::GlobalRef(s) if s == THROW_ACTIVE_SYM => true,
             InstKind::Load(Type::I64, Operand::Value(p), 0) => self.flags.contains(p),
             InstKind::ICmp(IPred::Ne, _, Operand::ConstI64(0)) => true,
             kind => self.write_back.contains(kind),

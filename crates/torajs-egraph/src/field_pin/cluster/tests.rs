@@ -1,5 +1,5 @@
 use super::*;
-use torajs_core::ssa::{ArrId, Block, BlockId, Inst, StructId, Terminator, ValueInfo};
+use torajs_core::ssa::{ArrId, Block, BlockId, Inst, PinScalar, StructId, Terminator, ValueInfo};
 
 const OFF: u64 = 32;
 
@@ -152,4 +152,53 @@ fn members_that_never_call_each_other_are_left_alone() {
     let before = m.funcs.clone();
     assert_eq!(pin_clusters(&mut m).clusters, 0);
     assert_eq!(m.funcs, before);
+}
+
+/// Member `a` calls `b` with its receiver and with `%5`, defined twice as a copy of its
+/// receiver (what `mem2reg` leaves of `let cur = this; if (..) cur =
+/// this`); `main` calls `b` too, so `b` keeps an entry. The cluster
+/// keeps a field scalar no member accesses.
+fn merged_receiver() -> Module {
+    let mut m = module(&[(1, false)]);
+    m.pins[0].scalars = vec![PinScalar::Field {
+        off: 48,
+        ty: Type::I64,
+    }];
+    let a = &mut m.funcs[0];
+    a.values.push(ValueInfo {
+        ty: Type::Obj(StructId(0)),
+        name: None,
+    });
+    let copy = || inst(Some(5), InstKind::Copy(Type::Obj(StructId(0)), v(0)));
+    a.blocks[0].insts.extend([copy(), copy()]);
+    a.blocks[0]
+        .insts
+        .push(inst(None, InstKind::Call(FuncId(1), vec![v(5)])));
+    let main = &mut m.funcs[2];
+    let p = Operand::Value(main.params[0]);
+    main.blocks[0]
+        .insts
+        .push(inst(None, InstKind::Call(FuncId(1), vec![p])));
+    m
+}
+
+#[test]
+fn a_call_with_the_receiver_merged_in_a_local_goes_to_the_body() {
+    let mut m = merged_receiver();
+    let st = pin_clusters(&mut m);
+    assert_eq!((st.clusters, st.entries), (1, 2));
+    // a's body calls b's body, not the entry that would reload the scalar
+    assert!(kinds(&m.funcs[3]).contains(&&InstKind::Call(FuncId(4), vec![v(5)])));
+    assert!(m.pin_regs.scalars.contains(&(FuncId(3), 1)));
+}
+
+#[test]
+fn a_member_calling_a_member_through_its_entry_keeps_no_scalar() {
+    // %5 also takes another cell on some path: not the receiver
+    let mut m = merged_receiver();
+    m.funcs[0].blocks[0].insts[6].kind = InstKind::Copy(Type::Obj(StructId(0)), v(4));
+    let st = pin_clusters(&mut m);
+    assert_eq!((st.clusters, st.entries), (1, 2));
+    assert!(kinds(&m.funcs[3]).contains(&&InstKind::Call(FuncId(1), vec![v(5)])));
+    assert!(m.pin_regs.scalars.is_empty());
 }

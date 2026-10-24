@@ -9,13 +9,34 @@ use crate::ssa::{
 
 use super::{Cand, ty, word};
 
-/// The values of `f` that `global_ref` defines, by symbol.
+/// The values of `f` that `global_ref` defines and nothing else does,
+/// by symbol: a value with another def holds some other address on the
+/// path through that def.
 pub(super) fn global_refs(f: &Function) -> HashMap<ValueId, &str> {
+    let mut refs = refs_of(f);
+    if !refs.is_empty() {
+        let again = redefined(f, &refs);
+        refs.retain(|r, _| !again.contains(r));
+    }
+    refs
+}
+
+/// Every value of `f` that `global_ref` defines, by symbol.
+fn refs_of(f: &Function) -> HashMap<ValueId, &str> {
     (f.blocks.iter().flat_map(|b| &b.insts))
         .filter_map(|i| match (&i.kind, i.result) {
             (InstKind::GlobalRef(sym), Some(r)) => Some((r, sym.as_str())),
             _ => None,
         })
+        .collect()
+}
+
+/// The values of `refs` that `f` defines more than once.
+fn redefined(f: &Function, refs: &HashMap<ValueId, &str>) -> HashSet<ValueId> {
+    let mut seen: HashSet<ValueId> = HashSet::new();
+    (f.blocks.iter().flat_map(|b| &b.insts))
+        .filter_map(|i| i.result.filter(|r| refs.contains_key(r)))
+        .filter(|r| !seen.insert(*r))
         .collect()
 }
 
@@ -51,15 +72,19 @@ pub(super) fn globals_held(module: &Module, skip: &[bool], cands: &mut [Cand]) {
     }
 }
 
-/// Why `f` takes global `sym` of type `t` out of G1 or G3.
+/// Why `f` takes global `sym` of type `t` out of G1 or G3. A
+/// `global_ref` of `sym` whose result has another def is an address
+/// that escapes.
 fn global_escapes(f: &Function, sym: &str, t: Type) -> Option<String> {
-    let refs: HashSet<ValueId> = (global_refs(f).into_iter())
-        .filter(|(_, s)| *s == sym)
-        .map(|(r, _)| r)
-        .collect();
+    let mut refs = refs_of(f);
+    refs.retain(|_, s| *s == sym);
     if refs.is_empty() {
         return None;
     }
+    if !redefined(f, &refs).is_empty() {
+        return Some(format!("its address escapes in {}", f.name));
+    }
+    let refs: HashSet<ValueId> = refs.into_keys().collect();
     let held = |op: &Operand| matches!(op, Operand::Value(v) if refs.contains(v));
     for inst in f.blocks.iter().flat_map(|b| &b.insts) {
         let moved = match &inst.kind {

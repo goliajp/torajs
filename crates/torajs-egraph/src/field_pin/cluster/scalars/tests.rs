@@ -3,6 +3,7 @@ use torajs_core::ssa::{BinOp, IPred, StructId, Terminator};
 
 const POS: u64 = 40;
 const FIELDS: [(u64, Type); 1] = [(POS, Type::I64)];
+const HELD: [(Slot, Type); 1] = [(Slot::Field(POS), Type::I64)];
 const MEMBER: FuncId = FuncId(7);
 
 fn v(x: ValueId) -> Operand {
@@ -40,7 +41,7 @@ fn writes() -> HashSet<FuncId> {
 #[test]
 fn a_read_and_a_write_become_the_register_without_a_copy() {
     let mut f = body_fn(|_, _, _| {}, false);
-    let r = body(&mut f, &FIELDS, &writes(), false);
+    let r = body(&mut f, &HELD, &writes(), false);
     assert_eq!((r.accesses, r.copies), (2, 0));
     let k = kinds(&f);
     assert_eq!(k[0], &InstKind::Pinned(PinWord::Scalar(0)));
@@ -52,7 +53,7 @@ fn a_read_and_a_write_become_the_register_without_a_copy() {
 #[test]
 fn a_read_used_past_its_write_reads_a_copy() {
     let mut f = body_fn(|_, _, _| {}, true);
-    let r = body(&mut f, &FIELDS, &writes(), false);
+    let r = body(&mut f, &HELD, &writes(), false);
     assert_eq!(r.copies, 1);
     let k = kinds(&f);
     let p = f.blocks[0].insts[0].result.unwrap();
@@ -69,7 +70,7 @@ fn a_read_used_past_a_call_to_a_member_reads_a_copy() {
         f.append_void(b, InstKind::Call(MEMBER, vec![v(this)]));
     };
     let mut f = body_fn(call, false);
-    let r = body(&mut f, &FIELDS, &writes(), false);
+    let r = body(&mut f, &HELD, &writes(), false);
     assert_eq!(r.copies, 1);
     let k = kinds(&f);
     assert!(matches!(k[1], InstKind::Copy(..)));
@@ -108,7 +109,7 @@ fn diamond(write: bool) -> Function {
 #[test]
 fn a_read_used_in_another_block_no_write_reaches_keeps_the_register() {
     let mut f = diamond(false);
-    assert_eq!(body(&mut f, &FIELDS, &writes(), false).copies, 0);
+    assert_eq!(body(&mut f, &HELD, &writes(), false).copies, 0);
     let p = f.blocks[0].insts[0].result.unwrap();
     assert!(
         matches!(f.blocks[3].insts[0].kind, InstKind::BinOp(_, Operand::Value(x), _) if x == p)
@@ -118,7 +119,7 @@ fn a_read_used_in_another_block_no_write_reaches_keeps_the_register() {
 #[test]
 fn a_read_used_where_one_path_wrote_the_scalar_reads_a_copy() {
     let mut f = diamond(true);
-    assert_eq!(body(&mut f, &FIELDS, &writes(), false).copies, 1);
+    assert_eq!(body(&mut f, &HELD, &writes(), false).copies, 1);
     let c = f.blocks[0].insts[1].result.unwrap();
     assert!(matches!(f.blocks[0].insts[1].kind, InstKind::Copy(..)));
     assert!(
@@ -135,7 +136,7 @@ fn a_call_to_something_else_keeps_the_register() {
         f.append_void(b, InstKind::Call(FuncId(9), vec![v(this)]));
     };
     let mut f = body_fn(call, false);
-    assert_eq!(body(&mut f, &FIELDS, &writes(), false).copies, 0);
+    assert_eq!(body(&mut f, &HELD, &writes(), false).copies, 0);
 }
 
 #[test]
@@ -148,7 +149,7 @@ fn a_load_into_a_value_with_other_defs_copies_the_register() {
         origin: None,
     };
     f.blocks[0].insts.insert(0, other);
-    body(&mut f, &FIELDS, &writes(), false);
+    body(&mut f, &HELD, &writes(), false);
     let k = kinds(&f);
     assert_eq!(k[1], &InstKind::Pinned(PinWord::Scalar(0)));
     let p = f.blocks[0].insts[1].result.unwrap();
@@ -167,7 +168,7 @@ fn another_cell_or_field_stays_in_memory() {
         kind: InstKind::Store(Operand::ConstI64(1), v(this), POS + 8),
         origin: None,
     });
-    let r = body(&mut f, &FIELDS, &writes(), false);
+    let r = body(&mut f, &HELD, &writes(), false);
     assert_eq!(r.accesses, 1);
     assert!(matches!(kinds(&f)[0], InstKind::Load(..)));
 }
@@ -181,7 +182,7 @@ fn an_entry_loads_before_the_call_and_stores_back_before_the_probe() {
     let g = InstKind::GlobalRef("flag".into());
     f.append_inst(b, g, Type::Ptr, None);
     f.set_term(b, Terminator::Ret(Some(v(r))));
-    entry(&mut f, &FIELDS);
+    entry(&mut f, &HELD);
     let k = kinds(&f);
     assert_eq!(k[0], &InstKind::Load(Type::I64, v(this), POS));
     let l = f.blocks[0].insts[0].result.unwrap();
@@ -196,7 +197,7 @@ fn an_entry_loads_before_the_call_and_stores_back_before_the_probe() {
 #[test]
 fn strict_keeps_the_store_and_traps_on_a_read_memory_disagrees_with() {
     let mut f = body_fn(|_, _, _| {}, false);
-    body(&mut f, &FIELDS, &writes(), true);
+    body(&mut f, &HELD, &writes(), true);
     assert_eq!(f.blocks.len(), 3);
     let this = f.params[0];
     let head = kinds(&f);
@@ -245,7 +246,7 @@ fn a_read_used_in_a_loop_that_writes_the_scalar_reads_a_copy() {
     };
     let mut f = looped(read, bump);
     assert_eq!(f.blocks[0].insts[0].result, Some(ValueId(1)));
-    assert_eq!(body(&mut f, &FIELDS, &writes(), false).copies, 1);
+    assert_eq!(body(&mut f, &HELD, &writes(), false).copies, 1);
     // the second time round, the add reads what the first one wrote
     let c = f.blocks[0].insts[1].result.unwrap();
     assert!(
@@ -265,7 +266,7 @@ fn a_use_ahead_of_the_read_in_its_own_looping_block_reads_a_copy() {
     };
     let mut f = looped(|_, _, _| {}, lp);
     assert_eq!(f.blocks[1].insts[1].result, Some(ValueId(2)));
-    assert_eq!(body(&mut f, &FIELDS, &writes(), false).copies, 1);
+    assert_eq!(body(&mut f, &HELD, &writes(), false).copies, 1);
     let c = f.blocks[1].insts[2].result.unwrap();
     assert!(matches!(f.blocks[1].insts[2].kind, InstKind::Copy(..)));
     assert!(
@@ -301,7 +302,7 @@ fn a_merge_of_copies_of_the_receiver_is_the_receiver() {
     let (mut f, cur) = merged(false);
     assert!(receivers(&f).contains(&cur));
     assert!(!foreign(&f, StructId(0), &FIELDS, &receivers(&f), None));
-    assert_eq!(body(&mut f, &FIELDS, &writes(), false).accesses, 2);
+    assert_eq!(body(&mut f, &HELD, &writes(), false).accesses, 2);
 }
 
 #[test]
@@ -309,7 +310,7 @@ fn a_merge_with_another_cell_keeps_every_scalar_in_memory() {
     let (mut f, cur) = merged(true);
     assert!(!receivers(&f).contains(&cur));
     assert!(foreign(&f, StructId(0), &FIELDS, &receivers(&f), None));
-    assert_eq!(body(&mut f, &FIELDS, &writes(), false).accesses, 1);
+    assert_eq!(body(&mut f, &HELD, &writes(), false).accesses, 1);
 }
 
 #[test]

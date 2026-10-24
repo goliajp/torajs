@@ -9,7 +9,7 @@ use torajs_core::ssa::{
     Type, ValueId, rewrite_value_operands,
 };
 
-use super::{aliases, words};
+use super::{aliases, passes_own, words};
 
 /// The entry kept under `member`'s name: call `body` with the same
 /// arguments, probe the throw flag as a lowered call does, and return
@@ -135,15 +135,19 @@ fn drop_unread_field_loads(f: &mut Function, field_off: u64) {
 }
 
 /// Send each call to a member that has an entry, with the caller's own
-/// receiver, to that member's body.
-pub(super) fn retarget(f: &mut Function, set: &HashSet<FuncId>, body_of: &HashMap<FuncId, FuncId>) {
-    let alias = aliases(f);
-    let this = f.params[0];
+/// receiver, to that member's body: by the test `reached_from_outside`
+/// applies (`passes_own`), so every call it does not count goes there.
+pub(super) fn retarget(
+    f: &mut Function,
+    set: &HashSet<FuncId>,
+    body_of: &HashMap<FuncId, FuncId>,
+    recv: &HashSet<ValueId>,
+) {
     for inst in f.blocks.iter_mut().flat_map(|b| &mut b.insts) {
         if let InstKind::Call(t, args) = &mut inst.kind
             && set.contains(t)
             && let Some(&body) = body_of.get(t)
-            && matches!(args.first(), Some(Operand::Value(a)) if *alias.get(a).unwrap_or(a) == this)
+            && passes_own(recv, args)
         {
             *t = body;
         }
