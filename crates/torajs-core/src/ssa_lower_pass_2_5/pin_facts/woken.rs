@@ -69,9 +69,9 @@ pub(crate) fn settle(
         let (Some(w), Some(more)) = (pins, more) else {
             return;
         };
-        let flow = (open, widens, skip.clone());
+        let flow = (open.clone(), widens, skip.clone());
         match drop_proofs::seals(module, envs, hooks, flow, &w.sids(), &woken) {
-            Ok(seals) => return super::settle(module, w, &seals, hooks, facts, &skip),
+            Ok(seals) => return super::settle(module, w, &seals, hooks, facts, (&skip, &open)),
             Err(again) => (exposed, watch, scanned, before) = (again, w, more, skip),
         }
     }

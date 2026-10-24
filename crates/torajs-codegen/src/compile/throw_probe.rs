@@ -6,8 +6,8 @@
 
 use torajs_core::ssa::id_hash::{HashMap, HashSet};
 use torajs_core::ssa::{
-    Block, BlockId, Function, IPred, Inst, InstKind, Operand, THROW_ACTIVE_SYM, Terminator, Type,
-    ValueId,
+    Block, BlockId, Function, IPred, Inst, InstKind, Operand, PinWord, THROW_ACTIVE_SYM,
+    Terminator, Type, ValueId,
 };
 
 use super::throw_reg::ThrowRegPlan;
@@ -90,6 +90,7 @@ pub(crate) fn probes(
 struct Chain<'a> {
     by_id: HashMap<u32, &'a Block>,
     preds: HashMap<u32, Option<Vec<u32>>>,
+    write_back: WriteBack,
 }
 
 impl<'a> Chain<'a> {
@@ -109,12 +110,18 @@ impl<'a> Chain<'a> {
             }
         }
         let by_id = func.blocks.iter().map(|b| (b.id.0, b)).collect();
-        Chain { by_id, preds }
+        let write_back = WriteBack::of(func);
+        Chain {
+            by_id,
+            preds,
+            write_back,
+        }
     }
 
     /// Whether, on every way into `block.insts[end]`, the last call is
-    /// to a signalling function with nothing after it but copies and
-    /// flag addresses (looking back through jumps, a few blocks deep).
+    /// to a signalling function with nothing after it but copies, flag
+    /// addresses and a scalar write-back (looking back through jumps, a
+    /// few blocks deep).
     fn follows_signaller(&self, plan: &ThrowRegPlan, block: &'a Block, end: usize) -> bool {
         self.follows(plan, block, end, 4)
     }
@@ -125,6 +132,7 @@ impl<'a> Chain<'a> {
                 InstKind::Call(g, _) => return plan.signals(*g),
                 InstKind::Copy(..) => {}
                 InstKind::GlobalRef(s) if s == THROW_ACTIVE_SYM => {}
+                kind if self.write_back.contains(kind) => {}
                 _ => return false,
             }
         }
@@ -147,6 +155,56 @@ pub(super) fn targets(term: &Terminator) -> Vec<BlockId> {
             then_blk, else_blk, ..
         } => vec![then_blk, else_blk],
         Terminator::Ret(_) | Terminator::Unreachable => Vec::new(),
+    }
+}
+
+/// A cluster entry's write-back of its scalars in `func`, which neither
+/// calls nor reads x21: the `pinned` read of each scalar, with the
+/// offset of the receiver's field the entry loaded the scalar from.
+struct WriteBack {
+    this: Option<ValueId>,
+    reads: HashMap<ValueId, u64>,
+}
+
+impl WriteBack {
+    fn of(func: &Function) -> Self {
+        let this = func.params.first().copied();
+        let insts = || func.blocks.iter().flat_map(|b| &b.insts);
+        let loaded: HashMap<ValueId, u64> = (insts())
+            .filter_map(|i| match (&i.kind, i.result) {
+                (InstKind::Load(_, Operand::Value(b), off), Some(r)) if Some(*b) == this => {
+                    Some((r, *off))
+                }
+                _ => None,
+            })
+            .collect();
+        let offs: HashMap<u8, u64> = (insts())
+            .filter_map(|i| match &i.kind {
+                InstKind::PinSet(PinWord::Scalar(k), Operand::Value(l)) => {
+                    loaded.get(l).map(|o| (*k, *o))
+                }
+                _ => None,
+            })
+            .collect();
+        let reads = (insts())
+            .filter_map(|i| match (&i.kind, i.result) {
+                (InstKind::Pinned(PinWord::Scalar(k)), Some(r)) => offs.get(k).map(|o| (r, *o)),
+                _ => None,
+            })
+            .collect();
+        WriteBack { this, reads }
+    }
+
+    /// Whether `kind` is part of the write-back: a `pinned` read of a
+    /// scalar, or its store into the scalar's field of the receiver.
+    fn contains(&self, kind: &InstKind) -> bool {
+        match kind {
+            InstKind::Pinned(PinWord::Scalar(_)) => true,
+            InstKind::Store(Operand::Value(v), Operand::Value(b), off) => {
+                Some(*b) == self.this && self.reads.get(v) == Some(off)
+            }
+            _ => false,
+        }
     }
 }
 
@@ -173,19 +231,24 @@ pub(super) fn probes_flag(flags: &HashSet<ValueId>, insts: &[Inst], c: ValueId) 
 }
 
 /// The calls of a function and whether each is probed: the code from
-/// the call on, through jumps a few blocks deep, is nothing but copies
-/// and a probe of the flag that branches. Only a call probed there may
-/// be to a function that leaves x21 set (compile/throw_reg.rs).
+/// the call on, through jumps a few blocks deep, is nothing but copies,
+/// a cluster entry's write-back of its scalars (`pinned` reads and
+/// their stores, which neither call nor read x21) and a probe of the
+/// flag that branches. Only a call probed there may be to a function
+/// that leaves x21 set (compile/throw_reg.rs).
 pub(super) struct ProbedCalls<'a> {
     by_id: HashMap<u32, &'a Block>,
     flags: HashSet<ValueId>,
+    write_back: WriteBack,
 }
 
 impl<'a> ProbedCalls<'a> {
     pub(super) fn of(func: &'a Function) -> Self {
+        let write_back = WriteBack::of(func);
         ProbedCalls {
             by_id: func.blocks.iter().map(|b| (b.id.0, b)).collect(),
             flags: flag_refs(func),
+            write_back,
         }
     }
 
@@ -201,7 +264,7 @@ impl<'a> ProbedCalls<'a> {
             InstKind::GlobalRef(s) => s == THROW_ACTIVE_SYM,
             InstKind::Load(Type::I64, Operand::Value(p), 0) => self.flags.contains(p),
             InstKind::ICmp(IPred::Ne, _, Operand::ConstI64(0)) => true,
-            _ => false,
+            kind => self.write_back.contains(kind),
         });
         quiet
             && match b.term {

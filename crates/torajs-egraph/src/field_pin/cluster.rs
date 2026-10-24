@@ -20,6 +20,10 @@
 //! the flag after the call, so a body that hands throws back in x21
 //! keeps doing so.
 //!
+//! A cluster with scalar fields (`PinFact::scalars`) keeps them in
+//! x26 / x25 the same way: its entries load them and store them back,
+//! and its bodies read and write the registers (`scalars`).
+//!
 //! A cluster whose members never call each other with their receiver
 //! gains nothing: every call would go through an entry, which loads
 //! what the member would have, and pays its frame. It is left alone.
@@ -45,6 +49,10 @@ pub struct PinClusterStats {
     pub entries: u32,
     /// Loads read from the registers instead.
     pub loads: u32,
+    /// Loads and stores of a scalar field turned into its register.
+    pub scalars: u32,
+    /// Copies of a scalar read used past a write of it.
+    pub copies: u32,
 }
 
 pub fn pin_clusters(module: &mut Module) -> PinClusterStats {
@@ -172,6 +180,8 @@ fn place(module: &mut Module, fact: &PinFact, members: &[FuncId], stats: &mut Pi
     let reached = reached_from_outside(module, &set, &quiet);
     let mut body_of: HashMap<FuncId, FuncId> = HashMap::default();
     let mut names: HashSet<String> = module.funcs.iter().map(|f| f.name.clone()).collect();
+    let fields = scalars::held(module, fact, members);
+    let n = fields.len() as u8;
     for &m in members.iter().filter(|m| reached.contains(m)) {
         let mut name = format!(
             "{LOCAL_LABEL_PREFIX}{}.pin",
@@ -186,15 +196,27 @@ fn place(module: &mut Module, fact: &PinFact, members: &[FuncId], stats: &mut Pi
         body.name = name;
         module.funcs.push(body);
         module.funcs[m.0 as usize] = entry(&module.funcs[m.0 as usize], body_id);
+        if n > 0 {
+            scalars::entry(&mut module.funcs[m.0 as usize], &fields);
+            module.pin_regs.scalars.push((m, n));
+        }
         body_of.insert(m, body_id);
         module.pin_regs.entries.push((m, body_id, fact.field_off));
         stats.entries += 1;
     }
+    let writes: HashSet<FuncId> = set.iter().chain(body_of.values()).copied().collect();
+    let strict = scalars::strict();
     for &m in members {
         let at = body_of.get(&m).copied().unwrap_or(m);
         let f = &mut module.funcs[at.0 as usize];
         stats.loads += pin_words(f, fact.field_off);
         retarget(f, &set, &body_of);
+        if n > 0 {
+            let r = scalars::body(f, &fields, &writes, strict);
+            stats.scalars += r.accesses;
+            stats.copies += r.copies;
+            module.pin_regs.scalars.push((at, n));
+        }
         module.pin_regs.inner.push(at);
         stats.members += 1;
     }
@@ -254,5 +276,6 @@ fn reached_from_outside(
 }
 
 mod rewrite;
+mod scalars;
 #[cfg(test)]
 mod tests;

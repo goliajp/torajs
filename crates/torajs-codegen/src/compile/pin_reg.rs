@@ -17,7 +17,10 @@
 //!   restore.
 
 use torajs_arr::layout::{ARR_DATA_PTR_OFF, ARR_LEN_OFF};
-use torajs_core::ssa::{FuncId, Function, InstKind, Module, Operand, PinWord};
+use torajs_core::ssa::{
+    BinOp, FuncId, Function, InstKind, Module, Operand, PinWord, Terminator, Type, ValueId,
+    visit_value_operands,
+};
 
 use super::operand::materialize_operand_gpr;
 use super::write_u32;
@@ -127,16 +130,19 @@ pub(crate) fn emit_pin_set(bytes: &mut Vec<u8>, word: PinWord, v: &Operand, allo
     }
 }
 
-/// Each `Pinned` result of `func` with its register, and each value a
-/// cast that moves no bits makes of one: a pointer taken as an integer
-/// or back, the same bits in the same register. Each such value has one
-/// def, and none of them is coalesced with a copy, so nothing else is
-/// written to the register.
+/// Each `Pinned` result of `func` with its register, each value a cast
+/// that moves no bits makes of a header word (a pointer taken as an
+/// integer or back, the same bits in the same register), and each
+/// value only a `pin_set` right after it reads (`fused_sets`). Each
+/// such value has one def, and none of them is coalesced with a copy,
+/// so nothing else is written to the register.
 fn pinned_values(func: &Function) -> Vec<(u32, Gpr)> {
     let insts = || func.blocks.iter().flat_map(|b| &b.insts);
     let mut out: Vec<(u32, Gpr)> = (insts())
         .filter_map(|i| match (&i.kind, i.result) {
-            (InstKind::Pinned(w), Some(r)) => Some((r.0, home(*w))),
+            (InstKind::Pinned(w @ (PinWord::Len | PinWord::Data)), Some(r)) => {
+                Some((r.0, home(*w)))
+            }
             _ => None,
         })
         .collect();
@@ -158,6 +164,55 @@ fn pinned_values(func: &Function) -> Vec<(u32, Gpr)> {
                 out.push((r.0, g));
                 grew = true;
             }
+        }
+    }
+    out.extend((insts()).filter_map(|i| match (&i.kind, i.result) {
+        (InstKind::Pinned(w @ PinWord::Scalar(_)), Some(r)) => Some((r.0, home(*w))),
+        _ => None,
+    }));
+    out.extend(fused_sets(func));
+    out
+}
+
+/// The values a `pin_set` right after their def writes to its scalar
+/// and nothing else reads: an integer add or subtract, or an i64 load
+/// (an entry's load of the field), each of which reads its operands
+/// before it writes the one register it defines, so the value is
+/// defined in the scalar's register and the `pin_set` moves nothing
+/// (`pos = pos + 1` is one `add x26, x26, #1`). A read of the scalar
+/// that the def consumes is dead past the `pin_set`, a write of it.
+fn fused_sets(func: &Function) -> Vec<(u32, Gpr)> {
+    let mut uses: HashMap<ValueId, u32> = HashMap::default();
+    let mut defs: HashMap<ValueId, u32> = HashMap::default();
+    for block in &func.blocks {
+        for inst in &block.insts {
+            visit_value_operands(&inst.kind, |v| *uses.entry(v).or_default() += 1);
+            if let Some(r) = inst.result {
+                *defs.entry(r).or_default() += 1;
+            }
+        }
+        if let Terminator::CondBr {
+            cond: Operand::Value(v),
+            ..
+        }
+        | Terminator::Ret(Some(Operand::Value(v))) = &block.term
+        {
+            *uses.entry(*v).or_default() += 1;
+        }
+    }
+    let mut out = Vec::new();
+    for pair in func.blocks.iter().flat_map(|b| b.insts.windows(2)) {
+        let (InstKind::PinSet(w, Operand::Value(v)), Some(r)) = (&pair[1].kind, pair[0].result)
+        else {
+            continue;
+        };
+        let one = matches!(
+            pair[0].kind,
+            InstKind::BinOp(BinOp::Add | BinOp::Sub, ..) | InstKind::Load(Type::I64, ..)
+        );
+        let int = matches!(func.value_type(r), Type::I64 | Type::I32);
+        if *v == r && one && int && uses.get(&r) == Some(&1) && defs.get(&r) == Some(&1) {
+            out.push((r.0, home(*w)));
         }
     }
     out

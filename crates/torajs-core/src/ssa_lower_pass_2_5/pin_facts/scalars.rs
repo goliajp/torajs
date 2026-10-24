@@ -18,6 +18,9 @@
 //!   cluster or takes a member's address: a member entered again would
 //!   read the word from memory while the one below it holds it in the
 //!   register;
+//! - S6, nothing the members reach may free a cell of the class: an
+//!   entry borrows its receiver and writes the fields back into it
+//!   after the body returns;
 //! - G1, the global's address goes nowhere but the base of a load or a
 //!   store, in every function that runs.
 //!
@@ -33,10 +36,12 @@ use super::roots::{Root, Roots};
 use super::stats;
 
 mod globals;
+mod reach;
 #[cfg(test)]
 mod tests;
 
 use globals::{global_access, global_refs, globals_held};
+use reach::{reached, reentered, released};
 
 /// Scalars past this many stay in memory.
 const MAX: usize = 2;
@@ -50,13 +55,14 @@ struct Cand {
 }
 
 /// The scalars of `cluster`, a cluster of class sid `sid`; `skip`
-/// names the functions that never run. Each word ruled out is printed
+/// names the functions that never run, `open` the sids whose slots may
+/// hold a cell of another layout (`cell_slot_flow`). Each word ruled out is printed
 /// under `TORAJS_PIN_STATS` with its reason, after `label`.
 pub(super) fn census(
     module: &Module,
     sid: StructId,
     cluster: &[FuncId],
-    skip: &[bool],
+    (skip, open): (&[bool], &[bool]),
     alloc: Option<FuncId>,
     label: &str,
 ) -> Vec<PinScalar> {
@@ -68,6 +74,14 @@ pub(super) fn census(
         return Vec::new();
     }
     let mut cands = members_words(module, sid, cluster, alloc);
+    if let Some(why) = released(module, sid, &reach, open) {
+        for c in cands
+            .iter_mut()
+            .filter(|c| matches!(c.scalar, PinScalar::Field { .. }))
+        {
+            c.no.get_or_insert_with(|| why.clone());
+        }
+    }
     for fid in reach.iter().filter(|f| !cluster.contains(f)) {
         let f = &module.funcs[fid.0 as usize];
         outsider(f, sid, alloc, &mut cands);
@@ -105,55 +119,6 @@ fn field_name(module: &Module, sid: StructId, off: u64) -> String {
     module.struct_layouts[sid.0 as usize][idx]
         .0
         .to_string_lossy_owned()
-}
-
-/// The functions with a body the members reach by direct calls,
-/// themselves included: the walk F2 makes.
-fn reached(module: &Module, cluster: &[FuncId]) -> Vec<FuncId> {
-    let mut seen: HashSet<FuncId> = cluster.iter().copied().collect();
-    let mut out = cluster.to_vec();
-    let mut i = 0;
-    while let Some(&fid) = out.get(i) {
-        i += 1;
-        for inst in module.funcs[fid.0 as usize]
-            .blocks
-            .iter()
-            .flat_map(|b| &b.insts)
-        {
-            if let InstKind::Call(t, _) = &inst.kind
-                && !module.funcs[t.0 as usize].is_declaration()
-                && seen.insert(*t)
-            {
-                out.push(*t);
-            }
-        }
-    }
-    out
-}
-
-/// S5: the first function of `reach` that calls a member from outside
-/// the cluster or takes a member's address.
-fn reentered(module: &Module, cluster: &[FuncId], reach: &[FuncId]) -> Option<String> {
-    reach.iter().find_map(|fid| {
-        let f = &module.funcs[fid.0 as usize];
-        let inside = cluster.contains(fid);
-        f.blocks
-            .iter()
-            .flat_map(|b| &b.insts)
-            .find_map(|i| match &i.kind {
-                InstKind::Call(t, _) if !inside && cluster.contains(t) => Some(format!(
-                    "{} called by {}",
-                    module.funcs[t.0 as usize].name, f.name
-                )),
-                InstKind::FnAddr(t) | InstKind::BoxedEntryAddr(t) if cluster.contains(t) => {
-                    Some(format!(
-                        "{}'s address taken by {}",
-                        module.funcs[t.0 as usize].name, f.name
-                    ))
-                }
-                _ => None,
-            })
-    })
 }
 
 /// The type of `op` in `f`.

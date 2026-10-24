@@ -154,7 +154,8 @@ impl Watch {
 
 /// Write `module.pins` from what `watch` saw; `seals` answers for the
 /// watched sids (`drop_proofs::settle`), `skip` names the functions
-/// that never run. Runs after the release fns' tests are settled: a
+/// that never run, `open` the sids whose slots may hold a cell of
+/// another layout over the functions that do. Runs after the release fns' tests are settled: a
 /// store base `watch` holds still names the value it did, or one no
 /// instruction defines any longer, which reads as no root.
 pub(crate) fn settle(
@@ -163,7 +164,7 @@ pub(crate) fn settle(
     seals: &HashMap<u32, Seal>,
     hooks: &DropHooks,
     facts: &ProgramFacts,
-    skip: &[bool],
+    (skip, open): (&[bool], &[bool]),
 ) {
     let alloc = (module.funcs.iter().position(|f| f.name == OBJ_ALLOC)).map(|i| FuncId(i as u32));
     let mut pins = Vec::new();
@@ -192,7 +193,7 @@ pub(crate) fn settle(
                 }
                 continue;
             }
-            for fact in clusters.pins(StructId(sid), off, arr, &label) {
+            for fact in clusters.pins(StructId(sid), off, arr, &label, open) {
                 pins.push(fact);
             }
         }

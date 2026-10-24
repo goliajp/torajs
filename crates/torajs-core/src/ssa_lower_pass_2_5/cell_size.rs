@@ -86,17 +86,18 @@ pub(crate) fn settle(
         && let Some((flow, pins)) = flow
     {
         let asked = pins.as_ref().map_or(Vec::new(), |(w, _)| w.sids());
-        let skip = pins.as_ref().map(|_| flow.2.clone());
+        let skip = pins.as_ref().map(|_| (flow.2.clone(), flow.0.clone()));
         let seals = super::drop_proofs::settle(module, &envs, drop_hooks, flow, &asked);
         // the census reads the release fns once their settled tests'
         // dead legs are gone, so it runs after them; the store bases
         // the scan recorded before still hold, since settling only
         // drops instructions and adds values, never renumbers one
         match (pins, skip, seals) {
-            (Some((w, _)), Some(skip), Ok(seals)) => {
-                super::pin_facts::settle(module, w, &seals, drop_hooks, facts, &skip);
+            (Some((w, _)), Some((skip, open)), Ok(seals)) => {
+                let flow = (skip.as_slice(), open.as_slice());
+                super::pin_facts::settle(module, w, &seals, drop_hooks, facts, flow);
             }
-            (Some((w, scanned)), Some(skip), Err(exposed)) => {
+            (Some((w, scanned)), Some((skip, _)), Err(exposed)) => {
                 let first = (w, scanned, skip.as_slice());
                 super::pin_facts::woken::settle(module, &envs, drop_hooks, facts, first, exposed);
             }

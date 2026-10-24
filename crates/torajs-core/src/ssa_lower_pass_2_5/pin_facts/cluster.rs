@@ -46,6 +46,7 @@ impl<'a> Clusters<'a> {
         off: u64,
         arr: ArrId,
         label: &str,
+        open: &[bool],
     ) -> Vec<PinFact> {
         let mut out = Vec::new();
         for cluster in self.groups_of(sid) {
@@ -64,7 +65,7 @@ impl<'a> Clusters<'a> {
             }
             let (entries, direct_only) = self.entries(&cluster);
             let (module, skip, alloc) = (self.module, self.skip, self.alloc);
-            let scalars = scalars::census(module, sid, &cluster, skip, alloc, label);
+            let scalars = scalars::census(module, sid, &cluster, (skip, open), alloc, label);
             if stats() {
                 let direct = if direct_only { "direct" } else { "taken" };
                 let e = self.names(&entries);

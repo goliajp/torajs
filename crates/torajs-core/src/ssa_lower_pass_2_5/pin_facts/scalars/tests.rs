@@ -93,7 +93,15 @@ fn members(more: impl FnOnce(&mut Function, BlockId, &[Operand])) -> Vec<Functio
 fn run(funcs: Vec<Function>) -> Vec<PinScalar> {
     let m = module(funcs);
     let skip = vec![false; m.funcs.len()];
-    census(&m, StructId(0), &[FuncId(0), FuncId(1)], &skip, None, "t")
+    let open = vec![false; m.struct_layouts.len()];
+    census(
+        &m,
+        StructId(0),
+        &[FuncId(0), FuncId(1)],
+        (&skip, &open),
+        None,
+        "t",
+    )
 }
 
 #[test]
@@ -190,4 +198,81 @@ fn a_float_field_is_no_scalar_and_a_third_word_is_left_out() {
         ty: Type::I64,
     };
     assert_eq!(run(fs), vec![depth, pos()]);
+}
+
+/// The census of `members` handing a value of type `ty` to runtime
+/// function `callee`, with class sid 1 laid out as `other`.
+fn release(callee: &str, ty: Type, other: Vec<(PropKey, Type)>) -> Vec<PinScalar> {
+    release_open(callee, ty, other, false)
+}
+
+/// [`release`], with sid 1 open to cells of other layouts when `open`.
+fn release_open(callee: &str, ty: Type, other: Vec<(PropKey, Type)>, open: bool) -> Vec<PinScalar> {
+    let mut fs = members(|f, b, _| {
+        let x = f.append_inst(b, InstKind::Load(ty, Operand::ConstPtrNull, 0), ty, None);
+        let args = vec![Operand::Value(x), Operand::ConstI64(48)];
+        f.append_void(b, InstKind::Call(FuncId(2), args));
+    });
+    fs.push(Function::new(callee, Type::Void));
+    let mut m = module(fs);
+    m.struct_layouts.push(other);
+    let skip = vec![false; m.funcs.len()];
+    let open = vec![false, open];
+    census(
+        &m,
+        StructId(0),
+        &[FuncId(0), FuncId(1)],
+        (&skip, &open),
+        None,
+        "t",
+    )
+}
+
+fn word_cell() -> Vec<(PropKey, Type)> {
+    vec![(PropKey::from("v"), Type::I64)]
+}
+
+#[test]
+fn a_member_releasing_a_cell_of_the_class_keeps_the_fields_in_memory() {
+    let got = release("__torajs_obj_drop_sized", CELL, word_cell());
+    assert_eq!(got, vec![nodes()]);
+}
+
+#[test]
+fn a_member_releasing_a_cell_that_holds_one_keeps_the_fields_in_memory() {
+    let holder = vec![(PropKey::from("p"), CELL)];
+    let got = release("__torajs_obj_drop_sized", Type::Obj(StructId(1)), holder);
+    assert_eq!(got, vec![nodes()]);
+    let got = release("__torajs_drop_release", Type::Any, word_cell());
+    assert_eq!(got, vec![nodes()]);
+}
+
+#[test]
+fn a_member_releasing_another_class_or_testing_its_own_keeps_both() {
+    let got = release(
+        "__torajs_obj_drop_sized",
+        Type::Obj(StructId(1)),
+        word_cell(),
+    );
+    assert_eq!(got, vec![pos(), nodes()]);
+    let got = release("__torajs_heap_nullish_check", CELL, word_cell());
+    assert_eq!(got, vec![pos(), nodes()]);
+}
+
+#[test]
+fn a_member_releasing_an_interface_value_keeps_the_fields_in_memory() {
+    // an interface lays out its members by name, no prefix of the
+    // class's; a class instance stored into a slot of it opens it
+    let iface = vec![(PropKey::from("run"), Type::I64)];
+    let ty = Type::Obj(StructId(1));
+    let drop = "__torajs_value_drop_heap";
+    assert_eq!(release_open(drop, ty, iface.clone(), true), vec![nodes()]);
+    assert_eq!(release_open(drop, ty, iface, false), vec![pos(), nodes()]);
+}
+
+#[test]
+fn a_layout_naming_the_classs_first_fields_holds_one_whatever_their_types() {
+    let base = vec![(PropKey::from("toks"), Type::I64)];
+    let got = release("__torajs_obj_drop_sized", Type::Obj(StructId(1)), base);
+    assert_eq!(got, vec![nodes()]);
 }
