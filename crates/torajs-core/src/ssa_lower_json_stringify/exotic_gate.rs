@@ -8,12 +8,62 @@
 //! What is local to this surface is WHERE the gate stands: behind
 //! §25.5.2's null check, and what the general path is (the any-lane
 //! serializer, byte-identical for every shape both tiers express).
+//!
+//! The general path is entered only on an instance whose header
+//! carries `FLAG_OBJ_EXOTIC_FIELD` or `FLAG_OBJ_EXPANDO`, and each bit
+//! has runtime writers alone: the redefine raises the first through
+//! `__torajs_obj_flag_exotic_field`, and every expando write lands in
+//! a props bag only `__torajs_obj_props_attach` gives an instance. So
+//! the walk goes through a link seam ([`WALK_SEAM`], default the
+//! any-lane serializer) the link stubs when neither writer is live —
+//! the serializer roots the whole any world. A program that mints the
+//! absent set raises the third bit the gate tests from its own object
+//! literals, which no link fact can see; it calls the serializer
+//! directly.
+
+use std::collections::HashMap;
 
 use crate::ast::PropKey;
 use crate::check;
-use crate::ssa::{Operand, StructId, Type};
-use crate::ssa_lower::LowerCtx;
+use crate::ssa::{FuncId, InstKind, Module, Operand, StructId, Type};
+use crate::ssa_lower::{LowerCtx, declare_intrinsic};
 use crate::ssa_lower_struct_exotic_gate::with_exotic_field_gate;
+
+/// The walk's seam: `(value, gap Str or NULL, depth) -> Str`.
+const WALK_SEAM: &str = "__torajs_anyv_json_stringify_exotic_obj";
+
+pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) {
+    declare_intrinsic(
+        module,
+        fn_table,
+        WALK_SEAM,
+        &[Type::Any, Type::Str, Type::I64],
+        Type::Str,
+    );
+}
+
+/// The general path behind the gate, through [`WALK_SEAM`] unless the
+/// program mints the absent set.
+fn emit_exotic_walk(
+    ctx: &mut LowerCtx,
+    boxed: Operand,
+    gap: Option<Operand>,
+    depth: u32,
+) -> Operand {
+    if ctx.ast.mints_absent_set {
+        return super::emit_any_walk(ctx, boxed, gap, depth);
+    }
+    let seam = ctx.fn_table[WALK_SEAM];
+    let args = vec![
+        boxed,
+        gap.unwrap_or(Operand::ConstPtrNull),
+        Operand::ConstI64(depth as i64),
+    ];
+    let v = ctx
+        .f
+        .append_inst(ctx.cur_block, InstKind::Call(seam, args), Type::Str, None);
+    Operand::Value(v)
+}
 
 /// Wrap [`super::composite_obj::lower_obj`] in the exotic-field gate.
 ///
@@ -101,7 +151,7 @@ fn lower_obj_nonnull(
         Type::Str,
         move |ctx| {
             let boxed = ctx.box_to_any(walk_val);
-            let walked = super::emit_any_walk(ctx, boxed, walk_gap, depth);
+            let walked = emit_exotic_walk(ctx, boxed, walk_gap, depth);
             ctx.emit_throw_check(None);
             walked
         },

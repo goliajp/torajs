@@ -454,8 +454,8 @@ mod tests {
     #[test]
     fn exotic_slow_path_stubs_are_symbol_guarded_loud_rejects() {
         let stubs = guarded_stubs();
-        assert_eq!(stubs.len(), 22);
-        let result_thenable = &stubs[21];
+        assert_eq!(stubs.len(), 23);
+        let result_thenable = &stubs[22];
         assert_eq!(
             result_thenable.sym,
             "___torajs_combinator_result_thenable_slow"
@@ -468,6 +468,16 @@ mod tests {
         assert_eq!(
             result_thenable.guard.to_string(),
             "syms:___torajs_anyv_promise_resolve"
+        );
+        let json_walk = &stubs[21];
+        assert_eq!(json_walk.sym, "___torajs_anyv_json_stringify_exotic_obj");
+        assert_eq!(
+            json_walk.guard.to_string(),
+            "syms:___torajs_obj_flag_exotic_field|___torajs_obj_props_attach"
+        );
+        assert_eq!(
+            &json_walk.bytes[..4],
+            &(0xD280_0000u32 | (65 << 5) | 7).to_le_bytes()
         );
         let reparented = &stubs[20];
         assert_eq!(reparented.sym, "___torajs_struct_lacks_in_user_proto_slow");

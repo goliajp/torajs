@@ -41,7 +41,7 @@ mod any_walk;
 mod composite;
 mod composite_obj;
 mod composite_obj_jsb;
-mod exotic_gate;
+pub(crate) mod exotic_gate;
 mod to_json;
 
 use crate::ssa::{InstKind, Operand, Terminator, Type};

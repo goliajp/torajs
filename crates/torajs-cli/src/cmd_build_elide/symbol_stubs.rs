@@ -4,7 +4,7 @@
 /// entries whose text liveness un-assumes the stub, landing-pad fam
 /// id). The join seam's enabler is the exotic-flag writer; the
 /// species probe's enablers are the two props-bag creators.
-pub(super) const SYMBOL_STUBS: [(&str, &[&str], u32); 20] = [
+pub(super) const SYMBOL_STUBS: [(&str, &[&str], u32); 21] = [
     (
         "___torajs_arr_join_exotic",
         &["___torajs_arr_flag_exotic"],
@@ -154,6 +154,18 @@ pub(super) const SYMBOL_STUBS: [(&str, &[&str], u32); 20] = [
         "___torajs_struct_lacks_in_user_proto_slow",
         &["___torajs_struct_user_proto_raise"],
         64,
+    ),
+    // `JSON.stringify`'s general walk over a typed instance: the unfold
+    // takes it only under the exotic-field bit (one writer) or the
+    // expando bit (set only once a props bag exists, and only the
+    // attach entry gives an instance one).
+    (
+        "___torajs_anyv_json_stringify_exotic_obj",
+        &[
+            "___torajs_obj_flag_exotic_field",
+            "___torajs_obj_props_attach",
+        ],
+        65,
     ),
 ];
 

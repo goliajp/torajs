@@ -44,6 +44,27 @@ unsafe extern "C" {
     fn __torajs_arr_typed_nonint_any_impl(arr: *mut core::ffi::c_void, key: f64, keep: i64) -> u64;
     fn __torajs_anyv_to_number(v: u64) -> f64;
     fn __torajs_arr_shift_ro_length_impl(arr: *mut core::ffi::c_void) -> i64;
+    fn __torajs_anyv_json_stringify_gap(v: u64, gap: *const u8, depth: i64) -> *mut u8;
+}
+
+/// Default resolution of `JSON.stringify`'s general walk over a typed
+/// class instance whose own property set left its layout (§25.5.2 over
+/// a redefined member or an expando key): the any-lane serializer. The
+/// compiled unfold calls it only under FLAG_OBJ_EXOTIC_FIELD |
+/// FLAG_OBJ_EXPANDO; the link judgment stubs it (fam 65) when neither
+/// `__torajs_obj_flag_exotic_field` (the first bit's one writer) nor
+/// `__torajs_obj_props_attach` (the bag every expando write needs) is
+/// live.
+///
+/// # Safety
+/// `v` is a live NaN-box AnyValue; `gap` is NULL or a live Str cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_json_stringify_exotic_obj(
+    v: u64,
+    gap: *const u8,
+    depth: i64,
+) -> *mut u8 {
+    unsafe { __torajs_anyv_json_stringify_gap(v, gap, depth) }
 }
 
 /// Default resolution of `shift` on an array whose `length` is not

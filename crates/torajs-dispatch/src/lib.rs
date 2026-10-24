@@ -198,7 +198,7 @@ pub unsafe extern "C" fn __torajs_dispatch_stub_reject_ptr(
 
 /// Record the named TypeError for `fam_id`. It rides x7 (stamped by
 /// the stub's movz): 0..14 = the arm roster order, 16..40 = printer
-/// kernels, 40..=58 and 60..=64 = link-judged exotic slow paths, 59 = a
+/// kernels, 40..=58 and 60..=65 = link-judged exotic slow paths, 59 = a
 /// class method row's dropped twin column. The name makes a wrong judgment
 /// attributable from the failure line alone.
 unsafe fn throw_reject(fam_id: u64) {
@@ -256,22 +256,23 @@ shift on ro length\
 unhandled error render\
 thenable probe\
 re-parented struct in\
+exotic struct json walk\
 method family";
-/// `SUBJECTS[OFF[i]..OFF[i + 1]]` is subject `i` (u16: the string is 629 B).
-const OFF: [u16; 44] = [
+/// `SUBJECTS[OFF[i]..OFF[i + 1]]` is subject `i` (u16: the string is 652 B).
+const OFF: [u16; 45] = [
     0, 3, 6, 12, 18, 24, 28, 34, 38, 45, 51, 57, 63, 70, 74, 77, 99, 113, 130, 149, 172, 198, 216,
     232, 253, 270, 292, 307, 331, 354, 376, 402, 421, 438, 464, 487, 504, 521, 541, 559, 581, 595,
-    616, 629,
+    616, 639, 652,
 ];
 const ARM_FAMILY_COUNT: u64 = 15;
 /// Subject indices past the arm families.
 const SUBJ_NS_STATIC: usize = 15;
 const SUBJ_PRINTER: usize = 16;
-/// fam 40..=64 in order; 59, the twin column, is the one among them
+/// fam 40..=65 in order; 59, the twin column, is the one among them
 /// the dispatch judgment makes.
 const SUBJ_LINK_FIRST: usize = 17;
 const FAM_TWIN: u64 = 59;
-const SUBJ_FALLBACK: usize = 42;
+const SUBJ_FALLBACK: usize = 43;
 
 const REJECT_METHOD_FAMILY: &str = " method family";
 const REJECT_DISPATCH_TAIL: &str = " stripped (dispatch judgment bug)";
@@ -303,7 +304,7 @@ fn reject_message(fam_id: u64, buf: &mut [u8; REJECT_MSG_CAP]) -> usize {
         n if n < ARM_FAMILY_COUNT => (n as usize, REJECT_METHOD_FAMILY, REJECT_DISPATCH_TAIL),
         15 => (SUBJ_NS_STATIC, "", REJECT_DISPATCH_TAIL),
         16..40 => (SUBJ_PRINTER, "", REJECT_DISPATCH_TAIL),
-        40..=64 => (
+        40..=65 => (
             SUBJ_LINK_FIRST + (fam_id - 40) as usize,
             "",
             if fam_id == FAM_TWIN {
@@ -392,6 +393,7 @@ mod tests {
         assert_line(62, "unhandled error render stripped (link judgment bug)");
         assert_line(63, "thenable probe stripped (link judgment bug)");
         assert_line(64, "re-parented struct in stripped (link judgment bug)");
+        assert_line(65, "exotic struct json walk stripped (link judgment bug)");
         assert_line(u64::MAX, "method family stripped (dispatch judgment bug)");
     }
 
@@ -399,7 +401,7 @@ mod tests {
     /// widest subject plus the widest tail plus the NUL.
     #[test]
     fn every_line_fits_the_buffer() {
-        for id in 0..64u64 {
+        for id in 0..66u64 {
             assert!(line(id).1 < REJECT_MSG_CAP, "id {id}");
         }
     }
