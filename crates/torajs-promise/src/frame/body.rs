@@ -119,6 +119,9 @@ pub unsafe extern "C" fn __torajs_frame_return(frame: *mut c_void, repr: i64, va
 ///
 /// # Safety
 /// `result` is a live promise cell; `value` is owned.
+// inlined into both callers: left out of line, the frame return of
+// every suspended async call pays the call and reloads the cell
+#[inline(always)]
 pub(super) unsafe fn settle_result(result: *mut c_void, repr: u8, value: i64) -> bool {
     unsafe {
         let pp = as_promise(result);
