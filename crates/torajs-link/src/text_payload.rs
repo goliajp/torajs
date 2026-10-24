@@ -1,6 +1,16 @@
-//! The `__text` payload of an archive-linked executable: user
-//! functions (relocations resolved), then each integrated member's
-//! patched `__text` slice.
+//! The `__text` payload of an archive-linked executable: each
+//! integrated member's patched `__text` slice, then the user functions
+//! (relocations resolved).
+//!
+//! The runtime members go first so that where they land does not hang
+//! on the program's own code: with the user functions in front, every
+//! byte a user function gained or lost moved the whole runtime with it,
+//! and a timing that depends on the distance between two functions
+//! (aliasing in a table indexed by low address bits, period 2 KiB on
+//! Apple Silicon) changed with an edit to code that never runs in the
+//! loop. In front, the runtime's placement depends only on the members
+//! the program links; a user function still moves with the user code
+//! before it.
 //!
 //! Every user function and every member starts on a
 //! [`TEXT_FN_ALIGN`] boundary. Packed back to back, a function's
@@ -59,12 +69,13 @@ pub(crate) struct TextPlacement {
     pub(crate) size: u32,
 }
 
-/// `user_slots` are [`text_slot`]s, in function order. `member_gap`
-/// (a multiple of [`TEXT_FN_ALIGN`]) empty bytes open the member run.
+/// `user_slots` are [`text_slot`]s, in function order. `user_gap` (a
+/// multiple of [`TEXT_FN_ALIGN`]) empty bytes separate the member run
+/// from the user functions.
 pub(crate) fn place_text(
     user_slots: impl Iterator<Item = (u32, bool)>,
     member_sizes: &[u32],
-    member_gap: u32,
+    user_gap: u32,
 ) -> TextPlacement {
     fn place(cursor: &mut u32, (size, packed): (u32, bool)) -> u32 {
         let at = cursor.next_multiple_of(if packed { 4 } else { TEXT_FN_ALIGN });
@@ -72,14 +83,14 @@ pub(crate) fn place_text(
         at
     }
     let mut cursor: u32 = 0;
-    let user = user_slots.map(|s| place(&mut cursor, s)).collect();
-    if member_gap > 0 && !member_sizes.is_empty() {
-        cursor = cursor.next_multiple_of(TEXT_FN_ALIGN) + member_gap;
-    }
     let members = member_sizes
         .iter()
         .map(|&s| place(&mut cursor, (s, false)))
         .collect();
+    if user_gap > 0 && !member_sizes.is_empty() {
+        cursor = cursor.next_multiple_of(TEXT_FN_ALIGN) + user_gap;
+    }
+    let user = user_slots.map(|s| place(&mut cursor, s)).collect();
     TextPlacement {
         user,
         members,
@@ -93,11 +104,6 @@ pub(crate) fn write_text_payload(
     resolved: &[ResolvedFunction],
     members: &MemberText<'_, '_>,
 ) -> Result<(), ArchiveLayoutError> {
-    let text_vmaddr = layout.text_vmaddr;
-    for (r, &vaddr) in resolved.iter().zip(&layout.fn_vaddrs) {
-        pad_to(buf, (vaddr - text_vmaddr) as usize);
-        buf.extend_from_slice(&r.bytes);
-    }
     for (i, m) in layout.member_layouts.iter().enumerate() {
         pad_to(buf, m.file_offset as usize);
         members.write_text(buf, layout, i)?;
@@ -106,6 +112,11 @@ pub(crate) fn write_text_payload(
             m.file_offset + m.text_size,
             "patched member __text size must match layout",
         );
+    }
+    let text_vmaddr = layout.text_vmaddr;
+    for (r, &vaddr) in resolved.iter().zip(&layout.fn_vaddrs) {
+        pad_to(buf, (vaddr - text_vmaddr) as usize);
+        buf.extend_from_slice(&r.bytes);
     }
     Ok(())
 }
@@ -117,19 +128,27 @@ mod tests {
     #[test]
     fn every_start_is_aligned_and_nothing_overlaps() {
         let p = place_text([4, 72, 64].map(|s| (s, false)).into_iter(), &[8, 100], 0);
-        assert_eq!(p.user, vec![0, 64, 192]);
-        assert_eq!(p.members, vec![256, 320]);
-        assert_eq!(p.size, 420);
+        assert_eq!(p.members, vec![0, 64]);
+        assert_eq!(p.user, vec![192, 256, 384]);
+        assert_eq!(p.size, 448);
     }
 
-    /// The gap moves every member by the same whole fetch lines and
-    /// leaves the user functions where they were.
+    /// The members do not move when the user code grows.
     #[test]
-    fn a_member_gap_moves_only_the_members() {
+    fn the_members_ignore_the_user_code() {
+        let short = place_text([4].map(|s| (s, false)).into_iter(), &[8, 100], 0);
+        let long = place_text([4, 4000].map(|s| (s, false)).into_iter(), &[8, 100], 0);
+        assert_eq!(short.members, long.members);
+    }
+
+    /// The gap moves every user function by the same whole fetch lines
+    /// and leaves the members where they were.
+    #[test]
+    fn a_user_gap_moves_only_the_user_functions() {
         let p = place_text([4, 72, 64].map(|s| (s, false)).into_iter(), &[8, 100], 128);
-        assert_eq!(p.user, vec![0, 64, 192]);
-        assert_eq!(p.members, vec![384, 448]);
-        assert_eq!(p.size, 548);
+        assert_eq!(p.members, vec![0, 64]);
+        assert_eq!(p.user, vec![320, 384, 512]);
+        assert_eq!(p.size, 576);
     }
 
     /// Reject stubs pack on 4 bytes; whatever follows them still opens
@@ -141,9 +160,9 @@ mod tests {
             &[8],
             0,
         );
-        assert_eq!(p.user, vec![0, 72, 80, 128]);
-        assert_eq!(p.members, vec![192]);
-        assert_eq!(p.size, 200);
+        assert_eq!(p.members, vec![0]);
+        assert_eq!(p.user, vec![64, 136, 144, 192]);
+        assert_eq!(p.size, 204);
     }
 
     fn fn_with(bytes: usize, target: &str, at: u32) -> CompiledFunction {

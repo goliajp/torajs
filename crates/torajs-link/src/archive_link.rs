@@ -114,7 +114,7 @@ pub(crate) fn compute_archive_layout_with_required<'a>(
     let entry_file_offset = tp.text_file_offset
         + (fn_vaddrs[entry_idx] - TEXT_VMADDR_BASE - u64::from(tp.text_file_offset)) as u32;
 
-    // Per-member __text pinning, cumulative past user funcs.
+    // Per-member __text pinning, ahead of the user funcs.
     let mut member_layouts: Vec<MemberLayout> = Vec::with_capacity(member_keys.len());
     for (i, &key) in member_keys.iter().enumerate() {
         let off = tp.text_placement.members[i];
@@ -538,19 +538,19 @@ mod tests {
         assert_eq!(m.key, (0, 0));
         assert_eq!(m.text_size as usize, foo.bytes.len());
 
-        // _main opens __text; the member's __text starts on the first
-        // fetch-line boundary past _main's bytes.
+        // The member opens __text; _main starts on the first fetch-line
+        // boundary past the member's bytes.
         let align = crate::text_payload::TEXT_FN_ALIGN;
         assert_eq!(
-            layout.fn_vaddrs[0],
-            TEXT_VMADDR_BASE + u64::from(layout.text_file_offset),
+            m.vaddr,
+            TEXT_VMADDR_BASE + u64::from(layout.text_file_offset)
         );
-        let member_off = (main.bytes.len() as u32).next_multiple_of(align);
-        assert_eq!(m.vaddr, layout.fn_vaddrs[0] + u64::from(member_off));
-        assert_eq!(m.file_offset, layout.text_file_offset + member_off);
+        assert_eq!(m.file_offset, layout.text_file_offset);
+        let main_off = (foo.bytes.len() as u32).next_multiple_of(align);
+        assert_eq!(layout.fn_vaddrs[0], m.vaddr + u64::from(main_off));
 
-        // text_size = user fn + pad + member fn.
-        assert_eq!(layout.text_size, member_off + foo.bytes.len() as u32);
+        // text_size = member fn + pad + user fn.
+        assert_eq!(layout.text_size, main_off + main.bytes.len() as u32);
 
         // nsyms = 1 (_main) + 1 (_foo) = 2.
         assert_eq!(layout.nsyms, 2);
@@ -695,18 +695,18 @@ mod tests {
         assert_eq!(layout.member_layouts[0].key, (0, 0));
         assert_eq!(layout.member_layouts[1].key, (1, 0));
 
-        // main → foo → bar, each on the next fetch-line boundary.
+        // foo → bar → main, each on the next fetch-line boundary.
         let align = u64::from(crate::text_payload::TEXT_FN_ALIGN);
-        let main_start = layout.fn_vaddrs[0];
-        assert_eq!(main_start % align, 0);
-        assert_eq!(
-            layout.member_layouts[0].vaddr,
-            (main_start + main.bytes.len() as u64).next_multiple_of(align),
-        );
         let m0 = &layout.member_layouts[0];
+        let m1 = &layout.member_layouts[1];
+        assert_eq!(m0.vaddr % align, 0);
         assert_eq!(
-            layout.member_layouts[1].vaddr,
+            m1.vaddr,
             (m0.vaddr + m0.text_size as u64).next_multiple_of(align),
+        );
+        assert_eq!(
+            layout.fn_vaddrs[0],
+            (m1.vaddr + m1.text_size as u64).next_multiple_of(align),
         );
     }
 

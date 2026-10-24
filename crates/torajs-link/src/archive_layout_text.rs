@@ -1,5 +1,5 @@
 //! Phase T of `compute_archive_layout` — header/LC sizing flags +
-//! `__TEXT` region layout (user fns / member `__text`s / member
+//! `__TEXT` region layout (member `__text`s / user fns / member
 //! non-text / user strings / stubs), split from `archive_link.rs`
 //! (2026-07-03, fn-debt decomp). Body verbatim from the pre-split
 //! fn; outputs travel in [`TextRegionPlan`].
@@ -170,8 +170,8 @@ pub(crate) fn compute_text_region_plan(
     let (text_file_offset, text_placement) =
         place_shifted_text(cfg, header_plus_lc, member_text_sizes);
 
-    // Non-text region (member __cstring/__const) lands between member
-    // __texts and `__TEXT,__stubs`; folds into text_size auto-shift.
+    // Non-text region (member __cstring/__const) lands between the
+    // last user fn and `__TEXT,__stubs`; folds into text_size auto-shift.
     let non_text_region_file_offset = text_file_offset + text_placement.size;
     let non_text_result =
         compute_non_text_layouts(merged, member_keys, non_text_region_file_offset).map_err(
@@ -246,13 +246,9 @@ fn place_shifted_text(
     header_plus_lc: u32,
     member_text_sizes: &[u32],
 ) -> (u32, TextPlacement) {
-    let (shift, member_gap) = text_shift();
+    let (shift, user_gap) = text_shift();
     let offset = round_up_to(u64::from(header_plus_lc), u64::from(TEXT_FN_ALIGN)) as u32 + shift;
-    let placement = place_text(
-        cfg.funcs.iter().map(text_slot),
-        member_text_sizes,
-        member_gap,
-    );
+    let placement = place_text(cfg.funcs.iter().map(text_slot), member_text_sizes, user_gap);
     (offset, placement)
 }
 
@@ -262,8 +258,8 @@ const MAX_TEXT_GAP: u32 = 1 << 20;
 
 /// `TORAJS_LINK_TEXT_SHIFT=<bytes>[,<gap>]` (diagnostic): start
 /// `__text` `<bytes>` (a multiple of 4 below 64) past its aligned slot,
-/// and open the runtime members `<gap>` bytes (a multiple of 64, at
-/// most [`MAX_TEXT_GAP`]) past the last user function's fetch line.
+/// and open the user functions `<gap>` bytes (a multiple of 64, at
+/// most [`MAX_TEXT_GAP`]) past the last runtime member's fetch line.
 /// The shift moves every function together, so each lands on a
 /// different fetch-line phase. It cannot move user code against the
 /// runtime, and a timing can hang on that distance alone, with a
