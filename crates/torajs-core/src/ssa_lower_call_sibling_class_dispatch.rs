@@ -124,12 +124,22 @@ pub(crate) fn try_lower(
     let head = &args[..tail_from];
     let mut holds = crate::ssa_lower::call_hold::Holds::default();
     holds.take(ctx, recv_id, recv_op);
+    // an owned argument temp is the call's to release, and a throw in
+    // a later argument or in the callee drops it on the way out
+    let mut arg_toks: Vec<usize> = Vec::new();
     let mut arg_ops: Vec<Operand> = Vec::with_capacity(head.len());
     for a in head {
         let v = ctx.lower_expr(*a);
+        if let Some((op, ty)) = ctx.throw_temp_of(*a, &v) {
+            arg_toks.push(ctx.push_throw_temp(op, ty));
+        }
         holds.take(ctx, *a, v);
         arg_ops.push(v);
     }
+    let owned_temps: Vec<(ExprId, Operand)> = (head.iter().zip(arg_ops.iter()))
+        .filter(|(a, _)| ctx.expr_owned_shape(**a))
+        .map(|(a, op)| (*a, *op))
+        .collect();
     // S2.42 (rotation 240) — this lane handed every argument verbatim
     // while all its sibling call lanes route through the `arg_conv`
     // contract; an i64 into the callee's Any param arrived as raw
@@ -198,9 +208,15 @@ pub(crate) fn try_lower(
     if may_throw {
         ctx.emit_throw_check(None);
     }
+    for t in arg_toks {
+        ctx.pop_throw_temp(t);
+    }
     holds.release(ctx);
     for (op, ty) in coerce_owned {
         ctx.emit_drop_value(op, ty);
+    }
+    for (a, op) in owned_temps {
+        ctx.release_owned_temp(a, &op);
     }
     Some(Operand::Value(v))
 }
