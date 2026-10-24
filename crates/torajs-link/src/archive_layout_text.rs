@@ -167,9 +167,8 @@ pub(crate) fn compute_text_region_plan(
     // 16 KB page per artifact (r498). An LC-sizing undercount now
     // shifts `__text` immediately instead of hiding until the region
     // outgrows its page; `emit_binary`'s overrun gate catches it.
-    let text_file_offset =
-        round_up_to(u64::from(header_plus_lc), u64::from(TEXT_FN_ALIGN)) as u32 + text_shift();
-    let text_placement = place_text(cfg.funcs.iter().map(text_slot), member_text_sizes);
+    let (text_file_offset, text_placement) =
+        place_shifted_text(cfg, header_plus_lc, member_text_sizes);
 
     // Non-text region (member __cstring/__const) lands between member
     // __texts and `__TEXT,__stubs`; folds into text_size auto-shift.
@@ -240,22 +239,80 @@ pub(crate) fn compute_text_region_plan(
     })
 }
 
-/// `TORAJS_LINK_TEXT_SHIFT=<bytes>` (diagnostic, a multiple of 4 below
-/// 64): start `__text` that many bytes past its aligned slot. Every
-/// function moves together, so each lands on a different fetch-line
-/// phase; timing a change across all sixteen shifts separates what the
-/// code does from where it happens to fall.
-fn text_shift() -> u32 {
+/// `__text`'s file offset, past the load commands, and where each
+/// function lands in it, under [`text_shift`].
+fn place_shifted_text(
+    cfg: &LinkConfig,
+    header_plus_lc: u32,
+    member_text_sizes: &[u32],
+) -> (u32, TextPlacement) {
+    let (shift, member_gap) = text_shift();
+    let offset = round_up_to(u64::from(header_plus_lc), u64::from(TEXT_FN_ALIGN)) as u32 + shift;
+    let placement = place_text(
+        cfg.funcs.iter().map(text_slot),
+        member_text_sizes,
+        member_gap,
+    );
+    (offset, placement)
+}
+
+/// The widest gap [`text_shift`] takes: far past the 2 KiB period it
+/// was made for, and small enough that no offset past it can wrap.
+const MAX_TEXT_GAP: u32 = 1 << 20;
+
+/// `TORAJS_LINK_TEXT_SHIFT=<bytes>[,<gap>]` (diagnostic): start
+/// `__text` `<bytes>` (a multiple of 4 below 64) past its aligned slot,
+/// and open the runtime members `<gap>` bytes (a multiple of 64, at
+/// most [`MAX_TEXT_GAP`]) past the last user function's fetch line.
+/// The shift moves every function together, so each lands on a
+/// different fetch-line phase. It cannot move user code against the
+/// runtime, and a timing can hang on that distance alone, with a
+/// period of 2 KiB: only the gap changes it. A value that does not
+/// parse stops the link rather than measure something else.
+fn text_shift() -> (u32, u32) {
     let Some(v) = std::env::var_os("TORAJS_LINK_TEXT_SHIFT") else {
-        return 0;
+        return (0, 0);
     };
-    let shift: u32 = v
-        .to_str()
-        .and_then(|s| s.parse().ok())
-        .expect("TORAJS_LINK_TEXT_SHIFT is a byte count");
+    parse_text_shift(v.to_str().expect("TORAJS_LINK_TEXT_SHIFT is ASCII"))
+}
+
+fn parse_text_shift(v: &str) -> (u32, u32) {
+    let (shift, gap) = v.split_once(',').unwrap_or((v, "0"));
+    let shift: u32 = shift
+        .parse()
+        .expect("TORAJS_LINK_TEXT_SHIFT starts with a byte count");
+    let gap: u32 = gap
+        .parse()
+        .expect("TORAJS_LINK_TEXT_SHIFT's gap is a byte count");
     assert!(
         shift.is_multiple_of(4) && shift < TEXT_FN_ALIGN,
         "TORAJS_LINK_TEXT_SHIFT must be a multiple of 4 below {TEXT_FN_ALIGN}"
     );
-    shift
+    assert!(
+        gap.is_multiple_of(TEXT_FN_ALIGN) && gap <= MAX_TEXT_GAP,
+        "TORAJS_LINK_TEXT_SHIFT's gap must be a multiple of {TEXT_FN_ALIGN} up to {MAX_TEXT_GAP}"
+    );
+    (shift, gap)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_text_shift;
+
+    #[test]
+    fn a_text_shift_reads_a_shift_and_an_optional_gap() {
+        assert_eq!(parse_text_shift("8"), (8, 0));
+        assert_eq!(parse_text_shift("8,0"), (8, 0));
+        assert_eq!(parse_text_shift("8,128"), (8, 128));
+    }
+
+    #[test]
+    fn a_text_shift_that_does_not_parse_stops_the_link() {
+        for v in ["", "8,", "-1", "64", " 8", "8,100", "8,128,5", "0,2097152"] {
+            assert!(
+                std::panic::catch_unwind(|| parse_text_shift(v)).is_err(),
+                "{v:?} parsed"
+            );
+        }
+    }
 }

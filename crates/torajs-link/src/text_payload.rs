@@ -59,19 +59,27 @@ pub(crate) struct TextPlacement {
     pub(crate) size: u32,
 }
 
-/// `user_slots` are [`text_slot`]s, in function order.
+/// `user_slots` are [`text_slot`]s, in function order. `member_gap`
+/// (a multiple of [`TEXT_FN_ALIGN`]) empty bytes open the member run.
 pub(crate) fn place_text(
     user_slots: impl Iterator<Item = (u32, bool)>,
     member_sizes: &[u32],
+    member_gap: u32,
 ) -> TextPlacement {
-    let mut cursor: u32 = 0;
-    let mut place = |(size, packed): (u32, bool)| {
+    fn place(cursor: &mut u32, (size, packed): (u32, bool)) -> u32 {
         let at = cursor.next_multiple_of(if packed { 4 } else { TEXT_FN_ALIGN });
-        cursor = at + size;
+        *cursor = at + size;
         at
-    };
-    let user = user_slots.map(&mut place).collect();
-    let members = member_sizes.iter().map(|&s| place((s, false))).collect();
+    }
+    let mut cursor: u32 = 0;
+    let user = user_slots.map(|s| place(&mut cursor, s)).collect();
+    if member_gap > 0 && !member_sizes.is_empty() {
+        cursor = cursor.next_multiple_of(TEXT_FN_ALIGN) + member_gap;
+    }
+    let members = member_sizes
+        .iter()
+        .map(|&s| place(&mut cursor, (s, false)))
+        .collect();
     TextPlacement {
         user,
         members,
@@ -108,10 +116,20 @@ mod tests {
 
     #[test]
     fn every_start_is_aligned_and_nothing_overlaps() {
-        let p = place_text([4, 72, 64].map(|s| (s, false)).into_iter(), &[8, 100]);
+        let p = place_text([4, 72, 64].map(|s| (s, false)).into_iter(), &[8, 100], 0);
         assert_eq!(p.user, vec![0, 64, 192]);
         assert_eq!(p.members, vec![256, 320]);
         assert_eq!(p.size, 420);
+    }
+
+    /// The gap moves every member by the same whole fetch lines and
+    /// leaves the user functions where they were.
+    #[test]
+    fn a_member_gap_moves_only_the_members() {
+        let p = place_text([4, 72, 64].map(|s| (s, false)).into_iter(), &[8, 100], 128);
+        assert_eq!(p.user, vec![0, 64, 192]);
+        assert_eq!(p.members, vec![384, 448]);
+        assert_eq!(p.size, 548);
     }
 
     /// Reject stubs pack on 4 bytes; whatever follows them still opens
@@ -121,6 +139,7 @@ mod tests {
         let p = place_text(
             [(72, false), (8, true), (8, true), (12, false)].into_iter(),
             &[8],
+            0,
         );
         assert_eq!(p.user, vec![0, 72, 80, 128]);
         assert_eq!(p.members, vec![192]);
@@ -170,7 +189,7 @@ mod tests {
 
     #[test]
     fn empty_layout_has_zero_size() {
-        let p = place_text(std::iter::empty(), &[]);
+        let p = place_text(std::iter::empty(), &[], 0);
         assert!(p.user.is_empty() && p.members.is_empty());
         assert_eq!(p.size, 0);
     }

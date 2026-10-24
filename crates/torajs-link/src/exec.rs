@@ -222,7 +222,7 @@ pub fn compute_layout(cfg: &LinkConfig) -> ExecLayout {
     let text_file_offset = round_up_to(u64::from(header_plus_lc), u64::from(TEXT_FN_ALIGN)) as u32;
 
     // Each fn's section-relative offset for the vaddr table.
-    let placement = place_text(cfg.funcs.iter().map(text_slot), &[]);
+    let placement = place_text(cfg.funcs.iter().map(text_slot), &[], 0);
     let (fn_offsets_in_text, text_size) = (placement.user, placement.size);
 
     // `__TEXT` segment vmsize is page-aligned and covers
