@@ -3,15 +3,16 @@
 //! Receivers and non-Copy arguments go to a direct call as +0 borrows:
 //! the callee neither takes nor drops a reference, so the value lives
 //! only as long as the caller's owner keeps its stake. A `this`, a
-//! parameter or a local binding keeps it for the whole call. A field
-//! (`box.p`), an element (`xs[i]`) or a top-level binding some code
-//! assigns does not: the callee, or code it runs, can overwrite that
-//! place, which drops the value while the callee still reads it
-//! through `this` or the parameter (`box.p!.run()` where `run` does
-//! `box.p = null` read a freed cell, and the next allocation of its
-//! size class answered for it). Such a read takes a reference of its
-//! own before the call and drops it after; the throw edges of the
-//! later arguments and of the call release it too.
+//! parameter or a local binding no closure shares keeps it for the
+//! whole call. A field (`box.p`), an element (`xs[i]`), a top-level
+//! binding some code assigns or a local in a capture box does not:
+//! the callee, or code it runs, can overwrite that place, which drops
+//! the value while the callee still reads it through `this` or the
+//! parameter (`box.p!.run()` where `run` does `box.p = null` read a
+//! freed cell, and the next allocation of its size class answered for
+//! it). Such a read takes a reference of its own before the call and
+//! drops it after; the throw edges of the later arguments and of the
+//! call release it too.
 //!
 //! Only `Obj` values handed to a user function are held: the runtime
 //! entries a direct call can reach do not run user code.
@@ -43,10 +44,11 @@ fn place_read(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
     let e = crate::ssa_lower_return_borrow::peel_passthrough(ctx.ast, eid);
     match ctx.ast.get_expr(e) {
         Expr::Member { .. } | Expr::Index { .. } => !ctx.expr_owned_shape(e),
+        // a binding shared with closures lives in a capture box, which
+        // a closure the callee runs can assign
+        Expr::Ident(n) if ctx.locals.contains_key(n) => ctx.boxed_noncopy_lets.contains(n),
         Expr::Ident(n) => {
-            !ctx.locals.contains_key(n)
-                && ctx.globals.contains_key(n)
-                && ctx.proofs.assigned_anywhere(ctx.ast).contains(n)
+            ctx.globals.contains_key(n) && ctx.proofs.assigned_anywhere(ctx.ast).contains(n)
         }
         _ => false,
     }
