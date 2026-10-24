@@ -59,6 +59,7 @@ impl GenSm<'_> {
     /// so a return inside an inline inner loop routes correctly
     /// ([`DISPATCH_LABEL`]).
     pub(super) fn build_finally_ret_stmts(&mut self, val: super::ExprId) -> Vec<Stmt> {
+        let val = super::desugar_generators::any_slot::any_spelling(self.ast, val);
         let frame = self.finally_ret.last().expect("caller checked");
         let slot = frame.slot.clone();
         let this_id = self.ast.add_expr(Expr::This);
@@ -233,10 +234,9 @@ impl GenSm<'_> {
             self.cur_state = fin_ret_entry;
             self.lower_seq(f);
             let this_id = self.ast.add_expr(Expr::This);
-            // Typed lane unboxes the any slot back to the step's
-            // value type; the any lane's As-wrap happens inside
-            // make_done_step on the plain read.
-            // Re-LOWER the return so any outer finally frame chains.
+            // Typed lane unboxes the any slot back to the step's value
+            // type (the any lane's As-wrap is make_done_step's, on the
+            // plain read); re-LOWER the return so outer frames chain.
             if self.yield_ty == "any" {
                 let ret_val = self.ast.add_expr(Expr::Member {
                     obj: this_id,

@@ -60,3 +60,15 @@ pub(crate) fn typed_returns(
         typed_ret,
     ]
 }
+
+/// `val` as it is stored into an `any` slot: a typed slot's
+/// `undefined` (the `__undef_slot__<T>` marker) would land there as
+/// T's raw sentinel cell, not as undefined, so it is spelled plainly.
+pub(crate) fn any_spelling(ast: &mut Ast, val: ExprId) -> ExprId {
+    match ast.get_expr(val) {
+        Expr::Ident(n) if n.starts_with(crate::ast::UNDEF_SLOT_MARKER) => {
+            ast.add_expr(Expr::Ident("undefined".into()))
+        }
+        _ => val,
+    }
+}
