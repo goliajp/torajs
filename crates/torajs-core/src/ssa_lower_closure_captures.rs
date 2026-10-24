@@ -139,54 +139,13 @@ pub(crate) fn collect_closure_captures_in_stmt(ast: &Ast, s: &Stmt, out: &mut Cl
     }
 }
 
-/// Chunk 725 — true when the expression tree contains a (lifted)
-/// closure literal anywhere. The for-loop per-iteration rewrite
-/// bails on init expressions that construct closures (an init
-/// closure captures the INITIAL binding per ES §14.7.4, not a
-/// per-iteration copy).
-pub(crate) fn expr_contains_closure(ast: &Ast, eid: ExprId) -> bool {
+/// A (lifted) closure the expression makes captures one of `names`.
+pub(crate) fn captures_any(ast: &Ast, eid: ExprId, names: &[&str]) -> bool {
     match ast.get_expr(eid) {
-        Expr::Closure { .. } => true,
-        Expr::As { expr, .. }
-        | Expr::Unary { expr, .. }
-        | Expr::TypeOf { expr }
-        | Expr::Spread { expr } => expr_contains_closure(ast, *expr),
-        Expr::InstanceOf { expr, rhs } => {
-            expr_contains_closure(ast, *expr) || expr_contains_closure(ast, *rhs)
-        }
-        Expr::BinOp { left, right, .. } => {
-            expr_contains_closure(ast, *left) || expr_contains_closure(ast, *right)
-        }
-        Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => expr_contains_closure(ast, *obj),
-        Expr::OptIndex { obj, index } | Expr::Index { obj, index } => {
-            expr_contains_closure(ast, *obj) || expr_contains_closure(ast, *index)
-        }
-        Expr::Call { callee, args } | Expr::OptCall { callee, args } => {
-            expr_contains_closure(ast, *callee)
-                || args.iter().any(|a| expr_contains_closure(ast, *a))
-        }
-        Expr::Assign { target, value } => {
-            expr_contains_closure(ast, *target) || expr_contains_closure(ast, *value)
-        }
-        Expr::Array(els) => els.iter().any(|e| expr_contains_closure(ast, *e)),
-        Expr::ObjectLit { fields } => fields.iter().any(|(_, e)| expr_contains_closure(ast, *e)),
-        Expr::Ternary {
-            cond,
-            then_branch,
-            else_branch,
-        } => {
-            expr_contains_closure(ast, *cond)
-                || expr_contains_closure(ast, *then_branch)
-                || expr_contains_closure(ast, *else_branch)
-        }
-        Expr::Nullish { lhs, rhs } => {
-            expr_contains_closure(ast, *lhs) || expr_contains_closure(ast, *rhs)
-        }
-        Expr::New { args, .. } | Expr::Super { args } => {
-            args.iter().any(|e| expr_contains_closure(ast, *e))
-        }
-        Expr::PostIncr { target, .. } => expr_contains_closure(ast, *target),
-        _ => false,
+        Expr::Closure { captures, .. } => captures.iter().any(|c| names.contains(&c.as_str())),
+        _ => crate::ast::desugar_with::walk::expr_children(ast, eid)
+            .into_iter()
+            .any(|c| captures_any(ast, c, names)),
     }
 }
 

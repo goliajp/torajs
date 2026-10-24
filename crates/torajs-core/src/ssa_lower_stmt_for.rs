@@ -29,6 +29,7 @@
 use crate::ast::{ExprId, Stmt};
 use crate::ssa::{BlockId, InstKind, Operand, Terminator, Type, ValueId};
 use crate::ssa_lower::{LocalInfo, LowerCtx};
+use crate::ssa_lower_closure_captures::captures_any;
 use crate::ssa_lower_push_loop_detect::detect_push_loop_arrays;
 
 /// Chunk 725 — per-iteration state for a `for (let i ...)` binding
@@ -48,37 +49,36 @@ struct PerIterVar {
     boxed: Option<ValueId>,
 }
 
-/// Names declared by the for-init that closures in the loop
-/// capture. Answers empty (= keep the legacy shared-box lowering)
-/// when any init expression contains a closure itself — an init
-/// closure captures the INITIAL binding per spec, which the
-/// per-iteration rewrite would break (recorded edge).
+/// Names declared by the for-init that closures in the loop capture.
+/// Empty (the shared-box lowering) when a closure the init makes
+/// captures one of the head's `let` names: it sees the binding before
+/// the first iteration's copy (§14.7.4.4), which the per-iteration
+/// rewrite would break; the async gate keeps such a body on the state
+/// machine (`desugar_async_ssa_gate`).
 fn per_iter_candidates(ctx: &LowerCtx, init: Option<&Stmt>) -> Vec<String> {
-    fn collect(ctx: &LowerCtx, s: &Stmt, out: &mut Vec<String>, bail: &mut bool) {
+    fn decls<'a>(s: &'a Stmt, out: &mut Vec<(bool, &'a String, ExprId)>) {
         match s {
-            Stmt::LetDecl { name, init, .. } => {
-                if crate::ssa_lower_closure_captures::expr_contains_closure(ctx.ast, *init) {
-                    *bail = true;
-                    return;
-                }
-                if ctx.escape_captured_lets.contains(name) {
-                    out.push(name.clone());
-                }
-            }
-            Stmt::Multi(v) => {
-                for s in v {
-                    collect(ctx, s, out, bail);
-                }
-            }
+            Stmt::LetDecl {
+                mutable,
+                is_var,
+                name,
+                init,
+                ..
+            } => out.push((*mutable && !*is_var, name, *init)),
+            Stmt::Multi(v) => v.iter().for_each(|s| decls(s, out)),
             _ => {}
         }
     }
-    let mut out = Vec::new();
-    let mut bail = false;
-    if let Some(s) = init {
-        collect(ctx, s, &mut out, &mut bail);
+    let mut head = Vec::new();
+    init.into_iter().for_each(|s| decls(s, &mut head));
+    let lets: Vec<&str> = head.iter().filter(|d| d.0).map(|d| d.1.as_str()).collect();
+    if head.iter().any(|d| captures_any(ctx.ast, d.2, &lets)) {
+        return Vec::new();
     }
-    if bail { Vec::new() } else { out }
+    let captured = head
+        .iter()
+        .filter(|d| ctx.escape_captured_lets.contains(d.1));
+    captured.map(|d| d.1.clone()).collect()
 }
 
 pub(crate) fn lower(
