@@ -12,6 +12,7 @@
 mod arr_layouts;
 pub mod block_freq;
 pub mod branch_prob;
+mod consts;
 pub mod dominator;
 mod function_methods;
 pub mod id_hash;
@@ -27,34 +28,16 @@ mod type_def;
 pub mod vec;
 mod visit;
 
-/// Mach-O names of the two runtime statics user code reads INLINE
-/// (`GlobalRef` + `Load`) instead of calling an accessor — rotation
-/// 470, each such call was a measurable slice of a method-call loop:
-/// the in-flight-throw flag `torajs_throw::__torajs_throw_active`
-/// (read after every call that may raise; the e-graph's
-/// self-tail-call matcher anchors on it) and the live-WeakRef-
-/// observer count `torajs_rc::__torajs_weakref_active` (read before
-/// a class instance dies).
-pub const THROW_ACTIVE_SYM: &str = "___torajs_throw_active";
-pub const WEAKREF_ACTIVE_SYM: &str = "___torajs_weakref_active";
-/// The any-slot tag of a heap cell as `__torajs_anyv_box_from_pair`
-/// reads it (torajs-rc `AnySlotTag::Heap`); every other tag boxes an
-/// immediate, which no rc kernel touches.
-pub const ANY_SLOT_TAG_HEAP: i64 = torajs_rc::AnySlotTag::Heap as i64;
-/// Heap-header flag bits (the u16 at +6) that change without a call
-/// naming the object: the cycle collector's buffered and color bits.
-/// Every other flag moves only inside a runtime call handed the object.
-pub const HEADER_FLAGS_COLLECTOR: u16 = torajs_rc::FLAG_BUFFERED | torajs_rc::COLOR_MASK;
-/// The header word of a dense `any[]`: `FLAG_ARR_ANY` in the flag
-/// half, as the inline element read tests it (`and word, mask` then
-/// `icmp eq` against this).
-pub const HEADER_WORD_ARR_ANY: i64 = (torajs_rc::FLAG_ARR_ANY as i64) << 48;
 /// The NaN-box number encoding the typed number nodes (`AnyIsNumber`
 /// and the five beside it) expand with: the int32 tag in the top 16
 /// bits, and the offset a double's bits are shifted by.
 pub use torajs_anyvalue::nanbox::{DOUBLE_ENCODE_OFFSET, TAG_TYPE_NUMBER};
 
 pub use arr_layouts::ArrLayouts;
+pub use consts::{
+    ANY_SLOT_TAG_HEAP, HEADER_FLAGS_COLLECTOR, HEADER_WORD_ARR_ANY, THROW_ACTIVE_SYM,
+    WEAKREF_ACTIVE_SYM,
+};
 pub use ids::{ArrId, BlockId, FuncId, SigId, StringId, StructId, ValueId};
 pub use module_class_layouts::{ClassLayoutMeta, FieldMetaSpec, MethodMetaSpec, field_type_tag_of};
 pub use module_extras::{LOCAL_LABEL_PREFIX, THEN_TWINS_TABLE, demo_fib40, is_local_label};
