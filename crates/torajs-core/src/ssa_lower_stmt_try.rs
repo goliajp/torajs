@@ -69,9 +69,8 @@
 //! 4. Fall through to `after_blk`
 
 use crate::ast::Stmt;
-use crate::ssa::{BlockId, InstKind, Operand, Terminator, Type};
+use crate::ssa::{BlockId, InstKind, Operand, Terminator};
 use crate::ssa_lower::{LocalInfo, LowerCtx};
-use crate::ssa_lower_parse_type::parse_type;
 use crate::ssa_lower_scope_exit::ExitTarget;
 
 mod bind;
@@ -194,40 +193,26 @@ fn lower_catch(
     ctx.cur_block = catch_blk;
     ctx.scope_stack.push(Vec::new());
     ctx.shadow_stack.push(Vec::new());
-    if let Some(p) = catch_param {
-        let e_ty = match catch_type {
-            Some(ann) => parse_type(
-                Some(ann.as_str()),
-                ctx.aliases,
-                ctx.arr_layouts,
-                ctx.fn_sigs,
-                ctx.generic_struct_decls,
-                ctx.struct_layouts,
-                ctx.inst_memo,
-            ),
-            None => Type::Any,
-        };
-        // RFC 20260726-array-elem-width — `throw_take` hands back the
-        // pending slot's raw 8 bytes, so the binding has to read them
-        // at the width the throw sites wrote. A `let` asks the table
-        // the same way; catch never did, and `throw xs[i]` on a widened
-        // array wrote f64 bits that `catch (e: number)` read as an
-        // integer.
-        let e_ty = if e_ty == Type::I64
-            && catch_type.map(|s| s.as_str()) == Some("number")
-            && ctx
-                .num_f64_slots
-                .slot_is_f64(&crate::num_width::SlotKey::Thrown)
-        {
-            Type::F64
-        } else {
-            e_ty
-        };
-        let slot_v = if matches!(e_ty, Type::Any) {
-            bind::take_any(ctx, p)
-        } else {
-            bind::take_raw(ctx, p, e_ty)
-        };
+    if let Some(fb) = finally_blk {
+        // A throw out of the catch — its body, or a binding that
+        // rejects the thrown value — routes to the finally and leaves
+        // the catch frame (pushed above, so its index is `len() - 1`)
+        // — the same index the body frame had.
+        ctx.try_stack.push(ExitTarget {
+            blk: fb,
+            scope_depth: ctx.scope_stack.len() - 1,
+            teardown_depth: ctx.for_of_teardown_stack.len(),
+        });
+    }
+    // An annotated parameter the body never reads binds nothing: the
+    // value is released as an unbound `catch {}` releases it, so its
+    // type is never asked (`catch (e: number) {}` around a RangeError).
+    let read = |p: &&String| {
+        catch_type.is_none_or(|a| a == "any")
+            || crate::ast::body_reads(ctx.ast, catch_body, p) != crate::ast::NameRead::No
+    };
+    if let Some(p) = catch_param.filter(read) {
+        let (e_ty, slot_v) = bind::take(ctx, p, catch_type.map(|s| s.as_str()));
         let slot = ctx.alloca(e_ty, Some(p));
         ctx.f.append_void(
             ctx.cur_block,
@@ -262,16 +247,6 @@ fn lower_catch(
         ctx.scope_stack.last_mut().unwrap().push(p.clone());
     } else {
         bind::release_unbound(ctx);
-    }
-    if let Some(fb) = finally_blk {
-        // A throw out of the catch body routes to the finally and
-        // leaves the catch frame (pushed above, so its index is
-        // `len() - 1`) — the same index the body frame had.
-        ctx.try_stack.push(ExitTarget {
-            blk: fb,
-            scope_depth: ctx.scope_stack.len() - 1,
-            teardown_depth: ctx.for_of_teardown_stack.len(),
-        });
     }
     crate::ssa_lower_stmt_let_decl_recursive::hoist_forward_boxes(ctx, catch_body.iter());
     for s in catch_body {

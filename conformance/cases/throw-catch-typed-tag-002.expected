@@ -1,0 +1,19 @@
+error into number[] rejected true value is not an array
+number[] into number[] bound 3 2
+string[] into number[] rejected true array element does not match the annotated element type
+string[] into string[] bound b
+any array into number[] bound 2
+error into interface rejected true cannot assign object to `Shape`
+literal into interface bound 7
+range error into Error bound rr
+error into RegExp rejected true cannot assign object to `RegExp`
+regexp into RegExp bound ab
+map into Map bound 1
+closure into fn type bound 5
+closure of another face into fn type bound 5
+builtin into fn type bound 9
+number into fn type rejected true cannot assign number to `function`
+null into class rejected true catch parameter `e` of type `Fail` cannot hold the thrown value
+any fraction into number bound 3.5
+await fraction into number bound 3.5
+await integer into number bound 4

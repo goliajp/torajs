@@ -74,6 +74,16 @@ pub(super) fn generic_class_tag(ctx: &LowerCtx<'_>, class_name: &str) -> Option<
 /// false for every class whose ctor parameter was un-annotated, and
 /// the private brand check on such an instance (the same membership
 /// test) refused the class's own `this.#x = v`.
+/// The class tags a typed slot of the class `class_name` admits, the
+/// class's and every subclass's, when the class tag alone decides it:
+/// `None` for a name that is no declared class and for a class with a
+/// generic half ([`generic_half_tags`]), whose instances need the name
+/// comparison too.
+pub(crate) fn class_tags_for_catch(ctx: &LowerCtx<'_>, class_name: &str) -> Option<Vec<u32>> {
+    let tags = compute_descendant_tags(ctx, class_name);
+    (!tags.is_empty() && generic_half_tags(ctx, class_name).is_empty()).then_some(tags)
+}
+
 fn is_generic_class(ctx: &LowerCtx<'_>, class_name: &str) -> bool {
     if ctx.generic_struct_decls.contains_key(class_name) {
         return true;

@@ -1,0 +1,8 @@
+rejected true catch parameter `e` of type `number` cannot hold the thrown value
+rejected true catch parameter `e` of type `Fail` cannot hold the thrown value
+rejected true catch parameter `e` of type `Fail` cannot hold the thrown value
+bound 8
+rejected true catch parameter `e` of type `string` cannot hold the thrown value
+bound 5
+rejected true catch parameter `e` of type `number` cannot hold the thrown value finals=1
+unread true

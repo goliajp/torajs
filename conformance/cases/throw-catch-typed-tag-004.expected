@@ -1,0 +1,13 @@
+null into null bound true object
+any null into null bound null
+number into null rejected true catch parameter `e` of type `null` cannot hold the thrown value
+object into null rejected true catch parameter `e` of type `null` cannot hold the thrown value
+undefined into undefined bound true undefined
+string into undefined rejected true catch parameter `e` of type `undefined` cannot hold the thrown value
+null into nullable fn bound true
+undefined into nullable fn bound true undefined
+closure into nullable fn bound 7
+closure into optional fn bound function 7
+number into nullable fn rejected true cannot assign number to `function`
+string into nullable fn rejected true cannot assign string to `function`
+loop rejected 20000 bound 0

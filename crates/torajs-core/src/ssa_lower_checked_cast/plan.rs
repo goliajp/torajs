@@ -321,7 +321,7 @@ fn sid_tag(t: &PlanTables<'_>, sid: StructId) -> u32 {
 }
 
 /// The heap tag every value of the single-family heap type `ty` wears.
-fn cell_tag(ty: Type) -> Option<torajs_rc::Tag> {
+pub(crate) fn cell_tag(ty: Type) -> Option<torajs_rc::Tag> {
     use torajs_rc::Tag;
     Some(match ty {
         Type::Closure(_) => Tag::Closure,

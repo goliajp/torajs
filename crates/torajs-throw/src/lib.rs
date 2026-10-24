@@ -125,7 +125,7 @@ pub(crate) use __torajs_throw_active as THROW_ACTIVE;
 /// Dynamic tag of the in-flight throw value. `AnySlotTag` discrim
 /// (0=Null, 1=Bool, 2=I64, 3=F64, 4=Heap, 5=Undef). Catch sites
 /// with `: any` annotation read this via [`__torajs_throw_take_tag`]
-/// to reconstruct the boxed Any; typed `: T` catches ignore it.
+/// to reconstruct the boxed Any; typed `: T` catches test it first.
 pub(crate) static THROW_TAG: AtomicI64 = AtomicI64::new(0);
 
 /// Packed i64 payload of the in-flight throw. Bitcast from f64
@@ -190,8 +190,8 @@ pub unsafe extern "C" fn __torajs_throw_take() -> i64 {
 /// Peek the throw tag without clearing active. Called by `: any`-
 /// typed catches BEFORE `__torajs_throw_take` so the dynamic tag
 /// is captured (take clears active as a side effect but leaves
-/// the tag slot untouched). Typed-tier catches skip this and
-/// let the cast helper widen the i64 value.
+/// the tag slot untouched). Typed catches read it too, to check the
+/// value against the parameter's type.
 ///
 /// # Safety
 ///
