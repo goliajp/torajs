@@ -20,7 +20,9 @@
 //! types, an annotation that mentions a type parameter — the
 //! generator's own or one of an enclosing function or class, which the
 //! lifted generator no longer sees (`function wrap<T>(x: T) { function*
-//! g(y: T) { yield y } }`).
+//! g(y: T) { yield y } }`), or `boolean`, whose typed slot has no
+//! spelling for the undefined the last step carries and reads it back
+//! as null.
 //!
 //! Only the value channel is inferred. What `next(v)` sends in stays
 //! `any` (TypeScript's `TNext` is `unknown` here), so `it.next("a")`
@@ -69,7 +71,7 @@ impl YieldInfer {
         (self.on && sync)
             .then(|| infer_yield_ann(ast, body, params, lifted_locals, fn_sigs))
             .flatten()
-            .filter(|a| !self.names_type_param(a))
+            .filter(|a| !self.names_type_param(a) && a != "boolean")
             .unwrap_or_else(|| "any".into())
     }
 
