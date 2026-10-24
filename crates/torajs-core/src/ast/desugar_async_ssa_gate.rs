@@ -31,6 +31,10 @@
 //!   no async generator and not generic (a specialized copy of a
 //!   generic body is minted later under another name).
 //!
+//! The module body moves by the same rules, except that a `for await`
+//! or a dynamic `import()` in it moves too: it awaits in place
+//! (`ssa_lower_fn::suspend::in_place`), with no frame to resume.
+//!
 //! Declarations and class methods are marked by name (a method by its
 //! mangled `__cm_` / `__sm_` name), values by ExprId; `lift_arrow_fns`
 //! carries a value's mark onto its lifted name.
@@ -170,10 +174,10 @@ enum Owner {
 }
 
 /// The statement keeps the body off the SSA lowering: an await in a
-/// class body or a generator step, a function's `for await` (its steps
-/// await without spelling one, and only the state machine suspends
-/// them; the module body awaits its steps in place), or a dynamic
-/// `import()` anywhere.
+/// class body or a generator step, a `for` whose head makes a function,
+/// or in a function a `for await` (its steps await without spelling
+/// one, and only the state machine suspends them) or a dynamic
+/// `import()` anywhere. The module body awaits both in place.
 fn stmt_blocks(ast: &Ast, s: &Stmt, owner: Owner) -> bool {
     let protocol = matches!(
         s,
@@ -187,12 +191,17 @@ fn stmt_blocks(ast: &Ast, s: &Stmt, owner: Owner) -> bool {
     if loop_head_closes_over(ast, s) {
         return true;
     }
-    walk::stmt_exprs(s)
-        .into_iter()
-        .any(|e| expr_reserved(ast, e))
-        || walk::stmt_children_ref(s)
+    // the module body awaits an import's promise in place, as any other
+    if owner == Owner::Function
+        && walk::stmt_exprs(s)
             .into_iter()
-            .any(|c| stmt_blocks(ast, c, owner))
+            .any(|e| expr_reserved(ast, e))
+    {
+        return true;
+    }
+    walk::stmt_children_ref(s)
+        .into_iter()
+        .any(|c| stmt_blocks(ast, c, owner))
 }
 
 /// The statement is a `for await`, whose steps await.
