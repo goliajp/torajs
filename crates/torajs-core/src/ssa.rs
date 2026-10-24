@@ -15,6 +15,7 @@ pub mod branch_prob;
 pub mod dominator;
 mod function_methods;
 pub mod id_hash;
+mod ids;
 pub mod liveness_blocks;
 pub mod loop_analysis;
 mod module_class_layouts;
@@ -54,6 +55,7 @@ pub const HEADER_WORD_ARR_ANY: i64 = (torajs_rc::FLAG_ARR_ANY as i64) << 48;
 pub use torajs_anyvalue::nanbox::{DOUBLE_ENCODE_OFFSET, TAG_TYPE_NUMBER};
 
 pub use arr_layouts::ArrLayouts;
+pub use ids::{ArrId, BlockId, FuncId, SigId, StringId, StructId, ValueId};
 pub use module_class_layouts::{ClassLayoutMeta, FieldMetaSpec, MethodMetaSpec, field_type_tag_of};
 pub use module_extras::{LOCAL_LABEL_PREFIX, THEN_TWINS_TABLE, demo_fib40, is_local_label};
 pub use module_methods::{
@@ -65,35 +67,6 @@ pub use suspend::{SuspendFn, SuspendKind, SuspendLane, SuspendRuntime};
 pub use type_def::Type;
 pub use vec::{VecInst, VecOp, VecShape};
 pub use visit::{lowers_to_call, rewrite_value_operands, visit_value_operands};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ValueId(pub u32);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct BlockId(pub u32);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct FuncId(pub u32);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct StringId(pub u32);
-
-/// Index into `Module.struct_layouts`. Two `StructId`s compare equal iff
-/// they refer to the same interned layout (i.e. structurally equal types).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct StructId(pub u32);
-
-/// Index into `Module.arr_layouts`. Each entry holds one `Array<T>`
-/// instantiation's element type. Two `ArrId`s compare equal iff they
-/// refer to the same element type.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ArrId(pub u32);
-
-/// Index into `Module.signatures`. Each entry holds one fn-pointer
-/// signature `(Vec<param_types>, ret_type)`. Two `SigId`s compare equal
-/// iff their signatures are identical. M2 Phase B Stage 2.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct SigId(pub u32);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum InstKind {
