@@ -212,6 +212,12 @@ impl<'a> Analysis<'a> {
     /// that name at all is taken as fractional, since an integer answer
     /// here would truncate whatever the binding really holds.
     pub(super) fn unresolved_read(&self, n: &str, scope: &Scope) -> W {
+        // `undefined` in a `number` slot's own spelling (a generator's
+        // completion value, an async tail): only an f64 slot has the
+        // sentinel bits for it, an integer one reads back 0
+        if n.strip_prefix(crate::ast::UNDEF_SLOT_MARKER) == Some("number") {
+            return W::F64;
+        }
         if !scope.fn_name.starts_with("__") {
             return W::NotNum;
         }

@@ -294,20 +294,15 @@ fn emit_return_check(ast: &mut Ast, regions: &[TryRegion], yield_ty: &str) -> Op
     // Tail: complete directly. Value routing mirrors the D3a return
     // copy — exactly one As wrap (`as any` boxes the any lane's step
     // write; `as T` unboxes the any slot back to the typed lane).
-    let this_id = ast.add_expr(Expr::This);
-    let inj_read = ast.add_expr(Expr::Member {
-        obj: this_id,
-        name: "__ret_inj".into(),
-    });
-    let val = ast.add_expr(Expr::As {
-        expr: inj_read,
-        ty_ann: yield_ty.into(),
-    });
-    let done = ast.add_expr(Expr::Bool(true));
-    let step = ast.add_expr(Expr::ObjectLit {
-        fields: vec![("value".into(), val), ("done".into(), done)],
-    });
-    let mut chain = Stmt::Return(Some(step));
+    let step = |ast: &mut Ast, val| {
+        let done = ast.add_expr(Expr::Bool(true));
+        let step = ast.add_expr(Expr::ObjectLit {
+            fields: vec![("value".into(), val), ("done".into(), done)],
+        });
+        Stmt::Return(Some(step))
+    };
+    use super::desugar_generators::any_slot::typed_returns;
+    let mut chain = Stmt::Block(typed_returns(ast, "__ret_inj", yield_ty, step));
     for r in regs.iter().rev() {
         let (ret_entry, ret_slot) = r.ret.as_ref().expect("filtered above");
         let cond = emit_range_cond(ast, r);

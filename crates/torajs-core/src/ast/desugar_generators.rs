@@ -23,6 +23,7 @@
 //!   * `desugar_generators_class::assemble_generator_class_and_factory`
 //!     — final ClassDecl + `__new_<name>` factory splice.
 
+pub(super) mod any_slot;
 mod trio;
 
 use super::{Ast, ClassCtor, Expr, Param, Stmt, default_init_for_type};

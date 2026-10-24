@@ -233,24 +233,24 @@ impl GenSm<'_> {
             self.cur_state = fin_ret_entry;
             self.lower_seq(f);
             let this_id = self.ast.add_expr(Expr::This);
-            let ret_read = self.ast.add_expr(Expr::Member {
-                obj: this_id,
-                name: frame.slot.clone(),
-            });
             // Typed lane unboxes the any slot back to the step's
             // value type; the any lane's As-wrap happens inside
             // make_done_step on the plain read.
-            let ret_val = if self.yield_ty == "any" {
-                ret_read
-            } else {
-                let ty = self.yield_ty.clone();
-                self.ast.add_expr(Expr::As {
-                    expr: ret_read,
-                    ty_ann: ty,
-                })
-            };
             // Re-LOWER the return so any outer finally frame chains.
-            self.lower(Stmt::Return(Some(ret_val)));
+            if self.yield_ty == "any" {
+                let ret_val = self.ast.add_expr(Expr::Member {
+                    obj: this_id,
+                    name: frame.slot.clone(),
+                });
+                self.lower(Stmt::Return(Some(ret_val)));
+            } else {
+                use super::desugar_generators::any_slot::typed_returns;
+                let ty = self.yield_ty.clone();
+                let ret = |_: &mut _, v| Stmt::Return(Some(v));
+                for s in typed_returns(self.ast, &frame.slot, &ty, ret) {
+                    self.lower(s);
+                }
+            }
             self.flush_cur();
             for eid in frame.gotos {
                 self.ast.exprs[eid.0 as usize] = Expr::Number(fin_ret_entry as f64);
