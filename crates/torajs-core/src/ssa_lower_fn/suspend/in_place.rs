@@ -31,8 +31,10 @@ const AWAIT_FUSED: i64 = 1;
 /// is fulfilled in that form, which is read in place; anything else
 /// (another form, a rejection, a queue run dry) goes through
 /// `__torajs_module_await_slow`, whose throws (the reason, the cancel
-/// throw) take the path out that releases `src`. `fused`: `src` is the
-/// receiver of a fused `await p.then(f)` (`then_fused`).
+/// throw) take the path out that releases `src`; inside a `try` or a
+/// `for…of` the cancel throw runs no handler (`super::cancel`).
+/// `fused`: `src` is the receiver of a fused `await p.then(f)`
+/// (`then_fused`).
 pub(super) fn await_read(
     ctx: &mut LowerCtx<'_>,
     src: Operand,
@@ -40,6 +42,7 @@ pub(super) fn await_read(
     want_repr: i64,
     fused: bool,
 ) -> ValueId {
+    let aside = super::held::aside(ctx);
     let calls = ModuleCalls::of(ctx);
     let cb = ctx.cur_block;
     let fresh = obj.and_then(|obj| frame_result(ctx, obj));
@@ -85,7 +88,8 @@ pub(super) fn await_read(
     ];
     let raw = InstKind::Call(slow_fn, args);
     let raw = ctx.f.append_inst(slow, raw, Type::I64, None);
-    ctx.emit_throw_check_owned(None, src, Type::Promise);
+    // inside a `try` or a `for…of` the cancel throw takes its own exit
+    super::cancel::throw_check(ctx, Some((src, Type::Promise)), &aside);
     let end = ctx.cur_block;
     store_and_br(ctx, end, raw, slot, join);
     ctx.cur_block = join;

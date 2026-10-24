@@ -16,6 +16,10 @@
 //! no handler, no `finally` body and no IteratorClose, then propagates
 //! the cancelling throw that `frame::body` discards.
 //!
+//! The module body awaits in place and is cancelled when its queue runs
+//! dry with nothing left to settle what it waits on: the same exit is
+//! taken there, asked of `torajs-promise` `module_await`.
+//!
 //! The question is a read of the frame's cancel word. The frame is
 //! the resume function's parameter, which the body gets only once it
 //! is installed (`async_setup::frame_body`), so the lowering asks
@@ -50,10 +54,13 @@ pub(super) fn throw_check(
     let thrown = ctx.f.add_block();
     branch(ctx, raised, thrown, normal);
     ctx.cur_block = thrown;
-    let probe = *ctx
-        .fn_table
-        .get(CANCELLED_PROBE)
-        .expect("the frame calls are declared with the suspending bodies");
+    let probe = if super::in_place::in_module_body(ctx) {
+        crate::ssa_lower_fn::async_main::ModuleCalls::of(ctx).cancelled
+    } else {
+        *ctx.fn_table
+            .get(CANCELLED_PROBE)
+            .expect("the frame calls are declared with the suspending bodies")
+    };
     let word = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Call(probe, vec![]),

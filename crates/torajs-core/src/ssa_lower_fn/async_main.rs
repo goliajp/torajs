@@ -31,6 +31,7 @@ const YIELD: &str = "__torajs_microtask_yield";
 const YIELD_RETHROW: &str = "__torajs_module_yield_rethrow";
 const BODY_END: &str = "__torajs_module_body_end";
 const EXIT_CODE: &str = "__torajs_module_exit_code";
+const CANCELLED: &str = "__torajs_module_cancelled";
 
 /// The runtime calls of the module body and its wrapper.
 #[derive(Clone, Copy)]
@@ -43,6 +44,7 @@ pub(crate) struct ModuleCalls {
     pub(crate) yield_rethrow: FuncId,
     pub(crate) body_end: FuncId,
     pub(crate) exit_code: FuncId,
+    pub(crate) cancelled: FuncId,
 }
 
 impl ModuleCalls {
@@ -58,6 +60,7 @@ impl ModuleCalls {
             yield_rethrow: t[YIELD_RETHROW],
             body_end: t[BODY_END],
             exit_code: t[EXIT_CODE],
+            cancelled: t[CANCELLED],
         }
     }
 }
@@ -83,6 +86,7 @@ pub(crate) fn declare(ast: &Ast, module: &mut Module, fn_table: &mut HashMap<Str
     decl(YIELD_RETHROW, &[], Type::Void);
     decl(BODY_END, &[], Type::Void);
     decl(EXIT_CODE, &[], Type::I32);
+    decl(CANCELLED, &[], Type::I64);
 }
 
 /// The wrapper's start: run the body, then take a throw that escaped

@@ -109,8 +109,7 @@ pub fn mark_async_ssa_fns(ast: &mut Ast) {
     // module's own awaits; a script's `await` is an identifier
     ast.async_ssa.main = !ast.sloppy_script_goal
         && ast.stmts.iter().any(|s| stmt_awaits(ast, s))
-        && !ast.stmts.iter().any(|s| stmt_blocks(ast, s))
-        && !ast.stmts.iter().any(|s| awaits_in_exit_protocol(ast, s));
+        && !ast.stmts.iter().any(|s| stmt_blocks(ast, s));
 }
 
 /// A method's receiver-polymorphic twin (`__cmany_` / `__smany_`) is
@@ -157,19 +156,6 @@ fn expr_awaits(ast: &Ast, eid: ExprId) -> bool {
         || walk::expr_children(ast, eid)
             .into_iter()
             .any(|c| expr_awaits(ast, c))
-}
-
-/// An await of the module body inside a `try` or a `for…of`: the body
-/// awaits in place, and those shapes stay with the lowering they had.
-fn awaits_in_exit_protocol(ast: &Ast, s: &Stmt) -> bool {
-    let protocol = matches!(
-        s,
-        Stmt::Try { .. } | Stmt::ForOf { .. } | Stmt::ForOfSplitIter { .. }
-    );
-    (protocol && stmt_awaits(ast, s))
-        || walk::stmt_children_ref(s)
-            .into_iter()
-            .any(|c| awaits_in_exit_protocol(ast, c))
 }
 
 /// The statement keeps the function off the frame: an await in a class

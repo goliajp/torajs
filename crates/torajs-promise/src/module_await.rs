@@ -233,6 +233,15 @@ unsafe fn cancel() {
     unsafe { __torajs_throw_set(THROW_TAG_I64, 0) };
 }
 
+/// Whether the pending throw is the cancel throw: the body's await
+/// inside a `try` or a `for…of` takes its own exit on it, running no
+/// handler, no `finally` body and no IteratorClose (nothing continues
+/// an await that never settles).
+#[unsafe(no_mangle)]
+pub extern "C" fn __torajs_module_cancelled() -> i64 {
+    UNSETTLED.load(Ordering::Relaxed) as i64
+}
+
 /// The module body returned: a throw it let escape is the cancel throw,
 /// dropped, or an uncaught one, reported and cleared.
 ///
