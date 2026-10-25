@@ -170,12 +170,13 @@ fn enter_frame(
         {
             continue;
         }
-        if let Ok(sig) = crate::check_type_of_fn::closure_sig(ast, fn_name, &checker.aliases) {
-            let ty = sig.value_ty;
-            checker
-                .hoisted_closure_lets
-                .insert(name.to_string(), Hoisted { ty, depth });
-        }
+        // a signature that does not resolve still shadows: the capture
+        // names this binding either way, and the declaration reports it
+        let ty = crate::check_type_of_fn::closure_sig(ast, fn_name, &checker.aliases)
+            .map_or(Type::Any, |sig| sig.value_ty);
+        checker
+            .hoisted_closure_lets
+            .insert(name.to_string(), Hoisted { ty, depth });
     }
     saved
 }
