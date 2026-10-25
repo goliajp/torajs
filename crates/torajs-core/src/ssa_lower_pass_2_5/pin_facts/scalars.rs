@@ -32,6 +32,7 @@ use std::collections::HashSet;
 use crate::ssa::{FuncId, Function, InstKind, Module, Operand, PinScalar, StructId, Type};
 use crate::ssa_lower::OBJ_HEADER_SIZE;
 
+use super::super::cell_release::Slots;
 use super::roots::{Root, Roots};
 use super::stats;
 
@@ -55,14 +56,15 @@ struct Cand {
 }
 
 /// The scalars of `cluster`, a cluster of class sid `sid`; `skip`
-/// names the functions that never run, `open` the sids whose slots may
-/// hold a cell of another layout (`cell_slot_flow`). Each word ruled out is printed
+/// names the functions that never run, `slots` what the slots of each
+/// layout may hold besides their own cells (`cell_release::Slots`).
+/// Each word ruled out is printed
 /// under `TORAJS_PIN_STATS` with its reason, after `label`.
 pub(super) fn census(
     module: &Module,
     sid: StructId,
     cluster: &[FuncId],
-    (skip, open): (&[bool], &[bool]),
+    (skip, slots): (&[bool], Slots<'_>),
     alloc: Option<FuncId>,
     label: &str,
 ) -> Vec<PinScalar> {
@@ -74,7 +76,7 @@ pub(super) fn census(
         return Vec::new();
     }
     let mut cands = members_words(module, sid, cluster, alloc);
-    if let Some(why) = released(module, sid, &reach, open) {
+    if let Some(why) = released(module, sid, &reach, slots) {
         for c in cands
             .iter_mut()
             .filter(|c| matches!(c.scalar, PinScalar::Field { .. }))

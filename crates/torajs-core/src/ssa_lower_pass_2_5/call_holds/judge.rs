@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::ssa::{CallHold, FuncId, Function, InstKind, Module, Operand, Type, ValueId};
 
-use super::super::cell_release::{BORROWS, MayHold, immediates, reached};
+use super::super::cell_release::{BORROWS, MayHold, Slots, immediates, reached};
 use super::super::pin_facts::grow::READ_ONLY;
 use super::runtime;
 use super::span::{preds, span};
@@ -16,7 +16,7 @@ type Walks = HashMap<(Vec<FuncId>, Type, bool), Option<String>>;
 
 pub(super) struct Judge<'m> {
     pub(super) module: &'m Module,
-    pub(super) open: &'m [bool],
+    pub(super) slots: Slots<'m>,
     /// Per function with holds, the blocks that run their pieces.
     pub(super) pieces: &'m HashMap<FuncId, Vec<bool>>,
     pub(super) drops: HashSet<FuncId>,
@@ -74,7 +74,7 @@ impl Judge<'_> {
         MayHold {
             module: self.module,
             cell,
-            open: self.open,
+            slots: self.slots,
         }
     }
 

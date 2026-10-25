@@ -16,9 +16,12 @@ use super::{BOX_ALLOC, EnvLayouts, FITS, OBJ_ALLOC, Paths, Scan};
 /// layout. A slot of a prefix of an open sid is open too once a cell
 /// read out of an open slot can reach it (`paths`). A boxed adapter
 /// nothing references never runs, and what its body hands on reaches
-/// no slot.
-pub(crate) fn open_sids(module: &Module, envs: &EnvLayouts) -> Vec<bool> {
-    open_sids_with(module, envs, &vec![false; module.funcs.len()]).0
+/// no slot. With it, every prefix path a cell took ([`open_sids_with`]).
+pub(crate) fn open_sids(
+    module: &Module,
+    envs: &EnvLayouts,
+) -> (Vec<bool>, Vec<(StructId, StructId)>) {
+    open_sids_with(module, envs, &vec![false; module.funcs.len()])
 }
 
 /// [`open_sids`] over the functions `skip` leaves, with every prefix
@@ -40,6 +43,8 @@ pub(crate) fn open_sids_with(
 /// the two share run once.
 pub(crate) struct Both {
     pub all: Vec<bool>,
+    /// The prefix paths of the scan behind `all`.
+    pub all_widens: Vec<(StructId, StructId)>,
     pub open: Vec<bool>,
     pub widens: Vec<(StructId, StructId)>,
     pub skip: Vec<bool>,
@@ -110,6 +115,7 @@ pub(crate) fn open_sids_more(
     let (open, widens) = scanned.clone().settled();
     Both {
         all: Vec::new(),
+        all_widens: Vec::new(),
         open,
         widens,
         skip,
@@ -135,11 +141,12 @@ fn scan_both(module: &Module, envs: &EnvLayouts, asleep: &[bool], watch: Option<
         dead,
     });
     flow.scan(|i| skip[i]);
-    let all = flow.settle().0;
+    let (all, all_widens) = flow.settle();
     let widens = paths.widens();
     paths.settle(&mut open);
     Both {
         all,
+        all_widens,
         open,
         widens,
         skip,

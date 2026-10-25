@@ -39,7 +39,8 @@ use crate::ssa_lower_emit_drop_value::leaf_arr::{
 };
 use crate::ssa_lower_intrinsics_obj_capture::{OBJ_DROP_SIZED_SYM, OBJ_FREE_CELL_SYM};
 
-use super::cell_slot_flow::{Both, env_layouts, is_prefix, open_sids, open_sids_both};
+use super::cell_release::{Slots, wider_cells};
+use super::cell_slot_flow::{env_layouts, is_prefix, open_sids, open_sids_both};
 
 const OBJ_ALLOC: &str = "__torajs_obj_alloc";
 
@@ -67,17 +68,11 @@ pub(crate) fn settle(
     let unsettled = settle_alloc_sizes_to_rows(module);
     let watch = super::pin_facts::Watch::of(module, &drop_hooks.class_sids);
     let asked = watch.is_some();
-    let (open, flow) = match super::drop_proofs::asleep(module, ast, drop_hooks, asked) {
+    let ((open, widens), flow) = match super::drop_proofs::asleep(module, ast, drop_hooks, asked) {
         Some(asleep) => {
-            let Both {
-                all,
-                open,
-                widens,
-                skip,
-                pins,
-                scanned,
-            } = open_sids_both(module, &envs, &asleep, watch);
-            (all, Some(((open, widens, skip), pins.zip(scanned))))
+            let b = open_sids_both(module, &envs, &asleep, watch);
+            let flow = Some(((b.open, b.widens, b.skip), b.pins.zip(b.scanned)));
+            ((b.all, b.all_widens), flow)
         }
         None => (open_sids(module, &envs), None),
     };
@@ -85,29 +80,32 @@ pub(crate) fn settle(
     if !disagree.is_empty() {
         return disagree;
     }
+    let wider = wider_cells(module.struct_layouts.len(), &widens);
+    let slots = Slots::new(&open, &wider);
     let Some((flow, pins)) = flow else {
-        super::call_holds::settle(module, &open, None);
+        super::call_holds::settle(module, slots, None);
         return disagree;
     };
     let asked = pins.as_ref().map_or(Vec::new(), |(w, _)| w.sids());
-    let skip = pins.as_ref().map(|_| (flow.2.clone(), flow.0.clone()));
+    let skip = (pins.as_ref()).map(|_| (flow.2.clone(), flow.0.clone(), flow.1.clone()));
     let asleep = flow.2.clone();
     let seals = super::drop_proofs::settle(module, &envs, drop_hooks, flow, &asked);
     // the functions the scans ruled out stay out of the runtime's
     // reach only while no class instance reaches it; the census
     // reads the holds' releases as any other, so they settle first
     let asleep = seals.is_ok().then_some(asleep.as_slice());
-    super::call_holds::settle(module, &open, asleep);
+    super::call_holds::settle(module, slots, asleep);
     // the census reads the release fns once their settled tests'
     // dead legs are gone, so it runs after them; the store bases
     // the scan recorded before still hold, since settling only
     // drops instructions and adds values, never renumbers one
     match (pins, skip, seals) {
-        (Some((w, _)), Some((skip, open)), Ok(seals)) => {
-            let flow = (skip.as_slice(), open.as_slice());
+        (Some((w, _)), Some((skip, open, widens)), Ok(seals)) => {
+            let wider = wider_cells(module.struct_layouts.len(), &widens);
+            let flow = (skip.as_slice(), Slots::new(&open, &wider));
             super::pin_facts::settle(module, w, &seals, drop_hooks, facts, flow);
         }
-        (Some((w, scanned)), Some((skip, _)), Err(exposed)) => {
+        (Some((w, scanned)), Some((skip, ..)), Err(exposed)) => {
             let first = (w, scanned, skip.as_slice());
             super::pin_facts::woken::settle(module, &envs, drop_hooks, facts, first, exposed);
         }

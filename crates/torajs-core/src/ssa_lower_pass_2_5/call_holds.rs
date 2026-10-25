@@ -53,14 +53,17 @@ use std::collections::HashMap;
 
 use crate::ssa::{FuncId, Module};
 
+use super::cell_release::Slots;
+
 use judge::{Body, Judge};
 
 /// Keeps the holds the module needs and removes the rest, emptying
-/// `module.call_holds`. `open` names the sids whose slots may hold a
-/// cell of another layout (`cell_slot_flow`); `asleep`, when given,
+/// `module.call_holds`. `slots` says what the slots of each layout may
+/// hold besides their own cells, over every function
+/// (`cell_release::Slots`); `asleep`, when given,
 /// the functions the runtime never enters (`drop_proofs::asleep`, read
 /// while no class instance reaches the runtime).
-pub(crate) fn settle(module: &mut Module, open: &[bool], asleep: Option<&[bool]>) {
+pub(crate) fn settle(module: &mut Module, slots: Slots<'_>, asleep: Option<&[bool]>) {
     let holds = std::mem::take(&mut module.call_holds);
     if holds.is_empty() {
         return;
@@ -73,7 +76,7 @@ pub(crate) fn settle(module: &mut Module, open: &[bool], asleep: Option<&[bool]>
         .collect();
     let judge = Judge {
         module,
-        open,
+        slots,
         pieces: &pieces,
         drops: module.class_drop_fns.iter().copied().collect(),
         asleep,

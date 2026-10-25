@@ -41,6 +41,7 @@ use crate::ssa_lower::OBJ_HEADER_SIZE;
 use crate::ssa_lower::proofs::ProgramFacts;
 use crate::ssa_lower_emit_drop_value::class_drop_fill::DropHooks;
 
+use super::cell_release::Slots;
 use super::drop_proofs::Seal;
 use cluster::Clusters;
 pub(crate) use names::sole_names;
@@ -154,8 +155,9 @@ impl Watch {
 
 /// Write `module.pins` from what `watch` saw; `seals` answers for the
 /// watched sids (`drop_proofs::settle`), `skip` names the functions
-/// that never run, `open` the sids whose slots may hold a cell of
-/// another layout over the functions that do. Runs after the release fns' tests are settled: a
+/// that never run, `slots` what the slots of each layout may hold
+/// besides their own cells over the functions that do
+/// (`cell_release::Slots`). Runs after the release fns' tests are settled: a
 /// store base `watch` holds still names the value it did, or one no
 /// instruction defines any longer, which reads as no root.
 pub(crate) fn settle(
@@ -164,7 +166,7 @@ pub(crate) fn settle(
     seals: &HashMap<u32, Seal>,
     hooks: &DropHooks,
     facts: &ProgramFacts,
-    (skip, open): (&[bool], &[bool]),
+    (skip, slots): (&[bool], Slots<'_>),
 ) {
     let alloc = (module.funcs.iter().position(|f| f.name == OBJ_ALLOC)).map(|i| FuncId(i as u32));
     let mut pins = Vec::new();
@@ -193,7 +195,7 @@ pub(crate) fn settle(
                 }
                 continue;
             }
-            for fact in clusters.pins(StructId(sid), off, arr, &label, open) {
+            for fact in clusters.pins(StructId(sid), off, arr, &label, slots) {
                 pins.push(fact);
             }
         }

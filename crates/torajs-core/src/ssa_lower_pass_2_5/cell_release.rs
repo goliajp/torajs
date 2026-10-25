@@ -51,6 +51,46 @@ pub(crate) fn immediates(f: &Function) -> HashSet<ValueId> {
         .collect()
 }
 
+/// What the slots of each layout may hold besides a cell of their own
+/// layout, over the functions a judge reads (`cell_slot_flow`): `open`
+/// names the sids whose slots may hold a cell of another layout, and
+/// `wider` gives, per sid, the layouts extending it whose cells reach
+/// one of its slots ([`wider_cells`]).
+#[derive(Clone, Copy)]
+pub(crate) struct Slots<'m> {
+    pub(crate) open: &'m [bool],
+    pub(crate) wider: &'m [Vec<StructId>],
+}
+
+impl<'m> Slots<'m> {
+    pub(crate) fn new(open: &'m [bool], wider: &'m [Vec<StructId>]) -> Self {
+        Slots { open, wider }
+    }
+}
+
+/// Per sid, the layouts whose cells a slot of it may hold by prefix:
+/// every `(wide, narrow)` path a cell took into a slot of `narrow`,
+/// followed back through the slots of `wide` in turn.
+pub(crate) fn wider_cells(n: usize, widens: &[(StructId, StructId)]) -> Vec<Vec<StructId>> {
+    let mut into = vec![Vec::new(); n];
+    for &(wide, narrow) in widens {
+        into[narrow.0 as usize].push(wide);
+    }
+    (0..n)
+        .map(|s| {
+            let mut out: Vec<StructId> = Vec::new();
+            let mut stack = into[s].clone();
+            while let Some(w) = stack.pop() {
+                if w.0 as usize != s && !out.contains(&w) {
+                    out.push(w);
+                    stack.extend_from_slice(&into[w.0 as usize]);
+                }
+            }
+            out
+        })
+        .collect()
+}
+
 /// Which types may hold a reference to a cell of type `cell`.
 ///
 /// For a class instance (`Obj(sid)`): the class itself and any layout
@@ -60,9 +100,10 @@ pub(crate) fn immediates(f: &Function) -> HashSet<ValueId> {
 /// Symbol's description). For an array: any array, since a slot of one
 /// array layout can hold a cell of another. For all three: a layout
 /// whose slots may hold a cell of another layout (an interface a class
-/// instance enters, a slot an `any` crosses into), anything untyped,
-/// and every type that refers to one of those. `open` names the sids
-/// whose slots may hold a cell of another layout (`cell_slot_flow`).
+/// instance enters, a slot an `any` crosses into), a class slot whose
+/// wider cells (a subclass instance in a base-typed slot) may hold one
+/// in a field of their own, anything untyped, and every type that
+/// refers to one of those.
 ///
 /// An expando bag (a struct cell's, an array's, a RegExp's or a
 /// Date's) adds nothing: typed code reads a value out of a bag only
@@ -73,7 +114,7 @@ pub(crate) fn immediates(f: &Function) -> HashSet<ValueId> {
 pub(crate) struct MayHold<'m> {
     pub(crate) module: &'m Module,
     pub(crate) cell: Type,
-    pub(crate) open: &'m [bool],
+    pub(crate) slots: Slots<'m>,
 }
 
 impl MayHold<'_> {
@@ -81,7 +122,7 @@ impl MayHold<'_> {
         self.walk(t, &mut HashSet::new())
     }
 
-    fn walk(&self, t: Type, seen: &mut HashSet<StructId>) -> bool {
+    fn walk(&self, t: Type, seen: &mut HashSet<Type>) -> bool {
         let layouts = &self.module.struct_layouts;
         let str_cell = self.cell == Type::Str;
         match t {
@@ -94,15 +135,90 @@ impl MayHold<'_> {
                     Type::Obj(sid) => is_prefix(fields, &layouts[sid.0 as usize]),
                     _ => false,
                 };
-                seen.insert(s)
-                    && (self.open[s.0 as usize]
+                // an inline struct is a copy of its own layout, never
+                // a wider cell
+                let wider: &[StructId] = match t {
+                    Type::Obj(_) => &self.slots.wider[s.0 as usize],
+                    _ => &[],
+                };
+                seen.insert(t)
+                    && (self.slots.open[s.0 as usize]
                         || widens
-                        || fields.iter().any(|(_, t)| self.walk(*t, seen)))
+                        || fields.iter().any(|(_, t)| self.walk(*t, seen))
+                        || wider.iter().any(|w| self.walk(Type::Obj(*w), seen)))
             }
             Type::Arr(a) => {
                 matches!(self.cell, Type::Arr(_)) || self.walk(self.module.arr_elem(a), seen)
             }
             _ => true,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ast::PropKey;
+
+    fn layout(fields: &[(&str, Type)]) -> Vec<(PropKey, Type)> {
+        (fields.iter())
+            .map(|(n, t)| (PropKey::from(*n), *t))
+            .collect()
+    }
+
+    /// Layouts 0 `Base {k}`, 1 `Sub {k, name: string, o: Inner}`
+    /// (extends 0), 2 `Inner {v}`, 3 `Holder {b: Base}`.
+    fn module() -> Module {
+        let inner = Type::Obj(StructId(2));
+        Module {
+            struct_layouts: vec![
+                layout(&[("k", Type::I64)]),
+                layout(&[("k", Type::I64), ("name", Type::Str), ("o", inner)]),
+                layout(&[("v", Type::I64)]),
+                layout(&[("b", Type::Obj(StructId(0)))]),
+            ],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn wider_cells_follow_paths_back() {
+        let s = StructId;
+        let wider = wider_cells(4, &[(s(1), s(0)), (s(2), s(1)), (s(0), s(0))]);
+        assert_eq!(wider[0], vec![s(1), s(2)]);
+        assert_eq!(wider[1], vec![s(2)]);
+        assert!(wider[2].is_empty() && wider[3].is_empty());
+    }
+
+    #[test]
+    fn a_base_slot_holds_what_a_subclass_cell_in_it_holds() {
+        let m = module();
+        let open = vec![false; 4];
+        let none = vec![Vec::new(); 4];
+        let sub_in_base = wider_cells(4, &[(StructId(1), StructId(0))]);
+        let inner = Type::Obj(StructId(2));
+        for (cell, ty) in [
+            (Type::Str, Type::Obj(StructId(0))),
+            (inner, Type::Obj(StructId(0))),
+            (inner, Type::Obj(StructId(3))),
+        ] {
+            let may = |wider| MayHold {
+                module: &m,
+                cell,
+                slots: Slots { open: &open, wider },
+            };
+            assert!(!may(&none).of(ty), "{cell:?} in {ty:?} with no path");
+            assert!(may(&sub_in_base).of(ty), "{cell:?} in {ty:?}, Sub in Base");
+        }
+        // an inline struct is a copy of its own layout
+        let may = MayHold {
+            module: &m,
+            cell: Type::Str,
+            slots: Slots {
+                open: &open,
+                wider: &sub_in_base,
+            },
+        };
+        assert!(!may.of(Type::Inline(StructId(0))));
     }
 }

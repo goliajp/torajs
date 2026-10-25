@@ -5,6 +5,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::ssa::{ArrId, FuncId, InstKind, Module, PinFact, StructId, Type};
 
+use super::super::cell_release::Slots;
 use super::roots::{Root, Roots};
 use super::{Watch, grow, scalars, stats};
 
@@ -46,7 +47,7 @@ impl<'a> Clusters<'a> {
         off: u64,
         arr: ArrId,
         label: &str,
-        open: &[bool],
+        slots: Slots<'_>,
     ) -> Vec<PinFact> {
         let mut out = Vec::new();
         for cluster in self.groups_of(sid) {
@@ -65,7 +66,7 @@ impl<'a> Clusters<'a> {
             }
             let (entries, direct_only) = self.entries(&cluster);
             let (module, skip, alloc) = (self.module, self.skip, self.alloc);
-            let scalars = scalars::census(module, sid, &cluster, (skip, open), alloc, label);
+            let scalars = scalars::census(module, sid, &cluster, (skip, slots), alloc, label);
             if stats() {
                 let direct = if direct_only { "direct" } else { "taken" };
                 let e = self.names(&entries);

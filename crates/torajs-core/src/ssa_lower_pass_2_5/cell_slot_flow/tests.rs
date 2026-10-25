@@ -38,7 +38,7 @@ pub(super) fn module() -> Module {
 }
 
 pub(super) fn open(m: &Module) -> Vec<bool> {
-    open_sids(m, &EnvLayouts::new())
+    open_sids(m, &EnvLayouts::new()).0
 }
 
 pub(super) fn body(m: &mut Module, build: impl FnOnce(&mut Function, BlockId)) -> FuncId {
@@ -392,7 +392,7 @@ fn a_capture_box_is_typed_by_the_closures_capture_list() {
     m.funcs.push(clo);
     let mut envs = EnvLayouts::new();
     envs.insert(clo_id, vec![(Type::Obj(StructId(2)), true)]);
-    assert_eq!(open_sids(&m, &envs), vec![false, false, true]);
+    assert_eq!(open_sids(&m, &envs).0, vec![false, false, true]);
     // the declaring side: boxes an `any` payload and stores the
     // box into the env it builds for the closure
     let mut m = module();
@@ -420,6 +420,6 @@ fn a_capture_box_is_typed_by_the_closures_capture_list() {
             ),
         );
     });
-    assert_eq!(open_sids(&m, &envs), vec![false, false, true]);
+    assert_eq!(open_sids(&m, &envs).0, vec![false, false, true]);
     assert_eq!(open(&m), vec![false, false, false]);
 }

@@ -6,7 +6,7 @@ use std::collections::HashSet;
 use crate::ssa::{FuncId, InstKind, Module, Operand, StructId, Type};
 
 pub(super) use super::super::super::cell_release::reached;
-use super::super::super::cell_release::{BORROWS, MayHold, immediates};
+use super::super::super::cell_release::{BORROWS, MayHold, Slots, immediates};
 use super::ty;
 
 /// S5: the first function of `reach` that calls a member from outside
@@ -41,19 +41,20 @@ pub(super) fn reentered(module: &Module, cluster: &[FuncId], reach: &[FuncId]) -
 /// handed a value whose type may hold such a cell, to a runtime
 /// function not in `BORROWS` or to a class's release fn (whose body is
 /// judged by that type, not walked), an untyped release (but of a boxed
-/// immediate), an indirect call or a suspension. `open` names the sids
-/// whose slots may hold a cell of another layout (`cell_slot_flow`).
+/// immediate), an indirect call or a suspension. `slots` says what the
+/// slots of each layout may hold besides their own cells
+/// (`cell_release::Slots`).
 pub(super) fn released(
     module: &Module,
     sid: StructId,
     reach: &[FuncId],
-    open: &[bool],
+    slots: Slots<'_>,
 ) -> Option<String> {
     let drops: HashSet<FuncId> = module.class_drop_fns.iter().copied().collect();
     let holds = MayHold {
         module,
         cell: Type::Obj(sid),
-        open,
+        slots,
     };
     for fid in reach.iter().filter(|f| !drops.contains(f)) {
         let f = &module.funcs[fid.0 as usize];

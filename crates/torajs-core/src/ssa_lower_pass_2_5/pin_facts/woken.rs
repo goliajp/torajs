@@ -21,6 +21,7 @@ use crate::ssa_lower::OBJ_HEADER_SIZE;
 use crate::ssa_lower::proofs::ProgramFacts;
 use crate::ssa_lower_emit_drop_value::class_drop_fill::DropHooks;
 
+use super::super::cell_release::{Slots, wider_cells};
 use super::super::cell_slot_flow::{Both, EnvLayouts, Scanned, is_prefix, open_sids_more};
 use super::super::drop_proofs;
 use super::cluster::Clusters;
@@ -69,9 +70,13 @@ pub(crate) fn settle(
         let (Some(w), Some(more)) = (pins, more) else {
             return;
         };
+        let wider = wider_cells(module.struct_layouts.len(), &widens);
         let flow = (open.clone(), widens, skip.clone());
         match drop_proofs::seals(module, envs, hooks, flow, &w.sids(), &woken) {
-            Ok(seals) => return super::settle(module, w, &seals, hooks, facts, (&skip, &open)),
+            Ok(seals) => {
+                let slots = Slots::new(&open, &wider);
+                return super::settle(module, w, &seals, hooks, facts, (&skip, slots));
+            }
             Err(again) => (exposed, watch, scanned, before) = (again, w, more, skip),
         }
     }

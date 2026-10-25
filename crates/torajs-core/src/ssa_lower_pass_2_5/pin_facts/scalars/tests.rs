@@ -8,6 +8,11 @@ use crate::ssa::{
     StructId, Terminator, Type,
 };
 use crate::ssa_lower::OBJ_HEADER_SIZE;
+use crate::ssa_lower_pass_2_5::cell_release::Slots;
+
+fn slots<'a>(open: &'a [bool], wider: &'a [Vec<StructId>]) -> Slots<'a> {
+    Slots { open, wider }
+}
 
 const CELL: Type = Type::Obj(StructId(0));
 const POS: u64 = OBJ_HEADER_SIZE + 8;
@@ -94,11 +99,12 @@ fn run(funcs: Vec<Function>) -> Vec<PinScalar> {
     let m = module(funcs);
     let skip = vec![false; m.funcs.len()];
     let open = vec![false; m.struct_layouts.len()];
+    let wider = vec![Vec::new(); open.len()];
     census(
         &m,
         StructId(0),
         &[FuncId(0), FuncId(1)],
-        (&skip, &open),
+        (&skip, slots(&open, &wider)),
         None,
         "t",
     )
@@ -233,11 +239,12 @@ fn release_open(callee: &str, ty: Type, other: Vec<(PropKey, Type)>, open: bool)
     m.struct_layouts.push(other);
     let skip = vec![false; m.funcs.len()];
     let open = vec![false, open];
+    let wider = vec![Vec::new(); open.len()];
     census(
         &m,
         StructId(0),
         &[FuncId(0), FuncId(1)],
-        (&skip, &open),
+        (&skip, slots(&open, &wider)),
         None,
         "t",
     )
