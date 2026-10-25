@@ -112,12 +112,6 @@ impl<'a> Scan<'a> {
         }
     }
 
-    /// `this.f` where `this` is a fresh receiver the lowering stores
-    /// without a guard.
-    pub(crate) fn fresh_store(&self, target: ExprId) -> bool {
-        matches!(self.ast.get_expr(target), Expr::Member { obj, .. } if self.fresh_recv.contains(obj))
-    }
-
     /// A block: bindings and narrowings made inside die with it.
     pub(crate) fn stmts(&mut self, stmts: &[Stmt]) {
         self.scoped(|sc| sc.seq(stmts));

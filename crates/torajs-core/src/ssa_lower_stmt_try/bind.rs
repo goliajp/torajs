@@ -50,11 +50,13 @@
 mod cast;
 mod ir;
 mod nullish;
+mod refuse;
 
-use crate::ssa::{BlockId, IPred, InstKind, Operand, Terminator, Type, ValueId};
+use crate::ssa::{BlockId, IPred, InstKind, Operand, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
 use crate::ssa_lower_pass_2_5::value_class_check;
 use ir::{and, append, call, decode_f64, guard, icmp, or};
+use refuse::{missed, raise, reject};
 
 const TAG_NULL: i64 = 0;
 const TAG_BOOL: i64 = 1;
@@ -271,43 +273,4 @@ fn class_guard(ctx: &mut LowerCtx, ptr: ValueId, ann: &str, bad: BlockId) {
     }
     let any_of = acc.expect("a declared class has its own tag");
     guard(ctx, any_of, bad);
-}
-
-/// Raise the TypeError for a rejected value through the catch's own
-/// throw route, the value released.
-fn reject(ctx: &mut LowerCtx, p: &str, ann: &str, (tag, v): (ValueId, ValueId)) {
-    let any_box = ctx.intrinsics.any_box;
-    let pair = vec![Operand::Value(tag), Operand::Value(v)];
-    let boxed = append(ctx, InstKind::Call(any_box, pair), Type::Any);
-    ctx.emit_drop_value(Operand::Value(boxed), Type::Any);
-    raise(ctx, p, ann);
-}
-
-/// The inferred type missed a raise: report it as uncaught and stop.
-fn missed(ctx: &mut LowerCtx, p: &str, ann: &str) {
-    let msg = format!(
-        "internal error: catch parameter `{p}` was inferred as `{ann}`, the thrown value is not one"
-    );
-    let msg = Operand::Value(ctx.intern_string_literal(msg.as_str()));
-    let raiser = ctx.intrinsics.throw_type_error_str;
-    let blk = ctx.cur_block;
-    ctx.f.append_void(blk, InstKind::Call(raiser, vec![msg]));
-    let exit = *(ctx.fn_table)
-        .get(crate::ssa_lower_main_exit::UNCAUGHT_EXIT_SYM)
-        .expect("__torajs_uncaught_exit declared in module setup");
-    ctx.f.append_void(blk, InstKind::Call(exit, vec![]));
-    ctx.f.set_term(blk, Terminator::Unreachable);
-}
-
-/// Record the TypeError of a rejected value and leave through the throw
-/// route; the cursor moves to a fresh block no edge reaches.
-fn raise(ctx: &mut LowerCtx, p: &str, ann: &str) {
-    let msg = format!("catch parameter `{p}` of type `{ann}` cannot hold the thrown value");
-    let msg = Operand::Value(ctx.intern_string_literal(msg.as_str()));
-    let raiser = ctx.intrinsics.throw_type_error_str;
-    ctx.f
-        .append_void(ctx.cur_block, InstKind::Call(raiser, vec![msg]));
-    let blk = ctx.cur_block;
-    ctx.emit_throw_path(blk, None);
-    ctx.cur_block = ctx.f.add_block();
 }

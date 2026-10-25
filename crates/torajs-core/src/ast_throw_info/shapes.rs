@@ -167,3 +167,11 @@ fn primitive(t: &crate::check::Type) -> bool {
         _ => false,
     }
 }
+
+impl super::Scan<'_> {
+    /// `this.f` where `this` is a fresh receiver the lowering stores
+    /// without a guard.
+    pub(crate) fn fresh_store(&self, target: ExprId) -> bool {
+        matches!(self.ast.get_expr(target), Expr::Member { obj, .. } if self.fresh_recv.contains(obj))
+    }
+}

@@ -25,3 +25,21 @@ pub fn value_class_verdicts(
         .map(|(c, v)| (c.to_string(), v.err()))
         .collect()
 }
+
+/// The classes the value-class census admits, by name, sorted.
+pub fn value_class_names(artifacts: &crate::check::CheckArtifacts) -> Vec<String> {
+    let held = std::collections::HashSet::new();
+    let scans = crate::ssa_lower_ctx_state::ModuleScans::of(&artifacts.5.mono_ast, &artifacts.1);
+    let p = crate::ssa_lower_pass_0_5::run(
+        &artifacts.1,
+        &mut crate::ssa::Module::default(),
+        &artifacts.5,
+        (&held, &scans),
+    );
+    let mut out: Vec<String> = (p.aliases.iter())
+        .filter(|(_, t)| matches!(t, crate::ssa::Type::Obj(s) if p.facts.value_classes.contains(s)))
+        .map(|(n, _)| n.clone())
+        .collect();
+    out.sort();
+    out
+}

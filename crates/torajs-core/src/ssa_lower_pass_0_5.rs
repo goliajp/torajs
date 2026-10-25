@@ -21,7 +21,7 @@ use std::collections::{HashMap, HashSet};
 pub(crate) mod arr_head_census;
 pub(crate) mod live_field_census;
 pub(crate) mod value_class_census;
-pub use value_class_census::queries::{value_class_inits, value_class_verdicts};
+pub use value_class_census::queries::{value_class_inits, value_class_names, value_class_verdicts};
 
 use crate::ast::{Ast, ExprId, Stmt};
 use crate::check_monomorph::MonoOutput;
@@ -241,24 +241,6 @@ pub(crate) fn run(
         inst_memo,
         class_name_to_tag,
     }
-}
-
-/// The classes the value-class census admits, by name, sorted.
-pub fn value_class_names(artifacts: &crate::check::CheckArtifacts) -> Vec<String> {
-    let held = HashSet::new();
-    let scans = crate::ssa_lower_ctx_state::ModuleScans::of(&artifacts.5.mono_ast, &artifacts.1);
-    let p = run(
-        &artifacts.1,
-        &mut Module::default(),
-        &artifacts.5,
-        (&held, &scans),
-    );
-    let mut out: Vec<String> = (p.aliases.iter())
-        .filter(|(_, t)| matches!(t, Type::Obj(s) if p.facts.value_classes.contains(s)))
-        .map(|(n, _)| n.clone())
-        .collect();
-    out.sort();
-    out
 }
 
 /// Settle a declared class's freshly parsed layout: intern onto an
