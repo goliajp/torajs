@@ -113,7 +113,7 @@ fn lower_higher_order(
     // Only map / filter / forEach carry a thisArg — reduce's args[1]
     // is the initialValue.
     let is_reduce = matches!(method.as_str(), "reduce" | "reduceRight");
-    let promoted = promoted_callback(ctx, args[0], &method);
+    let promoted = cb_face::promoted_callback(ctx, args[0], &method);
     let mut this_temp: Option<(ExprId, Operand)> = None;
     let mut this_tok: Option<usize> = None;
     let this_arg: Option<Operand> = if promoted {
@@ -346,24 +346,4 @@ fn emit_versioned(ctx: &mut LowerCtx<'_>, p: &HofLoop<'_>) -> Operand {
         )),
         _ => Operand::ConstI64(0),
     }
-}
-
-/// A promoted callback is either the inline Closure itself or a
-/// knife-2 variable-routed binding (`fnexpr_recv_locals`) — both
-/// native ABIs carry the leading `__this`; missing the Ident shape
-/// ran the loop with shifted args (rotation 260). Only the methods
-/// whose loop threads a receiver count: map / filter / forEach take
-/// the §23.1.3 thisArg, and reduce / reduceRight (RFC 20260905
-/// residue 1) take undefined — §23.1.3.24 calls the reducer with no
-/// receiver, but a promoted reducer still owns the leading slot, and
-/// leaving it out fed the accumulator into it.
-fn promoted_callback(ctx: &LowerCtx<'_>, cb: ExprId, method: &str) -> bool {
-    let promoted = matches!(ctx.ast.get_expr(cb),
-        Expr::Closure { fn_name, .. } if ctx.ast.fnexpr_recv_fns.contains(fn_name))
-        || ctx.ast.is_fnexpr_recv_use(cb);
-    promoted
-        && matches!(
-            method,
-            "map" | "filter" | "forEach" | "reduce" | "reduceRight"
-        )
 }
