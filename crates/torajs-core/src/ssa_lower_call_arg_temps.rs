@@ -17,7 +17,9 @@
 //! path. (Parking the coerce temps right before the check is
 //! equivalent to parking them at mint time: nothing between the mint
 //! and the check can throw except the call, and the check is the
-//! call's throw edge.)
+//! call's throw edge.) An argument borrowed out of a place takes the
+//! call's own hold (`ssa_lower::call_hold`): the closure may overwrite
+//! the place while it still reads the parameter.
 
 use crate::ast::ExprId;
 use crate::ssa::{Operand, Type};
@@ -29,6 +31,7 @@ pub(crate) struct ArgTemps {
     /// and the like); the callee borrows them, so they drop after.
     pub(crate) coerce: Vec<(Operand, Type)>,
     parked: Vec<usize>,
+    holds: crate::ssa_lower::call_hold::Holds,
 }
 
 impl ArgTemps {
@@ -37,6 +40,7 @@ impl ArgTemps {
             owned: Vec::new(),
             coerce: Vec::new(),
             parked: Vec::new(),
+            holds: Default::default(),
         }
     }
 
@@ -46,6 +50,7 @@ impl ArgTemps {
         if let Some((op, ty)) = ctx.throw_temp_of(eid, &raw) {
             self.parked.push(ctx.push_throw_temp(op, ty));
         }
+        self.holds.take(ctx, eid, raw);
         self.owned.push((eid, raw));
     }
 
@@ -59,6 +64,7 @@ impl ArgTemps {
         for t in self.parked {
             ctx.pop_throw_temp(t);
         }
+        self.holds.release(ctx);
         for (a, op) in self.owned {
             ctx.release_owned_temp(a, &op);
         }
