@@ -26,6 +26,7 @@
 //! binds — their nested sites degrade to the old fallback, never
 //! worse than pre-pass behavior.
 
+mod lists;
 mod walk_expr;
 
 use super::{AstExprsView, ExprId, Param, Stmt, binds_to_params, infer_expr_ann_with};
@@ -151,43 +152,6 @@ struct Ctx<'a> {
 }
 
 impl<'a> Ctx<'a> {
-    /// Walk a statement list that is a scope of its own. Its lexical
-    /// bindings shadow any outer one of the name from the list's entry
-    /// (§14.2.2), so a closure made before a declaration has run
-    /// captures the list's binding: one that shadows a name already
-    /// bound starts out with what its declaration will give it, not the
-    /// outer binding's annotation.
-    fn walk_list(&mut self, list: &[Stmt], binds: &mut Binds) {
-        self.shadow_list(list, binds);
-        for s in list {
-            self.walk_stmt(s, binds);
-        }
-    }
-
-    fn shadow_list(&self, list: &[Stmt], binds: &mut Binds) {
-        for s in list {
-            match s {
-                Stmt::LetDecl {
-                    name,
-                    type_ann,
-                    init,
-                    is_var: false,
-                    ..
-                } if binds.contains_key(name) => {
-                    let bs: Vec<Param> = binds_to_params(binds);
-                    match type_ann.clone().or_else(|| {
-                        infer_expr_ann_with(self.exprs, *init, &bs, binds, self.fn_sigs)
-                    }) {
-                        Some(ann) => binds.insert(name.clone(), ann),
-                        None => binds.remove(name),
-                    };
-                }
-                Stmt::Multi(v) => self.shadow_list(v, binds),
-                _ => {}
-            }
-        }
-    }
-
     /// In-order statement walk. Fn-level binding precision: block-
     /// scoped lets stay visible after their block (same conservative
     /// granularity as the num-width Local key).
