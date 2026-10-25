@@ -157,3 +157,79 @@ function main(): void {
   console.log("filter", kept.join(","));
 }
 main();
+
+function useE(s: string): string {
+  box.ps = [];
+  churn();
+  return s;
+}
+function app(s: string): number {
+  box.s += "!!!!";
+  return s.length;
+}
+
+// a subclass instance in a base-typed slot holds its own fields; a
+// release of the slot frees them
+class Base {
+  k: number = 0;
+  runS(): string {
+    return "";
+  }
+  runA(): number {
+    return 0;
+  }
+}
+class Sub extends Base {
+  name: string;
+  xs: number[];
+  constructor(n: string) {
+    super();
+    this.name = n;
+    this.xs = [1, 2, 3, 4];
+  }
+  runS(): string {
+    return useSub(this.name);
+  }
+  runA(): number {
+    return useSubA(this.xs);
+  }
+}
+let g: Base = new Sub("abcdefghijklmnopqrstuvwxyz-" + String(keepS.length));
+let g2: Base = new Sub("q");
+function useSub(s: string): string {
+  g = new Base();
+  churn();
+  return s.slice(0, 8);
+}
+function useSubA(xs: number[]): number {
+  g2 = new Base();
+  churn();
+  return xs[3];
+}
+
+function more(): void {
+  box.ps = ["elem-" + String(total) + "-padpadpadpadpadpad"];
+  console.log("str element", useE(box.ps[0]));
+  box.s = "abc" + String(total);
+  console.log("append", app(box.s), box.s);
+  box.xs = [1, 2, 3, 4];
+  try {
+    box.xs.forEach((x: number): void => {
+      box.xs = [];
+      churn();
+      if (x === 2) throw new Error("cb" + x);
+    });
+  } catch (e) {
+    console.log("cb throw", (e as Error).message);
+  }
+  rows[0] = [5, 6, 7, 8];
+  const er = rows[0].map((x: number): number => {
+    rows[0] = [];
+    churn();
+    return x;
+  });
+  console.log("elem recv", er.join(","));
+  console.log("subclass str", g.runS());
+  console.log("subclass arr", g2.runA());
+}
+more();

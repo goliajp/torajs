@@ -14,3 +14,9 @@ every true
 findIndex 3
 flatMap 1,10,2,20,3,30,4,40
 filter a1,c3
+str element elem-130-padpadpadpadpadpad
+append 6 abc130!!!!
+cb throw cb2
+elem recv 5,6,7,8
+subclass str abcdefgh
+subclass arr 4
