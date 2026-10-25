@@ -136,6 +136,13 @@ pub(super) fn mint_first_boxes(ctx: &mut LowerCtx, per_iter: &[PerIterVar]) {
             None,
         );
         let boxed = mint_box(ctx, pv, cur, true);
+        if !pv.outer.ty.is_copy() {
+            // the slot owes nothing now, which a binding slot says with null
+            ctx.f.append_void(
+                ctx.cur_block,
+                InstKind::Store(Operand::ConstPtrNull, Operand::Value(pv.outer.slot), 0),
+            );
+        }
         bind_box(ctx, pv, boxed);
     }
 }
