@@ -138,6 +138,78 @@ fn annex_b_definers_install() {
     assert!(call(torajs_rc::ANY_METHOD_MATCH));
     assert!(!call(torajs_rc::ANY_METHOD_DEFINE_GETTER));
     assert!(!call(torajs_rc::ANY_METHOD_DEFINE_SETTER));
+    // `__lookupSetter__("__proto__")` hands out the relinking setter
+    assert!(!call(torajs_rc::ANY_METHOD_LOOKUP_GETTER));
+    assert!(!call(torajs_rc::ANY_METHOD_LOOKUP_SETTER));
+}
+
+/// `getOwnPropertyDescriptor(o, key)`, `key` a literal or a run-time
+/// string.
+fn descriptor_read(key: Option<&str>) -> bool {
+    let mut x = Fixture::new();
+    let k = match key {
+        Some(key) => x.lit(key),
+        None => x.f.add_param(Type::Any, "k"),
+    };
+    let args = vec![Operand::Value(x.o), Operand::Value(k)];
+    x.call("__torajs_anyv_get_property_descriptor", args, Type::Any);
+    x.fixed()
+}
+
+#[test]
+fn a_hook_key_descriptor_installs() {
+    assert!(descriptor_read(Some("x")));
+    // its `set` is the `__proto__` setter, which relinks whatever it
+    // is stored on and called through
+    assert!(!descriptor_read(Some("__proto__")));
+    assert!(!descriptor_read(Some("valueOf")));
+    assert!(!descriptor_read(None));
+}
+
+#[test]
+fn a_definer_held_as_a_value_installs() {
+    // `const def = o.__defineGetter__`, later stored as `fp.keys` and
+    // called with a run-time key
+    for key in ["__defineGetter__", "__lookupSetter__"] {
+        let mut x = Fixture::new();
+        let k = x.lit(key);
+        let args = vec![Operand::Value(x.o), Operand::Value(k)];
+        x.call("__torajs_any_member_get_value", args, Type::Any);
+        assert!(!x.fixed(), "{key}");
+    }
+}
+
+#[test]
+fn a_symbol_keyed_write_is_a_runtime_key_write() {
+    // `o[Symbol.toPrimitive] = f`: no string spells the key, so the
+    // write counts as one under a run-time key
+    let mut x = Fixture::new();
+    let sym = x.call(
+        "__torajs_symbol_well_known",
+        vec![Operand::ConstI64(0)],
+        Type::Symbol,
+    );
+    let f = x.f.add_param(Type::Any, "f");
+    let args = vec![
+        Operand::Value(x.o),
+        Operand::Value(sym),
+        Operand::ConstI64(4),
+        Operand::Value(f),
+        Operand::ConstI64(0),
+    ];
+    x.call("__torajs_any_index_set_keyed", args, Type::Void);
+    assert!(!x.fixed());
+}
+
+#[test]
+fn an_unlisted_entry_installs() {
+    let mut x = Fixture::new();
+    x.call(
+        "__torajs_not_an_entry",
+        vec![Operand::Value(x.o)],
+        Type::Void,
+    );
+    assert!(!x.fixed());
 }
 
 #[test]
