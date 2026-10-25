@@ -55,7 +55,10 @@ pub(super) fn setup_per_iter_vars(
         let Some(outer) = ctx.locals.get(&name).copied() else {
             continue;
         };
-        if !(ctx.mutated_captured_lets.contains(&name) && outer.ty != Type::Substr) {
+        // a closure dead-zone flag only ever turns true, before the
+        // first test: every iteration may share its one box
+        let tdz_flag = name.starts_with("__tdzc");
+        if tdz_flag || !(ctx.mutated_captured_lets.contains(&name) && outer.ty != Type::Substr) {
             continue;
         }
         let in_head = cond
