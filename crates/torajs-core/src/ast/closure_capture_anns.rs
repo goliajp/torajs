@@ -152,9 +152,8 @@ struct Ctx<'a> {
 }
 
 impl<'a> Ctx<'a> {
-    /// In-order statement walk. Fn-level binding precision: block-
-    /// scoped lets stay visible after their block (same conservative
-    /// granularity as the num-width Local key).
+    /// In-order statement walk. A block's, a `for` head's and a
+    /// `switch`'s bindings end with them ([`lists::leave_list`]).
     fn walk_stmt(&mut self, s: &Stmt, binds: &mut Binds) {
         match s {
             Stmt::LetDecl {
@@ -206,8 +205,11 @@ impl<'a> Ctx<'a> {
                 step,
                 body,
             } => {
+                let head = init
+                    .as_deref()
+                    .map(|i| self.enter_list(std::slice::from_ref(i), binds));
                 if let Some(i) = init {
-                    self.walk_list(std::slice::from_ref(&**i), binds);
+                    self.walk_stmt(i, binds);
                 }
                 if let Some(c) = cond {
                     self.walk_expr(*c, binds);
@@ -216,6 +218,7 @@ impl<'a> Ctx<'a> {
                     self.walk_expr(*st, binds);
                 }
                 self.walk_stmt(body, binds);
+                lists::leave_list(binds, head.unwrap_or_default());
             }
             Stmt::ForOf {
                 var_name,
@@ -246,12 +249,8 @@ impl<'a> Ctx<'a> {
             } => {
                 self.walk_expr(*scrutinee, binds);
                 // the clauses share one scope (§14.12.4)
-                for c in cases {
-                    self.shadow_list(&c.body, binds);
-                }
-                if let Some(d) = default {
-                    self.shadow_list(d, binds);
-                }
+                let clauses = cases.iter().map(|c| &c.body[..]).chain(default.as_deref());
+                let saved: lists::Saved = clauses.flat_map(|l| self.enter_list(l, binds)).collect();
                 for c in cases {
                     self.walk_expr(c.value, binds);
                     for cs in &c.body {
@@ -263,6 +262,7 @@ impl<'a> Ctx<'a> {
                         self.walk_stmt(ds, binds);
                     }
                 }
+                lists::leave_list(binds, saved);
             }
             Stmt::Try {
                 body,

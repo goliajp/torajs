@@ -12,13 +12,23 @@ impl<'a> Ctx<'a> {
     /// bound starts out with what its declaration will give it, not the
     /// outer binding's annotation.
     pub(super) fn walk_list(&mut self, list: &[Stmt], binds: &mut Binds) {
-        self.shadow_list(list, binds);
+        let saved = self.enter_list(list, binds);
         for s in list {
             self.walk_stmt(s, binds);
         }
+        leave_list(binds, saved);
     }
 
-    pub(super) fn shadow_list(&self, list: &[Stmt], binds: &mut Binds) {
+    /// Shadow `list`'s lexical bindings and answer what `binds` held
+    /// for each of their names before, for [`leave_list`].
+    pub(super) fn enter_list(&self, list: &[Stmt], binds: &mut Binds) -> Saved {
+        let mut saved = Vec::new();
+        declared(list, binds, &mut saved);
+        self.shadow_list(list, binds);
+        saved
+    }
+
+    fn shadow_list(&self, list: &[Stmt], binds: &mut Binds) {
         for s in list {
             match s {
                 Stmt::LetDecl {
@@ -40,5 +50,35 @@ impl<'a> Ctx<'a> {
                 _ => {}
             }
         }
+    }
+}
+
+/// The names a list declares, each with what the binds held for it
+/// before the list.
+pub(super) type Saved = Vec<(String, Option<String>)>;
+
+fn declared(list: &[Stmt], binds: &Binds, out: &mut Saved) {
+    for s in list {
+        match s {
+            Stmt::LetDecl {
+                name,
+                is_var: false,
+                ..
+            } => out.push((name.clone(), binds.get(name).cloned())),
+            Stmt::Multi(v) => declared(v, binds, out),
+            _ => {}
+        }
+    }
+}
+
+/// A list's bindings end with it: the outer binding of each name is
+/// the one in force again, so a block's `let` never answers for a
+/// closure made after the block.
+pub(super) fn leave_list(binds: &mut Binds, saved: Saved) {
+    for (name, prev) in saved.into_iter().rev() {
+        match prev {
+            Some(ann) => binds.insert(name, ann),
+            None => binds.remove(&name),
+        };
     }
 }
