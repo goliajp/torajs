@@ -91,9 +91,7 @@ pub(crate) fn collect_closure_capture_anns(
         }
         let mut binds = top_binds.clone();
         seed_param_anns(&mut binds, params);
-        for b in body {
-            ctx.walk_stmt(b, &mut binds);
-        }
+        ctx.walk_list(body, &mut binds);
     }
 
     // Waves 2..n — `__env`-first bodies whose snapshot now exists seed
@@ -113,9 +111,7 @@ pub(crate) fn collect_closure_capture_anns(
                 binds.extend(snap.clone());
             }
             seed_param_anns(&mut binds, params);
-            for b in *body {
-                ctx.walk_stmt(b, &mut binds);
-            }
+            ctx.walk_list(body, &mut binds);
         }
         if !progressed {
             break;
@@ -129,9 +125,7 @@ pub(crate) fn collect_closure_capture_anns(
         }
         let mut binds = top_binds.clone();
         seed_param_anns(&mut binds, params);
-        for b in *body {
-            ctx.walk_stmt(b, &mut binds);
-        }
+        ctx.walk_list(body, &mut binds);
     }
 
     ctx.snapshots
@@ -157,6 +151,43 @@ struct Ctx<'a> {
 }
 
 impl<'a> Ctx<'a> {
+    /// Walk a statement list that is a scope of its own. Its lexical
+    /// bindings shadow any outer one of the name from the list's entry
+    /// (§14.2.2), so a closure made before a declaration has run
+    /// captures the list's binding: one that shadows a name already
+    /// bound starts out with what its declaration will give it, not the
+    /// outer binding's annotation.
+    fn walk_list(&mut self, list: &[Stmt], binds: &mut Binds) {
+        self.shadow_list(list, binds);
+        for s in list {
+            self.walk_stmt(s, binds);
+        }
+    }
+
+    fn shadow_list(&self, list: &[Stmt], binds: &mut Binds) {
+        for s in list {
+            match s {
+                Stmt::LetDecl {
+                    name,
+                    type_ann,
+                    init,
+                    is_var: false,
+                    ..
+                } if binds.contains_key(name) => {
+                    let bs: Vec<Param> = binds_to_params(binds);
+                    match type_ann.clone().or_else(|| {
+                        infer_expr_ann_with(self.exprs, *init, &bs, binds, self.fn_sigs)
+                    }) {
+                        Some(ann) => binds.insert(name.clone(), ann),
+                        None => binds.remove(name),
+                    };
+                }
+                Stmt::Multi(v) => self.shadow_list(v, binds),
+                _ => {}
+            }
+        }
+    }
+
     /// In-order statement walk. Fn-level binding precision: block-
     /// scoped lets stay visible after their block (same conservative
     /// granularity as the num-width Local key).
@@ -212,7 +243,7 @@ impl<'a> Ctx<'a> {
                 body,
             } => {
                 if let Some(i) = init {
-                    self.walk_stmt(i, binds);
+                    self.walk_list(std::slice::from_ref(&**i), binds);
                 }
                 if let Some(c) = cond {
                     self.walk_expr(*c, binds);
@@ -250,6 +281,13 @@ impl<'a> Ctx<'a> {
                 ..
             } => {
                 self.walk_expr(*scrutinee, binds);
+                // the clauses share one scope (§14.12.4)
+                for c in cases {
+                    self.shadow_list(&c.body, binds);
+                }
+                if let Some(d) = default {
+                    self.shadow_list(d, binds);
+                }
                 for c in cases {
                     self.walk_expr(c.value, binds);
                     for cs in &c.body {
@@ -269,22 +307,17 @@ impl<'a> Ctx<'a> {
                 finally_body,
                 ..
             } => {
-                for bs in body {
-                    self.walk_stmt(bs, binds);
-                }
+                self.walk_list(body, binds);
                 if let Some(cp) = catch_param {
                     binds.remove(cp);
                 }
-                for cs in catch_body {
-                    self.walk_stmt(cs, binds);
-                }
+                self.walk_list(catch_body, binds);
                 if let Some(fb) = finally_body {
-                    for fs in fb {
-                        self.walk_stmt(fs, binds);
-                    }
+                    self.walk_list(fb, binds);
                 }
             }
-            Stmt::Block(v) | Stmt::Multi(v) => {
+            Stmt::Block(v) => self.walk_list(v, binds),
+            Stmt::Multi(v) => {
                 for bs in v {
                     self.walk_stmt(bs, binds);
                 }

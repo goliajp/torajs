@@ -111,7 +111,7 @@ pub(crate) fn check_closure_body(
     // a closure body is a function body like any other: its bindings
     // are all created on entry, so a closure binding may capture a
     // peer declared later in the same body
-    let saved_hoists = crate::check_hoist_closure_lets::enter(checker, ast, &body);
+    let saved_hoists = crate::check_hoist_closure_lets::enter_body(checker, ast, &body);
     for s in &body {
         checker.check_stmt(ast, &s.clone());
     }

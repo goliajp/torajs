@@ -38,7 +38,7 @@ impl Checker {
     /// init from an outer scope is treated as alias-only (n borrows s's
     /// heap, both stay readable; no ownership transfer that would dangle
     /// the outer reference at this block's close).
-    fn lookup_with_depth(&self, name: &str) -> Option<(LocalInfo, usize)> {
+    pub(crate) fn lookup_with_depth(&self, name: &str) -> Option<(LocalInfo, usize)> {
         for (i, s) in self.scopes.iter().enumerate().rev() {
             if let Some(info) = s.get(name) {
                 return Some((info.clone(), i));

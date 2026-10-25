@@ -32,6 +32,13 @@ pub(super) fn descend_lists(ast: &Ast, s: &Stmt, out: &mut HashSet<ExprId>) {
             }
             mark_list(ast, &flat, out);
         }
+        // §14.7.4.2 creates the head's lexical bindings before the
+        // first initializer runs: `for (let x = k, k = 1; ;)`
+        Stmt::For { init: Some(i), .. } => {
+            let mut flat: Vec<&Stmt> = Vec::new();
+            flatten(std::slice::from_ref(&**i), &mut flat);
+            mark_list(ast, &flat, out);
+        }
         Stmt::FnDecl { body, .. } => {
             run_nested(ast, body, out);
             return;

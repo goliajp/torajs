@@ -40,21 +40,82 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::ast::{Ast, Expr, Stmt};
-use crate::check::{Checker, Type};
+use crate::check::{Checker, LocalInfo, Type};
+
+/// A binding hoisted ahead of its declaration.
+#[derive(Clone)]
+pub(crate) struct Hoisted {
+    pub(crate) ty: Type,
+    /// The scope its declaration lands in, while the checker is in the
+    /// function whose list declares it. A capture of the name resolves
+    /// here ahead of any binding an outer scope or the globals hold:
+    /// that one is shadowed from the list's entry on (§14.2.2,
+    /// §14.7.4.2). `None` for the module's own list and for a list of
+    /// an enclosing function, which only answers what nothing else does
+    /// (a function body reaches outer bindings through its captures).
+    pub(crate) depth: Option<usize>,
+}
+
+/// Which statement list [`enter_frame`] is entering.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Frame {
+    /// A block, `for` head, `try` or `switch` body: same function, a
+    /// scope pushed for it.
+    Block,
+    /// A function or closure body, checked against a fresh scope stack.
+    Body,
+    /// The module's top-level list.
+    Module,
+}
 
 /// Fill the checker's hoist table from `stmts` and answer the previous
 /// contents — the caller restores them when the list is done, so a name
 /// hoisted for one block cannot answer a capture in an unrelated one.
-pub(crate) fn enter(checker: &mut Checker, ast: &Ast, stmts: &[Stmt]) -> HashMap<String, Type> {
+/// `stmts` is a block, a `for` head, a `try` or a `switch` body.
+pub(crate) fn enter(checker: &mut Checker, ast: &Ast, stmts: &[Stmt]) -> HashMap<String, Hoisted> {
+    enter_frame(checker, ast, stmts, Frame::Block)
+}
+
+/// [`enter`] for a function or closure body.
+pub(crate) fn enter_body(
+    checker: &mut Checker,
+    ast: &Ast,
+    stmts: &[Stmt],
+) -> HashMap<String, Hoisted> {
+    enter_frame(checker, ast, stmts, Frame::Body)
+}
+
+/// [`enter`] for the module's top-level list.
+pub(crate) fn enter_module(
+    checker: &mut Checker,
+    ast: &Ast,
+    stmts: &[Stmt],
+) -> HashMap<String, Hoisted> {
+    enter_frame(checker, ast, stmts, Frame::Module)
+}
+
+fn enter_frame(
+    checker: &mut Checker,
+    ast: &Ast,
+    stmts: &[Stmt],
+    frame: Frame,
+) -> HashMap<String, Hoisted> {
     let mut decls: Vec<(&str, &str, &Option<String>)> = Vec::new();
     let mut plain: Vec<(&str, &Option<String>, crate::ast::ExprId)> = Vec::new();
     let mut captured: HashSet<&str> = HashSet::new();
     collect(ast, stmts, &mut decls, &mut plain, &mut captured);
     let saved = std::mem::take(&mut checker.hoisted_closure_lets);
-    if decls.is_empty() && plain.is_empty() {
+    if saved.is_empty() && decls.is_empty() && plain.is_empty() {
         return saved;
     }
     checker.hoisted_closure_lets = saved.clone();
+    if frame == Frame::Body {
+        // the outer scope depths name a stack this body does not see
+        for h in checker.hoisted_closure_lets.values_mut() {
+            h.depth = None;
+        }
+    }
+    let depth = (frame != Frame::Module).then(|| checker.scopes.len() - 1);
     for (name, type_ann, init) in plain {
         // An annotation is the binding's own answer; without one the
         // init's type is it. Typing that expression early can fail
@@ -84,9 +145,10 @@ pub(crate) fn enter(checker: &mut Checker, ast: &Ast, stmts: &[Stmt]) -> HashMap
                 t
             }
         };
+        let ty = ty.unwrap_or(Type::Any);
         checker
             .hoisted_closure_lets
-            .insert(name.to_string(), ty.unwrap_or(Type::Any));
+            .insert(name.to_string(), Hoisted { ty, depth });
     }
     for (name, fn_name, type_ann) in decls {
         if !captured.contains(name) {
@@ -109,12 +171,48 @@ pub(crate) fn enter(checker: &mut Checker, ast: &Ast, stmts: &[Stmt]) -> HashMap
             continue;
         }
         if let Ok(sig) = crate::check_type_of_fn::closure_sig(ast, fn_name, &checker.aliases) {
+            let ty = sig.value_ty;
             checker
                 .hoisted_closure_lets
-                .insert(name.to_string(), sig.value_ty);
+                .insert(name.to_string(), Hoisted { ty, depth });
         }
     }
     saved
+}
+
+/// The type of the hoisted binding a capture of `name` resolves to
+/// ahead of the scopes and the globals: one this function's list
+/// declares in a scope deeper than any binding an ordinary lookup finds.
+pub(crate) fn shadowing(checker: &Checker, name: &str) -> Option<Type> {
+    shadowed(checker, name).then(|| checker.hoisted_closure_lets[name].ty.clone())
+}
+
+fn shadowed(checker: &Checker, name: &str) -> bool {
+    let Some(depth) = checker.hoisted_closure_lets.get(name).and_then(|h| h.depth) else {
+        return false;
+    };
+    !matches!(checker.lookup_with_depth(name), Some((_, found)) if found >= depth)
+}
+
+/// The scope binding a closure's capture of `name` refers to: none
+/// while a later declaration of the enclosing list shadows it.
+pub(crate) fn capture_lookup(checker: &Checker, name: &str) -> Option<LocalInfo> {
+    (!shadowed(checker, name)).then(|| checker.lookup(name))?
+}
+
+/// [`capture_lookup`]'s binding, to write back what the body did to it.
+pub(crate) fn capture_binding_mut<'c>(
+    checker: &'c mut Checker,
+    name: &str,
+) -> Option<&'c mut LocalInfo> {
+    if shadowed(checker, name) {
+        return None;
+    }
+    checker
+        .scopes
+        .iter_mut()
+        .rev()
+        .find_map(|s| s.get_mut(name))
 }
 
 /// The list's closure-initialized bindings, and every name any of their

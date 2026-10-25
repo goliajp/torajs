@@ -182,8 +182,8 @@ pub(crate) struct Checker {
     /// that call each other. A side table rather than a scope entry, so
     /// each binding's real declare stays a first declaration; see
     /// [`crate::check_hoist_closure_lets`]. Consulted only when
-    /// resolving a closure's captures, after scopes and globals.
-    pub(crate) hoisted_closure_lets: HashMap<String, Type>,
+    /// resolving a closure's captures.
+    pub(crate) hoisted_closure_lets: HashMap<String, crate::check_hoist_closure_lets::Hoisted>,
     /// User-declared type aliases — populated in pass 0 from
     /// `Stmt::TypeDecl`. `Point → Type::Struct(...)`.
     ///

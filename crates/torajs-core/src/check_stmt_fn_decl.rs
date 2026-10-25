@@ -152,7 +152,7 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, name: &str, params: &[Para
         }
     }
     crate::check_gen_env::seed_captures(checker, ast, name);
-    let saved_hoists = crate::check_hoist_closure_lets::enter(checker, ast, body);
+    let saved_hoists = crate::check_hoist_closure_lets::enter_body(checker, ast, body);
     for s in body {
         checker.check_stmt(ast, s);
     }

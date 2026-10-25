@@ -130,7 +130,11 @@ pub(crate) fn check_closure(
     let mut cap_tys: Vec<(String, Type)> = Vec::with_capacity(captures.len());
     let mut tried = Vec::new();
     for cap in &captures {
-        if let Some(info) = checker.lookup(cap) {
+        if let Some(ty) = crate::check_hoist_closure_lets::shadowing(checker, cap) {
+            // a binding of the enclosing list declared later, which
+            // shadows any outer one of the name from the list's entry
+            cap_tys.push((cap.clone(), ty));
+        } else if let Some(info) = checker.lookup(cap) {
             let (ty, trial) = checker.capture_ty(ast, eid, cap, &info);
             if trial {
                 tried.push(cap.clone());
@@ -140,11 +144,11 @@ pub(crate) fn check_closure(
             // K.3/K.4/K.6 promoted data global (or hoisted fn) — not a
             // capture: the body ident resolves through the same globals
             // fallback named-fn bodies use, so it needs no scope entry.
-        } else if let Some(ty) = checker.hoisted_closure_lets.get(cap) {
+        } else if let Some(h) = checker.hoisted_closure_lets.get(cap) {
             // A closure binding declared LATER in this same statement
             // list (`crate::check_hoist_closure_lets`) — a real capture,
             // typed from the FnDecl its own declaration will bind.
-            cap_tys.push((cap.clone(), ty.clone()));
+            cap_tys.push((cap.clone(), h.ty.clone()));
         } else if cap
             .strip_prefix("__class_")
             .or_else(|| cap.strip_prefix("__proto_"))

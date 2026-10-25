@@ -201,7 +201,7 @@ impl Checker {
         let frame: Vec<(String, LocalInfo)> = cap_tys
             .iter()
             .map(|(n, t)| {
-                let outer = self.lookup(n);
+                let outer = crate::check_hoist_closure_lets::capture_lookup(self, n);
                 let info = self.capture_frame_info(ast, eid, n, outer.as_ref(), t.clone());
                 (n.clone(), info)
             })
@@ -237,12 +237,7 @@ impl Checker {
 
     pub(crate) fn apply_capture_out(&mut self, out: Vec<CaptureOut>) {
         for o in out {
-            if let Some(b) = self
-                .scopes
-                .iter_mut()
-                .rev()
-                .find_map(|s| s.get_mut(&o.name))
-            {
+            if let Some(b) = crate::check_hoist_closure_lets::capture_binding_mut(self, &o.name) {
                 b.nulled_anytime |= o.nulled;
                 b.pinned |= o.pinned;
             }

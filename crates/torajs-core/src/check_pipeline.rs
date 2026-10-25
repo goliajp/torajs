@@ -396,7 +396,7 @@ pub(crate) fn pass_2_register_globals_and_check_stmts(c: &mut Checker, ast: &Ast
         }
     }
 
-    let saved_hoists = crate::check_hoist_closure_lets::enter(c, ast, &ast.stmts);
+    let saved_hoists = crate::check_hoist_closure_lets::enter_module(c, ast, &ast.stmts);
     crate::check_gen_env::check_stmts(c, ast);
     c.hoisted_closure_lets = saved_hoists;
 }
