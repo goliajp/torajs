@@ -132,9 +132,10 @@ impl Scan<'_> {
                     _ => self.expr(*right),
                 }
             }
-            Expr::Unary { expr, .. } => {
+            Expr::Unary { op, expr } => {
                 // Band B, same reason as the BinOp arm above.
                 self.direct |= ast.spec_throws.contains_key(&eid);
+                self.direct |= shapes::unary_raises(self.expr_types, *op, *expr);
                 self.expr(*expr)
             }
             Expr::Member { obj, name } => {

@@ -135,6 +135,19 @@ pub(super) fn instanceof_raises(sc: &super::Scan<'_>, x: ExprId, rhs: ExprId) ->
             && !sc.expr_types.get(&x).is_some_and(primitive))
 }
 
+/// Whether unary `-`, `+` or `~` on `operand` can raise: ToNumeric of
+/// a value that is no primitive runs its `valueOf` / `toString`, and of
+/// a Symbol, or a BigInt under `+`, throws (§7.1.4). The lowering
+/// checks after the runtime conversion of such an operand. A BigInt's
+/// own `+` is a spec throw (`Ast::spec_throws`).
+pub(super) fn unary_raises(
+    expr_types: &HashMap<ExprId, crate::check::Type>,
+    op: crate::ast::UnaryOp,
+    operand: ExprId,
+) -> bool {
+    !matches!(op, crate::ast::UnaryOp::Not) && !expr_types.get(&operand).is_some_and(primitive)
+}
+
 /// A type all of whose values are primitives ToNumeric converts
 /// without running code or throwing.
 fn primitive(t: &crate::check::Type) -> bool {
