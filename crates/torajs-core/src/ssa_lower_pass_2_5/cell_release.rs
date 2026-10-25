@@ -98,12 +98,13 @@ pub(crate) fn wider_cells(n: usize, widens: &[(StructId, StructId)]) -> Vec<Vec<
 /// widens to). For a string: a string, a substring view (which keeps
 /// its parent) and the cells that keep their source text (a RegExp, a
 /// Symbol's description). For an array: any array, since a slot of one
-/// array layout can hold a cell of another. For all three: a layout
-/// whose slots may hold a cell of another layout (an interface a class
-/// instance enters, a slot an `any` crosses into), a class slot whose
-/// wider cells (a subclass instance in a base-typed slot) may hold one
-/// in a field of their own, anything untyped, and every type that
-/// refers to one of those.
+/// array layout can hold a cell of another. For a Map or a Set: the
+/// types that may hold a cell of any kind (a Map, a Set, a closure, an
+/// `any`). For every kind: a layout whose slots may hold a cell of
+/// another layout (an interface a class instance enters, a slot an
+/// `any` crosses into), a class slot whose wider cells (a subclass
+/// instance in a base-typed slot) may hold one in a field of their
+/// own, anything untyped, and every type that refers to one of those.
 ///
 /// An expando bag (a struct cell's, an array's, a RegExp's or a
 /// Date's) adds nothing: typed code reads a value out of a bag only

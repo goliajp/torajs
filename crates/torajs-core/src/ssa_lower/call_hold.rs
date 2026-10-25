@@ -14,9 +14,10 @@
 //! drops it after; the throw edges of the later arguments and of the
 //! call release it too.
 //!
-//! Only class instances, strings and arrays handed to a user function
-//! (or to a runtime loop that runs a user callback) are held: the
-//! runtime entries a direct call can reach do not run user code.
+//! Only class instances, strings, arrays, Maps and Sets handed to a
+//! user function (or to a loop that runs a user callback over them)
+//! are held: the runtime entries a direct call can reach do not run
+//! user code.
 //!
 //! Most holds are needless: nothing that runs while the call holds the
 //! value releases one that could reference the cell. Each piece of a
@@ -96,10 +97,15 @@ pub(crate) fn emit_drop(ctx: &mut LowerCtx<'_>, hold: usize, op: Operand, ty: Ty
 
 impl Holds {
     /// Takes a reference on `op`, the lowered `eid`, when it is an
-    /// `Obj`, a `Str` or an `Arr` borrowed out of a place.
+    /// `Obj`, a `Str`, an `Arr`, a `Map` or a `Set` borrowed out of a
+    /// place.
     pub(crate) fn take(&mut self, ctx: &mut LowerCtx<'_>, eid: ExprId, op: Operand) {
         let ty = ctx.operand_ty(&op);
-        if !matches!(ty, Type::Obj(_) | Type::Str | Type::Arr(_)) || !place_read(ctx, eid) {
+        let cell = matches!(
+            ty,
+            Type::Obj(_) | Type::Str | Type::Arr(_) | Type::Map | Type::Set
+        );
+        if !cell || !place_read(ctx, eid) {
             return;
         }
         let take = guarded(ctx, |ctx| ctx.emit_rc_inc(op));
@@ -115,6 +121,17 @@ impl Holds {
             .push(Some(ThrowTemp::Held(op, ty, hold)));
         let token = ctx.temps.throw_live.len() - 1;
         self.0.push((op, ty, token, hold));
+    }
+
+    /// The holds of a receiver `op` (the lowered `eid`) of a method
+    /// that runs a user callback, when `runs_cb`: the callback may
+    /// overwrite the place it was read out of.
+    pub(crate) fn take_if(ctx: &mut LowerCtx<'_>, runs_cb: bool, eid: ExprId, op: Operand) -> Self {
+        let mut holds = Self::default();
+        if runs_cb {
+            holds.take(ctx, eid, op);
+        }
+        holds
     }
 
     /// Drops what [`Holds::take`] took, once the call and its throw

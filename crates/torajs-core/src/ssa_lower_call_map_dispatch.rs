@@ -25,6 +25,7 @@
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{FuncId, IPred, InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
+use crate::ssa_lower::call_hold::Holds;
 
 /// Try to lower a Map-method call. Returns `Some` when dispatched.
 pub(crate) fn try_lower(
@@ -53,29 +54,26 @@ pub(crate) fn try_lower(
     ) {
         return None;
     }
-    // Receiver Map detection — every spelling, through the shared
-    // face resolver. This used to be a private table of AST shapes
-    // that did not list `Expr::As`, so a cast receiver reached the
-    // cascade's terminal panic ("unsupported member call shape:
-    // set"); see `ssa_lower_recv_face`.
+    // Receiver Map detection — every spelling, a cast included, through
+    // the shared face resolver (`ssa_lower_recv_face`).
     if crate::ssa_lower_recv_face::static_ty(ctx, obj) != Some(Type::Map) {
         return None;
     }
     let recv_op = ctx.lower_expr(obj);
-    // Rotation 550 — an owned receiver (`mkMap(i).set(1, boom())`) is
-    // live across the guard, every argument's lower and the kernel;
-    // park it for their throw paths (387MB / 600k caught throws
-    // before).
+    // an owned receiver (`mkMap(i).set(1, boom())`) is live across the
+    // guard, the arguments and the kernel: parked for their throw paths
     let recv_tok = ctx.park_owned_temp(obj, &recv_op);
+    let runs_cb = matches!(m_name.as_str(), "forEach" | "getOrInsertComputed");
+    let holds = Holds::take_if(ctx, runs_cb, obj, recv_op);
     crate::ssa_lower_nullable_guard::emit_undefable_heap_guard(ctx, obj, &recv_op);
     let out = if m_name == "get" && crate::ssa_lower_map_num_lane::is_lane_receiver(ctx, obj) {
         crate::ssa_lower_map_num_lane::emit_get(ctx, recv_op, args)
     } else {
         dispatch_map_method(ctx, m_name.as_str(), recv_op, args)
     };
-    // RFC 20260705 chunk 548 — a Call-shaped receiver (chained
-    // `m.set(a).set(b)`) is an owned temp; `set` answers the
-    // receiver with its own +1, so the inner ref is released here.
+    // a chained receiver (`m.set(a).set(b)`) is an owned temp; `set`
+    // answers it with its own +1, so the inner ref is released here
+    holds.release(ctx);
     ctx.unpark_owned_temp(recv_tok);
     ctx.release_owned_temp(obj, &recv_op);
     Some(out)

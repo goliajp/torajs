@@ -33,6 +33,7 @@
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{FuncId, IPred, InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
+use crate::ssa_lower::call_hold::Holds;
 
 mod foreach;
 mod setops;
@@ -78,11 +79,13 @@ pub(crate) fn try_lower(
     // Rotation 550 — an owned receiver is live across the guard, the
     // arguments' lowers and the kernel; park it for their throw paths.
     let recv_tok = ctx.park_owned_temp(obj, &recv_op);
+    let holds = Holds::take_if(ctx, m_name == "forEach", obj, recv_op);
     crate::ssa_lower_nullable_guard::emit_undefable_heap_guard(ctx, obj, &recv_op);
     let out = dispatch_set_method(ctx, m_name.as_str(), recv_op, args);
     // RFC 20260705 chunk 548 — a Call-shaped receiver (chained
     // `s.add(a).add(b)`) is an owned temp; `add` answers the
     // receiver with its own +1, so the inner ref is released here.
+    holds.release(ctx);
     ctx.unpark_owned_temp(recv_tok);
     ctx.release_owned_temp(obj, &recv_op);
     Some(out)

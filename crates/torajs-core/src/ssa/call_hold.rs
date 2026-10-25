@@ -22,8 +22,8 @@ pub struct HoldGuard {
     pub join: BlockId,
 }
 
-/// One call's reference on a cell of type `cell`: an `Obj`, a `Str` or
-/// an `Arr`.
+/// One call's reference on a cell of type `cell`: an `Obj`, a `Str`,
+/// an `Arr`, a `Map` or a `Set`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CallHold {
     pub cell: Type,

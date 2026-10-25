@@ -1,0 +1,4 @@
+sort 1,2,3,4 0
+map forEach 140
+set forEach 6
+getOrInsertComputed 300 0
