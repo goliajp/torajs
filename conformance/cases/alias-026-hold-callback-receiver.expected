@@ -2,3 +2,9 @@ sort 1,2,3,4 0
 map forEach 140
 set forEach 6
 getOrInsertComputed 300 0
+sort keyed 5,6,7,8 0
+sort optional 9,10,11,12 0
+sort throw sorttrue 0
+map forEach throw map11 0
+set forEach throw set5 0
+getOrInsertComputed throw goic4 0

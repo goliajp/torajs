@@ -67,5 +67,72 @@ function main(): void {
     return k * 100;
   });
   console.log("getOrInsertComputed", got, box.m.size);
+  // a computed-key call is the same call
+  box.xs = [8, 7, 6, 5];
+  const keyed = box.xs["sort"]((a: number, b: number): number => {
+    box.xs = [];
+    churn();
+    return a - b;
+  });
+  console.log("sort keyed", keyed.join(","), box.xs.length);
+  // an optional call is the same call
+  box.xs = [12, 11, 10, 9];
+  const opt = box.xs.sort?.((a: number, b: number): number => {
+    box.xs = [];
+    churn();
+    return a - b;
+  });
+  console.log("sort optional", opt?.join(","), box.xs.length);
+}
+
+// a callback that clears the place and then throws: the receiver is
+// released once, on the throw edge, and the catch reads the message
+function throwing(): void {
+  box.xs = [4, 3, 2, 1];
+  try {
+    box.xs.sort((a: number, b: number): number => {
+      box.xs = [];
+      churn();
+      throw new Error("sort" + (a > 0 && b > 0));
+    });
+  } catch (e) {
+    console.log("sort throw", (e as Error).message, box.xs.length);
+  }
+  box.m = new Map<number, number>();
+  box.m.set(1, 10);
+  box.m.set(2, 20);
+  try {
+    box.m.forEach((v: number, k: number): void => {
+      box.m = new Map<number, number>();
+      churn();
+      throw new Error("map" + (v + k));
+    });
+  } catch (e) {
+    console.log("map forEach throw", (e as Error).message, box.m.size);
+  }
+  box.st = new Set<number>();
+  box.st.add(5);
+  box.st.add(6);
+  try {
+    box.st.forEach((v: number): void => {
+      box.st = new Set<number>();
+      churn();
+      throw new Error("set" + v);
+    });
+  } catch (e) {
+    console.log("set forEach throw", (e as Error).message, box.st.size);
+  }
+  box.m = new Map<number, number>();
+  box.m.set(1, 10);
+  try {
+    box.m.getOrInsertComputed(4, (k: number): number => {
+      box.m = new Map<number, number>();
+      churn();
+      throw new Error("goic" + k);
+    });
+  } catch (e) {
+    console.log("getOrInsertComputed throw", (e as Error).message, box.m.size);
+  }
 }
 main();
+throwing();
