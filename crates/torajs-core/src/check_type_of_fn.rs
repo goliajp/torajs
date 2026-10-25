@@ -48,9 +48,13 @@ pub(crate) fn check_arrow_fn(
             checker.errors.push_err(e);
         }
     }
+    // a fresh scope stack: the hoisted bindings of the lists around the
+    // arrow name depths of a stack this body does not see
+    let saved_hoists = crate::check_hoist_closure_lets::enter_body(checker, ast, &body);
     for s in &body {
         checker.check_stmt(ast, s);
     }
+    checker.hoisted_closure_lets = saved_hoists;
     checker.expected_return = saved_return;
     checker.ret_owner = saved_owner;
     checker.scopes = saved_scopes;
