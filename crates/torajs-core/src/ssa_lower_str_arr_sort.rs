@@ -27,13 +27,14 @@ mod insertion;
 mod pred;
 mod shift;
 
-/// Try to lower `<Arr>.sort | toSorted(cmp?)`. Returns
-/// `Some(value)` when handled; `None` otherwise.
+/// Try to lower `<Arr>.sort | toSorted(cmp?)`, the call `call_eid`
+/// on the lowered receiver `recv_op`. Returns `Some(value)` when
+/// handled; `None` otherwise.
 pub(crate) fn try_dispatch(
     ctx: &mut LowerCtx<'_>,
     method: &str,
     args: &[ExprId],
-    recv_op: Operand,
+    (call_eid, recv_op): (ExprId, Operand),
     recv_ty: Type,
 ) -> Option<Operand> {
     // `arr.sort(cmp)` — in-place insertion sort calling
@@ -50,6 +51,14 @@ pub(crate) fn try_dispatch(
         // §23.1.3.{30,33} trailing-arg ignore. SSA-emit reads only
         // args[0] (cmp); trailing args eval-and-drop below so side-
         // effect exprs fire.
+        // `sort` sorts a receiver borrowed out of a place in place: the
+        // comparator may overwrite the place, so it is held
+        let mut holds = crate::ssa_lower::call_hold::Holds::default();
+        if method == "sort"
+            && let Some(recv_eid) = receiver(ctx, call_eid)
+        {
+            holds.take(ctx, recv_eid, recv_op);
+        }
         let mut elem_ty = ctx.arr_layouts[arr_id.0 as usize];
         // toSorted clones the receiver via arr_slice
         // before sorting so the source stays intact.
@@ -81,27 +90,7 @@ pub(crate) fn try_dispatch(
         // the comparator literal; route a 1-arg call with arg type
         // Undefined to the same default-compare path (check.rs
         // mirror at the sort/toSorted arity special-case).
-        let (cmp_val, cmp_ty) = if let Some(arg0) = args.first() {
-            let arg_static_ty = ctx.expr_types.get(arg0).cloned();
-            if matches!(arg_static_ty, Some(crate::check::Type::Undefined)) {
-                // Drop the operand without lowering its side
-                // effects — `undefined` is a literal keyword with
-                // none.
-                (None, None)
-            } else {
-                let v = ctx.lower_expr(*arg0);
-                let t = ctx.operand_ty(&v);
-                (Some(v), Some(t))
-            }
-        } else {
-            (None, None)
-        };
-        // S276 — eval-and-drop trailing args past cmp so step()-style
-        // side-effect exprs fire per ES §23.1.3.{30,33} trailing-arg
-        // ignore. SSA-emit reads only args[0]; args[1..] discarded.
-        for &a in args.iter().skip(1) {
-            let _ = ctx.lower_expr(a);
-        }
+        let (cmp_val, cmp_ty) = lower_cmp(ctx, args);
         // Rotation 364 — an argv-face comparator (body reads
         // `arguments` values, or typed slots fed `any` elements) takes
         // the boxed variadic dispatch (`emit_argv_face_call`) with the
@@ -172,12 +161,43 @@ pub(crate) fn try_dispatch(
         if method == "sort" {
             ctx.emit_rc_inc(Operand::Value(arr_ptr));
         }
+        holds.release(ctx);
         ctx.unpark_owned_temp(cmp_tok);
         ctx.unpark_owned_temp(clone_tok);
         release_cmp_temp(ctx, args, &cmp_val);
         return Some(Operand::Value(arr_ptr));
     }
     None
+}
+
+/// The comparator `args[0]` lowered, with its type; none when it is
+/// absent or the `undefined` literal (which has no side effects to
+/// lower). S276 — the trailing args past it are lowered and dropped so
+/// step()-style side-effect exprs fire per ES §23.1.3.{30,33}
+/// trailing-arg ignore; SSA-emit reads only args[0].
+fn lower_cmp(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> (Option<Operand>, Option<Type>) {
+    let cmp = match args.first() {
+        Some(a0) if !matches!(ctx.expr_types.get(a0), Some(crate::check::Type::Undefined)) => {
+            let v = ctx.lower_expr(*a0);
+            (Some(v), Some(ctx.operand_ty(&v)))
+        }
+        _ => (None, None),
+    };
+    for &a in args.iter().skip(1) {
+        let _ = ctx.lower_expr(a);
+    }
+    cmp
+}
+
+/// The receiver expression of the member call `call_eid`.
+fn receiver(ctx: &LowerCtx<'_>, call_eid: ExprId) -> Option<ExprId> {
+    let Expr::Call { callee, .. } = ctx.ast.get_expr(call_eid) else {
+        return None;
+    };
+    match ctx.ast.get_expr(*callee) {
+        Expr::Member { obj, .. } => Some(*obj),
+        _ => None,
+    }
 }
 
 /// toSorted clones the receiver via arr_copy_get before sorting so the

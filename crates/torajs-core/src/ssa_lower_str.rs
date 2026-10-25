@@ -368,7 +368,7 @@ fn dispatch_method(
         return Some(v);
     }
     if let Some(v) =
-        crate::ssa_lower_str_arr_sort::try_dispatch(ctx, method, args, recv_op, recv_ty)
+        crate::ssa_lower_str_arr_sort::try_dispatch(ctx, method, args, (call_eid, recv_op), recv_ty)
     {
         return Some(v);
     }
