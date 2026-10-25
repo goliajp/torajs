@@ -1,0 +1,5 @@
+constructor:function:false toString:function:false hasOwnProperty:function:false __proto__:object:false a:number:false zz:undefined:true 
+function toString() { [native code] }
+[object Object]|0|2
+object 2
+3 true false

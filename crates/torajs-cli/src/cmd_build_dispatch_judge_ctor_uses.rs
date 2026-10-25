@@ -17,11 +17,11 @@
 use std::collections::{HashMap, HashSet};
 
 use torajs_core::ssa::{
-    FuncId, Function, InstKind, Module, Operand, StringId, Terminator, Type, ValueId,
+    BinOp, FuncId, Function, InstKind, Module, Operand, StringId, Terminator, Type, ValueId,
     visit_value_operands,
 };
 
-const GOPD: &str = "__torajs_anyv_get_property_descriptor";
+pub(crate) const GOPD: &str = "__torajs_anyv_get_property_descriptor";
 
 /// Readers whose operand 0 is the receiver and operand 1 the key.
 pub(crate) const KEYED_READERS: [&str; 9] = [
@@ -53,7 +53,10 @@ const CARRIERS: [&str; 4] = [
 /// kind, and never look a static up on their argument. Loose
 /// equality runs ToPrimitive, which reads `@@toPrimitive` /
 /// `valueOf` / `toString`; no namespace owns a static by those names.
-const SINKS: [&str; 9] = [
+/// The `+` of two pair-decoded boxes and the string conversions of one
+/// run the same ToPrimitive and answer a primitive, and the settle
+/// after them only frees the string the decode materialized.
+const SINKS: [&str; 13] = [
     "__torajs_any_name_get",
     "__torajs_any_length_get",
     "__torajs_error_name_get",
@@ -63,6 +66,10 @@ const SINKS: [&str; 9] = [
     "__torajs_anyv_typeof",
     "__torajs_anyv_to_bool",
     "__torajs_anyv_unbox_tag",
+    "__torajs_anyv_add_pair",
+    "__torajs_anyv_to_str_pair",
+    "__torajs_anyv_to_str_pair_prim",
+    "__torajs_anyv_unbox_settle",
 ];
 
 /// Calls that may take the `"constructor"` literal (at the given
@@ -101,14 +108,7 @@ pub(crate) fn ctor_read_escape(
     f: &Function,
     ctor_ids: &HashSet<StringId>,
 ) -> Option<String> {
-    let mut lits: HashMap<ValueId, StringId> = HashMap::new();
-    for inst in f.blocks.iter().flat_map(|b| &b.insts) {
-        if let (InstKind::StaticStrRef(s) | InstKind::StringRef(s), Some(r)) =
-            (&inst.kind, inst.result)
-        {
-            lits.insert(r, *s);
-        }
-    }
+    let lits = literals(f);
     let keys: Vec<ValueId> = lits
         .iter()
         .filter(|(_, s)| ctor_ids.contains(s))
@@ -133,6 +133,37 @@ pub(crate) fn ctor_read_escape(
         }
     }
     walk.follow(answers).err()
+}
+
+/// The first use in `f` through which one of `answers`, the answers of
+/// keyed reads whose key is computed at run time, can reach anything
+/// but a benign sink. Such a key may be `"constructor"`, so each answer
+/// is followed as a spelled read's is.
+pub(crate) fn runtime_key_escape(
+    module: &Module,
+    f: &Function,
+    answers: HashSet<ValueId>,
+) -> Option<String> {
+    let walk = Walk {
+        module,
+        f,
+        lits: literals(f),
+        uses: use_lists(f),
+    };
+    walk.follow(answers).err()
+}
+
+/// The string literal each value of `f` holds, by value.
+fn literals(f: &Function) -> HashMap<ValueId, StringId> {
+    let mut lits = HashMap::new();
+    for inst in f.blocks.iter().flat_map(|b| &b.insts) {
+        if let (InstKind::StaticStrRef(s) | InstKind::StringRef(s), Some(r)) =
+            (&inst.kind, inst.result)
+        {
+            lits.insert(r, *s);
+        }
+    }
+    lits
 }
 
 struct Walk<'a> {
@@ -220,6 +251,21 @@ impl Walk<'_> {
             | InstKind::FCmp(..)
             | InstKind::AnyIsNumber(_)
             | InstKind::AnyIsInt32(_) => false,
+            // an int32 payload or a tag: a shift by 32 or more keeps at
+            // most 32 bits, too few to address a cell above the 4 GiB
+            // zero page
+            InstKind::BinOp(BinOp::Shl | BinOp::AShr | BinOp::LShr, _, Operand::ConstI64(n))
+                if *n >= 32 =>
+            {
+                false
+            }
+            // a number; the lowering boxes a NaN answer as the
+            // canonical NaN, not with the operands' payload
+            InstKind::BinOp(
+                BinOp::FAdd | BinOp::FSub | BinOp::FMul | BinOp::FDiv | BinOp::FRem,
+                _,
+                _,
+            ) => false,
             InstKind::Load(ty, _, _) => {
                 !matches!(ty, Type::I64 | Type::I32 | Type::F64 | Type::Bool)
             }

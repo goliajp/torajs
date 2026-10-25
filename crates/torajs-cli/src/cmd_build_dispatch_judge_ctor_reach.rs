@@ -20,8 +20,8 @@
 //! `Reflect.get(o, "constructor")`, a destructuring pattern), or
 //! computes a key at run time and reads with it, or reads the
 //! descriptor bag that holds the value under that key. The scan
-//! answers true for the last two, and for a spelled key unless every
-//! answer it reads stays with benign uses
+//! answers true for a descriptor bag, and for a spelled or a run-time
+//! key unless every answer read with it stays with benign uses
 //! ([`crate::cmd_build_dispatch_judge_ctor_uses`]).
 //!
 //! The other runtime handout is a class heritage: `class A extends
@@ -39,9 +39,9 @@
 
 use std::collections::HashSet;
 
-use torajs_core::ssa::{InstKind, Module, Operand, Type};
+use torajs_core::ssa::{Function, InstKind, Module, Operand, Type, ValueId};
 
-use crate::cmd_build_dispatch_judge_ctor_uses::KEYED_READERS;
+use crate::cmd_build_dispatch_judge_ctor_uses::{GOPD, KEYED_READERS};
 
 /// Readers that hand out every own property or answer a constructor
 /// directly — any call may surface a constructor cell.
@@ -72,29 +72,8 @@ pub(crate) fn ctor_cell_reachable(module: &Module, live: &[bool], diag: bool) ->
             }
             return true;
         }
-        // values that cannot be a runtime "constructor": string
-        // literals (judged above), boxed scalars (`box_any` tags other
-        // than 4, the heap pointer), and symbols and their boxes (a
-        // symbol key is its own property key, never a string)
-        let symbol =
-            |op: &Operand| matches!(op, Operand::Value(v) if f.value_type(*v) == Type::Symbol);
-        let mut fixed_keys = HashSet::new();
-        for b in &f.blocks {
-            for inst in &b.insts {
-                let fixed = match &inst.kind {
-                    InstKind::StaticStrRef(_) | InstKind::StringRef(_) => true,
-                    InstKind::BoxAny(tag, v) => *tag != 4 || symbol(v),
-                    InstKind::Call(fid, args) => {
-                        module.funcs[fid.0 as usize].name == "__torajs_anyv_box_from_pair"
-                            && args.get(1).is_some_and(symbol)
-                    }
-                    _ => false,
-                };
-                if let (true, Some(r)) = (fixed, inst.result) {
-                    fixed_keys.insert(r);
-                }
-            }
-        }
+        let fixed_keys = fixed_keys(module, f);
+        let mut answers = HashSet::new();
         for b in &f.blocks {
             for inst in &b.insts {
                 let InstKind::Call(fid, args) = &inst.kind else {
@@ -109,19 +88,65 @@ pub(crate) fn ctor_cell_reachable(module: &Module, live: &[bool], diag: bool) ->
                     }
                     return true;
                 }
-                let open = OPEN_READERS.contains(&name)
-                    || (KEYED_READERS.contains(&name)
-                        && !args.get(1).is_some_and(|k| {
-                            symbol(k) || matches!(k, Operand::Value(v) if fixed_keys.contains(v))
-                        }));
-                if open {
+                let runtime_key = KEYED_READERS.contains(&name)
+                    && !args.get(1).is_some_and(|k| {
+                        symbol(f, k) || matches!(k, Operand::Value(v) if fixed_keys.contains(v))
+                    });
+                // a descriptor bag holds the constructor under `value`,
+                // which a fixed-key read then takes out
+                if OPEN_READERS.contains(&name) || (runtime_key && name == GOPD) {
                     if diag {
                         eprintln!("[judge] ns-world: {} calls {name}", f.name);
                     }
                     return true;
                 }
+                if runtime_key {
+                    answers.extend(inst.result);
+                }
             }
+        }
+        if answers.is_empty() {
+            continue;
+        }
+        if let Some(why) =
+            crate::cmd_build_dispatch_judge_ctor_uses::runtime_key_escape(module, f, answers)
+        {
+            if diag {
+                eprintln!(
+                    "[judge] ns-world: {} reads a runtime key into {why}",
+                    f.name
+                );
+            }
+            return true;
         }
     }
     false
+}
+
+/// True for a symbol: a symbol key is its own property key, never the
+/// string `"constructor"`.
+fn symbol(f: &Function, op: &Operand) -> bool {
+    matches!(op, Operand::Value(v) if f.value_type(*v) == Type::Symbol)
+}
+
+/// The values of `f` that cannot be a runtime `"constructor"`: string
+/// literals (judged by the literal walk), boxed scalars (`box_any` tags
+/// other than 4, the heap pointer), and the boxes of symbols.
+fn fixed_keys(module: &Module, f: &Function) -> HashSet<ValueId> {
+    let mut fixed_keys = HashSet::new();
+    for inst in f.blocks.iter().flat_map(|b| &b.insts) {
+        let fixed = match &inst.kind {
+            InstKind::StaticStrRef(_) | InstKind::StringRef(_) => true,
+            InstKind::BoxAny(tag, v) => *tag != 4 || symbol(f, v),
+            InstKind::Call(fid, args) => {
+                module.funcs[fid.0 as usize].name == "__torajs_anyv_box_from_pair"
+                    && args.get(1).is_some_and(|k| symbol(f, k))
+            }
+            _ => false,
+        };
+        if let (true, Some(r)) = (fixed, inst.result) {
+            fixed_keys.insert(r);
+        }
+    }
+    fixed_keys
 }

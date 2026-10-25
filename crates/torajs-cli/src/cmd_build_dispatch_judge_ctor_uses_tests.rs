@@ -1,12 +1,17 @@
 //! `ctor_read_escape` over hand-built functions: each reads
 //! `o.constructor` through the member-get pair and then does one
-//! thing with the answer.
+//! thing with the answer. `runtime_key_escape` the same way over a
+//! dictionary read keyed at run time.
+
+use std::collections::HashSet;
 
 use torajs_core::ssa::{
-    BlockId, FuncId, Function, Inst, InstKind, Module, Operand, Terminator, Type, ValueId,
+    BinOp, BlockId, FuncId, Function, Inst, InstKind, Module, Operand, Terminator, Type, ValueId,
 };
 
-use crate::cmd_build_dispatch_judge_ctor_uses::{ctor_key_ids, ctor_read_escape};
+use crate::cmd_build_dispatch_judge_ctor_uses::{
+    ctor_key_ids, ctor_read_escape, runtime_key_escape,
+};
 
 struct Fixture {
     m: Module,
@@ -211,4 +216,77 @@ fn a_descriptor_bag_read_escapes() {
         Type::I64,
     );
     assert!(x.escape(None).is_some());
+}
+
+/// `d[k]` with `k` a parameter: the dictionary read the typed lane
+/// emits, keyed by a string computed at run time.
+fn runtime_read() -> (Fixture, ValueId) {
+    let mut x = Fixture::new();
+    let d = x.f.add_param(Type::Any, "d");
+    let k = x.f.add_param(Type::Str, "k");
+    let args = vec![Operand::Value(d), Operand::Value(k)];
+    let v = x.call("__torajs_dynobj_dict_get", args, Type::Any);
+    (x, v)
+}
+
+fn runtime_escape(mut x: Fixture, v: ValueId, ret: ValueId) -> Option<String> {
+    x.f.set_term(x.b, Terminator::Ret(Some(Operand::Value(ret))));
+    runtime_key_escape(&x.m, &x.f, HashSet::from([v]))
+}
+
+fn bin(x: &mut Fixture, op: BinOp, l: ValueId, r: Operand) -> ValueId {
+    let kind = InstKind::BinOp(op, Operand::Value(l), r);
+    x.f.append_inst(x.b, kind, Type::I64, None)
+}
+
+#[test]
+fn a_runtime_key_answer_added_or_stringified_stays_benign() {
+    let (mut x, v) = runtime_read();
+    let tag = x.call(
+        "__torajs_anyv_unbox_tag",
+        vec![Operand::Value(v)],
+        Type::I64,
+    );
+    let val = x.call(
+        "__torajs_anyv_unbox_value",
+        vec![Operand::Value(v)],
+        Type::I64,
+    );
+    let pair = vec![Operand::Value(tag), Operand::Value(val)];
+    let mut add = pair.clone();
+    add.extend([Operand::ConstI64(2), Operand::ConstI64(1)]);
+    let sum = x.call("__torajs_anyv_add_pair", add, Type::Any);
+    let settle = vec![Operand::Value(v), Operand::Value(val)];
+    x.call("__torajs_anyv_unbox_settle", settle, Type::Void);
+    let s = x.call("__torajs_anyv_to_str_pair_prim", pair, Type::Str);
+    x.call("user_fn", vec![Operand::Value(s)], Type::Any);
+    assert_eq!(runtime_escape(x, v, sum), None);
+}
+
+#[test]
+fn a_runtime_key_answer_decoded_as_a_number_stays_benign() {
+    // the int32 payload: the low 32 bits, sign-extended
+    let (mut x, v) = runtime_read();
+    let hi = bin(&mut x, BinOp::Shl, v, Operand::ConstI64(32));
+    let lo = bin(&mut x, BinOp::AShr, hi, Operand::ConstI64(32));
+    let n = bin(&mut x, BinOp::Add, lo, Operand::ConstI64(1));
+    assert_eq!(runtime_escape(x, v, n), None);
+    let (mut x, v) = runtime_read();
+    let n = bin(&mut x, BinOp::FAdd, v, Operand::Value(v));
+    assert_eq!(runtime_escape(x, v, n), None);
+}
+
+#[test]
+fn a_runtime_key_answer_kept_as_a_cell_escapes() {
+    // masking keeps the payload, which is the cell address
+    let (mut x, v) = runtime_read();
+    let p = bin(&mut x, BinOp::And, v, Operand::ConstI64(0xffff_ffff_ffff));
+    assert!(runtime_escape(x, v, p).is_some());
+    let (mut x, v) = runtime_read();
+    let p = bin(&mut x, BinOp::Shl, v, Operand::ConstI64(16));
+    assert!(runtime_escape(x, v, p).is_some());
+    let (mut x, v) = runtime_read();
+    x.call("user_fn", vec![Operand::Value(v)], Type::Any);
+    let n = bin(&mut x, BinOp::Add, v, Operand::ConstI64(0));
+    assert!(runtime_escape(x, v, n).is_some());
 }
