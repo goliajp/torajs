@@ -28,6 +28,15 @@ pub(crate) fn check(
     body: &Stmt,
 ) {
     checker.scopes.push(HashMap::new());
+    // the head's lexical bindings exist before its initializer runs, so
+    // a closure there may name one declared after it
+    let saved_hoists = crate::check_hoist_closure_lets::enter(
+        checker,
+        ast,
+        init.as_deref()
+            .map(std::slice::from_ref)
+            .unwrap_or_default(),
+    );
     if let Some(i) = init {
         checker.check_stmt(ast, i);
     }
@@ -53,4 +62,5 @@ pub(crate) fn check(
     }
     checker.check_stmt(ast, body);
     checker.scopes.pop();
+    checker.hoisted_closure_lets = saved_hoists;
 }

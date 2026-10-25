@@ -38,8 +38,9 @@ pub(super) struct PerIterVar {
     body_copy: bool,
 }
 
-/// The head names a closure in the loop captures, and those of them a
-/// closure the initializer makes captures.
+/// The head names a closure in the loop captures, and the lexical ones
+/// (`let` or `const`) a closure the initializer makes captures, which
+/// keep their box through the initializer.
 pub(super) fn per_iter_candidates(
     ctx: &LowerCtx,
     init: Option<&Stmt>,
@@ -47,12 +48,8 @@ pub(super) fn per_iter_candidates(
     fn decls<'a>(s: &'a Stmt, out: &mut Vec<(bool, &'a String, ExprId)>) {
         match s {
             Stmt::LetDecl {
-                mutable,
-                is_var,
-                name,
-                init,
-                ..
-            } => out.push((*mutable && !*is_var, name, *init)),
+                is_var, name, init, ..
+            } => out.push((!*is_var, name, *init)),
             Stmt::Multi(v) => v.iter().for_each(|s| decls(s, out)),
             _ => {}
         }

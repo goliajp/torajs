@@ -50,6 +50,7 @@ pub(crate) fn lower(
     // initializer makes captures keeps its box through the initializer
     // (that closure sees the head's own binding, §14.7.4.4), and the
     // loop then starts from its value.
+    crate::ssa_lower_stmt_let_decl_recursive::hoist_forward_boxes(ctx, init.into_iter());
     let (candidates, in_init) = periter::per_iter_candidates(ctx, init);
     for name in candidates.iter().filter(|n| !in_init.contains(n)) {
         ctx.escape_captured_lets.remove(name);

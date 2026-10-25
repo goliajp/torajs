@@ -48,8 +48,15 @@ pub(super) fn descend(ast: &mut Ast, s: &mut Stmt, counter: &mut usize) {
         | Stmt::ForOf { body, .. }
         | Stmt::ForOfSplitIter { body, .. } => descend(ast, body, counter),
         Stmt::For { init, body, .. } => {
+            // the head's declarations are a list of their own: a closure
+            // one of them makes may run before a later one has
             if let Some(i) = init {
-                descend(ast, i, counter);
+                let mut head = vec![std::mem::replace(&mut **i, Stmt::Multi(Vec::new()))];
+                flag_list(ast, &mut head, counter);
+                **i = match head.len() {
+                    1 => head.pop().expect("one head statement"),
+                    _ => Stmt::Multi(head),
+                };
             }
             descend(ast, body, counter);
         }
