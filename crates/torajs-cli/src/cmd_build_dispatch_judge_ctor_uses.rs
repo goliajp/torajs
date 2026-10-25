@@ -25,7 +25,7 @@ use crate::cmd_build_dispatch_judge_ctor_walk::Walk;
 pub(crate) const GOPD: &str = "__torajs_anyv_get_property_descriptor";
 
 /// Readers whose operand 0 is the receiver and operand 1 the key.
-pub(crate) const KEYED_READERS: [&str; 9] = [
+pub(crate) const KEYED_READERS: [&str; 12] = [
     "__torajs_any_member_get_tag",
     "__torajs_any_member_get_value",
     "__torajs_any_member_get_with_receiver",
@@ -39,7 +39,18 @@ pub(crate) const KEYED_READERS: [&str; 9] = [
     // typed array `xs.<name>`: the own expando, then the
     // Array.prototype chain (`xs.constructor` answers Array)
     "__torajs_arr_member_value",
+    // `super[k]`, `super[k](…)`, `super[k]?.(…)`: the read starts at
+    // the home object's [[Prototype]] (operand 0), whose chain may hold
+    // %Object.prototype% and its `constructor`; the calls answer what
+    // the method read returns
+    SUPER_PROP_GET,
+    SUPER_PROP_CALL,
+    SUPER_PROP_OPT_CALL,
 ];
+
+pub(crate) const SUPER_PROP_GET: &str = "__torajs_anyv_super_prop_get";
+pub(crate) const SUPER_PROP_CALL: &str = "__torajs_anyv_super_prop_call";
+pub(crate) const SUPER_PROP_OPT_CALL: &str = "__torajs_anyv_super_prop_opt_call";
 
 const CTOR_KEY: &[u8] = b"constructor";
 

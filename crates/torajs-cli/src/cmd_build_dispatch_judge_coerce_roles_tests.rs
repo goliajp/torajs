@@ -114,34 +114,98 @@ fn every_declared_entry_is_in_exactly_one_table() {
     );
 }
 
-#[test]
-fn every_decl_macro_name_is_in_exactly_one_table() {
-    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../torajs-core/src");
-    let mut names = BTreeSet::new();
-    for entry in std::fs::read_dir(dir).expect("core sources") {
+/// Every `.rs` file under `dir`, recursively.
+fn sources(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+    for entry in std::fs::read_dir(dir).expect("source dir") {
         let path = entry.expect("dir entry").path();
-        let file = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or_default();
-        if !(file.starts_with("ssa_lower_intrinsics") && file.ends_with(".rs")) {
-            continue;
+        if path.is_dir() {
+            sources(&path, out);
+        } else if path.extension().is_some_and(|e| e == "rs") {
+            out.push(path);
         }
-        let src = std::fs::read_to_string(&path).expect("source");
+    }
+}
+
+/// The text of the call whose argument list opens `piece`, up to its
+/// closing parenthesis, split at its top-level commas.
+fn call_args(piece: &str) -> Vec<&str> {
+    let (mut depth, mut from, mut args) = (0usize, 0, Vec::new());
+    let mut in_str = false;
+    for (i, c) in piece.char_indices() {
+        match c {
+            '"' => in_str = !in_str,
+            _ if in_str => {}
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' if depth == 0 => {
+                args.push(piece[from..i].trim());
+                return args;
+            }
+            ')' | ']' | '}' => depth -= 1,
+            ',' if depth == 0 => {
+                args.push(piece[from..i].trim());
+                from = i + 1;
+            }
+            _ => {}
+        }
+    }
+    args
+}
+
+/// The entry name an argument spells: a string literal, or a `const`
+/// of the same file holding one. None for a name passed in at run
+/// time (a helper's parameter).
+fn entry_name(arg: &str, src: &str) -> Option<String> {
+    if let Some(rest) = arg.strip_prefix('"') {
+        return Some(rest.split('"').next().unwrap_or_default().to_string());
+    }
+    let decl = format!("const {arg}: &str = \"");
+    let at = src.find(&decl)? + decl.len();
+    Some(src[at..].split('"').next().unwrap_or_default().to_string())
+}
+
+#[test]
+fn every_declare_intrinsic_and_decl_macro_name_is_in_exactly_one_table() {
+    let mut files = Vec::new();
+    sources(
+        std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../torajs-core/src")),
+        &mut files,
+    );
+    let (mut names, mut calls) = (BTreeSet::new(), 0);
+    for path in &files {
+        let src = std::fs::read_to_string(path).expect("source");
+        for piece in src.split("declare_intrinsic(").skip(1) {
+            // the definition's own parameter list
+            if piece.trim_start().starts_with("module: &mut Module") {
+                continue;
+            }
+            calls += 1;
+            if let Some(name) = call_args(piece).get(2).and_then(|a| entry_name(a, &src)) {
+                names.insert(name);
+            }
+        }
         for piece in src.split("decl!(").skip(1) {
-            let piece = piece.trim_start();
-            if let Some(rest) = piece.strip_prefix('"') {
-                names.insert(rest.split('"').next().unwrap_or_default().to_string());
+            if let Some(name) = call_args(piece).first().and_then(|a| entry_name(a, &src)) {
+                names.insert(name);
             }
         }
     }
-    assert!(names.len() > 200, "only {} decl! names", names.len());
+    assert!(calls > 300, "only {calls} declare_intrinsic calls");
+    assert!(names.len() > 600, "only {} declared names", names.len());
     let bad = misfiled(&names);
     assert!(
         bad.is_empty(),
         "classify each entry in one table:\n{}",
         bad.join("\n")
     );
+}
+
+#[test]
+fn the_inert_table_holds_only_entry_names() {
+    // a stray `\n`, tab or punctuation would split or glue entries
+    assert!(INERT_RUNTIME.split(' ').all(|e| {
+        e.bytes()
+            .all(|c| matches!(c, b'a'..=b'z' | b'0'..=b'9' | b'_'))
+    }),);
 }
 
 #[test]

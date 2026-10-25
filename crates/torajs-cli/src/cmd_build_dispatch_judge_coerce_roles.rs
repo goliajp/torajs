@@ -3,8 +3,9 @@
 //! program function is scanned on its own, so a call of one does
 //! nothing at the call. Every runtime entry is listed in exactly one
 //! table here or in [`crate::cmd_build_dispatch_judge_coerce_inert`]
-//! (a test lowers a program and checks each declaration), and an
-//! entry no table lists answers [`Role::Installer`].
+//! (tests lower a program and scan the core sources for every
+//! declaration), and an entry no table lists answers
+//! [`Role::Installer`].
 
 use torajs_core::ssa::Function;
 
@@ -64,7 +65,7 @@ pub(crate) const READERS_MORE: [&str; 2] =
     ["__torajs_any_member_get_pair", "__torajs_in_op_any_str"];
 
 /// Keyed writes: (entry, key operand, value operand when one `any`).
-pub(crate) const KEYED_WRITERS: [(&str, usize, Option<usize>); 25] = [
+pub(crate) const KEYED_WRITERS: [(&str, usize, Option<usize>); 26] = [
     ("__torajs_any_index_method_call", 1, None),
     ("__torajs_any_index_set_keyed", 1, None),
     ("__torajs_any_index_set_keyed_soft", 1, None),
@@ -77,6 +78,9 @@ pub(crate) const KEYED_WRITERS: [(&str, usize, Option<usize>); 25] = [
     ("__torajs_anyv_super_prop_update", 1, None),
     ("__torajs_arr_define", 1, None),
     ("__torajs_arrprops_set", 1, None),
+    // a constructor that returns another object carries each own
+    // element of the mint onto it by name
+    ("__torajs_ctor_ret_carry", 2, None),
     // `defineProperty(o, key, desc)`: an accessor under a fixed key
     // other than a hook's is never Got by ToPrimitive
     ("__torajs_dynobj_define", 1, None),

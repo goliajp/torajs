@@ -58,6 +58,9 @@ const OPEN_READERS: [&str; 2] = [
 /// in the slot its third operand points at.
 const GET_PAIR: &str = "__torajs_any_member_get_pair";
 
+/// The box a literal key takes into the any world (`super.m`).
+pub(crate) const BOX_STR: &str = "__torajs_anyv_box_str_slot";
+
 /// The class register entry and the operand index of its builtin
 /// parent tag (`-1` when the heritage is not a builtin).
 const CLASS_REGISTER: (&str, usize) = ("__torajs_anyv_class_register", 4);
@@ -194,18 +197,28 @@ fn symbol(f: &Function, op: &Operand) -> bool {
 }
 
 /// The values of `f` that cannot be a runtime `"constructor"`: string
-/// literals (judged by the literal walk), boxed scalars (`box_any` tags
-/// other than 4, the heap pointer), and the boxes of symbols.
+/// literals and their boxes (both judged by the literal walk, which
+/// takes the box as an escape of the literal), boxed scalars
+/// (`box_any` tags other than 4, the heap pointer), the boxes of
+/// symbols, and the any constants (a number, or a string of at most
+/// five bytes held in the box itself).
 fn fixed_keys(module: &Module, f: &Function) -> HashSet<ValueId> {
+    let insts = || f.blocks.iter().flat_map(|b| &b.insts);
+    let lits: HashSet<ValueId> = (insts())
+        .filter(|i| matches!(i.kind, InstKind::StaticStrRef(_) | InstKind::StringRef(_)))
+        .filter_map(|i| i.result)
+        .collect();
     let mut fixed_keys = HashSet::new();
-    for inst in f.blocks.iter().flat_map(|b| &b.insts) {
+    for inst in insts() {
         let fixed = match &inst.kind {
             InstKind::StaticStrRef(_) | InstKind::StringRef(_) => true,
             InstKind::BoxAny(tag, v) => *tag != 4 || symbol(f, v),
-            InstKind::Call(fid, args) => {
-                module.funcs[fid.0 as usize].name == "__torajs_anyv_box_from_pair"
-                    && args.get(1).is_some_and(|k| symbol(f, k))
-            }
+            InstKind::IntToPtr(Operand::ConstI64(_)) => true,
+            InstKind::Call(fid, args) => match module.funcs[fid.0 as usize].name.as_str() {
+                "__torajs_anyv_box_from_pair" => args.get(1).is_some_and(|k| symbol(f, k)),
+                BOX_STR => matches!(args.first(), Some(Operand::Value(v)) if lits.contains(v)),
+                _ => false,
+            },
             _ => false,
         };
         if let (true, Some(r)) = (fixed, inst.result) {

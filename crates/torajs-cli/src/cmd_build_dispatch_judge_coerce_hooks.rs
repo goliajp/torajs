@@ -24,6 +24,15 @@
 //! never callable, and a `__proto__` write of one changes nothing,
 //! B.2.2.1.2 step 4).
 //!
+//! A reader is fixed whatever its key: reading installs nothing, and
+//! when a run-time key names a definer, the answer still has to be
+//! called to install anything. The premise rests on
+//! [`crate::cmd_build_dispatch_judge_ctor_reach`] following every
+//! answer of a read with a run-time key: a call of one keeps the
+//! statics whatever this premise says. The readers that hand the
+//! `__proto__` setter out inside a descriptor, or call what they read
+//! (`super[k](…)`), take a literal key only.
+//!
 //! What each callee can do is read off
 //! [`crate::cmd_build_dispatch_judge_coerce_roles`].
 
@@ -34,7 +43,10 @@ use torajs_core::ssa::{Function, InstKind, Module, Operand, ValueId};
 
 use crate::cmd_build_dispatch_judge_coerce_defs::Defs;
 use crate::cmd_build_dispatch_judge_coerce_roles::{Role, role};
-use crate::cmd_build_dispatch_judge_ctor_uses::{GOPD, Use, use_lists};
+use crate::cmd_build_dispatch_judge_ctor_reach::BOX_STR;
+use crate::cmd_build_dispatch_judge_ctor_uses::{
+    GOPD, SUPER_PROP_CALL, SUPER_PROP_OPT_CALL, Use, use_lists,
+};
 
 /// The string keys a hook is installed under. `@@toPrimitive` needs
 /// no entry: a symbol key is never a string literal, so a write under
@@ -63,6 +75,29 @@ impl HookPremise {
     pub(crate) fn holds(&self, module: &Module, live: &[bool], diag: bool) -> bool {
         *self.0.get_or_init(|| hooks_fixed(module, live, diag))
     }
+}
+
+/// Readers that take only a literal key. A descriptor read hands out
+/// the `__proto__` setter as its `set`, and a `super[k](…)` call calls
+/// what it reads, a definer included, before any use of its answer
+/// is seen.
+const LITERAL_KEY_READERS: [&str; 3] = [GOPD, SUPER_PROP_CALL, SUPER_PROP_OPT_CALL];
+
+/// The boxes of `f`'s string literals, and its any constants: a
+/// number, or a string of at most five bytes held in the box itself,
+/// shorter than every hook and definer key.
+fn boxed_literals(module: &Module, f: &Function, lits: &HashMap<ValueId, u32>) -> HashSet<ValueId> {
+    (f.blocks.iter().flat_map(|b| &b.insts))
+        .filter(|i| match &i.kind {
+            InstKind::IntToPtr(Operand::ConstI64(_)) => true,
+            InstKind::Call(fid, args) => {
+                module.funcs[fid.0 as usize].name == BOX_STR
+                    && matches!(args.as_slice(), [Operand::Value(v)] if lits.contains_key(v))
+            }
+            _ => false,
+        })
+        .filter_map(|i| i.result)
+        .collect()
 }
 
 /// The literals of a function that spell a hook or a definer key.
@@ -111,19 +146,24 @@ fn function_fixed(
         }
     }
     let defs = OnceCell::new();
+    let boxed = OnceCell::new();
     for inst in f.blocks.iter().flat_map(|b| &b.insts) {
         let InstKind::Call(fid, args) = &inst.kind else {
             continue;
         };
         let callee = &module.funcs[fid.0 as usize];
         let role = *roles[fid.0 as usize].get_or_insert_with(|| role(callee));
-        let literal =
-            |at: usize| matches!(args.get(at), Some(Operand::Value(k)) if lits.contains_key(k));
+        // a literal, its box or an any constant: the literal walk
+        // below takes the box as a use no hook or definer literal may
+        // have
+        let literal = |at: usize| {
+            matches!(args.get(at), Some(Operand::Value(k))
+                if lits.contains_key(k)
+                    || boxed.get_or_init(|| boxed_literals(module, f, &lits)).contains(k))
+        };
         let fixed = match role {
             Role::Inert | Role::Fresh => true,
-            // the `__proto__` setter is a descriptor's `set`, and a
-            // run-time key may name `__proto__`
-            Role::Reader => callee.name != GOPD || literal(1),
+            Role::Reader => !LITERAL_KEY_READERS.contains(&callee.name.as_str()) || literal(1),
             Role::MethodCall { mid } => matches!(
                 args.get(mid),
                 Some(Operand::ConstI64(m))
