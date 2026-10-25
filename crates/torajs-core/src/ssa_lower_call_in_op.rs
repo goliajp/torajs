@@ -33,7 +33,7 @@ use crate::ast::{Expr, ExprId};
 use crate::ssa::{IPred, InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
-mod absent_in;
+pub(crate) mod absent_in;
 mod priv_in;
 pub(crate) use priv_in::try_lower_priv;
 

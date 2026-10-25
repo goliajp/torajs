@@ -70,7 +70,7 @@ pub(super) fn absent_member_in(
 
 /// The C symbol of torajs-rc's builtin prototype slots, one pointer per
 /// tag, 0 until the singleton is minted.
-const BUILTIN_PROTO_SLOTS_SYM: &str = "___torajs_builtin_proto_slots";
+pub(crate) const BUILTIN_PROTO_SLOTS_SYM: &str = "___torajs_builtin_proto_slots";
 
 /// HasProperty of `k` past the own face of the struct cell `obj`, which
 /// lacks the declared member: the rest of the chain. Leaves `cur_block`

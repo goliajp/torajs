@@ -45,6 +45,15 @@
 //!    joins: the slot of a pointer element is NULL only where the
 //!    program grew an array past a gap and reads the gap.
 //!
+//! 8. **Prototype slot probe** — `icmp eq|ne (ptrtoint (load
+//!    (global_ref BUILTIN_PROTO_SLOTS) +off)), 0`: the slot holds a
+//!    builtin's prototype once something forced the mint (a read of
+//!    `X.prototype`, a patch of it, a dispatch miss) and 0 until then,
+//!    so the minted arm, which goes on to read the prototype before
+//!    deciding on the walk, is the one a program that never reaches
+//!    for the prototype never takes (the `in` operator's check past the
+//!    own face of a plain object literal).
+//!
 //! Every other branch predicts nothing, and nothing splits on it: the
 //! lowerer emits many conditionals no rule reads (loop versioning on a
 //! combination of header bits, fused guards), and splitting those
@@ -66,6 +75,7 @@ use std::cell::OnceCell;
 use crate::ssa::{
     BinOp, BlockId, Function, IPred, InstKind, Operand, THROW_ACTIVE_SYM, Terminator, ValueId,
 };
+use crate::ssa_lower_call_in_op::absent_in::BUILTIN_PROTO_SLOTS_SYM;
 
 mod bounds;
 mod defs;
@@ -133,6 +143,8 @@ pub fn cold_arms(func: &Function) -> Vec<(BlockId, BlockId, f64)> {
             Some((calling_arm(), P_SLOW_PATH))
         } else if let Some(oob) = cond.and_then(|c| out_of_bounds_arm(c, &defs, &in_cell, t, e)) {
             Some((oob, P_SLOW_PATH))
+        } else if let Some(minted) = cond.and_then(|c| minted_arm(c, &defs, t, e)) {
+            Some((minted, P_SLOW_PATH))
         } else if cond.is_some_and(|c| is_boxed_guard(c, &defs, 1)) && one_calls() {
             Some((calling_arm(), P_SLOW_PATH))
         } else if cond.is_some_and(|c| is_int_pair_test(c, &defs)) {
@@ -273,6 +285,26 @@ fn is_boxed_guard(cond: &InstKind, defs: &Defs, depth: u32) -> bool {
     }
 }
 
+/// The arm a prototype slot probe takes once the prototype is minted:
+/// `cond` is `icmp eq|ne (ptrtoint (load (global_ref
+/// BUILTIN_PROTO_SLOTS) +off)), 0`, the `ne` side.
+fn minted_arm(cond: &InstKind, defs: &Defs, t: BlockId, e: BlockId) -> Option<BlockId> {
+    let InstKind::ICmp(pred @ (IPred::Eq | IPred::Ne), bits, zero) = cond else {
+        return None;
+    };
+    if !is_zero(zero) {
+        return None;
+    }
+    let Some(InstKind::PtrToInt(slot)) = value_def(bits, defs) else {
+        return None;
+    };
+    let Some(InstKind::Load(_, slots, _)) = value_def(slot, defs) else {
+        return None;
+    };
+    let probe = matches!(value_def(slots, defs), Some(InstKind::GlobalRef(s)) if s == BUILTIN_PROTO_SLOTS_SYM);
+    probe.then(|| if *pred == IPred::Ne { t } else { e })
+}
+
 /// `and (icmp eq (lshr (ptrtoint a), 48), K), (icmp eq (lshr (ptrtoint b), 48), K)`.
 fn is_int_pair_test(cond: &InstKind, defs: &Defs) -> bool {
     let not_a_call_answer = |w: &Operand| match value_def(w, defs) {
@@ -365,6 +397,40 @@ mod tests {
             block(3, vec![], Terminator::Ret(None)),
         ]);
         assert_eq!(cold_arms(&f), vec![(BlockId(0), BlockId(2), P_SLOW_PATH)]);
+    }
+
+    /// The null test of a builtin prototype slot: the minted arm is
+    /// cold whether or not anything on it calls; the same load of
+    /// any other table predicts nothing.
+    #[test]
+    fn the_minted_arm_of_a_prototype_slot_probe_is_cold() {
+        let probe = |sym: &str, pred| {
+            vec![
+                inst(0, InstKind::GlobalRef(sym.to_string())),
+                inst(1, InstKind::Load(Type::Ptr, v(0), 8)),
+                inst(2, InstKind::PtrToInt(v(1))),
+                inst(3, InstKind::ICmp(pred, v(2), Operand::ConstI64(0))),
+            ]
+        };
+        let shape = |test| {
+            func(vec![
+                block(0, test, cond_br(3, 1, 2)),
+                block(1, vec![], Terminator::Br(BlockId(3))),
+                block(2, vec![], Terminator::Br(BlockId(3))),
+                block(3, vec![], Terminator::Ret(None)),
+            ])
+        };
+        let minted = shape(probe(BUILTIN_PROTO_SLOTS_SYM, IPred::Ne));
+        assert_eq!(
+            cold_arms(&minted),
+            vec![(BlockId(0), BlockId(1), P_SLOW_PATH)]
+        );
+        let flipped = shape(probe(BUILTIN_PROTO_SLOTS_SYM, IPred::Eq));
+        assert_eq!(
+            cold_arms(&flipped),
+            vec![(BlockId(0), BlockId(2), P_SLOW_PATH)]
+        );
+        assert!(cold_arms(&shape(probe(THROW_ACTIVE_SYM, IPred::Ne))).is_empty());
     }
 
     /// The nullish check in front of a property read: the arm calls the
