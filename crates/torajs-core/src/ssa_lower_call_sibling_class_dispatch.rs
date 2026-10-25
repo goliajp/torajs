@@ -187,7 +187,6 @@ pub(crate) fn try_lower(
     }
     let ret_ty = ctx.f_ret_type_hint(fid);
     let cur_block = ctx.cur_block;
-    let slotted = slot.is_some() && ctx.fn_sig_ids.contains_key(&fid);
     let (v, may_throw) = match (slot, ctx.fn_sig_ids.get(&fid).copied()) {
         (Some(idx), Some(sig_id)) => (
             crate::ssa_lower_call_vtable_dispatch::emit_vtable_call(ctx, idx, sig_id, ret_ty, argv),
@@ -208,10 +207,6 @@ pub(crate) fn try_lower(
     };
     if may_throw {
         ctx.emit_throw_check(None);
-    } else if slotted {
-        ctx.proofs.log_slot_call(&ctx.f.name);
-    } else {
-        ctx.proofs.log_call(&ctx.f.name, fn_name);
     }
     for t in arg_toks {
         ctx.pop_throw_temp(t);

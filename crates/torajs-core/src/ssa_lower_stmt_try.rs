@@ -70,6 +70,7 @@
 
 use crate::ast::Stmt;
 use crate::ssa::{BlockId, InstKind, Operand, Terminator};
+use crate::ssa_lower::proofs::catch::{BodyStart, CallNames};
 use crate::ssa_lower::{LocalInfo, LowerCtx};
 use crate::ssa_lower_scope_exit::ExitTarget;
 
@@ -132,13 +133,14 @@ pub(crate) fn lower(
     // exactly as `ssa_lower_stmt_block::lower` does for a bare block.
     crate::ssa_lower_stmt_let_decl_recursive::hoist_forward_boxes(ctx, body.iter());
     let saved = ctx.proofs.region_enter();
-    let body_mark = ctx.proofs.raise_mark(&ctx.f.name);
+    let body_start = ctx.proofs.body_start(ctx.f, ctx.cur_block);
     for s in body {
         ctx.lower_stmt(s);
         if !ctx.cur_open() {
             break;
         }
     }
+    let body_code = (body_start, ctx.f.blocks.len());
     ctx.proofs.region_leave(&saved);
     // Fall-through closes the body frame like any block: drop its
     // owners, remove them from `locals` (the fn-exit / finally-tail
@@ -161,7 +163,7 @@ pub(crate) fn lower(
         }
         lower_catch(
             ctx,
-            (catch_blk, body_mark),
+            (catch_blk, body_code),
             catch_param,
             catch_type,
             catch_body,
@@ -184,7 +186,7 @@ pub(crate) fn lower(
 #[allow(clippy::too_many_arguments)]
 fn lower_catch(
     ctx: &mut LowerCtx,
-    (catch_blk, body_mark): (BlockId, usize),
+    (catch_blk, (start, end)): (BlockId, (BodyStart, usize)),
     catch_param: Option<&String>,
     catch_type: Option<&String>,
     catch_body: &[Stmt],
@@ -206,10 +208,17 @@ fn lower_catch(
         });
     }
     // an unannotated parameter the program-wide throw analysis typed,
-    // when the checks the body lowered to agree (`proofs::catch`)
+    // when the calls the body lowered to agree (`proofs::catch`)
+    let names = CallNames {
+        fn_table: ctx.fn_table,
+        drops: ctx.class_drop_fids,
+    };
     let inferred = match (catch_param, catch_type) {
         (Some(p), None) => (ctx.proofs.catch_type(ctx.ast, catch_body, p))
-            .filter(|(_, want)| ctx.proofs.raises_confirm(&ctx.f.name, body_mark, want))
+            .filter(|(_, want)| {
+                let body = (&*ctx.f, start, end);
+                ctx.proofs.body_raises_only(body, &names, want)
+            })
             .map(|(ann, _)| ann.clone()),
         _ => None,
     };

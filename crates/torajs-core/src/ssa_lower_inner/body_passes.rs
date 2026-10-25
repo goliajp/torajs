@@ -12,6 +12,7 @@ use crate::ast::{Ast, ExprId, GenericStructDecls, PropKey, Stmt};
 use crate::num_width::WidthTable;
 use crate::ssa::{self, BakedRegexEntry, FuncId, Module, Type};
 use crate::ssa_lower::Intrinsics;
+use crate::ssa_lower::proofs::catch::CallNames;
 use crate::ssa_lower_fn::async_setup;
 
 #[allow(clippy::too_many_arguments)]
@@ -53,8 +54,8 @@ pub(crate) fn run(
     boxed_entries: &HashMap<FuncId, (FuncId, ssa::SigId)>,
     scans: crate::ssa_lower_ctx_state::ModuleScans,
 ) -> crate::ssa_lower_emit_drop_value::class_drop_fill::DropHooks {
-    // Pass 2: user FnDecl bodies; each body's interned strings go to
-    // module.strings at once, so StringIds stay in step with its length.
+    let names = CallNames::new(fn_table, class_drop_fids);
+    // Pass 2: user FnDecl bodies, each one's strings appended to module.strings at once.
     for (stmt_idx, fid) in decl_indices {
         if let Stmt::FnDecl {
             name,
@@ -102,7 +103,7 @@ pub(crate) fn run(
                 boxed_entries,
                 &scans,
             );
-            facts.catch.mark_lowered(name);
+            facts.catch.record_body(name, &f, &names);
             async_setup::install(module, fid, (f, holds), suspend, intrinsics, arr_layouts);
             module.strings.extend(new_strings);
             register_fn_name(module, name, params, fid, ast, *span, boxed_entries);

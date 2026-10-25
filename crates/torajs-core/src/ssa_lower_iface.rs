@@ -170,8 +170,6 @@ pub(crate) fn emit_face_call(
     let r = crate::ssa_lower_call_vtable_dispatch::emit_vtable_call(ctx, slot, sig, ret_ty, argv);
     if face_may_throw(ctx, iface, face) {
         ctx.emit_throw_check(None);
-    } else {
-        ctx.proofs.log_slot_call(&ctx.f.name);
     }
     for (op, ty) in coerced {
         ctx.emit_drop_value(op, ty);

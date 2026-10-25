@@ -94,8 +94,6 @@ pub(crate) fn emit_call(
         &slot.owners,
     ) {
         ctx.emit_throw_check(None);
-    } else {
-        ctx.proofs.log_slot_call(&ctx.f.name);
     }
     v
 }

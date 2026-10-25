@@ -299,7 +299,6 @@ fn raise(ctx: &mut LowerCtx, p: &str, ann: &str) {
     ctx.f
         .append_void(ctx.cur_block, InstKind::Call(raiser, vec![msg]));
     let blk = ctx.cur_block;
-    ctx.proofs.log_raise(&ctx.f.name, None);
     ctx.emit_throw_path(blk, None);
     ctx.cur_block = ctx.f.add_block();
 }

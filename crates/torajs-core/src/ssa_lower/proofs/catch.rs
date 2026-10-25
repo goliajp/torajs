@@ -1,19 +1,28 @@
 //! The catch-type inference's facts (`ast_throw_info::catch_types`),
-//! and the lowering's own record of the raises it emits, which decides
-//! whether an inferred type is used.
+//! and the lowering's own reading of what a `try` body can raise, which
+//! decides whether an inferred type is used.
 //!
 //! Pass 0.5 reads what a `try` body can raise off the AST: the scan's
 //! raise rules mirror the lowering's checks site by site, and a site
 //! the scan does not know (a builtin constructor's kernel was one) let
 //! a TypeError reach a catch that bound a number. So the type is taken
-//! only when the lowering agrees: every throw check emitted while the
-//! `try` body was lowered follows a call to a function, every such
-//! function was lowered before (pass 2 lowers the declarations ahead of
-//! `main`, pass 2B the closures after it) and emitted only checks of
-//! that kind itself, transitively, and no function so reached has a
-//! `throw` of a type other than the inferred one. A check with no
-//! callee behind it (a kernel's, a guard's) is a raise of the lowering's
-//! own, and leaves the parameter `any`.
+//! only when the code the lowering emitted agrees. Every raise is a
+//! call: a `throw` hands its value to `__torajs_throw_set`, and every
+//! other raise is a runtime kernel or a user function recording one.
+//! The body is read call by call, transitively through the user
+//! functions it calls, and the type stands only when
+//!
+//! - every runtime call is to a kernel that never records a raise
+//!   ([`CLEAN`]), or to a class's release function;
+//! - every user function reached was lowered before (pass 2 lowers the
+//!   declarations ahead of `main` and records them; a lifted closure's
+//!   body is never recorded, so a call to one leaves the type unused)
+//!   and has no `throw` of a type other than the inferred one;
+//! - nothing is called through a value or a slot, and nothing suspends.
+//!
+//! Reading the calls rather than the throw checks keeps a raise the
+//! lowering records with no check behind it (the pending throw then
+//! surfaces at a later check) from going unseen.
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -21,8 +30,28 @@ use std::collections::{HashMap, HashSet};
 use super::Proofs;
 use crate::ast::{Ast, ExprId, Stmt};
 use crate::ast_throw_info::catch_types::{Thrown, cast_reads};
+use crate::ssa::{BlockId, FuncId, Function, Inst, InstKind};
 
-/// What pass 0.5 inferred, and the log the lowering checks it against.
+/// The runtime kernels that never record a raise, each read for it:
+/// the throw itself (its value is a `throw` operand the inference
+/// typed), the pending slot's readers, allocation, a Map's empty
+/// construction and size, and release (which runs no user code and
+/// raises nothing: `calls` skips `RcDecAny` on that premise, so a drop
+/// path that could raise must change both). A kernel left out only
+/// costs the typed binding.
+const CLEAN: &[&str] = &[
+    "__torajs_throw_set",
+    "__torajs_throw_take",
+    "__torajs_throw_take_tag",
+    "__torajs_obj_alloc",
+    "__torajs_str_drop",
+    "__torajs_map_create",
+    "__torajs_map_mark_num",
+    "__torajs_map_size",
+    "__torajs_map_drop",
+];
+
+/// What pass 0.5 inferred, and the lowered bodies it is checked against.
 #[derive(Default)]
 pub(crate) struct CatchFacts {
     /// By the first `e as T` read of the catch body: the annotation the
@@ -30,35 +59,87 @@ pub(crate) struct CatchFacts {
     pub(crate) inferred: HashMap<ExprId, (String, crate::check::Type)>,
     /// Each FnDecl's own `throw`s, not closed over its calls.
     pub(crate) own_thrown: HashMap<String, Thrown>,
-    log: RefCell<RaiseLog>,
+    bodies: RefCell<HashMap<String, Calls>>,
+    callees: std::cell::OnceCell<Callees>,
 }
 
-#[derive(Default)]
-struct RaiseLog {
-    /// Per function, in emission order, its throw checks and the calls
-    /// it makes with no check behind them.
-    raises: HashMap<String, Vec<Raise>>,
-    lowered: HashSet<String>,
+/// The callees a body may call and still be read clean, by id.
+struct Callees {
+    /// The user functions, by their names.
+    user: HashMap<FuncId, String>,
+    /// The [`CLEAN`] kernels and the release functions.
+    quiet: HashSet<FuncId>,
 }
 
-enum Raise {
-    /// A throw check after a call to the callee, `None` for one with no
-    /// callee behind it.
-    Check(Option<String>),
-    /// A call the may-throw set says cannot raise, so no check follows
-    /// it: a raise the scan does not know stays pending through it, and
-    /// surfaces at the next check, so the callee's own checks count.
-    Call(String),
-    /// Such a call through a slot, whose body the log cannot name.
-    SlotCall,
+/// The calls of a lowered body or of a stretch of one.
+struct Calls {
+    /// Every call is to a user function, a [`CLEAN`] kernel or a
+    /// release function.
+    clean: bool,
+    /// The user functions called.
+    user: Vec<String>,
+}
+
+/// Where a `try` body's code starts: the block it starts in, how many
+/// instructions that block had, and how many blocks the function had.
+#[derive(Clone, Copy)]
+pub(crate) struct BodyStart {
+    block: BlockId,
+    insts: usize,
+    blocks: usize,
+}
+
+/// What a call site needs to tell the callee apart.
+pub(crate) struct CallNames<'a> {
+    pub(crate) fn_table: &'a HashMap<String, FuncId>,
+    pub(crate) drops: &'a HashMap<u32, FuncId>,
+}
+
+impl<'a> CallNames<'a> {
+    pub(crate) fn new(
+        fn_table: &'a HashMap<String, FuncId>,
+        drops: &'a HashMap<u32, FuncId>,
+    ) -> Self {
+        CallNames { fn_table, drops }
+    }
 }
 
 impl CatchFacts {
-    /// `name`'s body is lowered: its log is complete.
-    pub(crate) fn mark_lowered(&self, name: &str) {
-        if !self.inferred.is_empty() {
-            self.log.borrow_mut().lowered.insert(name.to_string());
+    /// `name` is lowered to `f`: record its calls.
+    pub(crate) fn record_body(&self, name: &str, f: &Function, names: &CallNames<'_>) {
+        if self.inferred.is_empty() {
+            return;
         }
+        let insts = f.blocks.iter().flat_map(|b| b.insts.iter());
+        let calls = self.calls(insts, names);
+        self.bodies.borrow_mut().insert(name.to_string(), calls);
+    }
+
+    fn calls<'i>(&self, insts: impl Iterator<Item = &'i Inst>, names: &CallNames<'_>) -> Calls {
+        let ids = self.callees.get_or_init(|| Callees {
+            user: (self.own_thrown.keys())
+                .filter_map(|n| Some((*names.fn_table.get(n)?, n.clone())))
+                .collect(),
+            quiet: (CLEAN.iter())
+                .filter_map(|n| names.fn_table.get(*n).copied())
+                .chain(names.drops.values().copied())
+                .collect(),
+        });
+        let mut out = Calls {
+            clean: true,
+            user: Vec::new(),
+        };
+        for inst in insts {
+            match &inst.kind {
+                InstKind::Call(fid, _) => match ids.user.get(fid) {
+                    Some(n) => out.user.push(n.clone()),
+                    None => out.clean &= ids.quiet.contains(fid),
+                },
+                InstKind::CallIndirect(..) | InstKind::Suspend(..) => out.clean = false,
+                _ => {}
+            }
+        }
+        out
     }
 }
 
@@ -79,71 +160,51 @@ impl Proofs {
         catch.inferred.get(&first)
     }
 
-    /// Record a throw check `func` emits, after a call to `callee`.
-    pub(crate) fn log_raise(&self, func: &str, callee: Option<String>) {
-        self.log(func, Raise::Check(callee));
-    }
-
-    /// Record a call `func` makes to `callee` with no check after it.
-    pub(crate) fn log_call(&self, func: &str, callee: String) {
-        self.log(func, Raise::Call(callee));
-    }
-
-    /// Record a call `func` makes through a vtable or interface slot
-    /// with no check after it.
-    pub(crate) fn log_slot_call(&self, func: &str) {
-        self.log(func, Raise::SlotCall);
-    }
-
-    fn log(&self, func: &str, raise: Raise) {
-        let catch = &self.facts.catch;
-        if catch.inferred.is_empty() {
-            return;
+    /// Where a `try` body lowered into `f` from `block` on starts.
+    pub(crate) fn body_start(&self, f: &Function, block: BlockId) -> BodyStart {
+        BodyStart {
+            block,
+            insts: f.blocks[block.0 as usize].insts.len(),
+            blocks: f.blocks.len(),
         }
-        let mut log = catch.log.borrow_mut();
-        log.raises.entry(func.to_string()).or_default().push(raise);
     }
 
-    /// Where the log of `func` stands now.
-    pub(crate) fn raise_mark(&self, func: &str) -> usize {
-        let log = self.facts.catch.log.borrow();
-        log.raises.get(func).map_or(0, Vec::len)
-    }
-
-    /// Whether the checks and calls `func` emitted since `mark` reach
-    /// only functions lowered already whose checks all follow calls,
-    /// transitively, and whose `throw`s behind a check are of `want`.
-    pub(crate) fn raises_confirm(
+    /// Whether the `try` body lowered into `f` since `start` (and up to
+    /// `end` blocks) raises only `throw`s of `want`, by its calls.
+    pub(crate) fn body_raises_only(
         &self,
-        func: &str,
-        mark: usize,
+        (f, start, end): (&Function, BodyStart, usize),
+        names: &CallNames<'_>,
         want: &crate::check::Type,
     ) -> bool {
         let catch = &self.facts.catch;
-        let log = catch.log.borrow();
-        let own = log.raises.get(func).map_or(&[][..], |r| &r[mark..]);
-        let mut stack: Vec<&Raise> = own.iter().collect();
-        let mut seen: HashSet<(&str, bool)> = HashSet::new();
-        while let Some(raise) = stack.pop() {
-            let (callee, checked) = match raise {
-                Raise::Check(None) | Raise::SlotCall => return false,
-                Raise::Check(Some(c)) => (c, true),
-                Raise::Call(c) => (c, false),
-            };
-            if !seen.insert((callee, checked)) {
+        let head = f.blocks[start.block.0 as usize]
+            .insts
+            .iter()
+            .skip(start.insts);
+        let rest = f.blocks[start.blocks..end]
+            .iter()
+            .flat_map(|b| b.insts.iter());
+        let body = catch.calls(head.chain(rest), names);
+        if !body.clean {
+            return false;
+        }
+        let bodies = catch.bodies.borrow();
+        let mut stack: Vec<&str> = body.user.iter().map(String::as_str).collect();
+        let mut seen: HashSet<&str> = HashSet::new();
+        while let Some(callee) = stack.pop() {
+            if !seen.insert(callee) {
                 continue;
             }
-            // a `throw` reaches the caller only through a check
-            let only_want = !checked
-                || match catch.own_thrown.get(callee.as_str()) {
-                    Some(Thrown::Nothing) => true,
-                    Some(Thrown::One(t)) => t == want,
-                    _ => false,
-                };
-            if !only_want || !log.lowered.contains(callee) {
+            let only_want = match catch.own_thrown.get(callee) {
+                Some(Thrown::Nothing) => true,
+                Some(Thrown::One(t)) => t == want,
+                _ => false,
+            };
+            let Some(calls) = bodies.get(callee).filter(|c| only_want && c.clean) else {
                 return false;
-            }
-            stack.extend(log.raises.get(callee).into_iter().flatten());
+            };
+            stack.extend(calls.user.iter().map(String::as_str));
         }
         true
     }

@@ -162,8 +162,6 @@ pub(crate) fn try_lower(
     // ran the statement after it).
     if slot_may_throw(ctx, args[0], method_name, &suffix, &owners) {
         ctx.emit_throw_check(None);
-    } else {
-        ctx.proofs.log_slot_call(&ctx.f.name);
     }
     for t in arg_toks {
         ctx.pop_throw_temp(t);

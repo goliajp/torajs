@@ -48,7 +48,6 @@ pub(super) fn throw_check(
         }
         return;
     }
-    ctx.proofs.log_raise(&ctx.f.name, None);
     let active = ctx.emit_throw_active_load();
     let raised = test(ctx, active);
     let normal = ctx.f.add_block();

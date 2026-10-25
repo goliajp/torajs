@@ -17,10 +17,10 @@
 //! - a raise the scan cannot type — a runtime check (`Scan::direct`),
 //!   a call it cannot follow, a `throw` of an operand whose type is not
 //!   `T`, a suspension — leaves the parameter `any`;
-//! - the lowering takes the answer only when the throw checks it
-//!   emitted for the body and its callees agree
-//!   (`ssa_lower::proofs::catch`): the scan mirrors the lowering's raise
-//!   sites by hand and does not know all of them;
+//! - the lowering takes the answer only when the calls it emitted for
+//!   the body and its callees confirm it (`ssa_lower::proofs::catch`):
+//!   the scan mirrors the lowering's raise sites by hand and does not
+//!   know all of them;
 //! - the typed binding still checks the thrown value's tag
 //!   (`ssa_lower_stmt_try::bind`), so a value of another type is never
 //!   misread.
