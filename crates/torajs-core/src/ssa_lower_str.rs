@@ -224,7 +224,6 @@ pub(crate) fn try_lower_method_call(
     }
     let recv_op = ctx.lower_expr(obj_eid);
     let recv_ty = ctx.operand_ty(&recv_op);
-    let method = name.clone();
     // Rotation 550 — an owned receiver (`s(i).padStart(boom())`,
     // `a(i).indexOf(boom())`) is live across every argument's lower
     // and the kernel's own check; park it for their throw paths.
@@ -238,7 +237,7 @@ pub(crate) fn try_lower_method_call(
         let v = crate::ssa_lower_any_method_call::emit_any_method_call(
             ctx,
             recv_op,
-            &method,
+            &name,
             Operand::ConstPtrNull,
             args,
         );
@@ -248,7 +247,8 @@ pub(crate) fn try_lower_method_call(
         ctx.emit_throw_check_owned(None, v, Type::Any);
         return Some(v);
     }
-    let Some(result) = dispatch_method(ctx, call_eid, &method, args, recv_op, recv_ty) else {
+    let Some(result) = dispatch_method(ctx, call_eid, &name, args, (obj_eid, recv_op), recv_ty)
+    else {
         ctx.unpark_owned_temp(recv_tok);
         // RFC 20260705 chunk 555 — the receiver is already lowered;
         // park the operand so the next cascade arm's `lower_expr` of
@@ -265,7 +265,7 @@ pub(crate) fn try_lower_method_call(
     // receiver's own ref is released after the dispatch.
     ctx.unpark_owned_temp(recv_tok);
     ctx.release_owned_temp(obj_eid, &recv_op);
-    if method == "charCodeAt" {
+    if name == "charCodeAt" {
         return Some(crate::ssa_lower_str::charcode_inline::narrow_proven(
             ctx, call_eid, result,
         ));
@@ -281,7 +281,7 @@ fn dispatch_method(
     call_eid: ExprId,
     method: &str,
     args: &[ExprId],
-    recv_op: Operand,
+    (obj_eid, recv_op): (ExprId, Operand),
     recv_ty: Type,
 ) -> Option<Operand> {
     // A view receiver of a method the view lane has no kernel for
@@ -301,7 +301,7 @@ fn dispatch_method(
             call_eid,
             method,
             args,
-            Operand::Value(owned),
+            (obj_eid, Operand::Value(owned)),
             Type::Str,
         );
         ctx.f.append_void(
@@ -368,7 +368,7 @@ fn dispatch_method(
         return Some(v);
     }
     if let Some(v) =
-        crate::ssa_lower_str_arr_sort::try_dispatch(ctx, method, args, (call_eid, recv_op), recv_ty)
+        crate::ssa_lower_str_arr_sort::try_dispatch(ctx, method, args, (obj_eid, recv_op), recv_ty)
     {
         return Some(v);
     }

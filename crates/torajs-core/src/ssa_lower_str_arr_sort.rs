@@ -27,14 +27,14 @@ mod insertion;
 mod pred;
 mod shift;
 
-/// Try to lower `<Arr>.sort | toSorted(cmp?)`, the call `call_eid`
-/// on the lowered receiver `recv_op`. Returns `Some(value)` when
+/// Try to lower `<Arr>.sort | toSorted(cmp?)` on the receiver
+/// expression `obj` lowered to `recv_op`. Returns `Some(value)` when
 /// handled; `None` otherwise.
 pub(crate) fn try_dispatch(
     ctx: &mut LowerCtx<'_>,
     method: &str,
     args: &[ExprId],
-    (call_eid, recv_op): (ExprId, Operand),
+    (obj, recv_op): (ExprId, Operand),
     recv_ty: Type,
 ) -> Option<Operand> {
     // `arr.sort(cmp)` — in-place insertion sort calling
@@ -54,10 +54,8 @@ pub(crate) fn try_dispatch(
         // `sort` sorts a receiver borrowed out of a place in place: the
         // comparator may overwrite the place, so it is held
         let mut holds = crate::ssa_lower::call_hold::Holds::default();
-        if method == "sort"
-            && let Some(recv_eid) = receiver(ctx, call_eid)
-        {
-            holds.take(ctx, recv_eid, recv_op);
+        if method == "sort" {
+            holds.take(ctx, obj, recv_op);
         }
         let mut elem_ty = ctx.arr_layouts[arr_id.0 as usize];
         // toSorted clones the receiver via arr_slice
@@ -187,17 +185,6 @@ fn lower_cmp(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> (Option<Operand>, Optio
         let _ = ctx.lower_expr(a);
     }
     cmp
-}
-
-/// The receiver expression of the member call `call_eid`.
-fn receiver(ctx: &LowerCtx<'_>, call_eid: ExprId) -> Option<ExprId> {
-    let Expr::Call { callee, .. } = ctx.ast.get_expr(call_eid) else {
-        return None;
-    };
-    match ctx.ast.get_expr(*callee) {
-        Expr::Member { obj, .. } => Some(*obj),
-        _ => None,
-    }
 }
 
 /// toSorted clones the receiver via arr_copy_get before sorting so the
