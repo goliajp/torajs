@@ -29,6 +29,10 @@
 //! predictability (odd → 3n+1 is always even) that a modern TAGE
 //! predictor exploits. Deopt-style guards want branches, not selects.
 //!
+//! A triangle — one arm the join itself, the other a chain that only
+//! sets cells the header already holds — converts too (`triangle`):
+//! the cell's own value is the arm not taken.
+//!
 //! Runs after ctpop_idiom (all arm-shaping rewrites — float_demote /
 //! srem_parity — are done) and before rc_peephole, which treats Select
 //! as rc-transparent via `classify_pure`. `TORAJS_SELECT_FORM_OFF=1`
@@ -37,6 +41,7 @@
 mod arm;
 pub mod cmp_sink;
 mod range_fold;
+mod triangle;
 
 use torajs_core::ssa::{BlockId, Function, Inst, InstKind, Module, Operand, Terminator, ValueId};
 
@@ -46,6 +51,8 @@ use arm::{ArmPlan, arm_chain, plan_arm, reachable, switch_value};
 pub struct SelectFormStats {
     /// pure diamonds fully converted (CondBr → Br + selects).
     pub diamonds_converted: u32,
+    /// triangles converted: one arm the join, the other setting cells.
+    pub triangles_converted: u32,
     /// Select instructions formed (one per φ-merged join value; the
     /// guard-reduction Selects are plumbing and not counted here).
     pub selects_formed: u32,
@@ -149,6 +156,13 @@ fn form_once(func: &mut Function, stats: &mut SelectFormStats) -> bool {
     let def_count = |v: ValueId| defs.get(v.0 as usize).copied().unwrap_or(0);
     let mut touched = Touched::new(func);
     let mut changed = false;
+    // the predecessor lists, once the first triangle of the round asks.
+    // A conversion only takes the header's edges into its arms away
+    // (and gives a diamond's header the edge to the join its arms
+    // led to); the emptied arms keep their `br`, so a walk back over
+    // the round's lists passes the same setting blocks as one over
+    // the current edges
+    let mut tri_preds = None;
 
     for h in (0..func.blocks.len()).filter(|&h| live[h]) {
         let Terminator::CondBr {
@@ -164,7 +178,17 @@ fn form_once(func: &mut Function, stats: &mut SelectFormStats) -> bool {
             continue;
         }
         let counts = (&pred_count, &def_count);
-        changed |= try_form_pure(func, h, &cond, t_id, e_id, counts, &mut touched, stats);
+        let converted = try_form_pure(func, h, &cond, t_id, e_id, counts, &mut touched, stats)
+            || triangle::try_form(
+                func,
+                h,
+                (&cond, t_id, e_id),
+                counts,
+                &mut tri_preds,
+                &mut touched,
+                stats,
+            );
+        changed |= converted;
     }
     changed
 }
@@ -359,6 +383,89 @@ mod tests {
                 blk(3, vec![], Terminator::Ret(Some(v(1)))),
             ],
         )
+    }
+
+    /// b0 sets cell %1, then branches on %0 into b1, which masks %1
+    /// and falls into b2; b2 reads %1. The arm not taken keeps the
+    /// cell as it was.
+    fn triangle() -> Function {
+        func(
+            5,
+            vec![
+                blk(
+                    0,
+                    vec![
+                        inst(1, InstKind::Copy(Type::I64, c(7))),
+                        inst(0, InstKind::ICmp(IPred::Sgt, v(3), c(5))),
+                    ],
+                    Terminator::CondBr {
+                        cond: v(0),
+                        then_blk: BlockId(1),
+                        else_blk: BlockId(2),
+                    },
+                ),
+                blk(
+                    1,
+                    vec![
+                        inst(4, InstKind::BinOp(BinOp::And, v(1), c(6))),
+                        inst(1, InstKind::Copy(Type::I64, v(4))),
+                    ],
+                    Terminator::Br(BlockId(2)),
+                ),
+                blk(2, vec![], Terminator::Ret(Some(v(1)))),
+            ],
+        )
+    }
+
+    #[test]
+    fn a_cell_set_on_one_arm_selects_between_its_values() {
+        let mut f = triangle();
+        let mut stats = SelectFormStats::default();
+        while form_once(&mut f, &mut stats) {}
+        assert_eq!((stats.triangles_converted, stats.selects_formed), (1, 1));
+        assert!(matches!(f.blocks[0].term, Terminator::Br(BlockId(2))));
+        let insts = &f.blocks[0].insts;
+        assert_eq!(insts.len(), 5);
+        assert_eq!(insts[2].kind, InstKind::BinOp(BinOp::And, v(1), c(6)));
+        assert_eq!(insts[3].kind, InstKind::Select(Type::I64, v(0), v(4), v(1)));
+        assert_eq!(insts[3].result, Some(ValueId(5)));
+        assert_eq!(insts[4].kind, InstKind::Copy(Type::I64, v(5)));
+        assert_eq!(insts[4].result, Some(ValueId(1)));
+        assert!(f.blocks[1].insts.is_empty());
+    }
+
+    /// The arm on the else side: the cell's own value is the then arm.
+    #[test]
+    fn an_else_arm_triangle_keeps_the_cell_on_then() {
+        let mut f = triangle();
+        f.blocks[0].term = Terminator::CondBr {
+            cond: v(0),
+            then_blk: BlockId(2),
+            else_blk: BlockId(1),
+        };
+        let mut stats = SelectFormStats::default();
+        while form_once(&mut f, &mut stats) {}
+        assert_eq!(stats.triangles_converted, 1);
+        assert_eq!(
+            f.blocks[0].insts[3].kind,
+            InstKind::Select(Type::I64, v(0), v(1), v(4))
+        );
+    }
+
+    /// A cell set on no path into the header has no value to keep: the
+    /// branch stays (set in the join, after the header, it has two defs
+    /// and still none above).
+    #[test]
+    fn a_cell_without_a_value_at_the_header_keeps_its_branch() {
+        let mut f = triangle();
+        f.blocks[0].insts.remove(0);
+        f.blocks[2]
+            .insts
+            .push(inst(1, InstKind::Copy(Type::I64, c(9))));
+        let mut stats = SelectFormStats::default();
+        while form_once(&mut f, &mut stats) {}
+        assert_eq!(stats.triangles_converted, 0);
+        assert!(matches!(f.blocks[0].term, Terminator::CondBr { .. }));
     }
 
     #[test]
