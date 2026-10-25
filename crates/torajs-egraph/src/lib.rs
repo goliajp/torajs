@@ -23,6 +23,7 @@ pub mod cmp_fact_fold;
 pub mod concat_len;
 pub mod concat_licm;
 pub mod concat_num_fuse;
+pub mod const_bool_fold;
 pub mod const_copy_fwd;
 pub mod cost;
 pub mod ctpop_idiom;

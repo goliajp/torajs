@@ -24,8 +24,10 @@
 //!
 //! Then each read offset gets a cell `c`: a member store there becomes
 //! `c = copy v`, a store through `%r` likewise, a load through `%r`
-//! becomes `copy c`; the null / global tests become constants; every
-//! other member store, the members and the merge copies are deleted.
+//! becomes `copy c`; the null / global tests answer as constants to
+//! their readers (`const_bool_fold`, which also folds what those
+//! readers become); every other member store, the members and the
+//! merge copies are deleted.
 //!
 //! `TORAJS_MERGE_SROA_OFF=1` skips, `TORAJS_MERGE_SROA_STATS=1` counts.
 
@@ -39,12 +41,15 @@ use torajs_core::ssa::{
 };
 
 use crate::cell_access::{fits, load_width, operand_ty, store_width};
+use crate::const_bool_fold::{ConstBoolFold, fold_constant_bools};
 
 #[derive(Debug, Default)]
 pub struct MergeSroaStats {
     pub merges_replaced: u32,
     pub fields_promoted: u32,
     pub stores_removed: u32,
+    /// What the constant answers of the null / global tests folded.
+    pub tests_folded: ConstBoolFold,
 }
 
 pub fn replace_merged_cells(module: &mut Module) -> MergeSroaStats {
@@ -86,10 +91,17 @@ fn replace_fn(func: &mut Function, stats: &mut MergeSroaStats) {
         .map(|(v, _)| *v)
         .collect();
     merges.sort_by_key(|v| v.0);
+    let mut answers: HashMap<ValueId, Operand> = HashMap::default();
     for m in merges {
         if let Some(plan) = plan_merge(func, &defs, m) {
-            apply(func, m, &plan, stats);
+            apply(func, m, &plan, stats, &mut answers);
         }
+    }
+    if !answers.is_empty() {
+        let folded = fold_constant_bools(func, answers);
+        stats.tests_folded.ops += folded.ops;
+        stats.tests_folded.branches += folded.branches;
+        stats.tests_folded.blocks += folded.blocks;
     }
 }
 
@@ -239,7 +251,15 @@ fn is_merge_vs_nonstack(
     }
 }
 
-fn apply(func: &mut Function, m: ValueId, plan: &Plan, stats: &mut MergeSroaStats) {
+/// `answers` collects the constant each null / global test answers,
+/// folded through its readers once every merge is replaced.
+fn apply(
+    func: &mut Function,
+    m: ValueId,
+    plan: &Plan,
+    stats: &mut MergeSroaStats,
+    answers: &mut HashMap<ValueId, Operand>,
+) {
     let cells: BTreeMap<u64, ValueId> = plan
         .fields
         .iter()
@@ -271,10 +291,11 @@ fn apply(func: &mut Function, m: ValueId, plan: &Plan, stats: &mut MergeSroaStat
                     kind: InstKind::Copy(*ty, Operand::Value(cells[off])),
                     ..inst
                 }),
-                InstKind::ICmp(pred, a, b) if named(a) || named(b) => out.push(Inst {
-                    kind: InstKind::Copy(Type::Bool, Operand::ConstBool(*pred == IPred::Ne)),
-                    ..inst
-                }),
+                InstKind::ICmp(pred, a, b) if named(a) || named(b) => {
+                    if let Some(r) = inst.result {
+                        answers.insert(r, Operand::ConstBool(*pred == IPred::Ne));
+                    }
+                }
                 _ => out.push(inst),
             }
         }
@@ -310,7 +331,8 @@ mod tests {
     }
 
     /// b0: cond → b1 | b2; b1 / b2 fill a step cell each and merge it
-    /// into %9; b3 reads `done` and `value` and tests %9 against null.
+    /// into %9; b3 reads `done` and `value`, tests %9 against null and
+    /// branches on the test to b4 (returns `value`) or b5 (returns 0).
     fn merged(join_extra: Vec<Inst>) -> Module {
         let mut join = vec![
             inst(Some(10), InstKind::Load(Type::Bool, v(9), 40)),
@@ -344,7 +366,21 @@ mod tests {
             Block {
                 id: BlockId(3),
                 insts: join,
+                term: Terminator::CondBr {
+                    cond: v(12),
+                    then_blk: BlockId(5),
+                    else_blk: BlockId(4),
+                },
+            },
+            Block {
+                id: BlockId(4),
+                insts: vec![],
                 term: Terminator::Ret(Some(v(11))),
+            },
+            Block {
+                id: BlockId(5),
+                insts: vec![],
+                term: Terminator::Ret(Some(Operand::ConstI64(0))),
             },
         ];
         let ty = |t| ValueInfo { ty: t, name: None };
@@ -397,7 +433,9 @@ mod tests {
         for x in [1, 2, 9] {
             assert!(!mentions(f, x), "%{x} still mentioned");
         }
-        let join = &f.blocks[3].insts;
+        // b0 branched on a constant too: b2 is gone and b3 is now the
+        // third block
+        let join = &f.blocks[2].insts;
         assert!(matches!(
             join[0].kind,
             InstKind::Copy(Type::Bool, Operand::Value(_))
@@ -406,10 +444,19 @@ mod tests {
             join[1].kind,
             InstKind::Copy(Type::I64, Operand::Value(_))
         ));
-        assert!(matches!(
-            join[2].kind,
-            InstKind::Copy(Type::Bool, Operand::ConstBool(false))
-        ));
+        // the null test answered false: its compare, its branch and
+        // the arm only that branch reached are gone
+        assert_eq!(join.len(), 2);
+        assert!(matches!(f.blocks[2].term, Terminator::Br(BlockId(3))));
+        assert_eq!(f.blocks.len(), 4);
+        assert_eq!(
+            st.tests_folded,
+            ConstBoolFold {
+                ops: 0,
+                branches: 2,
+                blocks: 2
+            }
+        );
         assert!(
             f.blocks[1]
                 .insts
