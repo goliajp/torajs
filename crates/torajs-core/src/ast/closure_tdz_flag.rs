@@ -56,9 +56,11 @@ use std::collections::{HashMap, HashSet};
 use super::desugar_generators_tdz_flag::{
     Site, collect_sites_expr, collect_sites_stmt, rewrite_site,
 };
-use super::desugar_with::walk::arrow_nodes;
-use super::{Ast, Expr, ExprId, StaticInit, Stmt};
+use super::{Ast, Expr, ExprId, Stmt};
 use crate::ast_refs::{idents_in_expr, idents_in_stmt};
+
+mod descend;
+use descend::descend;
 
 /// Entry — every statement list of the program, outer lists first so a
 /// closure body is still in the arena while the list around it scans.
@@ -263,116 +265,6 @@ fn first_runnable(stmts: &[Stmt], paths: &[Vec<usize>]) -> usize {
         .iter()
         .position(|p| !matches!(at(stmts, p), Stmt::FnDecl { .. }))
         .unwrap_or(0)
-}
-
-/// Every statement list nested in `s`: blocks, function and class
-/// bodies, and the bodies of the closures its own expressions write.
-fn descend(ast: &mut Ast, s: &mut Stmt, counter: &mut usize) {
-    for a in arrow_nodes(ast, s) {
-        flag_arrow(ast, a, counter);
-    }
-    match s {
-        Stmt::Block(v) => flag_list(ast, v, counter),
-        Stmt::FnDecl { body: v, .. } => flag_list(ast, v, counter),
-        Stmt::Multi(v) => {
-            for c in v.iter_mut() {
-                descend(ast, c, counter);
-            }
-        }
-        Stmt::Try {
-            body,
-            catch_body,
-            finally_body,
-            ..
-        } => {
-            flag_list(ast, body, counter);
-            flag_list(ast, catch_body, counter);
-            if let Some(f) = finally_body {
-                flag_list(ast, f, counter);
-            }
-        }
-        Stmt::If {
-            then_branch,
-            else_branch,
-            ..
-        } => {
-            descend(ast, then_branch, counter);
-            if let Some(e) = else_branch {
-                descend(ast, e, counter);
-            }
-        }
-        Stmt::While { body, .. }
-        | Stmt::DoWhile { body, .. }
-        | Stmt::Labeled { body, .. }
-        | Stmt::ForOf { body, .. }
-        | Stmt::ForOfSplitIter { body, .. } => descend(ast, body, counter),
-        Stmt::For { init, body, .. } => {
-            if let Some(i) = init {
-                descend(ast, i, counter);
-            }
-            descend(ast, body, counter);
-        }
-        Stmt::Switch {
-            cases,
-            default,
-            default_at,
-            ..
-        } => {
-            let heads =
-                super::switch_tdz_flag::flag_case_block(ast, cases, default, *default_at, counter);
-            for c in cases.iter_mut() {
-                for b in c.body.iter_mut() {
-                    descend(ast, b, counter);
-                }
-            }
-            for b in default.iter_mut().flatten() {
-                descend(ast, b, counter);
-            }
-            if !heads.is_empty() {
-                wrap(s, |sw| heads.into_iter().chain([sw]).collect());
-            }
-        }
-        Stmt::ExportDecl {
-            inner: Some(inner), ..
-        } => descend(ast, inner, counter),
-        Stmt::ClassDecl {
-            ctor,
-            methods,
-            static_methods,
-            static_init,
-            ..
-        } => {
-            if let Some(c) = ctor {
-                flag_list(ast, &mut c.body, counter);
-            }
-            for m in methods.iter_mut().chain(static_methods.iter_mut()) {
-                flag_list(ast, &mut m.body, counter);
-            }
-            for i in static_init.iter_mut() {
-                match i {
-                    StaticInit::Block(b) => flag_list(ast, b, counter),
-                    StaticInit::Field(f) => {
-                        let mut e = Stmt::Expr(f.init);
-                        descend(ast, &mut e, counter);
-                    }
-                }
-            }
-        }
-        _ => {}
-    }
-}
-
-/// A closure's body is a list of its own; it is lifted out of the arena
-/// for the walk and put back.
-fn flag_arrow(ast: &mut Ast, eid: ExprId, counter: &mut usize) {
-    let Expr::ArrowFn { body, .. } = &mut ast.exprs[eid.0 as usize] else {
-        return;
-    };
-    let mut body = std::mem::take(body);
-    flag_list(ast, &mut body, counter);
-    if let Expr::ArrowFn { body: slot, .. } = &mut ast.exprs[eid.0 as usize] {
-        *slot = body;
-    }
 }
 
 /// Index paths through `Multi` groups: the list is scanned as the one
