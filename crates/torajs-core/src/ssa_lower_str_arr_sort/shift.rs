@@ -6,7 +6,7 @@ use crate::ssa_lower::LowerCtx;
 
 use super::pred;
 
-/// Inner shift loop of [`super::emit_insertion_sort`] (chunk 770
+/// Inner shift loop of [`super::insertion::emit_insertion_sort`] (chunk 770
 /// extraction): `while j > 0 && cmp(xs[j-1], cur) > 0` shift
 /// xs[j] = xs[j-1], j-- . Leaves `ctx.cur_block` at the loop's
 /// after-block (where the caller writes `xs[j] = cur`).

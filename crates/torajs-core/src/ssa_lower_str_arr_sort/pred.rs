@@ -1,6 +1,6 @@
 //! `prev > cur` predicate emission for the inline insertion-sort
-//! path — carved out of [`super::emit_insertion_sort`]. With a user
-//! comparator the callee Operand is invoked and its return widened
+//! path — carved out of [`super::insertion::emit_insertion_sort`].
+//! With a user comparator the callee Operand is invoked and its return widened
 //! to a Bool predicate; without one, the ES §23.1.3.30 default
 //! SortCompare (ToString + code-unit lex compare) is emitted via the
 //! `*_to_str` intrinsics feeding `str_sort_cmp` (undefined-last +
