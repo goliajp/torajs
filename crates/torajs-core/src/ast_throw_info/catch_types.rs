@@ -21,9 +21,9 @@
 //!   the body and its callees confirm it (`ssa_lower::proofs::catch`):
 //!   the scan mirrors the lowering's raise sites by hand and does not
 //!   know all of them;
-//! - the typed binding still checks the thrown value's tag
-//!   (`ssa_lower_stmt_try::bind`), so a value of another type is never
-//!   misread.
+//! - the typed binding then reads the thrown value without a tag test
+//!   (`ssa_lower_stmt_try::bind`); only a checking build tests the tag,
+//!   to catch a hole in the confirmation.
 //!
 //! The answer is keyed by the first `e as T` read of the catch body
 //! ([`cast_reads`]), which the lowering finds again from the statement

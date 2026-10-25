@@ -37,9 +37,13 @@
 //! Under a type the compiler inferred (`ast_throw_info::catch_types`,
 //! a number, a boolean or a declared class, from a try body whose every
 //! raise is a `throw` of that type) the slot follows the width table
-//! like a throw site does, and a mismatch means the inference missed a
-//! raise: the program stops there with the TypeError reported as
-//! uncaught, and the binding releases nothing (a release of a value of
+//! like a throw site does, and the value is taken without a test: the
+//! inference and the lowering's reading of the body's calls
+//! (`ssa_lower::proofs::catch`) prove that no other value reaches it.
+//! A checked build (debug assertions, or the value-class check's
+//! strict mode) keeps the test to catch a hole in that proof: a
+//! mismatch stops the program with an internal error reported as an
+//! uncaught TypeError, releasing nothing (a release of a value of
 //! unknown type links every destructor in the runtime, which a program
 //! that stops does not need).
 
@@ -49,6 +53,7 @@ mod nullish;
 
 use crate::ssa::{BlockId, IPred, InstKind, Operand, Terminator, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
+use crate::ssa_lower_pass_2_5::value_class_check;
 use ir::{and, append, call, decode_f64, guard, icmp, or};
 
 const TAG_NULL: i64 = 0;
@@ -173,16 +178,20 @@ fn take_typed(ctx: &mut LowerCtx, p: &str, (e_ty, ann): (Type, &str), inferred: 
     if cast::by_cast(ctx, e_ty, ann) {
         return cast::take_cast(ctx, p, (tag, v), (e_ty, ann));
     }
-    let bad = ctx.f.add_block();
-    admit(ctx, e_ty, ann, tag, v, bad);
-    let ok = ctx.cur_block;
-    ctx.cur_block = bad;
-    if inferred {
-        missed(ctx, p, ann);
-    } else {
-        reject(ctx, p, ann, (tag, v));
+    // an inferred type is proved; the test only looks for a hole in
+    // the proof
+    if !inferred || cfg!(debug_assertions) || value_class_check::strict() {
+        let bad = ctx.f.add_block();
+        admit(ctx, e_ty, ann, tag, v, bad);
+        let ok = ctx.cur_block;
+        ctx.cur_block = bad;
+        if inferred {
+            missed(ctx, p, ann);
+        } else {
+            reject(ctx, p, ann, (tag, v));
+        }
+        ctx.cur_block = ok;
     }
-    ctx.cur_block = ok;
     match e_ty {
         // The slot holds raw 8 bytes; decode them the way the throw
         // site encoded them rather than converting the number (the
