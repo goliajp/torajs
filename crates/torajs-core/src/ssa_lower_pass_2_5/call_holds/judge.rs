@@ -3,7 +3,7 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
-use crate::ssa::{CallHold, FuncId, Function, InstKind, Module, Operand, Type, ValueId};
+use crate::ssa::{ArrId, CallHold, FuncId, Function, InstKind, Module, Operand, Type, ValueId};
 
 use super::super::cell_release::{BORROWS, MayHold, Slots, immediates, reached};
 use super::super::pin_facts::grow::READ_ONLY;
@@ -70,7 +70,15 @@ impl Judge<'_> {
         self.walk(callees, &may, false)
     }
 
+    /// What may hold a cell of type `cell`. Every array type is asked
+    /// as one, whatever its layout: a slot of one array layout can hold
+    /// a cell of another, so the answers (and the walks cached under
+    /// them) are the same.
     fn may(&self, cell: Type) -> MayHold<'_> {
+        let cell = match cell {
+            Type::Arr(_) => Type::Arr(ArrId(0)),
+            t => t,
+        };
         MayHold {
             module: self.module,
             cell,
