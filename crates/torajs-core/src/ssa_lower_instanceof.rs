@@ -65,14 +65,17 @@ use crate::ssa_lower::LowerCtx;
 
 mod dynamic;
 mod fold;
+mod iterator;
+mod names;
 pub(crate) mod tags;
 
-pub(crate) use dynamic::name_runs_operator;
 use dynamic::{
     emit_has_instance, has_any_encoding, lower_general_rhs, try_lower_dynamic_target,
     try_lower_local_shadow,
 };
 use fold::{builtin_proto_tag, try_compile_time_fold};
+use iterator::lower_iterator_instanceof;
+pub(crate) use names::{name_runs_operator, name_walks_proto_chain};
 use tags::{compute_descendant_tags, generic_half_tags};
 
 /// Which of the two lanes the right-hand side takes.
@@ -212,40 +215,6 @@ fn lower_named_on(
         return lower_any_dispatch(ctx, boxed, class_name);
     }
     lower_typed_obj_dispatch(ctx, v, class_name)
-}
-
-/// `x instanceof Iterator` — see the call site's rationale. The
-/// runtime walk is `__torajs_instanceof_builtin_proto(v, 15)` (15 =
-/// %Iterator.prototype%'s builtin-proto tag).
-fn lower_iterator_instanceof(ctx: &mut LowerCtx<'_>, v: Operand, actual_ty: Type) -> Operand {
-    const ITERATOR_PROTO_TAG: i64 = 15;
-    let v_any = match actual_ty {
-        Type::MapIter | Type::ArrIter => return Operand::ConstBool(true),
-        Type::Any => v,
-        Type::Obj(_) => ctx.box_to_any(v),
-        _ => return Operand::ConstBool(false),
-    };
-    let cur_block = ctx.cur_block;
-    let r = ctx.f.append_inst(
-        cur_block,
-        InstKind::Call(
-            ctx.intrinsics.instanceof_builtin_proto,
-            vec![v_any, Operand::ConstI64(ITERATOR_PROTO_TAG)],
-        ),
-        Type::Bool,
-        None,
-    );
-    // a Proxy's `getPrototypeOf` trap runs on the walk
-    ctx.emit_throw_check(None);
-    Operand::Value(r)
-}
-
-/// Whether `x instanceof N`, the builtin constructor `N` folded by
-/// name, walks the prototype chain of an object `x` at run time, where
-/// a Proxy's `getPrototypeOf` trap can throw.
-pub(crate) fn name_walks_proto_chain(class_name: &str) -> bool {
-    crate::ssa_lower_call_typedarray::kind_of_name(class_name).is_none()
-        && (builtin_proto_tag(class_name).is_some() || class_name == "Iterator")
 }
 
 fn lower_any_dispatch(ctx: &mut LowerCtx<'_>, v: Operand, class_name: &str) -> Operand {
