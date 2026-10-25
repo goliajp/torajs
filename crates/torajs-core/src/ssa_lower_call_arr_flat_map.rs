@@ -57,6 +57,9 @@ pub(crate) fn try_lower(
     // Rotation 550 — an owned receiver is live across the callback /
     // thisArg lowers and the loop's throw edges; park it.
     let recv_tok = ctx.park_owned_temp(obj, &recv_op);
+    // one borrowed out of a place is held: the callback may overwrite it
+    let mut holds = crate::ssa_lower::call_hold::Holds::default();
+    holds.take(ctx, obj, recv_op);
     let arr_ty = recv_ty;
     let src_arr = match recv_op {
         Operand::Value(v) => v,
@@ -187,6 +190,7 @@ pub(crate) fn try_lower(
     // loop consumed them (inline arrow's minted env in the cb slot,
     // Call/New-shaped receiver, the boxed thisArg's payload).
     ctx.unpark_owned_temp(dst_tok);
+    holds.release(ctx);
     ctx.unpark_owned_temp(fn_tok);
     ctx.release_owned_temp(args[0], &fn_val);
     ctx.unpark_owned_temp(recv_tok);

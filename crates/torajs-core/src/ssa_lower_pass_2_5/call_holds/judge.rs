@@ -3,16 +3,16 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
-use crate::ssa::{CallHold, FuncId, Function, InstKind, Module, Operand, StructId, Type, ValueId};
+use crate::ssa::{CallHold, FuncId, Function, InstKind, Module, Operand, Type, ValueId};
 
 use super::super::cell_release::{BORROWS, MayHold, immediates, reached};
 use super::super::pin_facts::grow::READ_ONLY;
 use super::runtime;
 use super::span::{preds, span};
 
-/// Per walk (the functions it starts from, the sid, whether it is of
-/// what the runtime can enter), its answer.
-type Walks = HashMap<(Vec<FuncId>, StructId, bool), Option<String>>;
+/// Per walk (the functions it starts from, the held cell's type,
+/// whether it is of what the runtime can enter), its answer.
+type Walks = HashMap<(Vec<FuncId>, Type, bool), Option<String>>;
 
 pub(super) struct Judge<'m> {
     pub(super) module: &'m Module,
@@ -21,12 +21,12 @@ pub(super) struct Judge<'m> {
     pub(super) pieces: &'m HashMap<FuncId, Vec<bool>>,
     pub(super) drops: HashSet<FuncId>,
     pub(super) asleep: Option<&'m [bool]>,
-    /// Per class sid, why what the runtime can enter may free one of
-    /// its cells, or `None` when nothing does.
-    pub(super) entered: RefCell<HashMap<StructId, Option<String>>>,
+    /// Per held cell type, why what the runtime can enter may free one
+    /// such cell, or `None` when nothing does.
+    pub(super) entered: RefCell<HashMap<Type, Option<String>>>,
     pub(super) walks: RefCell<Walks>,
     /// The same per function a walk reaches.
-    pub(super) scans: RefCell<HashMap<(FuncId, StructId, bool), Option<String>>>,
+    pub(super) scans: RefCell<HashMap<(FuncId, Type, bool), Option<String>>>,
 }
 
 /// What every hold of one function reads of it.
@@ -57,7 +57,7 @@ impl Judge<'_> {
             .done
             .expect("a hold's call releases it once the call is lowered");
         let f = body.f;
-        let may = self.may(h.sid);
+        let may = self.may(h.cell);
         let skip = &self.pieces[&body.fid];
         let Some(span) = span(f, &body.preds, skip, (h.take.join, h.drops[done].at)) else {
             return Some("its release is not reached from its retain".to_string());
@@ -70,10 +70,10 @@ impl Judge<'_> {
         self.walk(callees, &may, false)
     }
 
-    fn may(&self, sid: StructId) -> MayHold<'_> {
+    fn may(&self, cell: Type) -> MayHold<'_> {
         MayHold {
             module: self.module,
-            sid,
+            cell,
             open: self.open,
         }
     }
@@ -83,7 +83,7 @@ impl Judge<'_> {
     fn walk(&self, mut from: Vec<FuncId>, may: &MayHold<'_>, inside: bool) -> Option<String> {
         from.sort_unstable_by_key(|f| f.0);
         from.dedup();
-        let key = (from, may.sid, inside);
+        let key = (from, may.cell, inside);
         if let Some(why) = self.walks.borrow().get(&key) {
             return why.clone();
         }
@@ -97,7 +97,7 @@ impl Judge<'_> {
     /// Why the body of `g`, but its pieces, may free a cell `may` asks
     /// about.
     fn frees(&self, g: FuncId, may: &MayHold<'_>, inside: bool) -> Option<String> {
-        let key = (g, may.sid, inside);
+        let key = (g, may.cell, inside);
         if let Some(why) = self.scans.borrow().get(&key) {
             return why.clone();
         }
@@ -115,13 +115,13 @@ impl Judge<'_> {
     /// about. While the walk is of those functions, a reentrant read in
     /// them enters nothing new.
     fn entered_frees(&self, may: &MayHold<'_>) -> Option<String> {
-        if let Some(why) = self.entered.borrow().get(&may.sid) {
+        if let Some(why) = self.entered.borrow().get(&may.cell) {
             return why.clone();
         }
         let all_awake = vec![false; self.module.funcs.len()];
         let asleep = self.asleep.unwrap_or(&all_awake);
         let why = self.walk(runtime::entered(self.module, asleep), may, true);
-        self.entered.borrow_mut().insert(may.sid, why.clone());
+        self.entered.borrow_mut().insert(may.cell, why.clone());
         why
     }
 
@@ -176,7 +176,8 @@ impl Judge<'_> {
         if args.iter().any(|a| may.of(operand_ty(f, a))) {
             return Some(format!("{name} may release one"));
         }
-        if !runtime || READ_ONLY.contains(&name) {
+        let quiet = READ_ONLY.contains(&name) || runtime::ALLOCS.contains(&name);
+        if !runtime || quiet || name.starts_with(runtime::ARR_DROP_PREFIX) {
             return None;
         }
         if !runtime::REENTRANT_READS.contains(&name) {

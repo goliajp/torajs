@@ -14,8 +14,9 @@
 //! drops it after; the throw edges of the later arguments and of the
 //! call release it too.
 //!
-//! Only `Obj` values handed to a user function are held: the runtime
-//! entries a direct call can reach do not run user code.
+//! Only class instances, strings and arrays handed to a user function
+//! (or to a runtime loop that runs a user callback) are held: the
+//! runtime entries a direct call can reach do not run user code.
 //!
 //! Most holds are needless: nothing that runs while the call holds the
 //! value releases one that could reference the cell. Each piece of a
@@ -95,17 +96,16 @@ pub(crate) fn emit_drop(ctx: &mut LowerCtx<'_>, hold: usize, op: Operand, ty: Ty
 
 impl Holds {
     /// Takes a reference on `op`, the lowered `eid`, when it is an
-    /// `Obj` borrowed out of a place.
+    /// `Obj`, a `Str` or an `Arr` borrowed out of a place.
     pub(crate) fn take(&mut self, ctx: &mut LowerCtx<'_>, eid: ExprId, op: Operand) {
         let ty = ctx.operand_ty(&op);
-        let Type::Obj(sid) = ty else { return };
-        if !place_read(ctx, eid) {
+        if !matches!(ty, Type::Obj(_) | Type::Str | Type::Arr(_)) || !place_read(ctx, eid) {
             return;
         }
         let take = guarded(ctx, |ctx| ctx.emit_rc_inc(op));
         let hold = ctx.temps.holds.len();
         ctx.temps.holds.push(CallHold {
-            sid,
+            cell: ty,
             take,
             drops: Vec::new(),
             done: None,

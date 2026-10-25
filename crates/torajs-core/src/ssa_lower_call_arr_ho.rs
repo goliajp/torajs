@@ -63,6 +63,10 @@ fn lower_higher_order(
     // Rotation 550 — an owned receiver is live across the callback /
     // init lowers and the loop's throw edges; park it.
     let recv_tok = ctx.park_owned_temp(obj, &recv_op);
+    // a receiver borrowed out of a place is held across the loop: the
+    // callback may overwrite the place
+    let mut holds = crate::ssa_lower::call_hold::Holds::default();
+    holds.take(ctx, obj, recv_op);
     let arr_ty = recv_ty;
     let elem_ty = ctx.arr_layouts[match arr_ty {
         Type::Arr(id) => id.0 as usize,
@@ -201,6 +205,7 @@ fn lower_higher_order(
         emit_versioned(ctx, &plan)
     };
     ctx.unpark_owned_temp(acc_tok);
+    holds.release(ctx);
     // RFC 20260705 chunk 550 — release owned-shape temps after the
     // loop consumed them: an inline arrow's minted env in the cb
     // slot and a Call/New-shaped receiver.

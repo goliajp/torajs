@@ -39,6 +39,8 @@ pub(crate) const BORROWS: &[&str] = &[
     "__torajs_arr_null_check",
     "__torajs_arr_oob_throw",
     "__torajs_arr_mark_kind",
+    "__torajs_str_null_check",
+    "__torajs_arr_set_length_validate",
 ];
 
 /// The values of `f` that box an immediate, which no release frees.
@@ -49,13 +51,18 @@ pub(crate) fn immediates(f: &Function) -> HashSet<ValueId> {
         .collect()
 }
 
-/// Which types may hold a reference to a cell of class sid `sid`: the
-/// class itself and any layout that is a prefix of its own by field
-/// name (the types a cell of it widens to), a layout whose slots may
-/// hold a cell of another layout (an interface a class instance enters,
-/// a slot an `any` crosses into), anything untyped, and every type
-/// that refers to one of those. `open` names the sids whose slots may
-/// hold a cell of another layout (`cell_slot_flow`).
+/// Which types may hold a reference to a cell of type `cell`.
+///
+/// For a class instance (`Obj(sid)`): the class itself and any layout
+/// that is a prefix of its own by field name (the types a cell of it
+/// widens to). For a string: a string, a substring view (which keeps
+/// its parent) and the cells that keep their source text (a RegExp, a
+/// Symbol's description). For an array: any array, since a slot of one
+/// array layout can hold a cell of another. For all three: a layout
+/// whose slots may hold a cell of another layout (an interface a class
+/// instance enters, a slot an `any` crosses into), anything untyped,
+/// and every type that refers to one of those. `open` names the sids
+/// whose slots may hold a cell of another layout (`cell_slot_flow`).
 ///
 /// An expando bag (a struct cell's, an array's, a RegExp's or a
 /// Date's) adds nothing: typed code reads a value out of a bag only
@@ -65,7 +72,7 @@ pub(crate) fn immediates(f: &Function) -> HashSet<ValueId> {
 /// one of those.
 pub(crate) struct MayHold<'m> {
     pub(crate) module: &'m Module,
-    pub(crate) sid: StructId,
+    pub(crate) cell: Type,
     pub(crate) open: &'m [bool],
 }
 
@@ -76,18 +83,25 @@ impl MayHold<'_> {
 
     fn walk(&self, t: Type, seen: &mut HashSet<StructId>) -> bool {
         let layouts = &self.module.struct_layouts;
+        let str_cell = self.cell == Type::Str;
         match t {
             Type::I64 | Type::F64 | Type::I32 | Type::Bool | Type::Void => false,
-            Type::Str | Type::Substr | Type::RegExp | Type::Date | Type::Symbol => false,
-            Type::BigInt | Type::FnSig(_) | Type::Vec(_) => false,
+            Type::Str | Type::Substr | Type::RegExp | Type::Symbol => str_cell,
+            Type::Date | Type::BigInt | Type::FnSig(_) | Type::Vec(_) => false,
             Type::Obj(s) | Type::Inline(s) => {
                 let fields = &layouts[s.0 as usize];
+                let widens = match self.cell {
+                    Type::Obj(sid) => is_prefix(fields, &layouts[sid.0 as usize]),
+                    _ => false,
+                };
                 seen.insert(s)
                     && (self.open[s.0 as usize]
-                        || is_prefix(fields, &layouts[self.sid.0 as usize])
+                        || widens
                         || fields.iter().any(|(_, t)| self.walk(*t, seen)))
             }
-            Type::Arr(a) => self.walk(self.module.arr_elem(a), seen),
+            Type::Arr(a) => {
+                matches!(self.cell, Type::Arr(_)) || self.walk(self.module.arr_elem(a), seen)
+            }
             _ => true,
         }
     }

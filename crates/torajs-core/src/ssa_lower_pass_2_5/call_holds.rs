@@ -5,7 +5,7 @@
 //! of a place (`ssa_lower::call_hold`), so that code which runs during
 //! the call and overwrites the place cannot free the cell under the
 //! callee. The hold is needless when nothing that runs while it is
-//! taken may release a reference to a cell of the value's class: then
+//! taken may release a reference to a cell of the value's type: then
 //! the reference the place had when the value was read is still there
 //! when the call is done, and the cell lives through the call.
 //!
@@ -21,7 +21,8 @@
 //!   but for the runtime functions that only read their cells
 //!   (`BORROWS`);
 //! - a call of a runtime function that may run user code: any not in
-//!   the list known to run none (`pin_facts::grow::READ_ONLY`), since
+//!   the lists known to run none (`pin_facts::grow::READ_ONLY`, the
+//!   allocations [`runtime::ALLOCS`] and the array releases), since
 //!   user code may reach the cell through a global or a callback no
 //!   argument shows. A read that runs user code only through a getter
 //!   or a conversion hook, and releases only what it made itself

@@ -54,6 +54,10 @@ pub(crate) fn try_lower(
     // Rotation 550 — an owned receiver is live across the callback /
     // thisArg lowers and the loop's throw edges; park it.
     let recv_tok = ctx.park_owned_temp(obj, &recv_op);
+    // a receiver borrowed out of a place is held across the loop: the
+    // predicate may overwrite the place
+    let mut holds = crate::ssa_lower::call_hold::Holds::default();
+    holds.take(ctx, obj, recv_op);
     let elem_ty = ctx.arr_layouts[match recv_ty {
         Type::Arr(id) => id.0 as usize,
         _ => unreachable!(),
@@ -173,6 +177,7 @@ pub(crate) fn try_lower(
     } else {
         emit(ctx, dense_gate)
     };
+    holds.release(ctx);
     // RFC 20260705 chunk 552 — release owned-shape temps after the
     // loop consumed them (inline arrow's minted env in the cb slot,
     // Call/New-shaped receiver, the boxed thisArg's payload).

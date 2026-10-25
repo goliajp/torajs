@@ -8,7 +8,7 @@
 //! the function enters them. Taking the branch keeps the piece; jumping
 //! straight to `join` removes it without touching anything around it.
 
-use super::{BlockId, FuncId, StructId};
+use super::{BlockId, FuncId, Type};
 
 /// One guarded piece of a hold.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -22,10 +22,11 @@ pub struct HoldGuard {
     pub join: BlockId,
 }
 
-/// One call's reference on a cell of class sid `sid`.
+/// One call's reference on a cell of type `cell`: an `Obj`, a `Str` or
+/// an `Arr`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CallHold {
-    pub sid: StructId,
+    pub cell: Type,
     /// The retain, taken right after the value is read.
     pub take: HoldGuard,
     /// The releases: on the normal path once the call is done, and on

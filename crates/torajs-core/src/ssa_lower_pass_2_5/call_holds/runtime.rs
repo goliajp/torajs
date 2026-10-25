@@ -17,6 +17,15 @@ pub(super) const REENTRANT_READS: &[&str] = &[
     "__torajs_arr_typed_nonint_any",
 ];
 
+/// Runtime calls that allocate a cell or grow an array's storage: they
+/// run no user code and release nothing.
+pub(super) const ALLOCS: &[&str] = &["__torajs_arr_alloc", "__torajs_arr_reserve"];
+
+/// The array releases. They run no user code (a release frees cells and
+/// queues finalization callbacks, never runs one); what they may free
+/// is judged by the type of the array they are handed.
+pub(super) const ARR_DROP_PREFIX: &str = "__torajs_arr_drop";
+
 /// The functions the runtime can enter: those a table holds (vtable
 /// slots, method rows, a frame's entries) and those whose address an
 /// instruction takes, but the ones `asleep` marks, which only a class

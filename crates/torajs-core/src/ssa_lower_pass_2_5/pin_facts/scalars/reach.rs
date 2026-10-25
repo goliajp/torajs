@@ -3,7 +3,7 @@
 
 use std::collections::HashSet;
 
-use crate::ssa::{FuncId, InstKind, Module, Operand, StructId};
+use crate::ssa::{FuncId, InstKind, Module, Operand, StructId, Type};
 
 pub(super) use super::super::super::cell_release::reached;
 use super::super::super::cell_release::{BORROWS, MayHold, immediates};
@@ -50,7 +50,11 @@ pub(super) fn released(
     open: &[bool],
 ) -> Option<String> {
     let drops: HashSet<FuncId> = module.class_drop_fns.iter().copied().collect();
-    let holds = MayHold { module, sid, open };
+    let holds = MayHold {
+        module,
+        cell: Type::Obj(sid),
+        open,
+    };
     for fid in reach.iter().filter(|f| !drops.contains(f)) {
         let f = &module.funcs[fid.0 as usize];
         let immediates = immediates(f);
