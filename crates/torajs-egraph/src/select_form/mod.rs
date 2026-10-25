@@ -38,8 +38,6 @@ mod arm;
 pub mod cmp_sink;
 mod range_fold;
 
-use crate::id_hash::HashMap;
-
 use torajs_core::ssa::{BlockId, Function, Inst, InstKind, Module, Operand, Terminator, ValueId};
 
 use arm::{ArmPlan, arm_chain, plan_arm, reachable, switch_value};
@@ -65,40 +63,92 @@ pub fn form_selects(module: &mut Module) -> SelectFormStats {
         }
         // converting an inner diamond can turn its join into a pure
         // arm of an outer one — iterate to a fixpoint (each round
-        // strictly removes a CondBr, so this terminates).
+        // that reports a change strictly removed a CondBr, so this
+        // terminates).
         while form_once(func, &mut stats) {}
     }
     stats
 }
 
-/// Scan for one convertible pure diamond; convert it
-/// and report `true`, or return `false` when none is left.
+/// What the conversions of one round rewrote: the counts the round
+/// started from are stale for these, so a candidate reading any of
+/// them waits for the next round, whose counts see the rewrite.
+struct Touched {
+    blocks: Vec<bool>,
+    values: Vec<bool>,
+}
+
+impl Touched {
+    fn new(func: &Function) -> Self {
+        Self {
+            blocks: vec![false; func.blocks.len()],
+            values: vec![false; func.values.len()],
+        }
+    }
+
+    /// A value made this round (past the round's start) counts as
+    /// rewritten.
+    fn any(&self, blocks: &[usize], values: impl IntoIterator<Item = ValueId>) -> bool {
+        blocks.iter().any(|&b| self.blocks[b])
+            || values
+                .into_iter()
+                .any(|v| self.values.get(v.0 as usize).is_none_or(|&t| t))
+    }
+
+    fn mark(&mut self, blocks: &[usize], values: impl IntoIterator<Item = ValueId>) {
+        for &b in blocks {
+            self.blocks[b] = true;
+        }
+        for v in values {
+            if let Some(t) = self.values.get_mut(v.0 as usize) {
+                *t = true;
+            }
+        }
+    }
+}
+
+/// The values whose def counts an arm plan was read against: its
+/// copies' targets, and the copies it hoists as single-def ones.
+fn plan_cells(plan: &ArmPlan) -> impl Iterator<Item = ValueId> + '_ {
+    let hoisted = plan
+        .hoisted
+        .iter()
+        .filter(|i| matches!(i.kind, InstKind::Copy(..)))
+        .filter_map(|i| i.result);
+    plan.copies.iter().map(|(v, _, _)| *v).chain(hoisted)
+}
+
+/// Convert every pure diamond whose blocks and cells no earlier
+/// conversion of this round rewrote; report whether any converted.
 fn form_once(func: &mut Function, stats: &mut SelectFormStats) -> bool {
-    // predecessor counts + global def counts (multi-def Copy check)
-    let mut preds: HashMap<BlockId, u32> = HashMap::default();
-    let mut defs: HashMap<ValueId, u32> = HashMap::default();
+    // predecessor counts + global def counts (multi-def Copy check),
+    // by block position and value id
+    let mut preds = vec![0u32; func.blocks.len()];
+    let mut defs = vec![0u32; func.values.len()];
     // a converted diamond's emptied arms still `br` to its join; counted,
     // they would keep that join from ever being part of an outer arm
     let live = reachable(func);
     for block in func.blocks.iter().filter(|b| live[b.id.0 as usize]) {
         match &block.term {
-            Terminator::Br(t) => *preds.entry(*t).or_insert(0) += 1,
+            Terminator::Br(t) => preds[t.0 as usize] += 1,
             Terminator::CondBr {
                 then_blk, else_blk, ..
             } => {
-                *preds.entry(*then_blk).or_insert(0) += 1;
-                *preds.entry(*else_blk).or_insert(0) += 1;
+                preds[then_blk.0 as usize] += 1;
+                preds[else_blk.0 as usize] += 1;
             }
             _ => {}
         }
         for inst in &block.insts {
             if let Some(r) = inst.result {
-                *defs.entry(r).or_insert(0) += 1;
+                defs[r.0 as usize] += 1;
             }
         }
     }
-    let pred_count = |b: BlockId| preds.get(&b).copied().unwrap_or(0);
-    let def_count = |v: ValueId| defs.get(&v).copied().unwrap_or(0);
+    let pred_count = |b: BlockId| preds.get(b.0 as usize).copied().unwrap_or(0);
+    let def_count = |v: ValueId| defs.get(v.0 as usize).copied().unwrap_or(0);
+    let mut touched = Touched::new(func);
+    let mut changed = false;
 
     for h in (0..func.blocks.len()).filter(|&h| live[h]) {
         let Terminator::CondBr {
@@ -113,11 +163,10 @@ fn form_once(func: &mut Function, stats: &mut SelectFormStats) -> bool {
         if t_id == e_id || t_id == func.blocks[h].id || e_id == func.blocks[h].id {
             continue;
         }
-        if try_form_pure(func, h, &cond, t_id, e_id, pred_count, def_count, stats) {
-            return true;
-        }
+        let counts = (&pred_count, &def_count);
+        changed |= try_form_pure(func, h, &cond, t_id, e_id, counts, &mut touched, stats);
     }
-    false
+    changed
 }
 
 /// Blade-2 pure diamond: both arms single-pred straight-line chains,
@@ -129,16 +178,16 @@ fn try_form_pure(
     cond: &Operand,
     t_id: BlockId,
     e_id: BlockId,
-    pred_count: impl Fn(BlockId) -> u32,
-    def_count: impl Fn(ValueId) -> u32,
+    (pred_count, def_count): (&impl Fn(BlockId) -> u32, &impl Fn(ValueId) -> u32),
+    touched: &mut Touched,
     stats: &mut SelectFormStats,
 ) -> bool {
     if pred_count(t_id) != 1 || pred_count(e_id) != 1 {
         return false;
     }
     let (Some((t_blks, t_join)), Some((e_blks, e_join))) = (
-        arm_chain(func, t_id, &pred_count),
-        arm_chain(func, e_id, &pred_count),
+        arm_chain(func, t_id, pred_count),
+        arm_chain(func, e_id, pred_count),
     ) else {
         return false;
     };
@@ -147,7 +196,7 @@ fn try_form_pure(
     }
     let join = t_join;
     let on = switch_value(func, h, cond);
-    let plan = |blks: &[usize]| plan_arm(func, blks, on, &def_count);
+    let plan = |blks: &[usize]| plan_arm(func, blks, on, def_count);
     let (Some(tp), Some(ep)) = (plan(&t_blks), plan(&e_blks)) else {
         return false;
     };
@@ -171,12 +220,21 @@ fn try_form_pure(
     if !paired || self_ref {
         return false;
     }
+    let blocks: Vec<usize> = [h, join.0 as usize]
+        .into_iter()
+        .chain(t_blks.iter().chain(&e_blks).copied())
+        .collect();
+    if touched.any(&blocks, plan_cells(&tp).chain(plan_cells(&ep))) {
+        return false;
+    }
     // convert: hoist arms, form selects (or the one range test the
     // two compares of a short-circuit fold into), collapse the branch
     let fold = range_fold::fold(func, h, cond, &tp, &ep);
     if fold.is_none() && tp.copies.iter().any(|(v, _, _)| def_count(*v) != 2) {
         return false;
     }
+    // the two copies of each join value become one def
+    touched.mark(&blocks, tp.copies.iter().map(|(v, _, _)| *v));
     let retired = |i: &Inst| {
         fold.as_ref()
             .is_some_and(|f| i.result.is_some_and(|r| f.dead.contains(&r)))
