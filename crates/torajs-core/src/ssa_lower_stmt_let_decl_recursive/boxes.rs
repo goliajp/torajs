@@ -1,8 +1,32 @@
 //! Opening a binding's capture box ahead of the closure that captures
 //! it.
 
+use std::collections::HashMap;
+
 use crate::ssa::{Operand, Type};
 use crate::ssa_lower::{LocalInfo, LowerCtx};
+
+/// The ordinary bindings whose box is up ahead of their declaration,
+/// keyed by name and the scope depth the box is in, each with the
+/// `(lifted closure fn, capture index)` of every env that took it. The
+/// depth tells this binding from a nested block's own binding of the
+/// name, which shadows it inside that block and never fills its box.
+pub(crate) type ForwardBoxes = HashMap<(String, usize), Vec<(String, usize)>>;
+
+/// The key of a box waiting for a declaration of `name` at the current
+/// depth.
+pub(crate) fn here(ctx: &LowerCtx, name: &str) -> (String, usize) {
+    (name.to_string(), ctx.scope_stack.len() - 1)
+}
+
+/// Note that a closure's env took the box `name` resolves to, when that
+/// is a box still waiting for its declaration.
+pub(crate) fn note_capture_site(ctx: &mut LowerCtx, name: &str, site: (String, usize)) {
+    let key = (name.to_string(), ctx.locals[name].scope_depth);
+    if let Some(sites) = ctx.forward_capture_boxes.get_mut(&key) {
+        sites.push(site);
+    }
+}
 
 /// Give a binding a capture box holding null, register it, and answer
 /// the box's value-slot pointer. Shared by both entry shapes so the
@@ -56,10 +80,10 @@ pub(crate) fn open_case_block_box(ctx: &mut LowerCtx, name: &str) {
     if ctx.is_main_fn && ctx.globals.contains_key(name) {
         return;
     }
-    if ctx.hoisted_closure_lets.contains(name) || ctx.forward_capture_boxes.contains_key(name) {
+    let key = here(ctx, name);
+    if ctx.hoisted_closure_lets.contains(&key) || ctx.forward_capture_boxes.contains_key(&key) {
         return;
     }
     open_box(ctx, name, Type::Any);
-    ctx.forward_capture_boxes
-        .insert(name.to_string(), Vec::new());
+    ctx.forward_capture_boxes.insert(key, Vec::new());
 }

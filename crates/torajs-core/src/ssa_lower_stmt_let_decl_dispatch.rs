@@ -31,7 +31,8 @@ pub(crate) fn try_sub_siblings(
     // path is the one that knows to fill that box, so no specialized
     // lane may claim the declaration and put the value in a slot of its
     // own choosing — the closure would read the box forever.
-    if ctx.forward_capture_boxes.contains_key(name) {
+    let key = crate::ssa_lower_stmt_let_decl_recursive::here(ctx, name);
+    if ctx.forward_capture_boxes.contains_key(&key) {
         return false;
     }
     // A `re.exec(s)` result the census proved never needs its array.

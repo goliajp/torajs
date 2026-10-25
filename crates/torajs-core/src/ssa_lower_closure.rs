@@ -105,9 +105,8 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, fn_name: String, captures: Vec<Strin
     // A capture declared LATER in this list holds a provisional type
     // right now; note where it landed so the declaration can correct it.
     for (i, (cap_name, _)) in eff_captures.iter().enumerate() {
-        if let Some(sites) = ctx.forward_capture_boxes.get_mut(cap_name) {
-            sites.push((fn_name.clone(), i));
-        }
+        let site = (fn_name.clone(), i);
+        crate::ssa_lower_stmt_let_decl_recursive::note_capture_site(ctx, cap_name, site);
     }
     ctx.closure_captures.insert(fn_name.clone(), cap_meta);
     // 556-02 — a variadic binding captured HERE stays one in the body.

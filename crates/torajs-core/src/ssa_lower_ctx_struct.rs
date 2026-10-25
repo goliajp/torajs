@@ -288,16 +288,16 @@ pub(crate) struct LowerCtx<'a> {
     pub(crate) boxed_noncopy_lets: std::collections::HashSet<String>,
     /// Bindings whose capture box was opened AHEAD of their own
     /// declaration because a closure earlier in the same statement list
-    /// captures them (mutually recursive arrows). Each name is removed
-    /// by the declaration that fills it; see
+    /// captures them (mutually recursive arrows), with the scope depth
+    /// the box is in: only the declaration at that depth fills it; see
     /// [`crate::ssa_lower_stmt_let_decl_recursive`].
-    pub(crate) hoisted_closure_lets: std::collections::HashSet<String>,
+    pub(crate) hoisted_closure_lets: std::collections::HashSet<(String, usize)>,
     /// The same hoist for an ORDINARY binding, whose slot type is not
     /// knowable that early: the box goes up provisionally and each env
     /// that took it is noted as `(lifted closure fn, capture index)` for
     /// the declaration to correct. See
     /// [`crate::ssa_lower_stmt_let_decl_general::bind_let_slot`].
-    pub(crate) forward_capture_boxes: std::collections::HashMap<String, Vec<(String, usize)>>,
+    pub(crate) forward_capture_boxes: crate::ssa_lower_stmt_let_decl_recursive::ForwardBoxes,
     /// Push-loop pre-reserve state — see
     /// [`crate::ssa_lower_arr_prereserve::PreReserve`].
     pub(crate) prereserve: crate::ssa_lower_arr_prereserve::PreReserve,

@@ -47,7 +47,7 @@ use crate::ssa_lower::LowerCtx;
 mod boxes;
 
 use boxes::open_box;
-pub(crate) use boxes::open_case_block_box;
+pub(crate) use boxes::{ForwardBoxes, here, note_capture_site, open_case_block_box};
 
 /// The binding's slot type: an annotated binding keeps its declared
 /// signature — that is what the call sites type against — and an
@@ -135,7 +135,8 @@ pub(crate) fn hoist_forward_boxes<'s>(ctx: &mut LowerCtx, stmts: impl Iterator<I
                 let slot = ctx.locals[&name].slot;
                 ctx.let_anns.insert(slot, ann.clone());
             }
-            ctx.forward_capture_boxes.insert(name, Vec::new());
+            ctx.forward_capture_boxes
+                .insert(here(ctx, &name), Vec::new());
             continue;
         };
         let Some(ty) = box_ty(ctx, &name, type_ann.as_ref(), init, &fn_name, mutable) else {
@@ -148,7 +149,7 @@ pub(crate) fn hoist_forward_boxes<'s>(ctx: &mut LowerCtx, stmts: impl Iterator<I
             init,
         );
         open_box(ctx, &name, ty);
-        ctx.hoisted_closure_lets.insert(name);
+        ctx.hoisted_closure_lets.insert(here(ctx, &name));
     }
 }
 
@@ -266,7 +267,7 @@ pub(crate) fn try_lower(
     let self_capture = captures.iter().any(|c| c == name);
     // The box may already be waiting — `hoist_forward_boxes` opened it
     // for this list because an earlier closure captured this name.
-    if ctx.hoisted_closure_lets.remove(name) {
+    if ctx.hoisted_closure_lets.remove(&here(ctx, name)) {
         let slot = ctx
             .locals
             .get(name)

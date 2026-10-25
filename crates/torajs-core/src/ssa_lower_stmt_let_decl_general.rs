@@ -357,11 +357,11 @@ pub(crate) fn bind_let_slot(
     boxed_any: bool,
     cur_depth: usize,
 ) {
-    // A box for this name went up before the declaration ran, because a
-    // closure earlier in the list captured it; the envs already hold
-    // that box, so the value belongs in it rather than in a slot of
-    // this frame's own.
-    if let Some(sites) = ctx.forward_capture_boxes.remove(name) {
+    // A box for this binding went up before the declaration ran, as a
+    // closure earlier in its list captured it; the envs hold that box,
+    // so the value belongs in it rather than in a slot of this frame's.
+    let key = (name.to_string(), cur_depth);
+    if let Some(sites) = ctx.forward_capture_boxes.remove(&key) {
         fill_forward_box(ctx, name, ty, init_val, is_alias_init, boxed_any, sites);
         return;
     }
