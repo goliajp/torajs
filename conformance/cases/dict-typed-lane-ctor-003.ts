@@ -1,7 +1,9 @@
 // A run-time key read off a RegExp held as `any` may answer its
 // inherited `constructor`, the RegExp function (§22.2.6.1), and the
 // dictionary read beside it may answer `Object`. Both answers are
-// only compared, stringified and `typeof`-ed.
+// only compared, stringified and `typeof`-ed, but the read off the
+// `any` receiver answers its value through a stack slot, which keeps
+// every namespace static linked.
 const re = /a+/
 const o: any = re
 const d: Record<string, number> = { a: 1 }

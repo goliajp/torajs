@@ -50,26 +50,31 @@ const CARRIERS: [&str; 4] = [
 ];
 
 /// Calls that read a fixed own key, compare, or test the value's
-/// kind, and never look a static up on their argument. Loose
-/// equality runs ToPrimitive, which reads `@@toPrimitive` /
-/// `valueOf` / `toString`; no namespace owns a static by those names.
-/// The `+` of two pair-decoded boxes and the string conversions of one
-/// run the same ToPrimitive and answer a primitive, and the settle
-/// after them only frees the string the decode materialized.
-const SINKS: [&str; 13] = [
+/// kind, and never look a static up on their argument; the settle
+/// after a pair decode only frees the string the decode materialized.
+const SINKS: [&str; 9] = [
     "__torajs_any_name_get",
     "__torajs_any_length_get",
     "__torajs_error_name_get",
     "__torajs_anyv_strict_eq",
     "__torajs_anyv_strict_eq_imm_pair",
-    "__torajs_anyv_loose_eq",
     "__torajs_anyv_typeof",
     "__torajs_anyv_to_bool",
     "__torajs_anyv_unbox_tag",
+    "__torajs_anyv_unbox_settle",
+];
+
+/// Calls that run ToPrimitive on their argument and answer a
+/// primitive: loose equality, the `+` of two pair-decoded boxes and
+/// the string conversions of one. The builtin `@@toPrimitive` /
+/// `valueOf` / `toString` a constructor cell finds keep nothing, so
+/// these are benign while the program cannot install its own
+/// ([`crate::cmd_build_dispatch_judge_coerce_hooks`]).
+const COERCING_SINKS: [&str; 4] = [
+    "__torajs_anyv_loose_eq",
     "__torajs_anyv_add_pair",
     "__torajs_anyv_to_str_pair",
     "__torajs_anyv_to_str_pair_prim",
-    "__torajs_anyv_unbox_settle",
 ];
 
 /// Calls that may take the `"constructor"` literal (at the given
@@ -107,6 +112,7 @@ pub(crate) fn ctor_read_escape(
     module: &Module,
     f: &Function,
     ctor_ids: &HashSet<StringId>,
+    hooks_fixed: &dyn Fn() -> bool,
 ) -> Option<String> {
     let lits = literals(f);
     let keys: Vec<ValueId> = lits
@@ -122,6 +128,7 @@ pub(crate) fn ctor_read_escape(
         f,
         lits,
         uses: use_lists(f),
+        hooks_fixed,
     };
     let mut answers = HashSet::new();
     for k in keys {
@@ -143,12 +150,14 @@ pub(crate) fn runtime_key_escape(
     module: &Module,
     f: &Function,
     answers: HashSet<ValueId>,
+    hooks_fixed: &dyn Fn() -> bool,
 ) -> Option<String> {
     let walk = Walk {
         module,
         f,
         lits: literals(f),
         uses: use_lists(f),
+        hooks_fixed,
     };
     walk.follow(answers).err()
 }
@@ -171,6 +180,9 @@ struct Walk<'a> {
     f: &'a Function,
     lits: HashMap<ValueId, StringId>,
     uses: HashMap<ValueId, Vec<Use>>,
+    /// Whether the program cannot install a ToPrimitive hook, asked
+    /// only at a [`COERCING_SINKS`] use.
+    hooks_fixed: &'a dyn Fn() -> bool,
 }
 
 impl Walk<'_> {
@@ -251,12 +263,15 @@ impl Walk<'_> {
             | InstKind::FCmp(..)
             | InstKind::AnyIsNumber(_)
             | InstKind::AnyIsInt32(_) => false,
-            // an int32 payload or a tag: a shift by 32 or more keeps at
-            // most 32 bits, too few to address a cell above the 4 GiB
-            // zero page
-            InstKind::BinOp(BinOp::Shl | BinOp::AShr | BinOp::LShr, _, Operand::ConstI64(n))
-                if *n >= 32 =>
-            {
+            // the decodes of an int32 payload (`shl 32` then `ashr 32`)
+            // and of a tag (`lshr 48`): a right shift by 32 or more
+            // answers at most 32 bits, either the high half of a cell
+            // address (below 2^16 on a 47-bit address space) or the
+            // low half (below 4 GiB, which the Mach-O zero page keeps
+            // free of cells). Neither addresses a cell, and the
+            // lowering never ORs two halves back together. A left
+            // shift stays derived: its answer is still followed.
+            InstKind::BinOp(BinOp::AShr | BinOp::LShr, _, Operand::ConstI64(n)) if *n >= 32 => {
                 false
             }
             // a number; the lowering boxes a NaN answer as the
@@ -282,7 +297,7 @@ impl Walk<'_> {
         if CARRIERS.contains(&name) || (name == "__torajs_any_accessor_get" && is_t(2)) {
             return Ok(true);
         }
-        if SINKS.contains(&name) {
+        if SINKS.contains(&name) || (COERCING_SINKS.contains(&name) && (self.hooks_fixed)()) {
             return Ok(false);
         }
         let receiver_only = (0..args.len())

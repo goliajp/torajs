@@ -12,6 +12,9 @@ mod cmd_build_dispatch_judge_callee;
 mod cmd_build_dispatch_judge_census;
 #[cfg(test)]
 mod cmd_build_dispatch_judge_census_parse;
+mod cmd_build_dispatch_judge_coerce_hooks;
+#[cfg(test)]
+mod cmd_build_dispatch_judge_coerce_hooks_tests;
 mod cmd_build_dispatch_judge_ctor_reach;
 #[cfg(test)]
 mod cmd_build_dispatch_judge_ctor_reach_tests;

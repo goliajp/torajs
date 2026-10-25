@@ -39,8 +39,9 @@
 
 use std::collections::HashSet;
 
-use torajs_core::ssa::{Function, InstKind, Module, Operand, Type, ValueId};
+use torajs_core::ssa::{Function, InstKind, Module, Operand, Terminator, Type, ValueId};
 
+use crate::cmd_build_dispatch_judge_coerce_hooks::HookPremise;
 use crate::cmd_build_dispatch_judge_ctor_uses::{GOPD, KEYED_READERS};
 
 /// Readers that hand out every own property or answer a constructor
@@ -52,6 +53,10 @@ const OPEN_READERS: [&str; 2] = [
     "__torajs_closure_ctor_value",
 ];
 
+/// The any-lane keyed read that answers the tag and leaves the value
+/// in the slot its third operand points at.
+const GET_PAIR: &str = "__torajs_any_member_get_pair";
+
 /// The class register entry and the operand index of its builtin
 /// parent tag (`-1` when the heritage is not a builtin).
 const CLASS_REGISTER: (&str, usize) = ("__torajs_anyv_class_register", 4);
@@ -60,10 +65,15 @@ const CLASS_REGISTER: (&str, usize) = ("__torajs_anyv_class_register", 4);
 /// value (see the module doc). `diag` names the first reason.
 pub(crate) fn ctor_cell_reachable(module: &Module, live: &[bool], diag: bool) -> bool {
     let ctor_ids = crate::cmd_build_dispatch_judge_ctor_uses::ctor_key_ids(module);
+    let premise = HookPremise::default();
+    let hooks_fixed = || premise.holds(module, live, diag);
     for f in crate::cmd_build_dispatch_judge_callee::live_funcs(module, live) {
-        if let Some(why) =
-            crate::cmd_build_dispatch_judge_ctor_uses::ctor_read_escape(module, f, &ctor_ids)
-        {
+        if let Some(why) = crate::cmd_build_dispatch_judge_ctor_uses::ctor_read_escape(
+            module,
+            f,
+            &ctor_ids,
+            &hooks_fixed,
+        ) {
             if diag {
                 eprintln!(
                     "[judge] ns-world: {} reads a constructor into {why}",
@@ -88,7 +98,7 @@ pub(crate) fn ctor_cell_reachable(module: &Module, live: &[bool], diag: bool) ->
                     }
                     return true;
                 }
-                let runtime_key = KEYED_READERS.contains(&name)
+                let runtime_key = (KEYED_READERS.contains(&name) || name == GET_PAIR)
                     && !args.get(1).is_some_and(|k| {
                         symbol(f, k) || matches!(k, Operand::Value(v) if fixed_keys.contains(v))
                     });
@@ -103,14 +113,28 @@ pub(crate) fn ctor_cell_reachable(module: &Module, live: &[bool], diag: bool) ->
                 if runtime_key {
                     answers.extend(inst.result);
                 }
+                // the pair read answers the tag and leaves the value in
+                // its slot: every load of that slot is an answer too
+                if runtime_key && name == GET_PAIR {
+                    let Some(loads) = args.get(2).and_then(|s| slot_loads(module, f, s)) else {
+                        if diag {
+                            eprintln!("[judge] ns-world: {} hands out a pair slot", f.name);
+                        }
+                        return true;
+                    };
+                    answers.extend(loads);
+                }
             }
         }
         if answers.is_empty() {
             continue;
         }
-        if let Some(why) =
-            crate::cmd_build_dispatch_judge_ctor_uses::runtime_key_escape(module, f, answers)
-        {
+        if let Some(why) = crate::cmd_build_dispatch_judge_ctor_uses::runtime_key_escape(
+            module,
+            f,
+            answers,
+            &hooks_fixed,
+        ) {
             if diag {
                 eprintln!(
                     "[judge] ns-world: {} reads a runtime key into {why}",
@@ -121,6 +145,37 @@ pub(crate) fn ctor_cell_reachable(module: &Module, live: &[bool], diag: bool) ->
         }
     }
     false
+}
+
+/// The values `f` loads from the pair read's value slot; None when the
+/// slot has any other use than a load or a pair read's slot operand.
+fn slot_loads(module: &Module, f: &Function, slot: &Operand) -> Option<Vec<ValueId>> {
+    let Operand::Value(slot) = slot else {
+        return None;
+    };
+    let as_slot = Operand::Value(*slot);
+    let mut loads = Vec::new();
+    for inst in f.blocks.iter().flat_map(|b| &b.insts) {
+        let mut used = false;
+        torajs_core::ssa::visit_value_operands(&inst.kind, |v| used |= v == *slot);
+        if !used {
+            continue;
+        }
+        match &inst.kind {
+            InstKind::Load(_, at, _) if *at == as_slot => loads.extend(inst.result),
+            InstKind::Call(fid, args)
+                if module.funcs[fid.0 as usize].name == GET_PAIR
+                    && args.iter().position(|a| *a == as_slot) == Some(2)
+                    && args.iter().filter(|a| **a == as_slot).count() == 1 => {}
+            _ => return None,
+        }
+    }
+    let term_use = f.blocks.iter().any(|b| match &b.term {
+        Terminator::CondBr { cond, .. } => *cond == as_slot,
+        Terminator::Ret(Some(op)) => *op == as_slot,
+        _ => false,
+    });
+    (!term_use).then_some(loads)
 }
 
 /// True for a symbol: a symbol key is its own property key, never the

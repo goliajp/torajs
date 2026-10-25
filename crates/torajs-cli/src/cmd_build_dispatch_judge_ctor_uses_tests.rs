@@ -65,11 +65,17 @@ impl Fixture {
         )
     }
 
-    fn escape(mut self, ret: Option<ValueId>) -> Option<String> {
+    fn escape(self, ret: Option<ValueId>) -> Option<String> {
+        self.escape_with(ret, true)
+    }
+
+    /// `hooks_fixed`: whether the program cannot install a
+    /// ToPrimitive hook.
+    fn escape_with(mut self, ret: Option<ValueId>, hooks_fixed: bool) -> Option<String> {
         self.f
             .set_term(self.b, Terminator::Ret(ret.map(Operand::Value)));
         let ids = ctor_key_ids(&self.m);
-        ctor_read_escape(&self.m, &self.f, &ids)
+        ctor_read_escape(&self.m, &self.f, &ids, &|| hooks_fixed)
     }
 }
 
@@ -229,9 +235,18 @@ fn runtime_read() -> (Fixture, ValueId) {
     (x, v)
 }
 
-fn runtime_escape(mut x: Fixture, v: ValueId, ret: ValueId) -> Option<String> {
+fn runtime_escape(x: Fixture, v: ValueId, ret: ValueId) -> Option<String> {
+    runtime_escape_with(x, v, ret, true)
+}
+
+fn runtime_escape_with(
+    mut x: Fixture,
+    v: ValueId,
+    ret: ValueId,
+    hooks_fixed: bool,
+) -> Option<String> {
     x.f.set_term(x.b, Terminator::Ret(Some(Operand::Value(ret))));
-    runtime_key_escape(&x.m, &x.f, HashSet::from([v]))
+    runtime_key_escape(&x.m, &x.f, HashSet::from([v]), &|| hooks_fixed)
 }
 
 fn bin(x: &mut Fixture, op: BinOp, l: ValueId, r: Operand) -> ValueId {
@@ -241,6 +256,30 @@ fn bin(x: &mut Fixture, op: BinOp, l: ValueId, r: Operand) -> ValueId {
 
 #[test]
 fn a_runtime_key_answer_added_or_stringified_stays_benign() {
+    assert_eq!(added_and_stringified(true), None);
+}
+
+#[test]
+fn an_added_answer_escapes_when_a_hook_can_be_installed() {
+    // ToPrimitive would call the program's `valueOf` with the cell
+    assert!(added_and_stringified(false).is_some());
+}
+
+#[test]
+fn loose_equality_with_the_answer_follows_the_hook_premise() {
+    for hooks_fixed in [true, false] {
+        let (mut x, o, c) = start();
+        x.call(
+            "__torajs_anyv_loose_eq",
+            vec![Operand::Value(c), Operand::Value(o)],
+            Type::Bool,
+        );
+        assert_eq!(x.escape_with(None, hooks_fixed).is_none(), hooks_fixed);
+    }
+}
+
+/// `d[k] + 1` and a string conversion of `d[k]`, the answer dropped.
+fn added_and_stringified(hooks_fixed: bool) -> Option<String> {
     let (mut x, v) = runtime_read();
     let tag = x.call(
         "__torajs_anyv_unbox_tag",
@@ -260,7 +299,7 @@ fn a_runtime_key_answer_added_or_stringified_stays_benign() {
     x.call("__torajs_anyv_unbox_settle", settle, Type::Void);
     let s = x.call("__torajs_anyv_to_str_pair_prim", pair, Type::Str);
     x.call("user_fn", vec![Operand::Value(s)], Type::Any);
-    assert_eq!(runtime_escape(x, v, sum), None);
+    runtime_escape_with(x, v, sum, hooks_fixed)
 }
 
 #[test]
