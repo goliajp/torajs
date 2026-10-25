@@ -15,11 +15,12 @@ use crate::ast::{BinOp, Expr, ExprId, Stmt, UnaryOp};
 use crate::check::Type;
 use crate::ssa_lower_nullable_guard::{passed_through, spells_undef_with_generic_cell};
 
-/// The names some assignment anywhere writes, and what the census
-/// proved live.
+/// The names some assignment anywhere writes, what the census proved
+/// live, and whether a value may carry a `Symbol.hasInstance` handler.
 pub(crate) type ProgramNames<'a> = (
     &'a std::collections::HashSet<String>,
     &'a crate::ssa_lower_pass_0_5::live_field_census::Live,
+    bool,
 );
 
 /// The nullish values a slot may hold, as a bit set: which of them a

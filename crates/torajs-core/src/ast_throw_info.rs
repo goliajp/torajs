@@ -226,6 +226,7 @@ impl Scan<'_> {
             }
             Expr::TypeOf { expr } | Expr::Delete { expr } => self.expr(*expr),
             Expr::InstanceOf { expr, rhs } => {
+                self.direct |= shapes::instanceof_raises(self, *expr, *rhs);
                 self.expr(*expr);
                 self.expr(*rhs);
             }

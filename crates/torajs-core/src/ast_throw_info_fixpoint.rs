@@ -34,6 +34,8 @@ pub(crate) struct ThrowFacts {
     pub(crate) aliases: crate::ast_closure_param_tag_collect::ClosureAliases,
     /// Names some assignment writes ([`assigned_names`]).
     pub(crate) assigned: HashSet<String>,
+    /// A value in the program may carry a `Symbol.hasInstance` handler.
+    pub(crate) has_instance_hook: bool,
 }
 
 /// One FnDecl's throw shape in [`ThrowFacts`].
@@ -56,11 +58,11 @@ pub(crate) fn compute_may_throw_fns(
     ast: &Ast,
     expr_types: &HashMap<ExprId, crate::check::Type>,
     widths: &crate::num_width::WidthTable,
-    live: &crate::ssa_lower_pass_0_5::live_field_census::Live,
+    (live, has_instance_hook): (&crate::ssa_lower_pass_0_5::live_field_census::Live, bool),
 ) -> ThrowFacts {
     let mut decls: Vec<DeclThrow> = Vec::new();
     let assigned_set = assigned_names(ast);
-    let assigned = (&assigned_set, live);
+    let assigned = (&assigned_set, live, has_instance_hook);
     // Rotation 550 (550-01) — a call through a let-bound arrow
     // (`const boom = () => { throw … }; boom()`) records the BINDING
     // name, but the body lives in the lifted `__closure_N` FnDecl;
@@ -150,6 +152,7 @@ pub(crate) fn compute_may_throw_fns(
         fn_lets,
         aliases,
         assigned: assigned_set,
+        has_instance_hook,
     }
 }
 

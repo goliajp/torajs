@@ -117,14 +117,12 @@ fn lower_once(
 
     let (init_a, init_b, init_c, init_d) = declare_intrinsic_batches(&mut module, &mut fn_table);
 
-    // Pass 0.5: type-alias registration + V3-05 two-phase TypeDecl resolution + Phase H.1.b
-    // class tag table + may-throw fixed-point (chunk-328 RFC continuation). All the mutable
-    // interner state threaded through Pass 1 / 2 — aliases, arr_layouts, fn_sigs,
-    // baked_regex_buf, inst_memo, generic_struct_decls, struct_layouts, class_sids,
-    // class_name_to_tag, plus the may_throw set — is built by [`ssa_lower_pass_0_5::run`] and
-    // handed back through the `Pass05` holder. struct_layouts is `mem::take`'d off `module`
-    // inside the sibling; everything else is fresh.
-    let pass05 = ssa_lower_pass_0_5::run(expr_types, &mut module, mono, held);
+    // Pass 0.5: type aliases, the two-phase TypeDecl resolution, the class tag table and the
+    // may-throw fixed point. The interner state Pass 1 / 2 thread through (aliases,
+    // arr_layouts, fn_sigs, struct_layouts, class tags, the may_throw set, ...) comes back in
+    // `Pass05`; struct_layouts is taken off `module`, everything else is fresh.
+    let scans = crate::ssa_lower_ctx_state::ModuleScans::of(ast, expr_types);
+    let pass05 = ssa_lower_pass_0_5::run(expr_types, &mut module, mono, (held, &scans));
     let aliases = pass05.aliases;
     let mut arr_layouts = pass05.arr_layouts;
     let mut baked_regex_buf = pass05.baked_regex_buf;
@@ -264,6 +262,7 @@ fn lower_once(
         &infra.promise_thunks,
         &class_drop_fids,
         &boxed_entries,
+        scans,
     );
     crate::ssa_lower_promise_thunk::obj_return::root_obj_return_mark(
         &mut module,

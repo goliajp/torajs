@@ -95,7 +95,7 @@ pub(crate) fn infer(
         let Some(want) = expr_types.get(&c.cast) else {
             continue;
         };
-        let names = (&facts.assigned, live);
+        let names = (&facts.assigned, live, facts.has_instance_hook);
         let mut sc = Scan::new(ast, c.fn_name, c.params, expr_types, widths, names);
         sc.stmts(c.body);
         if sc.direct

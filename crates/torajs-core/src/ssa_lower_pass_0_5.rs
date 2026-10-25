@@ -45,7 +45,7 @@ pub(crate) fn run(
     expr_types: &HashMap<ExprId, crate::check::Type>,
     module: &mut Module,
     mono: &MonoOutput,
-    held_as_cells: &HashSet<String>,
+    (held_as_cells, scans): (&HashSet<String>, &crate::ssa_lower_ctx_state::ModuleScans),
 ) -> Pass05 {
     let (ast, num_f64_slots) = (&mono.mono_ast, &mono.widths);
     let widths = (num_f64_slots, &mono.call_retargets);
@@ -55,8 +55,9 @@ pub(crate) fn run(
     let mut fn_sigs: Vec<(Vec<Type>, Type)> = Vec::new();
     let dead_twins = arr_head_census::unreachable_twin_exprs(ast, expr_types);
     let live = live_field_census::program_live(ast, expr_types, widths, &dead_twins);
+    let names = (&live, scans.proto_shadow.hook_written("hasInstance"));
     let throws =
-        crate::ast_throw_info::compute_may_throw_fns(ast, expr_types, num_f64_slots, &live);
+        crate::ast_throw_info::compute_may_throw_fns(ast, expr_types, num_f64_slots, names);
     let catch_types =
         crate::ast_throw_info::catch_types::infer(ast, expr_types, num_f64_slots, &live, &throws);
     let (may_throw, nonint_reads_run_code) = (throws.may_throw, throws.props_run_code);
@@ -68,8 +69,7 @@ pub(crate) fn run(
     let mut generic_struct_decls: GenericStructDecls = HashMap::new();
     let mut struct_layouts: Vec<Vec<(PropKey, Type)>> = std::mem::take(&mut module.struct_layouts);
     let mut inst_memo: HashMap<String, ssa::StructId> = HashMap::new();
-    let mut class_sids: std::collections::HashMap<String, ssa::StructId> =
-        std::collections::HashMap::new();
+    let mut class_sids: HashMap<String, ssa::StructId> = HashMap::new();
     for stmt in &ast.stmts {
         if let Stmt::TypeDecl {
             name,
@@ -246,7 +246,13 @@ pub(crate) fn run(
 /// The classes the value-class census admits, by name, sorted.
 pub fn value_class_names(artifacts: &crate::check::CheckArtifacts) -> Vec<String> {
     let held = HashSet::new();
-    let p = run(&artifacts.1, &mut Module::default(), &artifacts.5, &held);
+    let scans = crate::ssa_lower_ctx_state::ModuleScans::of(&artifacts.5.mono_ast, &artifacts.1);
+    let p = run(
+        &artifacts.1,
+        &mut Module::default(),
+        &artifacts.5,
+        (&held, &scans),
+    );
     let mut out: Vec<String> = (p.aliases.iter())
         .filter(|(_, t)| matches!(t, Type::Obj(s) if p.facts.value_classes.contains(s)))
         .map(|(n, _)| n.clone())

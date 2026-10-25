@@ -23,7 +23,7 @@
 //! declining to route a shape here never loses an answer, it only
 //! keeps the faster fold.
 
-use crate::ast::{Expr, ExprId};
+use crate::ast::{Ast, Expr, ExprId};
 use crate::ssa::{InstKind, Operand, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
 
@@ -250,14 +250,32 @@ pub(super) fn has_any_encoding(ty: Type) -> bool {
 ///   resolves, where the empty descendant-tag set used to
 ///   constant-fold `false`.
 fn dynamic_target_name(ctx: &LowerCtx<'_>, class_name: &str) -> Option<String> {
+    let hook = ctx.scans.proto_shadow.hook_written("hasInstance");
+    if !name_runs_operator(ctx.ast, class_name, hook) {
+        return None;
+    }
+    let class_object = ctx.ast.class_parents.contains_key(class_name)
+        && !ctx.ast.eval_unit_classes.contains(class_name);
+    Some(match class_object {
+        true => format!("__class_{class_name}"),
+        false => class_name.to_string(),
+    })
+}
+
+/// Whether `x instanceof N`, `N` a name the function binds no local
+/// to, asks the §13.10.2 operator rather than a fold; `hook` is whether
+/// a value in the module may carry a `Symbol.hasInstance` handler. The
+/// operator can throw, a fold cannot, so the throw analysis asks this
+/// too (`ast_throw_info`).
+pub(crate) fn name_runs_operator(ast: &Ast, class_name: &str, hook: bool) -> bool {
     // A unit class names the evaluation its declaration left in scope
     // (`ast::class_unit`): the tag fold would say yes to an instance of
     // any evaluation, so the operator decides against this one's
     // prototype.
-    if ctx.ast.eval_unit_classes.contains(class_name) {
-        return Some(class_name.to_string());
+    if ast.eval_unit_classes.contains(class_name) {
+        return true;
     }
-    if ctx.ast.class_parents.contains_key(class_name) {
+    if ast.class_parents.contains_key(class_name) {
         // A handler the class body declares is one spelling; a
         // `defineProperty(C, Symbol.hasInstance, …)` is the other, and
         // no class-shaped question sees it. A module that installs one
@@ -265,16 +283,10 @@ fn dynamic_target_name(ctx: &LowerCtx<'_>, class_name: &str) -> Option<String> {
         // whole-program posture the iteration lanes take, and the
         // runtime lane falls through to OrdinaryHasInstance when the
         // target carries no handler after all.
-        return (class_declares_has_instance(ctx, class_name)
-            || ctx.scans.proto_shadow.hook_written("hasInstance"))
-        .then(|| format!("__class_{class_name}"));
+        return class_declares_has_instance(ast, class_name) || hook;
     }
-    if builtin_proto_tag(class_name).is_some()
-        || matches!(class_name, "Object" | "Iterator" | "BigInt" | "Symbol")
-    {
-        return None;
-    }
-    Some(class_name.to_string())
+    builtin_proto_tag(class_name).is_none()
+        && !matches!(class_name, "Object" | "Iterator" | "BigInt" | "Symbol")
 }
 
 /// Does this class — or anything it extends — write a member under
@@ -289,32 +301,29 @@ fn dynamic_target_name(ctx: &LowerCtx<'_>, class_name: &str) -> Option<String> {
 /// even though the subclass declares nothing. The depth cap mirrors
 /// [`super::compute_descendant_tags`] — a malformed cycle in the
 /// side table must not hang the compiler.
-fn class_declares_has_instance(ctx: &LowerCtx<'_>, class_name: &str) -> bool {
+fn class_declares_has_instance(ast: &Ast, class_name: &str) -> bool {
     let mut cur = Some(class_name.to_string());
     let mut depth = 0u32;
     while let Some(name) = cur {
         if depth > 64 {
             return false;
         }
-        if ctx
-            .ast
-            .class_computed_keys
-            .iter()
-            .any(|((c, _), &key)| *c == name && is_symbol_has_instance(ctx, key))
+        if (ast.class_computed_keys.iter())
+            .any(|((c, _), &key)| *c == name && is_symbol_has_instance(ast, key))
         {
             return true;
         }
-        cur = ctx.ast.class_parents.get(&name).and_then(|p| p.clone());
+        cur = ast.class_parents.get(&name).and_then(|p| p.clone());
         depth += 1;
     }
     false
 }
 
-fn is_symbol_has_instance(ctx: &LowerCtx<'_>, key: ExprId) -> bool {
-    let Expr::Member { obj, name } = ctx.ast.get_expr(key) else {
+fn is_symbol_has_instance(ast: &Ast, key: ExprId) -> bool {
+    let Expr::Member { obj, name } = ast.get_expr(key) else {
         return false;
     };
-    name == "hasInstance" && matches!(ctx.ast.get_expr(*obj), Expr::Ident(n) if n == "Symbol")
+    name == "hasInstance" && matches!(ast.get_expr(*obj), Expr::Ident(n) if n == "Symbol")
 }
 
 /// The name's storage slot — a local binding directly, a module

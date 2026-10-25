@@ -110,3 +110,47 @@ pub(crate) fn new_raises(
         _ => true,
     }
 }
+
+/// Whether `x instanceof rhs` can raise: §13.10.2 throws when the
+/// target is not an object or its `@@hasInstance` handler throws, and
+/// the lowering asks the operator for every target but a declared
+/// class or builtin constructor it folds by name
+/// (`ssa_lower_instanceof::name_runs_operator`). A local binding of the
+/// name is a value the operator is asked of. A folded builtin walks the
+/// prototype chain of an object `x`, which runs a Proxy's trap.
+pub(super) fn instanceof_raises(sc: &super::Scan<'_>, x: ExprId, rhs: ExprId) -> bool {
+    let Expr::Ident(n) = sc.ast.get_expr(rhs) else {
+        return true;
+    };
+    if sc.fn_values.contains(n) {
+        return true;
+    }
+    let name = n.strip_prefix("__class_").unwrap_or(n);
+    if sc.fn_values.contains(name) {
+        return true;
+    }
+    let name = (sc.ast.generator_factory_classes.get(name)).map_or(name, String::as_str);
+    crate::ssa_lower_instanceof::name_runs_operator(sc.ast, name, sc.has_instance_hook)
+        || (crate::ssa_lower_instanceof::name_walks_proto_chain(name)
+            && !sc.expr_types.get(&x).is_some_and(primitive))
+}
+
+/// A type all of whose values are primitives ToNumeric converts
+/// without running code or throwing.
+fn primitive(t: &crate::check::Type) -> bool {
+    use crate::check::Type;
+    match t {
+        Type::Number
+        | Type::String
+        | Type::Boolean
+        | Type::BigInt
+        | Type::Null
+        | Type::Undefined
+        | Type::Void
+        | Type::Never
+        | Type::Literal(_) => true,
+        Type::Nullable(t) => primitive(t),
+        Type::Union(ts) => ts.iter().all(primitive),
+        _ => false,
+    }
+}

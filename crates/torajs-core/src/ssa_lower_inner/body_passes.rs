@@ -51,8 +51,8 @@ pub(crate) fn run(
     promise_thunks: &crate::ssa_lower_promise_thunk::PromiseThunks,
     class_drop_fids: &std::collections::HashMap<u32, crate::ssa::FuncId>,
     boxed_entries: &HashMap<FuncId, (FuncId, ssa::SigId)>,
+    scans: crate::ssa_lower_ctx_state::ModuleScans,
 ) -> crate::ssa_lower_emit_drop_value::class_drop_fill::DropHooks {
-    let scans = crate::ssa_lower_ctx_state::ModuleScans::of(ast, expr_types);
     // Pass 2: user FnDecl bodies; each body's interned strings go to
     // module.strings at once, so StringIds stay in step with its length.
     for (stmt_idx, fid) in decl_indices {

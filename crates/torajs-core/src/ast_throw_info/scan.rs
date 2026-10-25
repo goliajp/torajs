@@ -58,6 +58,8 @@ pub(crate) struct Scan<'a> {
     pub(crate) nonint_read: bool,
     /// A keyed store that can give an array such a property.
     pub(crate) code_write: bool,
+    /// A value in the program may carry a `Symbol.hasInstance` handler.
+    pub(crate) has_instance_hook: bool,
 }
 
 impl<'a> Scan<'a> {
@@ -67,7 +69,7 @@ impl<'a> Scan<'a> {
         params: &[Param],
         expr_types: &'a HashMap<ExprId, crate::check::Type>,
         widths: &'a WidthTable,
-        (assigned, live): super::ProgramNames<'a>,
+        (assigned, live, has_instance_hook): super::ProgramNames<'a>,
     ) -> Self {
         // the replace lane's view twin takes a capture group's view,
         // and a group that did not participate is the undefined
@@ -106,6 +108,7 @@ impl<'a> Scan<'a> {
             fn_name: name.to_string(),
             nonint_read: false,
             code_write: false,
+            has_instance_hook,
         }
     }
 

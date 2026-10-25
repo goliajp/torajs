@@ -67,6 +67,7 @@ mod dynamic;
 mod fold;
 pub(crate) mod tags;
 
+pub(crate) use dynamic::name_runs_operator;
 use dynamic::{
     emit_has_instance, has_any_encoding, lower_general_rhs, try_lower_dynamic_target,
     try_lower_local_shadow,
@@ -234,7 +235,17 @@ fn lower_iterator_instanceof(ctx: &mut LowerCtx<'_>, v: Operand, actual_ty: Type
         Type::Bool,
         None,
     );
+    // a Proxy's `getPrototypeOf` trap runs on the walk
+    ctx.emit_throw_check(None);
     Operand::Value(r)
+}
+
+/// Whether `x instanceof N`, the builtin constructor `N` folded by
+/// name, walks the prototype chain of an object `x` at run time, where
+/// a Proxy's `getPrototypeOf` trap can throw.
+pub(crate) fn name_walks_proto_chain(class_name: &str) -> bool {
+    crate::ssa_lower_call_typedarray::kind_of_name(class_name).is_none()
+        && (builtin_proto_tag(class_name).is_some() || class_name == "Iterator")
 }
 
 fn lower_any_dispatch(ctx: &mut LowerCtx<'_>, v: Operand, class_name: &str) -> Operand {
@@ -267,6 +278,8 @@ fn lower_any_dispatch(ctx: &mut LowerCtx<'_>, v: Operand, class_name: &str) -> O
             Type::Bool,
             None,
         );
+        // a Proxy's `getPrototypeOf` trap runs on the walk
+        ctx.emit_throw_check(None);
         return Operand::Value(r);
     }
     if class_name == "Object" {
