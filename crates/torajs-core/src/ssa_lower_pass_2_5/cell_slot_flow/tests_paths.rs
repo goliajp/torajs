@@ -190,6 +190,18 @@ fn a_decode_behind_an_adapters_layout_test_is_exact() {
         Some(FuncId(4)),
     );
     assert_eq!(open(&m), vec![false, false, false]);
+    // a cell decoded into a base-typed slot may be of an extending
+    // layout: the decode is a path from it
+    let mut m = module();
+    build(
+        &mut m,
+        "__boxed_take",
+        Type::Obj(StructId(0)),
+        Some(FuncId(4)),
+    );
+    let (open_base, widens) = open_sids(&m, &EnvLayouts::new());
+    assert_eq!(open_base, vec![false, false, false]);
+    assert!(widens.contains(&(StructId(1), StructId(0))));
     let mut m = module();
     let a = arr_of(&mut m);
     build(&mut m, "__boxed_take", Type::Arr(a), Some(FuncId(5)));

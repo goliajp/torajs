@@ -130,17 +130,29 @@ impl Scan<'_> {
     /// so the cell has the slot's layout or one extending it, and an
     /// array holds such cells in every element. Only an adapter emits
     /// the test, and it branches on the answer before the decode.
-    pub(super) fn proven_fit(&self, bits: &Operand) -> bool {
+    ///
+    /// Exact means no foreign layout, not the slot's layout alone: a
+    /// proven decode into a slot of type `slot` records every layout
+    /// extending it as a path into it, as a blind parameter does
+    /// (`Paths::entered_blind`), so a base-typed slot knows the
+    /// subclass cells it may hold and an array's elements are slots
+    /// under both element types.
+    pub(super) fn proven_fit(&self, bits: &Operand, slot: Type) -> bool {
         let Operand::Value(b) = bits else {
             return false;
         };
-        self.f
+        let proven = self
+            .f
             .name
             .starts_with(super::super::any_holds::BOXED_ENTRY_PREFIX)
             && self
                 .bits_of
                 .get(b)
-                .is_some_and(|av| self.tested.contains(av))
+                .is_some_and(|av| self.tested.contains(av));
+        if proven {
+            self.paths.borrow_mut().entered_blind(self.module, slot);
+        }
+        proven
     }
 
     pub(super) fn slot(&self, p: &Operand, off: u64) -> Option<Type> {

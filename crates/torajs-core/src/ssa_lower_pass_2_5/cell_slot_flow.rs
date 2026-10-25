@@ -32,7 +32,8 @@
 //! slot only on the path where `__torajs_anyv_struct_fits` /
 //! `__torajs_anyv_arr_fits` answered for it (the non-fitting path
 //! goes to the all-`any` twin), so that decode is exact
-//! (`Scan::proven_fit`); every other decode out of `any` opens.
+//! (`Scan::proven_fit`, which records the extending layouts the test
+//! admits as paths); every other decode out of `any` opens.
 
 use crate::ssa::id_hash::{HashMap, HashSet};
 use std::cell::RefCell;
@@ -245,7 +246,7 @@ impl Scan<'_> {
             | InstKind::LoadDynScaled8(..) => true,
             InstKind::Copy(_, v) | InstKind::Identity(v) => self.fits(sid, v),
             InstKind::Select(_, _, a, b) => self.fits(sid, a) && self.fits(sid, b),
-            InstKind::IntToPtr(bits) => self.proven_fit(bits),
+            InstKind::IntToPtr(bits) => self.proven_fit(bits, Type::Obj(sid)),
             _ => false,
         };
         if !exact {
@@ -282,13 +283,7 @@ impl Scan<'_> {
             | InstKind::LoadDynScaled8(..) => true,
             InstKind::Copy(_, v) | InstKind::Identity(v) => self.fits_slot(elem, v),
             InstKind::Select(_, _, x, y) => self.fits_slot(elem, x) && self.fits_slot(elem, y),
-            // the test proves the elements extend this layout, not the
-            // caller's element type: align them as a blind parameter's
-            InstKind::IntToPtr(bits) if self.proven_fit(bits) => {
-                let blind = Type::Arr(a);
-                self.paths.borrow_mut().entered_blind(self.module, blind);
-                true
-            }
+            InstKind::IntToPtr(bits) => self.proven_fit(bits, Type::Arr(a)),
             _ => false,
         };
         if !exact {

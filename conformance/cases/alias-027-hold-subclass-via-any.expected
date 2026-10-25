@@ -1,0 +1,5 @@
+cast cell 17
+instanceof cell 34
+cast string abcdefghijklmnopqrstuvwxy 27
+instanceof string abcdefghijklmnopqrstuvwxy 27
+cleared true
