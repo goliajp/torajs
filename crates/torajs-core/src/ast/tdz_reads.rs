@@ -97,8 +97,11 @@
 
 use std::collections::{HashMap, HashSet};
 
+mod descend;
+
 use super::desugar_with::walk::{expr_children, stmt_children_ref, stmt_exprs};
 use super::{Ast, Expr, ExprId, Stmt};
+use descend::descend_lists;
 
 /// Fill `ast.tdz_reads`. Runs last in the AST pipeline, on the tree
 /// the lowerer will read, so no later rewrite can move a marked
@@ -155,70 +158,6 @@ pub(super) fn run_nested(ast: &Ast, stmts: &[Stmt], out: &mut HashSet<ExprId>) {
     mark_list(ast, &flat, out);
     for s in stmts {
         descend_lists(ast, s, out);
-    }
-}
-
-/// Every statement list reachable from `s`, each run as its own scope.
-fn descend_lists(ast: &Ast, s: &Stmt, out: &mut HashSet<ExprId>) {
-    match s {
-        Stmt::Block(b) => {
-            run_nested(ast, b, out);
-            return;
-        }
-        Stmt::Switch {
-            cases,
-            default,
-            default_at,
-            ..
-        } => {
-            let (before, after) = cases.split_at(*default_at);
-            let mut flat: Vec<&Stmt> = Vec::new();
-            for body in before
-                .iter()
-                .map(|c| c.body.as_slice())
-                .chain(default.as_deref())
-                .chain(after.iter().map(|c| c.body.as_slice()))
-            {
-                flatten(body, &mut flat);
-            }
-            mark_list(ast, &flat, out);
-        }
-        Stmt::FnDecl { body, .. } => {
-            run_nested(ast, body, out);
-            return;
-        }
-        Stmt::Try {
-            body,
-            catch_body,
-            finally_body,
-            ..
-        } => {
-            run_nested(ast, body, out);
-            run_nested(ast, catch_body, out);
-            if let Some(f) = finally_body {
-                run_nested(ast, f, out);
-            }
-            return;
-        }
-        _ => {}
-    }
-    for root in stmt_exprs(s) {
-        descend_expr_lists(ast, root, out);
-    }
-    for c in stmt_children_ref(s) {
-        descend_lists(ast, c, out);
-    }
-}
-
-/// A function expression's body is a list too, and the pipeline runs
-/// this pass before the arrows are lifted out of the arena.
-fn descend_expr_lists(ast: &Ast, eid: ExprId, out: &mut HashSet<ExprId>) {
-    if let Expr::ArrowFn { body, .. } = ast.get_expr(eid) {
-        run_nested(ast, body, out);
-        return;
-    }
-    for c in expr_children(ast, eid) {
-        descend_expr_lists(ast, c, out);
     }
 }
 
