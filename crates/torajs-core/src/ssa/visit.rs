@@ -3,7 +3,19 @@
 //! breaks loudly when a new variant grows an operand (the egraph
 //! passes and codegen both count uses through this single walker).
 
-use super::{BinOp, InstKind, Operand, ValueId};
+use super::{BinOp, InstKind, Operand, Terminator, ValueId};
+
+/// Call `f` with the `Operand::Value` a terminator reads, if any.
+pub fn visit_terminator_values(term: &Terminator, mut f: impl FnMut(ValueId)) {
+    match term {
+        Terminator::CondBr { cond: op, .. } | Terminator::Ret(Some(op)) => {
+            if let Operand::Value(v) = op {
+                f(*v);
+            }
+        }
+        Terminator::Br(_) | Terminator::Ret(None) | Terminator::Unreachable => {}
+    }
+}
 
 /// Call `f` with every `Operand::Value` the instruction reads.
 pub fn visit_value_operands(kind: &InstKind, mut f: impl FnMut(ValueId)) {

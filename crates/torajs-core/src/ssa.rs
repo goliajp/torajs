@@ -51,7 +51,9 @@ pub use op_impls::{BinOp, FPred, IPred, Operand};
 pub use suspend::{SuspendFn, SuspendKind, SuspendLane, SuspendRuntime};
 pub use type_def::Type;
 pub use vec::{VecInst, VecOp, VecShape};
-pub use visit::{lowers_to_call, rewrite_value_operands, visit_value_operands};
+pub use visit::{
+    lowers_to_call, rewrite_value_operands, visit_terminator_values, visit_value_operands,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum InstKind {

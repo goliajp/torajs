@@ -18,7 +18,7 @@ use std::collections::{HashMap, HashSet};
 
 use torajs_core::ssa::{
     BinOp, FuncId, Function, InstKind, Module, Operand, StringId, Terminator, Type, ValueId,
-    visit_value_operands,
+    visit_terminator_values, visit_value_operands,
 };
 
 pub(crate) const GOPD: &str = "__torajs_anyv_get_property_descriptor";
@@ -332,16 +332,7 @@ pub(crate) fn use_lists(f: &Function) -> HashMap<ValueId, Vec<Use>> {
                 uses.entry(v).or_default().push((bi, Some(ii)))
             });
         }
-        let mut term = |op: &Operand| {
-            if let Operand::Value(v) = op {
-                uses.entry(*v).or_default().push((bi, None));
-            }
-        };
-        match &b.term {
-            Terminator::CondBr { cond, .. } => term(cond),
-            Terminator::Ret(Some(op)) => term(op),
-            Terminator::Br(_) | Terminator::Ret(None) | Terminator::Unreachable => {}
-        }
+        visit_terminator_values(&b.term, |v| uses.entry(v).or_default().push((bi, None)));
     }
     uses
 }

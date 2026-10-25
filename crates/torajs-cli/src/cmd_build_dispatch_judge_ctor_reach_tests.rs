@@ -64,14 +64,19 @@ fn a_runtime_key_descriptor_bag_keeps_the_statics_even_dropped() {
 }
 
 /// `o[k]` through the pair read, its value loaded from the slot and
-/// returned when `ret`; the slot also handed to a call when `hand_out`.
-fn pair_read(ret: bool, hand_out: bool) -> bool {
+/// returned when `ret`; the slot also handed to a call when
+/// `hand_out`, and a parameter rather than a stack slot unless `stack`.
+fn pair_read_in(ret: bool, hand_out: bool, stack: bool) -> bool {
     let mut m = Module::default();
     let mut f = Function::new("user", Type::Any);
     let b = f.add_block();
     let o = f.add_param(Type::Any, "o");
     let k = f.add_param(Type::Any, "k");
-    let slot = f.add_param(Type::Ptr, "slot");
+    let slot = if stack {
+        f.append_inst(b, InstKind::Alloca(Type::I64), Type::Ptr, None)
+    } else {
+        f.add_param(Type::Ptr, "slot")
+    };
     let read = m.add_function(Function::new("__torajs_any_member_get_pair", Type::I64));
     let args = vec![Operand::Value(o), Operand::Value(k), Operand::Value(slot)];
     f.append_inst(b, InstKind::Call(read, args), Type::I64, None);
@@ -85,6 +90,16 @@ fn pair_read(ret: bool, hand_out: bool) -> bool {
     f.set_term(b, Terminator::Ret(ret.then_some(Operand::Value(value))));
     m.add_function(f);
     ctor_cell_reachable(&m, &vec![true; m.funcs.len()], false)
+}
+
+fn pair_read(ret: bool, hand_out: bool) -> bool {
+    pair_read_in(ret, hand_out, true)
+}
+
+#[test]
+fn a_pair_slot_is_followed_only_as_a_stack_slot() {
+    // a slot the function did not allocate may be read elsewhere
+    assert!(pair_read_in(false, false, false));
 }
 
 #[test]

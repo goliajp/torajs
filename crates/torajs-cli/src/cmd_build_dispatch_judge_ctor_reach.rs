@@ -37,12 +37,13 @@
 //! already holds (the typed-array ctors' own %TypedArray% parent
 //! included).
 
-use std::collections::HashSet;
+use std::cell::OnceCell;
+use std::collections::{HashMap, HashSet};
 
-use torajs_core::ssa::{Function, InstKind, Module, Operand, Terminator, Type, ValueId};
+use torajs_core::ssa::{Function, InstKind, Module, Operand, Type, ValueId};
 
 use crate::cmd_build_dispatch_judge_coerce_hooks::HookPremise;
-use crate::cmd_build_dispatch_judge_ctor_uses::{GOPD, KEYED_READERS};
+use crate::cmd_build_dispatch_judge_ctor_uses::{GOPD, KEYED_READERS, Use, use_lists};
 
 /// Readers that hand out every own property or answer a constructor
 /// directly — any call may surface a constructor cell.
@@ -84,6 +85,7 @@ pub(crate) fn ctor_cell_reachable(module: &Module, live: &[bool], diag: bool) ->
         }
         let fixed_keys = fixed_keys(module, f);
         let mut answers = HashSet::new();
+        let uses = OnceCell::new();
         for b in &f.blocks {
             for inst in &b.insts {
                 let InstKind::Call(fid, args) = &inst.kind else {
@@ -116,7 +118,10 @@ pub(crate) fn ctor_cell_reachable(module: &Module, live: &[bool], diag: bool) ->
                 // the pair read answers the tag and leaves the value in
                 // its slot: every load of that slot is an answer too
                 if runtime_key && name == GET_PAIR {
-                    let Some(loads) = args.get(2).and_then(|s| slot_loads(module, f, s)) else {
+                    let Some(loads) = args
+                        .get(2)
+                        .and_then(|s| slot_loads(module, f, uses.get_or_init(|| use_lists(f)), s))
+                    else {
                         if diag {
                             eprintln!("[judge] ns-world: {} hands out a pair slot", f.name);
                         }
@@ -147,20 +152,29 @@ pub(crate) fn ctor_cell_reachable(module: &Module, live: &[bool], diag: bool) ->
     false
 }
 
-/// The values `f` loads from the pair read's value slot; None when the
-/// slot has any other use than a load or a pair read's slot operand.
-fn slot_loads(module: &Module, f: &Function, slot: &Operand) -> Option<Vec<ValueId>> {
+/// The values `f` loads from the pair read's value slot; None unless
+/// the slot is one stack slot (an `alloca`, defined once) whose every
+/// other use is a pair read's slot operand.
+fn slot_loads(
+    module: &Module,
+    f: &Function,
+    uses: &HashMap<ValueId, Vec<Use>>,
+    slot: &Operand,
+) -> Option<Vec<ValueId>> {
     let Operand::Value(slot) = slot else {
         return None;
     };
+    let mut defs = (f.blocks.iter().flat_map(|b| &b.insts)).filter(|i| i.result == Some(*slot));
+    let (Some(def), None) = (defs.next(), defs.next()) else {
+        return None;
+    };
+    if !matches!(def.kind, InstKind::Alloca(_)) {
+        return None;
+    }
     let as_slot = Operand::Value(*slot);
     let mut loads = Vec::new();
-    for inst in f.blocks.iter().flat_map(|b| &b.insts) {
-        let mut used = false;
-        torajs_core::ssa::visit_value_operands(&inst.kind, |v| used |= v == *slot);
-        if !used {
-            continue;
-        }
+    for &(bi, ii) in uses.get(slot).map_or(&[][..], Vec::as_slice) {
+        let inst = &f.blocks[bi].insts[ii?];
         match &inst.kind {
             InstKind::Load(_, at, _) if *at == as_slot => loads.extend(inst.result),
             InstKind::Call(fid, args)
@@ -170,12 +184,7 @@ fn slot_loads(module: &Module, f: &Function, slot: &Operand) -> Option<Vec<Value
             _ => return None,
         }
     }
-    let term_use = f.blocks.iter().any(|b| match &b.term {
-        Terminator::CondBr { cond, .. } => *cond == as_slot,
-        Terminator::Ret(Some(op)) => *op == as_slot,
-        _ => false,
-    });
-    (!term_use).then_some(loads)
+    Some(loads)
 }
 
 /// True for a symbol: a symbol key is its own property key, never the

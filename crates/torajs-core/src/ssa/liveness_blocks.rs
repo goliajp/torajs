@@ -17,7 +17,7 @@
 //! result.
 
 use super::id_hash::HashMap;
-use super::{Function, Operand, Terminator, ValueId, visit_value_operands};
+use super::{Function, Terminator, visit_terminator_values, visit_value_operands};
 
 /// Per-block liveness, index-aligned with `func.blocks`.
 pub struct BlockLiveness {
@@ -148,18 +148,6 @@ fn scan(func: &Function) -> Scan {
         }
     }
     s
-}
-
-/// Call `f` with the value a terminator reads, if any.
-fn visit_terminator_values(term: &Terminator, mut f: impl FnMut(ValueId)) {
-    match term {
-        Terminator::Ret(Some(Operand::Value(v)))
-        | Terminator::CondBr {
-            cond: Operand::Value(v),
-            ..
-        } => f(*v),
-        _ => {}
-    }
 }
 
 pub fn compute_block_liveness(func: &Function) -> BlockLiveness {
