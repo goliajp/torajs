@@ -21,7 +21,9 @@ use crate::ssa_lower_closure_captures::captures_any;
 pub(super) struct PerIterVar {
     name: String,
     /// The head's own binding, a plain slot the first copy is seeded
-    /// from; it keeps its value (and its stake) until the loop ends.
+    /// from. A non-Copy value's reference moves into that copy, so a
+    /// return, a throw or a labelled jump out of the loop owes only the
+    /// box the name is bound to.
     outer: LocalInfo,
     track: ValueId,
 }
@@ -149,9 +151,10 @@ fn bind_box(ctx: &mut LowerCtx, pv: &PerIterVar, boxed: ValueId) {
 }
 
 /// A fresh box holding `v`, recorded in the track slot. A non-Copy
-/// value takes the box's own stake.
-fn mint_box(ctx: &mut LowerCtx, pv: &PerIterVar, v: ValueId) -> ValueId {
-    if !pv.outer.ty.is_copy() {
+/// value takes a stake of its own for the box unless `moved` hands it
+/// the one its slot held.
+fn mint_box(ctx: &mut LowerCtx, pv: &PerIterVar, v: ValueId, moved: bool) -> ValueId {
+    if !moved && !pv.outer.ty.is_copy() {
         ctx.emit_owned_result_inc(Operand::Value(v), pv.outer.ty);
     }
     let boxed = ctx.emit_capture_boxed(pv.outer.ty, Operand::Value(v));
@@ -166,7 +169,8 @@ fn mint_box(ctx: &mut LowerCtx, pv: &PerIterVar, v: ValueId) -> ValueId {
 }
 
 /// The first copy, before the first test, seeded from the head's
-/// binding.
+/// binding, which is not read again: its reference moves into the box
+/// (the fast and the slow loop are exclusive, so it moves once).
 pub(super) fn mint_first_boxes(ctx: &mut LowerCtx, per_iter: &[PerIterVar]) {
     for pv in per_iter {
         let cur = ctx.f.append_inst(
@@ -175,7 +179,7 @@ pub(super) fn mint_first_boxes(ctx: &mut LowerCtx, per_iter: &[PerIterVar]) {
             pv.outer.ty,
             None,
         );
-        let boxed = mint_box(ctx, pv, cur);
+        let boxed = mint_box(ctx, pv, cur, true);
         bind_box(ctx, pv, boxed);
     }
 }
@@ -210,7 +214,7 @@ pub(super) fn renew_boxes(ctx: &mut LowerCtx, per_iter: &[PerIterVar]) {
             pv.outer.ty,
             None,
         );
-        let boxed = mint_box(ctx, pv, v);
+        let boxed = mint_box(ctx, pv, v, false);
         let drop_fid = ctx.capture_box_drop_fid(pv.outer.ty);
         ctx.f.append_void(
             ctx.cur_block,
@@ -222,7 +226,7 @@ pub(super) fn renew_boxes(ctx: &mut LowerCtx, per_iter: &[PerIterVar]) {
 
 /// The block the loop leaves by: release the box of the iteration the
 /// test failed in or a `break` left, and point the name back at the
-/// head's binding, which the for frame then releases.
+/// head's binding, which holds nothing the for frame owes.
 pub(super) fn release_boxes(ctx: &mut LowerCtx, per_iter: &[PerIterVar]) {
     for pv in per_iter {
         let t = ctx.f.append_inst(
@@ -237,6 +241,10 @@ pub(super) fn release_boxes(ctx: &mut LowerCtx, per_iter: &[PerIterVar]) {
             InstKind::Call(drop_fid, vec![Operand::Value(t)]),
         );
         ctx.boxed_noncopy_lets.remove(&pv.name);
-        ctx.locals.insert(pv.name.clone(), pv.outer);
+        let outer = LocalInfo {
+            moved: true,
+            ..pv.outer
+        };
+        ctx.locals.insert(pv.name.clone(), outer);
     }
 }

@@ -44,15 +44,12 @@ pub(crate) fn lower(
 ) {
     ctx.scope_stack.push(Vec::new());
     ctx.shadow_stack.push(Vec::new());
-    // Chunk 725 — captured for-init lets lower to a PLAIN alloca
-    // here (the loop-carried "outer" slot); each iteration re-boxes
-    // it below. Pre-fix they lowered to one shared capture box, so
-    // every iteration's closure observed the post-loop value
-    // (`m = (x) => x + i` answered i's final 1, bun/ES 0) and the
-    // box stake leaked (the for frame walk Copy-skips it).
-    // A binding a closure the initializer makes captures keeps its
-    // box through the initializer (that closure sees the head's own
-    // binding, §14.7.4.4), and the loop then starts from its value.
+    // A head binding a closure in the loop captures lowers to a plain
+    // slot, the head's own binding, and the loop makes the
+    // per-iteration copies from it (`periter`). One a closure the
+    // initializer makes captures keeps its box through the initializer
+    // (that closure sees the head's own binding, §14.7.4.4), and the
+    // loop then starts from its value.
     let (candidates, in_init) = periter::per_iter_candidates(ctx, init);
     for name in candidates.iter().filter(|n| !in_init.contains(n)) {
         ctx.escape_captured_lets.remove(name);
