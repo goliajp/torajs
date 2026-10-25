@@ -80,8 +80,7 @@ use crate::frame::FrameLayout;
 use crate::reg::{Fpr, Gpr};
 use crate::regalloc::Assignment;
 use crate::reloc::Reloc;
-use crate::shrink_wrap::ShrinkWrap;
-use entry::{emit_param_entry_moves, emit_stack_param_loads};
+use entry::open_frame;
 use inst::emit_inst_at;
 use terminator::{BranchFixup, BranchKind, Fixups, emit_terminator};
 
@@ -283,35 +282,6 @@ fn emit_body(
 
     let patched = terminator::patch_all(&mut bytes, &fixups, &landing, &block_byte_starts);
     patched.then_some((bytes, relocs))
-}
-
-/// Open the function's frame on entry: the prologue, then the
-/// parameters moved to their homes. With a shrink-wrap save point,
-/// returned, the prologue opens that block instead, and the blocks
-/// ahead of it run frameless (see shrink_wrap.rs).
-fn open_frame(
-    bytes: &mut Vec<u8>,
-    func: &Function,
-    alloc: &Assignment,
-    frame: &FrameLayout,
-    pin: pin_reg::PinRole,
-) -> Option<ShrinkWrap> {
-    // an entry loads x27 / x28 only once the prologue has saved them
-    let shrink = if frame.is_trivial() || pin.is_entry() {
-        None
-    } else {
-        crate::shrink_wrap::plan(func, alloc)
-    };
-    if shrink.is_none() {
-        frame.emit_prologue(bytes);
-        pin.emit_entry_loads(bytes);
-        // Relocate call-crossing params out of their (caller-saved) arg
-        // registers into the callee-saved registers the allocator picked,
-        // now that the prologue has saved those registers' prior contents.
-        emit_param_entry_moves(bytes, alloc);
-        emit_stack_param_loads(bytes, alloc, frame);
-    }
-    shrink
 }
 
 /// The instructions of `block` ahead of `end` (a sibling call, or the

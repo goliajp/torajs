@@ -1,12 +1,16 @@
-//! Function entry, right after the prologue: move call-crossing
-//! params out of their arg registers and copy stack params into
-//! their homes.
+//! Function entry: the prologue, then the call-crossing params moved
+//! out of their arg registers and the stack params copied into their
+//! homes.
 
+use torajs_core::ssa::Function;
+
+use super::pin_reg::PinRole;
 use super::{FP_SCRATCH_LHS, OP_SCRATCH_LHS, slot, write_u32};
 use crate::enc::{mov_d_reg, mov_x_reg};
 use crate::frame::FrameLayout;
 use crate::reg::Reg;
 use crate::regalloc::Assignment;
+use crate::shrink_wrap::ShrinkWrap;
 
 /// Copy each stack param (9th+ argument of a register class) from the
 /// caller's outgoing area into the home the allocator picked. The
@@ -15,7 +19,7 @@ use crate::regalloc::Assignment;
 /// `sp + j*8` directly when the frame is trivial (no prologue at
 /// all). This is the only place the body ever touches the caller's
 /// frame; everything downstream reads the copied home.
-pub(super) fn emit_stack_param_loads(bytes: &mut Vec<u8>, alloc: &Assignment, frame: &FrameLayout) {
+fn emit_stack_param_loads(bytes: &mut Vec<u8>, alloc: &Assignment, frame: &FrameLayout) {
     if alloc.stack_param_entry_loads.is_empty() {
         return;
     }
@@ -55,4 +59,33 @@ pub(super) fn emit_param_entry_moves(bytes: &mut Vec<u8>, alloc: &Assignment) {
             other => unreachable!("param entry move with mismatched reg classes: {other:?}"),
         }
     }
+}
+
+/// Open the function's frame on entry: the prologue, then the
+/// parameters moved to their homes. With a shrink-wrap save point,
+/// returned, the prologue opens that block instead, and the blocks
+/// ahead of it run frameless (see shrink_wrap.rs).
+pub(super) fn open_frame(
+    bytes: &mut Vec<u8>,
+    func: &Function,
+    alloc: &Assignment,
+    frame: &FrameLayout,
+    pin: PinRole,
+) -> Option<ShrinkWrap> {
+    // an entry loads x27 / x28 only once the prologue has saved them
+    let shrink = if frame.is_trivial() || pin.is_entry() {
+        None
+    } else {
+        crate::shrink_wrap::plan(func, alloc)
+    };
+    if shrink.is_none() {
+        frame.emit_prologue(bytes);
+        pin.emit_entry_loads(bytes);
+        // Relocate call-crossing params out of their (caller-saved) arg
+        // registers into the callee-saved registers the allocator picked,
+        // now that the prologue has saved those registers' prior contents.
+        emit_param_entry_moves(bytes, alloc);
+        emit_stack_param_loads(bytes, alloc, frame);
+    }
+    shrink
 }
