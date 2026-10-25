@@ -11,7 +11,10 @@
 //!
 //! The current box rides a `track` slot across the loop's edges: the
 //! header reloads it, the update block replaces it, and the block the
-//! loop leaves by (a failed test or a `break`) releases it.
+//! loop leaves by (a failed test or a `break`) releases it. A Copy
+//! binding no closure in the test or the update captures keeps the
+//! cheaper shape the copies cannot be told from: the test and the
+//! update run on the plain slot and only the body sees a box.
 
 use crate::ast::{ExprId, Stmt};
 use crate::ssa::{InstKind, Operand, Type, ValueId};
@@ -26,6 +29,13 @@ pub(super) struct PerIterVar {
     /// box the name is bound to.
     outer: LocalInfo,
     track: ValueId,
+    /// No closure the test or the update makes captures the binding,
+    /// so nothing tells which binding they run on: they run on the
+    /// plain slot, and the iteration's box is seeded at the body's
+    /// start and copied back at its end. Copy values only: a non-Copy
+    /// copy-back costs a reference count pair per iteration, more than
+    /// the box reads it saves.
+    body_copy: bool,
 }
 
 /// The head names a closure in the loop captures, and those of them a
@@ -114,7 +124,12 @@ pub(super) fn detach_init_boxes(ctx: &mut LowerCtx, in_init: &[String]) {
 /// The tracking state for each candidate something writes: a binding
 /// never written keeps the env snapshot, which no closure can tell
 /// from a copy. Any / Substr stay recorded boundaries.
-pub(super) fn setup_per_iter_vars(ctx: &mut LowerCtx, candidates: Vec<String>) -> Vec<PerIterVar> {
+pub(super) fn setup_per_iter_vars(
+    ctx: &mut LowerCtx,
+    candidates: Vec<String>,
+    cond: Option<ExprId>,
+    step: Option<ExprId>,
+) -> Vec<PerIterVar> {
     let mut per_iter = Vec::new();
     for name in candidates {
         let Some(outer) = ctx.locals.get(&name).copied() else {
@@ -123,8 +138,18 @@ pub(super) fn setup_per_iter_vars(ctx: &mut LowerCtx, candidates: Vec<String>) -
         if !(ctx.mutated_captured_lets.contains(&name) && outer.ty != Type::Substr) {
             continue;
         }
+        let in_head = cond
+            .into_iter()
+            .chain(step)
+            .any(|e| captures_any(ctx.ast, e, &[name.as_str()]));
+        let body_copy = outer.ty.is_copy() && !in_head;
         let track = ctx.alloca(Type::Ptr, Some("__periter_box"));
-        per_iter.push(PerIterVar { name, outer, track });
+        per_iter.push(PerIterVar {
+            name,
+            outer,
+            track,
+            body_copy,
+        });
     }
     per_iter
 }
@@ -171,8 +196,16 @@ fn mint_box(ctx: &mut LowerCtx, pv: &PerIterVar, v: ValueId, moved: bool) -> Val
 /// The first copy, before the first test, seeded from the head's
 /// binding, which is not read again: its reference moves into the box
 /// (the fast and the slow loop are exclusive, so it moves once).
+/// A `body_copy` binding has no box yet: its track slot starts empty.
 pub(super) fn mint_first_boxes(ctx: &mut LowerCtx, per_iter: &[PerIterVar]) {
     for pv in per_iter {
+        if pv.body_copy {
+            ctx.f.append_void(
+                ctx.cur_block,
+                InstKind::Store(Operand::ConstPtrNull, Operand::Value(pv.track), 0),
+            );
+            continue;
+        }
         let cur = ctx.f.append_inst(
             ctx.cur_block,
             InstKind::Load(pv.outer.ty, Operand::Value(pv.outer.slot), 0),
@@ -184,10 +217,25 @@ pub(super) fn mint_first_boxes(ctx: &mut LowerCtx, per_iter: &[PerIterVar]) {
     }
 }
 
+/// The start of the body: a `body_copy` binding's box for this
+/// iteration, seeded from the plain slot.
+pub(super) fn mint_body_boxes(ctx: &mut LowerCtx, per_iter: &[PerIterVar]) {
+    for pv in per_iter.iter().filter(|pv| pv.body_copy) {
+        let cur = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Load(pv.outer.ty, Operand::Value(pv.outer.slot), 0),
+            pv.outer.ty,
+            None,
+        );
+        let boxed = mint_box(ctx, pv, cur, false);
+        bind_box(ctx, pv, boxed);
+    }
+}
+
 /// At the loop header, which the first copy and every update reach:
 /// the current box is the one the track slot holds.
 pub(super) fn reload_boxes(ctx: &mut LowerCtx, per_iter: &[PerIterVar]) {
-    for pv in per_iter {
+    for pv in per_iter.iter().filter(|pv| !pv.body_copy) {
         let boxed = ctx.f.append_inst(
             ctx.cur_block,
             InstKind::Load(Type::Ptr, Operand::Value(pv.track), 0),
@@ -204,7 +252,9 @@ pub(super) fn reload_boxes(ctx: &mut LowerCtx, per_iter: &[PerIterVar]) {
 /// The end of an iteration (its fallthrough and `continue` both arrive
 /// here), before the update: the next iteration's copy takes the
 /// current value, and the iteration's own box loses this frame's
-/// stake (a closure that captured it holds its own).
+/// stake (a closure that captured it holds its own). A `body_copy`
+/// binding's value goes back to the plain slot instead, which the
+/// update and the next test run on.
 pub(super) fn renew_boxes(ctx: &mut LowerCtx, per_iter: &[PerIterVar]) {
     for pv in per_iter {
         let old = ctx.locals.get(&pv.name).expect("per-iter box bound").slot;
@@ -214,18 +264,36 @@ pub(super) fn renew_boxes(ctx: &mut LowerCtx, per_iter: &[PerIterVar]) {
             pv.outer.ty,
             None,
         );
-        let boxed = mint_box(ctx, pv, v, false);
+        let boxed = if pv.body_copy {
+            ctx.f.append_void(
+                ctx.cur_block,
+                InstKind::Store(Operand::Value(v), Operand::Value(pv.outer.slot), 0),
+            );
+            ctx.f.append_void(
+                ctx.cur_block,
+                InstKind::Store(Operand::ConstPtrNull, Operand::Value(pv.track), 0),
+            );
+            None
+        } else {
+            Some(mint_box(ctx, pv, v, false))
+        };
         let drop_fid = ctx.capture_box_drop_fid(pv.outer.ty);
         ctx.f.append_void(
             ctx.cur_block,
             InstKind::Call(drop_fid, vec![Operand::Value(old)]),
         );
-        bind_box(ctx, pv, boxed);
+        match boxed {
+            Some(b) => bind_box(ctx, pv, b),
+            None => {
+                ctx.locals.insert(pv.name.clone(), pv.outer);
+            }
+        }
     }
 }
 
 /// The block the loop leaves by: release the box of the iteration the
-/// test failed in or a `break` left, and point the name back at the
+/// test failed in or a `break` left (a `body_copy` binding's track slot
+/// is empty after a failed test), and point the name back at the
 /// head's binding, which holds nothing the for frame owes.
 pub(super) fn release_boxes(ctx: &mut LowerCtx, per_iter: &[PerIterVar]) {
     for pv in per_iter {

@@ -61,7 +61,7 @@ pub(crate) fn lower(
         ctx.escape_captured_lets.insert(name.clone());
     }
     periter::detach_init_boxes(ctx, &in_init);
-    let per_iter = periter::setup_per_iter_vars(ctx, candidates);
+    let per_iter = periter::setup_per_iter_vars(ctx, candidates, cond, step);
     let (reserve_emitted, slow) = emit_push_loop_reserve(ctx, init, cond, step, body);
     lower_loop(ctx, cond, step, body, &per_iter);
     for name in &reserve_emitted {
@@ -173,6 +173,7 @@ fn lower_loop(
             teardown_depth: ctx.for_of_teardown_stack.len(),
         });
     ctx.cur_block = body_blk;
+    periter::mint_body_boxes(ctx, per_iter);
     ctx.lower_stmt(body);
     if ctx.cur_open() {
         ctx.f.set_term(ctx.cur_block, Terminator::Br(step_blk));
