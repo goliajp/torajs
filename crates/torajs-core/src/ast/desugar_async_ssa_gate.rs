@@ -173,10 +173,9 @@ enum Owner {
 }
 
 /// The statement keeps the body off the SSA lowering: an await in a
-/// class body or a generator step, a `for` whose head makes a function,
-/// or in a function a `for await` (its steps await without spelling
-/// one, and only the state machine suspends them). The module body
-/// awaits those steps in place.
+/// class body or a generator step, or in a function a `for await` (its
+/// steps await without spelling one, and only the state machine
+/// suspends them). The module body awaits those steps in place.
 fn stmt_blocks(ast: &Ast, s: &Stmt, owner: Owner) -> bool {
     let protocol = matches!(
         s,
@@ -185,9 +184,6 @@ fn stmt_blocks(ast: &Ast, s: &Stmt, owner: Owner) -> bool {
     if (protocol && stmt_awaits(ast, s))
         || (owner == Owner::Function && matches!(s, Stmt::ForOf { is_await: true, .. }))
     {
-        return true;
-    }
-    if loop_head_closes_over(ast, s) {
         return true;
     }
     walk::stmt_children_ref(s)
@@ -199,33 +195,4 @@ fn stmt_blocks(ast: &Ast, s: &Stmt, owner: Owner) -> bool {
 fn stmt_for_awaits(s: &Stmt) -> bool {
     matches!(s, Stmt::ForOf { is_await: true, .. })
         || walk::stmt_children_ref(s).into_iter().any(stmt_for_awaits)
-}
-
-/// A `for` whose head makes a function: §14.7.4.4 gives each iteration
-/// its own copy of the `let` bindings, and a closure made in the
-/// initializer or the update sees a particular copy. The statement
-/// lowering shares one binding across those positions, which the state
-/// machine's per-iteration fields do not.
-fn loop_head_closes_over(ast: &Ast, s: &Stmt) -> bool {
-    let Stmt::For { init, step, .. } = s else {
-        return false;
-    };
-    init.as_deref().is_some_and(|i| stmt_makes_fn(ast, i))
-        || step.is_some_and(|e| expr_makes_fn(ast, e))
-}
-
-fn stmt_makes_fn(ast: &Ast, s: &Stmt) -> bool {
-    walk::stmt_exprs(s)
-        .into_iter()
-        .any(|e| expr_makes_fn(ast, e))
-        || walk::stmt_children_ref(s)
-            .into_iter()
-            .any(|c| stmt_makes_fn(ast, c))
-}
-
-fn expr_makes_fn(ast: &Ast, eid: ExprId) -> bool {
-    matches!(ast.get_expr(eid), Expr::ArrowFn { .. })
-        || walk::expr_children(ast, eid)
-            .into_iter()
-            .any(|c| expr_makes_fn(ast, c))
 }
