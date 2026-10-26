@@ -199,6 +199,7 @@ fn rewrite_stmt(ast: &mut Ast, s: &mut Stmt, cx: &Cx, log: &mut LiftLog) -> bool
         // A for-in's object is a name the parser bound ahead of it, and
         // its body suspends like any loop's (`desugar_generators_forin`).
         Stmt::ForOf { body, .. } => rewrite_stmt(ast, body, cx, log),
+        Stmt::ForOfSplitIter { .. } => loops::rewrite_split_for_of(ast, s, cx, log),
         Stmt::Block(stmts) | Stmt::Multi(stmts) => rewrite_list(ast, stmts, cx, log),
         Stmt::Try {
             body,

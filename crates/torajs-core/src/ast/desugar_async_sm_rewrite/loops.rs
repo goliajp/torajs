@@ -10,7 +10,7 @@
 use super::super::desugar_async_sm::{expr_has_await, stmt_has_await};
 use super::super::{Ast, BinOp, Expr, ExprId, Stmt, UnaryOp};
 use super::{Cx, lift_root, rewrite_list, rewrite_stmt, with_prefix};
-use crate::ast::desugar_async_sm_lift::LiftLog;
+use crate::ast::desugar_async_sm_lift::{LiftLog, can_lift, lift_ordered};
 use crate::ast::nested_fns_idents::{rewrite_idents_in_expr, rewrite_idents_in_stmt};
 use crate::ast::tdz_reads;
 use std::collections::{HashMap, HashSet};
@@ -247,6 +247,40 @@ fn declarations_ahead(
     }
     *init = Some(Box::new(Stmt::Multi(copies)));
     Some(decls)
+}
+
+/// `for (v of s.split(sep))` (the parser's split loop): the string and
+/// the separator are evaluated once, in that order, ahead of the loop,
+/// so their awaits lift ahead of it like an expression statement's.
+pub(super) fn rewrite_split_for_of(
+    ast: &mut Ast,
+    s: &mut Stmt,
+    cx: &Cx,
+    log: &mut LiftLog,
+) -> bool {
+    let Stmt::ForOfSplitIter {
+        parent, sep, body, ..
+    } = s
+    else {
+        unreachable!("rewrite_split_for_of on a split loop")
+    };
+    if !rewrite_stmt(ast, body, cx, log) {
+        return false;
+    }
+    let kids = [*parent, *sep];
+    if !kids.iter().any(|k| expr_has_await(ast, *k)) {
+        return true;
+    }
+    if !kids.iter().all(|k| can_lift(ast, *k)) {
+        return false;
+    }
+    let mut prefix = Vec::new();
+    lift_ordered(ast, &kids, &mut prefix, &cx.stable, log, cx.mark);
+    if !rewrite_list(ast, &mut prefix, cx, log) {
+        return false;
+    }
+    with_prefix(s, prefix);
+    true
 }
 
 /// A loop head re-evaluates per iteration, so its await cannot hoist
