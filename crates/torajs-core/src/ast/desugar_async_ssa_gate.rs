@@ -264,28 +264,28 @@ fn expr_awaits(ast: &Ast, eid: ExprId) -> bool {
 }
 
 /// The expressions a class declaration evaluates where it stands, in
-/// the enclosing function (§15.7.14 ClassDefinitionEvaluation): its
-/// `extends` operand and its computed member keys. The member bodies
-/// are functions of their own.
-fn class_exprs(ast: &Ast, s: &Stmt) -> Vec<ExprId> {
+/// the enclosing function (§15.7.14 ClassDefinitionEvaluation), in that
+/// order: its `extends` operand and its computed member keys (parsed,
+/// and so minted, in source order). The member bodies are functions of
+/// their own.
+pub(in crate::ast) fn class_exprs(ast: &Ast, s: &Stmt) -> Vec<ExprId> {
     let Stmt::ClassDecl {
-        name,
-        decl_id,
-        parent,
-        ..
+        decl_id, parent, ..
     } = s
     else {
         return Vec::new();
     };
-    let mut out: Vec<ExprId> = parent.iter().copied().collect();
-    for ((owner, sentinel), &key) in &ast.class_computed_keys {
-        if owner == name
-            && (ast.class_computed_owner.get(sentinel)).is_some_and(|ids| ids.contains(decl_id))
-        {
-            out.push(key);
-        }
-    }
-    out
+    // by the declaration's id alone: the name a key was recorded under is
+    // the one the class had when parsed (a class expression's is not its
+    // `__ClassExpr_` name), and every sentinel is minted once
+    let mut keys: Vec<ExprId> = (ast.class_computed_keys.iter())
+        .filter(|((_, sentinel), _)| {
+            (ast.class_computed_owner.get(sentinel)).is_some_and(|ids| ids.contains(decl_id))
+        })
+        .map(|(_, &key)| key)
+        .collect();
+    keys.sort_by_key(|k| k.0);
+    parent.iter().copied().chain(keys).collect()
 }
 
 /// The statement is a `for await`, whose steps await.

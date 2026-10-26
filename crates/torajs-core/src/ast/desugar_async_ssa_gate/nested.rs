@@ -3,7 +3,7 @@
 
 use super::{MethodKey, method_moves, stmt_for_awaits};
 use crate::ast::desugar_with::walk;
-use crate::ast::{Ast, Expr, StaticInit, Stmt, mangle_key};
+use crate::ast::{Ast, Expr, ExprId, Param, StaticInit, Stmt, mangle_key};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Default)]
@@ -70,11 +70,16 @@ impl Census {
 
 /// Call `f` on `s` and on every statement nested in it: the bodies of
 /// declarations, of class members (static blocks included) and of
-/// function values, and every block.
+/// function values, and every block. A function value is entered
+/// wherever it stands: in a parameter's default, a class's `extends`,
+/// computed key or static field initializer.
 pub(super) fn each_stmt<'a>(ast: &'a Ast, s: &'a Stmt, f: &mut dyn FnMut(&'a Stmt)) {
     f(s);
     match s {
-        Stmt::FnDecl { body, .. } => each_list(ast, body, f),
+        Stmt::FnDecl { params, body, .. } => {
+            each_default(ast, params, f);
+            each_list(ast, body, f);
+        }
         Stmt::ClassDecl {
             ctor,
             methods,
@@ -82,15 +87,21 @@ pub(super) fn each_stmt<'a>(ast: &'a Ast, s: &'a Stmt, f: &mut dyn FnMut(&'a Stm
             static_init,
             ..
         } => {
+            for e in super::class_exprs(ast, s) {
+                each_arrow(ast, e, f);
+            }
             if let Some(c) = ctor {
+                each_default(ast, &c.params, f);
                 each_list(ast, &c.body, f);
             }
             for m in methods.iter().chain(static_methods) {
+                each_default(ast, &m.params, f);
                 each_list(ast, &m.body, f);
             }
             for init in static_init {
-                if let StaticInit::Block(b) = init {
-                    each_list(ast, b, f);
+                match init {
+                    StaticInit::Block(b) => each_list(ast, b, f),
+                    StaticInit::Field(field) => each_arrow(ast, field.init, f),
                 }
             }
         }
@@ -110,5 +121,21 @@ pub(super) fn each_stmt<'a>(ast: &'a Ast, s: &'a Stmt, f: &mut dyn FnMut(&'a Stm
 fn each_list<'a>(ast: &'a Ast, body: &'a [Stmt], f: &mut dyn FnMut(&'a Stmt)) {
     for s in body {
         each_stmt(ast, s, f);
+    }
+}
+
+/// The function values in the parameters' defaults.
+fn each_default<'a>(ast: &'a Ast, params: &'a [Param], f: &mut dyn FnMut(&'a Stmt)) {
+    for d in params.iter().filter_map(|p| p.default) {
+        each_arrow(ast, d, f);
+    }
+}
+
+/// The function values under the expression `root`, each entered.
+fn each_arrow<'a>(ast: &'a Ast, root: ExprId, f: &mut dyn FnMut(&'a Stmt)) {
+    for arrow in walk::arrow_nodes(ast, &Stmt::Expr(root)) {
+        if let Expr::ArrowFn { body, .. } = ast.get_expr(arrow) {
+            each_list(ast, body, f);
+        }
     }
 }
