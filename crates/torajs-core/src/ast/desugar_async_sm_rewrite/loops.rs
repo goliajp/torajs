@@ -228,7 +228,7 @@ pub(super) fn rewrite_switch(ast: &mut Ast, s: &mut Stmt, cx: &Cx, log: &mut Lif
         Stmt::LetDecl {
             mutable: false,
             name: d.clone(),
-            type_ann: Some("any".into()),
+            type_ann: None,
             init: *scrutinee,
             is_var: false,
         },
