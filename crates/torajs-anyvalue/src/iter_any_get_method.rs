@@ -327,7 +327,7 @@ pub(crate) unsafe fn generic_iter_step(iter: AnyValue, out: *mut AnyValue, mode:
         *out = VALUE_UNDEFINED;
         let name_next = interned(&NAME_NEXT, b"next");
         let argv: [u64; 0] = [];
-        let mut step = __torajs_any_method_call(
+        let step = __torajs_any_method_call(
             iter,
             ANY_METHOD_NEXT,
             name_next,
@@ -341,10 +341,9 @@ pub(crate) unsafe fn generic_iter_step(iter: AnyValue, out: *mut AnyValue, mode:
         if __torajs_throw_check() != 0 {
             return 0;
         }
-        let was_async = match crate::iter_any_await::step_result(mode, &mut step, out) {
-            Ok(was_async) => was_async,
-            Err(code) => return code,
-        };
+        if let Err(code) = crate::iter_any_await::step_result(mode, step, out) {
+            return code;
+        }
         if !is_cell(step) {
             __torajs_anyv_rc_dec(step);
             __torajs_throw_type_error(c"iterator result is not an object".as_ptr());
@@ -382,8 +381,8 @@ pub(crate) unsafe fn generic_iter_step(iter: AnyValue, out: *mut AnyValue, mode:
         };
         __torajs_anyv_rc_dec(step);
         *out = value;
-        if mode.awaits_value() && !was_async {
-            return crate::iter_any_await::settle_out(out, mode);
+        if mode.awaits_value() {
+            return crate::iter_any_await::STEP_AWAIT_VALUE;
         }
         1
     }

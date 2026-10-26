@@ -20,7 +20,7 @@ pub(crate) const INERT_RUNTIME: &str = "\
 accessor_face_from_any accessor_invoke_getter accessor_pair_new any_call any_call_spread \
 any_has_property any_index_get any_index_set any_index_set_soft any_is_arr any_iter_close \
 any_iter_close_abrupt any_iter_close_defer any_iter_next any_iter_next_array_like \
-any_iter_next_await any_iter_next_defer any_iter_result_step any_length_get \
+any_iter_next_defer any_iter_result_step any_length_get \
 any_member_get_priv_tag any_member_get_priv_value any_member_priv_has any_name_get \
 any_own_prop_has any_prop_delete any_prop_delete_soft any_prop_enumerable any_prop_has \
 any_regexp_prop any_size_get any_sort_undef_pre any_str_symbol_try any_to_bigint any_to_object \
@@ -132,7 +132,7 @@ math_asinh math_atan math_atan2 math_atanh math_cbrt math_ceil math_clz32 math_c
 math_exp math_expm1 math_f16round math_floor math_fround math_imul math_log math_log10 \
 math_log1p math_log2 math_max math_min math_pow math_random math_round math_sign math_sin \
 math_sinh math_sqrt math_sum_precise math_sum_precise_i64 math_tan math_tanh math_trunc \
-microtask_await_byte microtask_run_until_idle microtask_yield module_await_promise \
+microtask_await_byte microtask_yield module_await_promise \
 module_await_slow module_await_slow_frame module_body_end module_cancelled module_exit_code \
 module_ns_finalize module_yield_rethrow new_target_register new_target_register_entries \
 ns_object_console ns_object_json ns_object_math ns_object_reflect ns_static_bind ns_static_cell \

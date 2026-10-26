@@ -371,7 +371,7 @@ pub(crate) unsafe fn iter_next_inner(
             // `for await` (a Promise element unwraps to its settled
             // value; a rejection forwards).
             if mode.is_async() {
-                return crate::iter_any_await::settle_out(out, mode);
+                return crate::iter_any_await::STEP_AWAIT_VALUE;
             }
         }
         return 1;
@@ -392,7 +392,7 @@ pub(crate) unsafe fn iter_next_inner(
     if matches!(cell_tag, Some(t) if t == Tag::IterHelper as u16) {
         let hit = unsafe { crate::iter_helper::iter_helper_step(as_void_ptr(recv), out) };
         if hit != 0 && mode.is_async() {
-            return unsafe { crate::iter_any_await::settle_out(out, mode) };
+            return crate::iter_any_await::STEP_AWAIT_VALUE;
         }
         return hit;
     }
@@ -419,7 +419,7 @@ pub(crate) unsafe fn iter_next_inner(
             // Sync lane under `for await` — same §27.1.4.4 value
             // await as the indexed lane above.
             if mode.is_async() {
-                return crate::iter_any_await::settle_out(out, mode);
+                return crate::iter_any_await::STEP_AWAIT_VALUE;
             }
         }
         return 1;

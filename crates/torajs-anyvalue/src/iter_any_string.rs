@@ -53,7 +53,7 @@ pub(crate) unsafe fn string_step(
         // `for await` (a string never yields a thenable, but the
         // tick count is the protocol's).
         if mode.is_async() {
-            return crate::iter_any_await::settle_out(out, mode);
+            return crate::iter_any_await::STEP_AWAIT_VALUE;
         }
         1
     }

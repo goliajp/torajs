@@ -146,7 +146,7 @@ pub(crate) unsafe fn step(
         // §23.1.2.1 step 3.e.iv's Get produces for a hole.
         *out = __torajs_any_index_get(recv, idx);
         if mode.is_async() {
-            return crate::iter_any_await::settle_out(out, mode);
+            return crate::iter_any_await::STEP_AWAIT_VALUE;
         }
         1
     }
@@ -176,7 +176,7 @@ pub(crate) unsafe fn step_uncached(
         *idx_slot = idx + 1;
         *out = __torajs_any_index_get(recv, idx);
         if mode.is_async() {
-            return crate::iter_any_await::settle_out(out, mode);
+            return crate::iter_any_await::STEP_AWAIT_VALUE;
         }
         1
     }
