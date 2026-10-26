@@ -215,21 +215,7 @@ fn declares_method(ast: &Ast, i: &str, key: &PropKey) -> bool {
 /// the object type literals spelling those interfaces.
 pub(super) fn retype(r: &mut Ast, fam: &Family) {
     super::method_lits::retype(r, fam);
-    for (i, k) in &fam.members {
-        if let Some(Type::Struct(fs)) = r.iface_slots.types.get_mut(i) {
-            for (_, t) in fs.iter_mut().filter(|(n, _)| n == k) {
-                match t {
-                    Type::Function(_, ret) => **ret = Type::Any,
-                    Type::Nullable(f) => {
-                        if let Type::Function(_, ret) = &mut **f {
-                            **ret = Type::Any;
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        }
-    }
+    super::iface_types::retype(r, fam);
     for s in &mut r.stmts {
         match s {
             Stmt::FnDecl {

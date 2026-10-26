@@ -92,8 +92,8 @@ impl AnnRewrite for Respell<'_> {
 }
 
 impl Respell<'_> {
-    /// `ann` with each object type literal in it respelled, or, when
-    /// one is kept, the literals nested in its members.
+    /// `ann` with each object type literal in it respelled, and the
+    /// literals nested in its members.
     fn walk(&self, ann: &str) -> String {
         let mut out = String::with_capacity(ann.len());
         let mut rest = ann;
@@ -106,14 +106,15 @@ impl Respell<'_> {
             let parts = split_top(&rest[open..open + close]);
             let members: Option<Vec<(&str, &str)>> =
                 parts.iter().map(|p| p.split_once(':')).collect();
-            let fields = members.as_deref().and_then(self.0).unwrap_or_else(|| {
-                (parts.iter())
-                    .map(|p| match p.split_once(':') {
-                        Some((k, a)) => format!("{k}:{}", self.walk(a)),
-                        None => p.to_string(),
-                    })
-                    .collect()
-            });
+            let answer = members.as_deref().and_then(self.0);
+            let kept = (answer.as_ref())
+                .map_or_else(|| parts.clone(), |a| a.iter().map(String::as_str).collect());
+            let fields: Vec<String> = (kept.iter())
+                .map(|p| match p.split_once(':') {
+                    Some((k, a)) => format!("{k}:{}", self.walk(a)),
+                    None => p.to_string(),
+                })
+                .collect();
             out.push_str("__inlobj(");
             out.push_str(&fields.join("|"));
             out.push(')');
