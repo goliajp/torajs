@@ -47,17 +47,23 @@ pub(super) fn init_yields_closure_cell(ctx: &LowerCtx, init: ExprId) -> bool {
                 n == name && matches!(t, crate::check::Type::Function(..))
             })
         }
+        // an element of a function array, whatever the array expression
+        // (`hs[0]`, `this.fs[0]`, `mk()[0]`, `hs.at(-1)!`): its slots are
+        // Closure-repr (`ssa_lower_parse_type::parse_arr_suffix`)
+        Expr::Index { .. } | Expr::As { .. } | Expr::Call { .. }
+            if crate::check::face_slots::elem_source(ctx.ast, init).is_some_and(|obj| {
+                matches!(ctx.expr_types.get(&obj),
+                    Some(crate::check::Type::Array(elem))
+                        if matches!(**elem, crate::check::Type::Function(..)))
+            }) =>
+        {
+            true
+        }
         Expr::Call { callee, .. } => {
             matches!(ctx.ast.get_expr(*callee), Expr::Ident(n)
                 if ctx.fn_table.get(n).is_some_and(
                     |fid| matches!(ctx.signatures.get(fid), Some(Type::Closure(_)))))
         }
-        // an element of a function array, whatever the array expression
-        // (`hs[0]`, `this.fs[0]`, `mk()[0]`): its slots are Closure-repr
-        // (`ssa_lower_parse_type::parse_arr_suffix`)
-        Expr::Index { obj, .. } => matches!(ctx.expr_types.get(obj),
-            Some(crate::check::Type::Array(elem))
-                if matches!(**elem, crate::check::Type::Function(..))),
         Expr::Ternary {
             then_branch,
             else_branch,

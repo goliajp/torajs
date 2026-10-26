@@ -349,10 +349,10 @@ fn emit_closure_arm(
             passed,
         );
     }
-    // a call through an element of the census: the boxed entry, as
-    // for a property slot
-    if let Expr::Index { obj, .. } = ctx.ast.get_expr(callee)
-        && elem_face_slot(ctx, *obj)
+    // a call through an element of the census (`hs[i]()`, `hs.at(i)()`):
+    // the boxed entry, as for a property slot
+    if crate::check::face_slots::elem_source(ctx.ast, callee)
+        .is_some_and(|o| elem_face_slot(ctx, o))
     {
         crate::ssa_lower_nullable_guard::emit_undefable_heap_guard(ctx, callee, &callee_op);
         let this = recv_base.map(|b| ctx.box_to_any(b));

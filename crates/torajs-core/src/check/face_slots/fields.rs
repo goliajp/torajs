@@ -122,6 +122,7 @@ pub(crate) fn record_field_assign(
     (field, slot_ty): (&str, &Type),
     (value, value_ty): (ExprId, &Type),
 ) {
+    let value_ty = &super::held_face(checker, ast, slot_ty, value, value_ty);
     record_field_store(checker, ast, recv, field, slot_ty, value_ty);
     record_objlit_stores(checker, ast, slot_ty, value);
 }

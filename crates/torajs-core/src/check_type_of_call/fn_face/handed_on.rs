@@ -38,7 +38,7 @@ pub(crate) fn box_census_arg(
     (callee, i): (ExprId, usize),
     (param_ty, arg): (&Type, ExprId),
 ) {
-    if !matches!(param_ty, Type::Function(..)) || !census_value(checker, ast, arg) {
+    if !crate::check::face_slots::is_fn_elem(param_ty) || !census_value(checker, ast, arg) {
         return;
     }
     let bodies: Vec<(String, usize)> = match ast.get_expr(callee) {

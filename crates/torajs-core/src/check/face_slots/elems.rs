@@ -58,6 +58,40 @@ pub(crate) fn elem_read(checker: &mut Checker, arr: &Type) -> Option<String> {
     None
 }
 
+/// The array expression whose element `e` hands over: an index
+/// (`hs[i]`), a method that returns an element (`hs.at(i)`, `pop`,
+/// `shift`, `find`, `findLast`) or may return one its accumulator held
+/// (`reduce`, `reduceRight`), each also behind a non-null assertion.
+pub(crate) fn elem_source(ast: &Ast, e: ExprId) -> Option<ExprId> {
+    match ast.get_expr(e) {
+        Expr::Index { obj, .. } => Some(*obj),
+        Expr::As { expr, ty_ann } if ty_ann == "__nonnull__" => elem_source(ast, *expr),
+        Expr::Call { callee, .. } => match ast.get_expr(*callee) {
+            Expr::Member { obj, name }
+                if matches!(
+                    name.as_str(),
+                    "at" | "pop" | "shift" | "find" | "findLast" | "reduce" | "reduceRight"
+                ) =>
+            {
+                Some(*obj)
+            }
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// The census key of the array a function value `e` was read out of
+/// ([`elem_source`]), when its elements hold such a value.
+pub(crate) fn elem_value(checker: &mut Checker, ast: &Ast, e: ExprId) -> Option<String> {
+    let obj = elem_source(ast, e)?;
+    if !checker.expr_types.get(&e).is_some_and(is_fn_elem) {
+        return None;
+    }
+    let arr = checker.expr_types.get(&obj)?.clone();
+    elem_read(checker, &arr)
+}
+
 /// A store of `value_ty` into an element of an array of `elem_ty`.
 pub(crate) fn record_elem_store(checker: &mut Checker, elem_ty: &Type, value_ty: &Type) {
     if !super::faces_differ(value_ty, elem_ty) {

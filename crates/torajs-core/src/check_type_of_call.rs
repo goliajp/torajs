@@ -28,6 +28,7 @@ mod callback_slot_throw;
 pub(crate) mod fn_face;
 mod fn_slot_ret;
 mod general;
+mod hof_elem_params;
 
 pub(crate) use fn_slot_ret::method_args::{carrier_values, closure_args};
 pub(crate) mod reduce_acc;
@@ -54,6 +55,7 @@ pub(crate) fn check(
     args: &Vec<ExprId>,
 ) -> Result<Type, String> {
     let ty = routes(checker, ast, eid, callee, args)?;
+    hof_elem_params::record(checker, ast, *callee, args);
     crate::check_stmt_let_decl::held_any::face_class::check_call(checker, ast, *callee, args)?;
     Ok(ty)
 }

@@ -12,7 +12,7 @@
 
 use crate::ast::{Ast, Expr, ExprId, Stmt};
 use crate::check::Checker;
-use crate::check::face_slots::{elem_read, field_read, ret_read};
+use crate::check::face_slots::{self, field_read, ret_read};
 
 /// A slot's census key, and its stores paired with the slot's spelling.
 type Slot = (String, Option<Vec<(String, ExprId)>>);
@@ -27,6 +27,14 @@ pub(super) fn slot(checker: &mut Checker, ast: &Ast, callee: ExprId) -> Option<S
         let ann = crate::check::type_to_ann(checker.expr_types.get(&callee)?);
         Some(stores.into_iter().map(|e| (ann.clone(), e)).collect())
     };
+    // an element's stores are not traced: an array moves between
+    // bindings, and a store through any of them reaches the element
+    if face_slots::elem_source(ast, callee).is_some() {
+        return Some((
+            format!("elem:{}", face_slots::elem_value(checker, ast, callee)?),
+            None,
+        ));
+    }
     match ast.get_expr(callee) {
         Expr::Member { obj, name } => {
             let owner = field_read(checker, ast, *obj, name)?;
@@ -43,12 +51,6 @@ pub(super) fn slot(checker: &mut Checker, ast: &Ast, callee: ExprId) -> Option<S
                 return None;
             }
             Some((format!("ret:{g}"), pair(checker, return_stores(ast, g))))
-        }
-        // an element's stores are not traced: an array moves between
-        // bindings, and a store through any of them reaches the element
-        Expr::Index { obj, .. } => {
-            let arr = checker.expr_types.get(obj)?.clone();
-            Some((format!("elem:{}", elem_read(checker, &arr)?), None))
         }
         _ => None,
     }

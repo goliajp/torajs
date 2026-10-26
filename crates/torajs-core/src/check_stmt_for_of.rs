@@ -153,9 +153,17 @@ pub(crate) fn check(
     // parser (`throw_on_const_loop_var_writes`), so nothing here has
     // to refuse them. Ownership of a written variable is the
     // lowering's business (`ssa_lower_for_of_written`).
+    // the head of a walk over an array of the element census holds
+    // what the elements hold: its calls ride the boxed entry
+    let face_elem = matches!(&src_kind, Some(t @ Type::Array(_))
+        if crate::check::face_slots::elem_read(checker, t).is_some());
+    if face_elem {
+        crate::check::face_slots::record_let_store(checker, elem_expr);
+    }
     let _ = checker.declare(
         var_name.to_string(),
         LocalInfo {
+            fn_slot: face_elem.then_some(FnSlot::Let(elem_expr)),
             decl: Some(FnSlot::Let(elem_expr)),
             ..LocalInfo::plain(var_ty)
         },

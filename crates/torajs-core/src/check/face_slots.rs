@@ -20,7 +20,9 @@ use crate::check::{Checker, Type};
 
 mod elems;
 mod fields;
-pub(crate) use elems::{elem_hit, elem_read, is_fn_elem, record_elem_store};
+pub(crate) use elems::{
+    elem_hit, elem_read, elem_source, elem_value, is_fn_elem, record_elem_store,
+};
 pub(crate) use fields::{field_read, owner_key, record_field_assign, record_objlit_stores};
 
 /// What the reads of one run asked the census for and did not find: a
@@ -156,11 +158,28 @@ pub(crate) fn record_return(
     value_ty: &Type,
 ) {
     record_objlit_stores(checker, ast, ret_ty, value);
-    if faces_differ(value_ty, ret_ty)
+    if faces_differ(&held_face(checker, ast, ret_ty, value, value_ty), ret_ty)
         && let Some(owner) = checker.ret_owner.clone()
     {
         record_ret(checker, owner);
     }
+}
+
+/// The face to compare a function slot typed `slot_ty` against when it
+/// is handed `value` (typed `value_ty`): a value read out of a census
+/// slot (`hs[0]` of an element census array, a binding or parameter
+/// whose calls ride the boxed entry) may be a function of any face,
+/// whatever its type spells, so it counts as `any`.
+pub(crate) fn held_face(
+    checker: &mut Checker,
+    ast: &Ast,
+    slot_ty: &Type,
+    value: ExprId,
+    value_ty: &Type,
+) -> Type {
+    let held = is_fn_elem(slot_ty)
+        && crate::check_stmt_let_decl::fn_face_slot::census_value(checker, ast, value);
+    if held { Type::Any } else { value_ty.clone() }
 }
 
 fn record_ret(checker: &mut Checker, owner: String) {
@@ -192,6 +211,11 @@ pub(crate) fn ret_slot_let(
             if matches!(init_ty, Type::Function(..))
                 && matches!(ast.get_expr(*callee), Expr::Ident(g) if ret_read(checker, g)) =>
         {
+            checker.face_mismatch_lets.insert(init);
+            true
+        }
+        // so does one initialized by an element of the element census
+        _ if matches!(init_ty, Type::Function(..)) && elem_value(checker, ast, init).is_some() => {
             checker.face_mismatch_lets.insert(init);
             true
         }

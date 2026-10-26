@@ -162,8 +162,9 @@ pub(crate) enum FnSlot {
 
 impl FnSlot {
     /// The declaration a parameter of `owner` typed `ty` is: only a
-    /// fn-typed one can be handed a value of another face.
+    /// fn-typed one (`undefined` or `null` allowed) can be handed a value
+    /// of another face.
     pub(crate) fn param(owner: &str, ty: &Type) -> Option<FnSlot> {
-        matches!(ty, Type::Function(..)).then(|| FnSlot::Param(owner.to_string()))
+        crate::check::face_slots::is_fn_elem(ty).then(|| FnSlot::Param(owner.to_string()))
     }
 }

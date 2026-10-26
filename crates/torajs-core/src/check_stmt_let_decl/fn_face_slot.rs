@@ -169,13 +169,16 @@ pub(crate) fn record_census_store(
     }
 }
 
-/// Is `e` a read of a binding or parameter in the census, whose calls
+/// Is `e` a read of a binding or parameter in the census, or of an
+/// element of the element census (`FaceSlots::elems`), whose calls
 /// ride the boxed entry? A slot it is handed to may then hold a
 /// function of another face than both annotations spell (`const k: T =
 /// h`, `run2(g)`), so it joins the census too.
 pub(crate) fn census_value(checker: &mut Checker, ast: &Ast, e: ExprId) -> bool {
-    let Expr::Ident(n) = ast.get_expr(e) else {
-        return false;
+    let n = match ast.get_expr(e) {
+        Expr::Ident(n) => n,
+        // an element of an array of the element census
+        _ => return face_slots::elem_value(checker, ast, e).is_some(),
     };
     let Some(info) = checker.lookup(n) else {
         return false;
