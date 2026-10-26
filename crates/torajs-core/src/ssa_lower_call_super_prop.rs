@@ -31,6 +31,9 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx<'_>, name: &str, args: &[ExprId]) -> 
         // Not a SuperProperty, the same operand discipline: `(this,
         // private name, value)`, all any-world, all borrowed.
         crate::ast::private_brand::FIELD_DEFINE => (ctx.intrinsics.priv_field_define, 3, None),
+        // Nor this: `(f, this, [args…])`, a callee called on the receiver
+        // it was read from, which is Reflect.apply's kernel.
+        "__torajs_call_with_this" => (ctx.intrinsics.reflect_apply, 3, None),
         "__torajs_super_prop_set" => (ctx.intrinsics.super_prop_set, 4, None),
         "__torajs_super_prop_call" => (ctx.intrinsics.super_prop_call, 4, None),
         "__torajs_super_prop_opt_call" => (ctx.intrinsics.super_prop_opt_call, 4, None),
@@ -46,7 +49,10 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx<'_>, name: &str, args: &[ExprId]) -> 
     // §13.3.7.1 evaluates the key expression before
     // MakeSuperPropertyReference reads the home object's prototype, so
     // a key that re-links the prototype chain sees the new base.
-    let order: &[usize] = if name == crate::ast::private_brand::FIELD_DEFINE {
+    let order: &[usize] = if matches!(
+        name,
+        crate::ast::private_brand::FIELD_DEFINE | "__torajs_call_with_this"
+    ) {
         &[0, 1, 2]
     } else if arity == 3 {
         &[1, 0, 2]

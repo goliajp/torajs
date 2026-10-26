@@ -29,7 +29,8 @@
 //! reassigned during the suspension is the recorded deviation).
 //!
 //! A GUARDED position — the right side of `&&` / `||` / `??`, a
-//! ternary's branches — must not evaluate unconditionally, so it takes
+//! ternary's branches, what an optional chain evaluates past
+//! its nullish test — must not evaluate unconditionally, so it takes
 //! the statement form instead of a hoist: `let __awg_<eid>: any` plus
 //! an `if` whose branches assign it (`c ? await a : b` → `if (c) { g =
 //! await a } else { g = b }`), and the node reads the temp. The caller
@@ -38,9 +39,8 @@
 //!
 //! Positions the lift does NOT take, which the caller refuses: an await
 //! inside a destructuring target, under a `delete` / `++` / `--` of
-//! something that is not a member or index reference, in the guarded
-//! part of an optional index or call (`o?.[await k]`, `f?.(await x)`),
-//! and a nested function body (its awaits are its own). Loop heads and
+//! something that is not a member or index reference, and a nested
+//! function body (its awaits are its own). Loop heads and
 //! case values are the caller's to place (`desugar_async_sm_rewrite::
 //! loops`) — a hoist before the loop is not a re-evaluation per
 //! iteration.
@@ -53,6 +53,7 @@
 use std::collections::HashSet;
 
 mod guarded;
+mod paren_callee;
 mod shape;
 
 use super::desugar_async_sm::{await_inner, expr_has_await};
@@ -138,15 +139,32 @@ pub(super) fn lift(
         Shape::Leaf | Shape::Refuse(_) => return,
         Shape::Ordered(kids) => kids,
         Shape::Guarded(first, rest) => {
-            if expr_has_await(ast, first) {
-                lift(ast, first, prefix, stable, log, mark);
+            lift_ordered(ast, &first, prefix, stable, log, mark);
+            if !rest.iter().any(|r| expr_has_await(ast, *r)) {
+                return;
             }
-            if rest.iter().any(|r| expr_has_await(ast, *r)) {
+            if paren_callee::is_paren_callee_call(ast, eid) {
+                let args = paren_callee::to_statements(ast, eid, prefix, log);
+                lift_ordered(ast, &args, prefix, stable, log, mark);
+            } else {
                 guarded_to_statements(ast, eid, prefix, log);
             }
             return;
         }
     };
+    lift_ordered(ast, &kids, prefix, stable, log, mark);
+}
+
+/// The lift of operands evaluated in order: each one up to the last
+/// that awaits is lifted, and each one ahead of that last is hoisted.
+pub(super) fn lift_ordered(
+    ast: &mut Ast,
+    kids: &[ExprId],
+    prefix: &mut Vec<Stmt>,
+    stable: &HashSet<String>,
+    log: &mut LiftLog,
+    mark: bool,
+) {
     let Some(last) = kids.iter().rposition(|k| expr_has_await(ast, *k)) else {
         return;
     };
@@ -196,6 +214,11 @@ fn hoist(
             let inner = *expr;
             hoist(ast, inner, prefix, stable, log);
         }
+        // a lift temp read past its nullish test: the temp is not
+        // reassigned, and the assertion is not a type a binding takes
+        Expr::As { expr, ty_ann }
+            if ty_ann == "__nonnull__"
+                && matches!(ast.get_expr(*expr), Expr::Ident(n) if n.starts_with("__aw")) => {}
         _ => {
             let tmp = format!("__awh_{}", eid.0);
             let moved = ast.get_expr(eid).clone();

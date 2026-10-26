@@ -1,0 +1,4 @@
+x1 | c1 TypeError | x2 | c2 TypeError | x3 | c3 TypeError | x4 | c4 TypeError | eval x5 | c5 TypeError | x6 | eval x7 | c6 TypeError
+x1 | c1 TypeError | x2 | c2 TypeError | x3 | c3 TypeError | x4 | c4 TypeError | eval x5 | c5 TypeError | x6 | eval x7 | c6 TypeError
+eval k | x1 | k on obj x1 | eval k2 | x2 | k2 on a x2 | eval k3 | x3 | k3 on p x3 | eval k4 | x4 | m on k4 x4 | k5 | eval x5 | k5 on a x5 | eval k2 | x6 | eval x7 | k2 on a x6
+eval k | x1 | c1 TypeError | eval k2 | c2 TypeError | eval k3 | c3 TypeError | eval k4 | c4 TypeError | k5 | c5 TypeError | x6 | eval x7 | c6 TypeError

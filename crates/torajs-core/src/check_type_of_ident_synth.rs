@@ -19,6 +19,7 @@ use crate::ast::class_unit::{
     UNIT_HOME, UNIT_STATIC_ACCESSOR_REIFY, UNIT_STATIC_FIELD_DEFINE, UNIT_STATIC_METHOD_REIFY,
     UNIT_WIRE,
 };
+use crate::ast::private_brand::FIELD_DEFINE;
 use crate::check::Type;
 
 /// RFC 20260730 blade 1 — exotic-subclass factory internals: the
@@ -218,10 +219,9 @@ pub(crate) fn try_type(name: &str) -> Option<Result<Type, String>> {
             vec![Type::Any, Type::String, Type::Number],
             Box::new(Type::Void),
         )),
-        // §13.3.6 call off a Super Reference: base, key,
-        // receiver, args pack — every slot any-world, and the
-        // product is whatever the method answered.
-        "__torajs_super_prop_get" | crate::ast::private_brand::FIELD_DEFINE => Ok(Type::Function(
+        // a Super Reference's read (base, key, receiver), a private field's
+        // define, a call on a callee's receiver: every slot any-world
+        "__torajs_super_prop_get" | FIELD_DEFINE | "__torajs_call_with_this" => Ok(Type::Function(
             vec![Type::Any, Type::Any, Type::Any],
             Box::new(Type::Any),
         )),

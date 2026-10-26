@@ -123,16 +123,12 @@ pub(crate) fn try_lower(
             crate::ssa_lower_call_class_synth_error::try_lower_register_native_error(ctx, args)
         }
         "__torajs_undef_str" => crate::ssa_lower_call_error_magic::try_lower_undef_str(ctx, args),
-        "__torajs_super_prop_get"
-        | crate::ast::private_brand::FIELD_DEFINE
-        | "__torajs_super_prop_set"
-        | "__torajs_super_prop_call"
-        | "__torajs_super_prop_opt_call"
-        | "__torajs_super_prop_incr_post"
-        | "__torajs_super_prop_incr_pre"
-        | "__torajs_super_prop_decr_post"
-        | "__torajs_super_prop_decr_pre" => {
-            crate::ssa_lower_call_super_prop::try_lower(ctx, &name, args)
+        // the any-world operand family `ssa_lower_call_super_prop` lowers
+        n if n.starts_with("__torajs_super_prop_")
+            || n == crate::ast::private_brand::FIELD_DEFINE
+            || n == "__torajs_call_with_this" =>
+        {
+            crate::ssa_lower_call_super_prop::try_lower(ctx, n, args)
         }
         "__torajs_this_binding_throw" => {
             crate::ssa_lower_call_error_magic::try_lower_this_binding_throw(ctx, args)

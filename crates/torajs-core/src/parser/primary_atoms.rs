@@ -140,7 +140,7 @@ impl<'a> Parser<'a> {
         }
         // §13.3.9: the parentheses end an optional chain
         let mut link = last;
-        while let Expr::Member { obj, .. } = self.ast.get_expr(link) {
+        while let Expr::Member { obj, .. } | Expr::Index { obj, .. } = self.ast.get_expr(link) {
             link = *obj;
         }
         if matches!(
