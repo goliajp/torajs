@@ -1,13 +1,8 @@
-// An object holds a class's method name for the cast into the class
-// when it owns it or inherits it from a prototype ahead of
-// %Object.prototype%: the copy would answer the class's member where
-// the object answers that prototype's. A symbol-keyed method counts
-// under its symbol. What the object inherits from %Object.prototype%
-// the copy inherits too, so a class declaring `toString` still takes a
-// plain object, and so does a null-prototype object or one whose
-// prototype holds none of the names. bun keeps the object as it is, so
-// the refused lines differ from bun and are checked against the
-// .expected; the other lines print fields only and match bun.
+// An object written through `any` into a binding annotated with a
+// class is held as it is, whatever it owns or inherits under the
+// class's method names: a method it owns, one a prototype ahead of
+// %Object.prototype% gives it, a symbol-keyed one, and a null-prototype
+// object. Its members are read off the object itself.
 class W {
   a = 1
   m(): number {

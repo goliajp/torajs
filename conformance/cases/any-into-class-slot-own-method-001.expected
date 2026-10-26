@@ -1,7 +1,10 @@
-let true cannot assign object to `W`
+2 20
+let ok
 member true cannot store object into `W`
-subclass inherited method true cannot assign object to `V`
-subclass accessor true cannot assign object to `V`
+2
+subclass inherited method ok
+4
+subclass accessor ok
 3
 copied ok
 3

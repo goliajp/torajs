@@ -1,9 +1,8 @@
 // a constructor reached through a class value runs as written for its
-// scalar arguments: a number parameter binds the string it was handed,
-// a defaulted one takes its default when the argument is missing. Its
-// class-typed parameter takes an object with the class's fields as a
-// fresh instance, so `d1.p === q` is false where bun says true (the
-// .expected).
+// arguments: a number parameter binds the string it was handed, a
+// defaulted one takes its default when the argument is missing, and a
+// class-typed one binds the object it was handed as it is, so
+// `d1.p === q` holds.
 class P {
   x = 1;
 }

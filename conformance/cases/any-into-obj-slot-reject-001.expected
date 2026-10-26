@@ -1,9 +1,9 @@
 return true cannot return object from function returning `P`
 field true cannot store object into `P`
-local true cannot assign object to `P`
-global true cannot assign object to `P`
+local ok
+global ok
 push true cannot store object into `P`
-decl true cannot assign object to `P`
+decl ok
 object type ok
 return ok
 field ok
@@ -21,38 +21,38 @@ decl ok
 object type ok
 return true cannot return number from function returning `P`
 field true cannot store number into `P`
-local true cannot assign number to `P`
-global true cannot assign number to `P`
+local ok
+global ok
 push true cannot store number into `P`
-decl true cannot assign number to `P`
+decl ok
 object type true cannot return number from function returning `T`
 return true cannot return string from function returning `P`
 field true cannot store string into `P`
-local true cannot assign string to `P`
-global true cannot assign string to `P`
+local ok
+global ok
 push true cannot store string into `P`
-decl true cannot assign string to `P`
+decl ok
 object type true cannot return string from function returning `T`
 return true cannot return object from function returning `P`
 field true cannot store object into `P`
-local true cannot assign object to `P`
-global true cannot assign object to `P`
+local ok
+global ok
 push true cannot store object into `P`
-decl true cannot assign object to `P`
+decl ok
 object type true cannot return object from function returning `T`
 return true cannot return undefined from function returning `P`
 field true cannot store undefined into `P`
-local true cannot assign undefined to `P`
-global true cannot assign undefined to `P`
+local ok
+global ok
 push true cannot store undefined into `P`
-decl true cannot assign undefined to `P`
+decl ok
 object type true cannot return undefined from function returning `T`
 return true cannot return null from function returning `P`
 field true cannot store null into `P`
-local true cannot assign null to `P`
-global true cannot assign null to `P`
+local ok
+global ok
 push true cannot store null into `P`
-decl true cannot assign null to `P`
+decl ok
 object type true cannot return null from function returning `T`
 extra property ok
 missing property true cannot return object from function returning `T`

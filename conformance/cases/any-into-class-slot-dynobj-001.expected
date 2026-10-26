@@ -3,7 +3,7 @@ web:80 false
 true db:5432 true web:80
 let ok
 lit:1 false
-lit changed false
+changed changed true
 literal ok
 db:5432 true
 true db:5432
@@ -38,5 +38,5 @@ nested wrong type true JSON.parse result does not have the annotated type `Outer
 element wrong type true JSON.parse result does not have the annotated type `Bag`
 literal missing true cannot assign object to `Cfg`
 return missing true cannot return object from function returning `Cfg`
-ctor param missing true cannot pass object to parameter of type `Cfg`
+ctor param missing true cannot store object into `Cfg`
 not an object true cannot assign number to `Cfg`

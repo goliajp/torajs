@@ -1,14 +1,14 @@
-TypeError P1:true P21:true
-TypeError
-x=7 TypeError TypeError
+Q1:false P1:true P21:true
+L5:false
+x=7 x=1 x=undefined
 TypeError TypeError TypeError
-TypeError P1:true
-TypeError
+TypeError TypeError
 true
-null TypeError P1:true
+true
+null Q1:false P1:true
 Q1:false P21:true
-TypeError
-TypeError P1:true
-TypeError true
+Q1:false
+Q1:false P1:true
+Q1:false true
 TypeError 1
 P21:true x=1

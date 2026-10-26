@@ -1,16 +1,21 @@
-array element true cannot assign object to `Holder`
+4
+array element ok
 4
 array element copied ok
-nullable field true cannot assign object to `Opt`
+2
+nullable field ok
 2
 nullable field copied ok
 -1
 nullable field null ok
-self link true cannot assign object to `N`
+6
+self link ok
 6
 self link copied ok
-let or null true cannot assign object to `W | undefined`
-let or undefined true cannot assign object to `W | undefined`
+2
+let or null ok
+2
+let or undefined ok
 3
 let or null copied ok
 optional member true cannot store object into `W | undefined`

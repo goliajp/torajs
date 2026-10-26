@@ -13,9 +13,8 @@
 //! and hands a call that does not fit to the twin's adapter, on the
 //! same head-less face (`ssa_lower_boxed_entry::twin_adapter_of`).
 //!
-//! A parameter annotated with a class keeps its type in the twin
-//! ([`widened`]): it is a class slot, and both adapters cast the
-//! argument into it.
+//! A parameter annotated with a class is `any` in the twin as well
+//! ([`widened`]).
 //!
 //! Only a factory that gets a boxed adapter at all takes one: the
 //! construct channel is its only caller. Out of reach, and left as
@@ -86,7 +85,6 @@ pub(super) fn run(
             // the indices count the caller-visible params, which leave
             // out the argv pointer of a factory carrying one
             &widened(
-                owned_ast,
                 &found
                     .params
                     .iter()
@@ -109,25 +107,13 @@ pub(super) fn run(
     }
 }
 
-/// The twin's parameters: every non-rest one `any`, except one the
-/// program annotated with a class. That slot is the same class-slot
-/// boundary as a `let` or a field of the class (RFC
-/// 20260922-any-to-typed-checked-cast §2), and the factory adapters
-/// cast the argument into it (`ssa_lower_boxed_entry::build_cast`): an
-/// instance of the class crosses as it is, an object of the class's
-/// field types becomes a fresh instance, anything else throws.
-fn widened(ast: &Ast, params: &[Param]) -> Vec<(usize, WidenTarget)> {
+/// The twin's parameters: every non-rest one `any`, one the program
+/// annotated with a class among them. The annotation converts nothing
+/// (§10.2.1.3 binds the argument as it is), so an instance of another
+/// class, or an object that is no instance at all, is the twin's to
+/// bind, and its members are read by name there.
+fn widened(params: &[Param]) -> Vec<(usize, WidenTarget)> {
     all_any(params)
-        .into_iter()
-        .filter(|(i, _)| {
-            !(params[*i].type_ann.as_deref()).is_some_and(|a| {
-                let base = crate::check_type_ann::strip_nullable(a.trim()).trim();
-                ast.class_parents.contains_key(base)
-                    && crate::ast::desugar_classes_builtin_heritage::exotic_root_parent(ast, base)
-                        .is_none()
-            })
-        })
-        .collect()
 }
 
 /// The twin's constructor call hands the constructor `any` arguments.

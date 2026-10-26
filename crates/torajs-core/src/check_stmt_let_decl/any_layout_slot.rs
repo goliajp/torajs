@@ -117,22 +117,20 @@ pub(crate) fn holds_any(
     matches!(inner, T::Struct(_) | T::ClassRef(_)) && held_read(ann, init, (ast, types), widened)
 }
 
-/// [`any_read`] or [`any_call`] into a binding annotated `ann` with
-/// anything but a class, or an `any` value assigned to it later
-/// (`widened`): the binding holds the box (`super::held_any`), which the
-/// checker and the lowering both read off this one spelling. The
-/// annotation converts nothing (§14.3.1.2, §13.15.2).
+/// [`any_read`] or [`any_call`] into an annotated binding, or an `any`
+/// value assigned to it later (`widened`): the binding holds the box
+/// (`super::held_any`), which the checker and the lowering both read off
+/// this one spelling. The annotation converts nothing (§14.3.1.2,
+/// §13.15.2), so an instance of another class, or an object that is no
+/// instance at all, is held as it is in a binding annotated with a
+/// class too, and its members are read by name.
 fn held_read(
     ann: Option<&str>,
     init: ExprId,
     (ast, types): (&Ast, &HashMap<ExprId, T>),
     widened: bool,
 ) -> bool {
-    let Some(ann) = ann else { return false };
-    let base = crate::check_type_ann::strip_nullable(ann);
-    let base = base.split('<').next().unwrap_or(base).trim();
-    !ast.class_parents.contains_key(base)
-        && (widened || any_read(init, ast, types) || any_call(init, ast, types))
+    ann.is_some() && (widened || any_read(init, ast, types) || any_call(init, ast, types))
 }
 
 /// Whether `init` is a call answering an `any` value other than the two
