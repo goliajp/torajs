@@ -41,6 +41,7 @@
 mod arm;
 pub mod cmp_sink;
 mod range_fold;
+mod shift_reuse;
 mod touched;
 mod triangle;
 
@@ -67,6 +68,8 @@ pub struct SelectFormStats {
     pub insts_hoisted: u32,
     /// short-circuits of two compares folded to one range test.
     pub range_tests_formed: u32,
+    /// subtracts after a range test that read the test's own.
+    pub shifts_reused: u32,
 }
 
 pub fn form_selects(module: &mut Module) -> SelectFormStats {
@@ -79,7 +82,12 @@ pub fn form_selects(module: &mut Module) -> SelectFormStats {
         // arm of an outer one — iterate to a fixpoint (each round
         // that reports a change strictly removed a CondBr, so this
         // terminates).
+        let first = func.values.len() as u32;
+        let folds = stats.range_tests_formed;
         while form_once(func, &mut stats) {}
+        if stats.range_tests_formed != folds {
+            stats.shifts_reused += shift_reuse::reuse_shifts(func, first);
+        }
     }
     stats
 }
