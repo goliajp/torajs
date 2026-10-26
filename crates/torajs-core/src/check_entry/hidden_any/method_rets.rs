@@ -16,6 +16,8 @@
 
 use std::collections::{HashMap, HashSet};
 
+use super::lit_sources::Sources;
+use super::method_lits::opaque;
 use super::retypable::ObjectTypes;
 use crate::ast::{Ast, ExprId, PropKey, Stmt, unmangle_key};
 use crate::check::Type;
@@ -28,6 +30,8 @@ use crate::iface_witness::{class_thunk, get_face, lit_thunk};
 pub(super) struct MethodRets {
     /// `__cm_<C>__<m>` → `(C, m, whether its return may be retyped)`
     methods: HashMap<String, (String, String, bool)>,
+    /// what the object literals' member values are
+    sources: Sources,
 }
 
 /// The declarations a set of methods shares its return slot with.
@@ -80,7 +84,14 @@ impl MethodRets {
             }
             methods.insert(f.to_string(), (c.clone(), m.to_string(), ok));
         }
-        MethodRets { methods }
+        MethodRets {
+            methods,
+            sources: Sources::of(ast),
+        }
+    }
+
+    pub(super) fn sources(&self) -> &Sources {
+        &self.sources
     }
 
     /// Whether `f` is one of these methods.
@@ -96,7 +107,9 @@ impl MethodRets {
     /// (`types`), the receiver typed as a class of it or as an
     /// interface it fills, keeps its declared return: a value read
     /// hands the method to a slot typed with that return, and the
-    /// interface's get face hands on every other row's member too.
+    /// interface's get face hands on every other row's member too. So
+    /// does one whose interface an object literal fills with a function
+    /// whose declaration is out of reach (`super::method_lits::opaque`).
     pub(super) fn family<'a>(
         &self,
         ast: &Ast,
@@ -118,8 +131,10 @@ impl MethodRets {
             let blocked = tree.iter().any(|o| {
                 !self.holds(&format!("__cm_{o}__{m}"))
                     || read.contains(&((*o).clone(), key.clone()))
-            }) || (tree_ifaces(ast, &tree, &key))
-                .any(|i| read.contains(&(i.clone(), key.clone())));
+            }) || (tree_ifaces(ast, &tree, &key)).any(|i| {
+                read.contains(&(i.clone(), key.clone()))
+                    || opaque(ast, types, &self.sources, i, &key)
+            });
             if blocked {
                 continue;
             }

@@ -243,6 +243,7 @@ mod executor_any;
 mod fn_slots;
 mod iface_types;
 mod inlobj_fields;
+mod lit_sources;
 mod method_lits;
 mod method_rets;
 mod obj_fields;
