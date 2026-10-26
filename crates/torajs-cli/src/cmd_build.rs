@@ -181,10 +181,16 @@ fn compile_module_funcs(ssa_module: &Module) -> Vec<CompiledFunction> {
             cf.name = USER_MAIN_SYM.to_string();
         }
     }
-    // argv init runs only for a program that can read argc/argv/envp, which only the
-    // `__torajs_process_*` intrinsics do; dead-strip then drops torajs-process. The exit every
-    // program ends in reads none of them, except the entry clock a census build prints.
-    let needs_argv = funcs.iter().any(|f| {
+    funcs.push(synthesize_main_argv_wrapper(reads_process_args(&funcs)));
+    funcs
+}
+
+/// Whether argv init must run: only for a program that can read
+/// argc/argv/envp, which only the `__torajs_process_*` intrinsics do;
+/// dead-strip then drops torajs-process. The exit every program ends
+/// in reads none of them, except the entry clock a census build prints.
+fn reads_process_args(funcs: &[CompiledFunction]) -> bool {
+    funcs.iter().any(|f| {
         f.relocs.iter().any(|r| match &r.kind {
             RelocKind::CallSite {
                 target: CallTarget::Extern(name),
@@ -195,9 +201,7 @@ fn compile_module_funcs(ssa_module: &Module) -> Vec<CompiledFunction> {
             }
             _ => false,
         })
-    });
-    funcs.push(synthesize_main_argv_wrapper(needs_argv));
-    funcs
+    })
 }
 
 pub(crate) fn build_link_config(
