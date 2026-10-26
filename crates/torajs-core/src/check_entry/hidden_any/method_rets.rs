@@ -232,8 +232,10 @@ fn value_reads(ast: &Ast, types: &HashMap<ExprId, Type>) -> HashSet<(String, Pro
 }
 
 /// Retype the return of every declaration of `fam` to `any`, and the
-/// interfaces' types the witness table matches a receiver against.
+/// interfaces' types the witness table matches a receiver against, and
+/// the object type literals spelling those interfaces.
 pub(super) fn retype(r: &mut Ast, fam: &Family) {
+    super::method_lits::retype(r, fam);
     for (i, k) in &fam.members {
         if let Some(Type::Struct(fs)) = r.iface_slots.types.get_mut(i) {
             for (_, t) in fs.iter_mut().filter(|(n, _)| n == k) {
@@ -280,7 +282,7 @@ pub(super) fn retype(r: &mut Ast, fam: &Family) {
 /// The function type `ann` spells, returning `any`: `__fn(P)->(R)`
 /// becomes `__fn(P)->(any)` (`__cls(` keeps its spelling), under any
 /// `__nullable(...)` around it.
-fn returning_any(ann: &str) -> Option<String> {
+pub(super) fn returning_any(ann: &str) -> Option<String> {
     if let Some(inner) = ann
         .strip_prefix("__nullable(")
         .and_then(|r| r.strip_suffix(')'))

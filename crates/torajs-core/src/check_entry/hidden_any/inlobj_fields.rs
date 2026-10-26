@@ -50,14 +50,74 @@ pub(super) fn retype(r: &mut Ast, objects: &ObjectTypes, names: &HashSet<PropKey
     if names.is_empty() {
         return;
     }
-    let rw = Widen { objects, names };
+    apply(r, &Widen { objects, names });
+}
+
+/// Respell every object type literal in the annotations of `r`, nested
+/// ones included, whose members `respell` gives new spellings for: it
+/// takes a literal's `(name, annotation)` members and answers each
+/// member's `name:annotation`, or `None` to keep the literal.
+pub(super) fn respell(r: &mut Ast, respell: &dyn Fn(&[(&str, &str)]) -> Option<Vec<String>>) {
+    apply(r, &Respell(respell));
+}
+
+fn apply(r: &mut Ast, rw: &dyn AnnRewrite) {
     let mut stmts = std::mem::take(&mut r.stmts);
-    rewrite_anns(r, &mut stmts, 0, &rw);
+    rewrite_anns(r, &mut stmts, 0, rw);
     r.stmts = stmts;
     for args in (r.call_type_args.values_mut()).chain(r.class_parent_type_args.values_mut()) {
         for a in args.iter_mut() {
-            sub(a, &rw);
+            sub(a, rw);
         }
+    }
+}
+
+struct Respell<'a>(&'a dyn Fn(&[(&str, &str)]) -> Option<Vec<String>>);
+
+impl AnnRewrite for Respell<'_> {
+    fn skips(&self, _: &[String]) -> bool {
+        false
+    }
+
+    fn rewrite(&self, ann: &str) -> Option<String> {
+        if !ann.contains("__inlobj(") {
+            return None;
+        }
+        let out = self.walk(ann);
+        (out != ann).then_some(out)
+    }
+}
+
+impl Respell<'_> {
+    /// `ann` with each object type literal in it respelled, or, when
+    /// one is kept, the literals nested in its members.
+    fn walk(&self, ann: &str) -> String {
+        let mut out = String::with_capacity(ann.len());
+        let mut rest = ann;
+        while let Some(at) = rest.find("__inlobj(") {
+            let open = at + "__inlobj(".len();
+            let Some(close) = matching_close(&rest[open..]) else {
+                break;
+            };
+            out.push_str(&rest[..at]);
+            let parts = split_top(&rest[open..open + close]);
+            let members: Option<Vec<(&str, &str)>> =
+                parts.iter().map(|p| p.split_once(':')).collect();
+            let fields = members.as_deref().and_then(self.0).unwrap_or_else(|| {
+                (parts.iter())
+                    .map(|p| match p.split_once(':') {
+                        Some((k, a)) => format!("{k}:{}", self.walk(a)),
+                        None => p.to_string(),
+                    })
+                    .collect()
+            });
+            out.push_str("__inlobj(");
+            out.push_str(&fields.join("|"));
+            out.push(')');
+            rest = &rest[open + close + 1..];
+        }
+        out.push_str(rest);
+        out
     }
 }
 
@@ -205,6 +265,24 @@ mod tests {
             let lit = format!("__inlobj(c:{ann})");
             assert_eq!(widen(&lit, &["c"]), lit);
         }
+    }
+
+    #[test]
+    fn respells_the_literals_it_answers_for() {
+        let f = |ms: &[(&str, &str)]| {
+            (ms.iter().any(|(k, _)| *k == "m"))
+                .then(|| ms.iter().map(|(k, _)| format!("{k}:any")).collect())
+        };
+        let rw = Respell(&f);
+        assert_eq!(
+            rw.walk("__inlobj(m:__fn()->(number))[]"),
+            "__inlobj(m:any)[]"
+        );
+        assert_eq!(
+            rw.walk("__inlobj(o:__inlobj(m:number)|n:number) | undefined"),
+            "__inlobj(o:__inlobj(m:any)|n:number) | undefined"
+        );
+        assert_eq!(rw.walk("Box<__inlobj(k:C)>"), "Box<__inlobj(k:C)>");
     }
 
     #[test]

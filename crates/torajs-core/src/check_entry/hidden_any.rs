@@ -261,6 +261,7 @@ fn retype_returns_any(stmts: &mut [Stmt], fns: &HashSet<String>) {
 mod executor_any;
 mod fn_slots;
 mod inlobj_fields;
+mod method_lits;
 mod method_rets;
 mod obj_fields;
 mod obj_rets;
