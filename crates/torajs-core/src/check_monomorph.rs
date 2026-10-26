@@ -330,16 +330,9 @@ pub(crate) fn process_one_generic(
         // construction-site `check_closure` walks the CLONE bodies
         // (fresh ExprIds) — that walk is what records their inner
         // generic calls for the seed pass below.
-        let closure_rename = crate::check_monomorph_closures::clone_spec_closures(
-            c,
-            owned_ast,
-            &spec_suffix,
-            &id_map,
-            &subst,
-        );
-        let saved_spec_body = std::mem::replace(&mut c.checking_spec_body, true);
-        crate::check_monomorph_clone_tables::check_clone(c, owned_ast, &spec_decl, &id_map);
-        c.checking_spec_body = saved_spec_body;
+        let spec = (&spec_decl, (&spec_suffix[..], &subst[..]));
+        let closure_rename =
+            crate::check_monomorph_clone_tables::check_clone(c, owned_ast, spec, &id_map);
         let inner_sites = std::mem::replace(&mut c.generic_call_sites, saved_sites);
         crate::check_monomorph_uninferred::settle_body_diagnostics(
             c,

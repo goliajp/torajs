@@ -28,6 +28,8 @@
 //!
 //! Split from `check_monomorph.rs` at the 500-line file cap.
 
+use std::collections::HashMap;
+
 use crate::ast::{Ast, Expr, ExprId, Stmt};
 
 /// A demoted speculative `__cm_` rewrite gets the ALT node's shape
@@ -119,8 +121,11 @@ pub(crate) fn carry(owned_ast: &mut Ast, id_map: &[(ExprId, ExprId)]) {
 }
 
 /// The alt node of a speculative rewrite is no node of the cloned
-/// body: rebuild it over the clone's own receiver and arguments.
-fn carry_speculative(owned_ast: &mut Ast, id_map: &[(ExprId, ExprId)]) {
+/// body: rebuild it over the clone's own receiver and arguments. A body
+/// the program's own check walked (a lifted closure, a plain function's
+/// widened clone) holds the rewrites that check demoted in their
+/// member-call shape already; those are no rewrites to carry.
+pub(crate) fn carry_speculative(owned_ast: &mut Ast, id_map: &[(ExprId, ExprId)]) {
     let alts: Vec<(ExprId, ExprId)> = (id_map.iter())
         .filter_map(|&(old, new)| (owned_ast.speculative_cm_rewrites.get(&old)).map(|&a| (new, a)))
         .collect();
@@ -132,9 +137,12 @@ fn carry_speculative(owned_ast: &mut Ast, id_map: &[(ExprId, ExprId)]) {
             continue;
         };
         let (name, member_span) = (name.clone(), owned_ast.expr_spans[callee.0 as usize]);
-        let Expr::Call { args, .. } = owned_ast.get_expr(new) else {
+        let Expr::Call { callee, args } = owned_ast.get_expr(new) else {
             continue;
         };
+        if !matches!(owned_ast.get_expr(*callee), Expr::Ident(_)) {
+            continue;
+        }
         let Some((&recv, rest)) = args.split_first() else {
             continue;
         };
@@ -150,19 +158,34 @@ fn carry_speculative(owned_ast: &mut Ast, id_map: &[(ExprId, ExprId)]) {
     }
 }
 
-/// Check the generic specialization `decl` as a statement, its
-/// speculative rewrites carried; each one the check demoted gets its
-/// member-call shape back, as `monomorphize_and_check` gives the
-/// program's own before cloning.
+/// Clone the lifted closures of the generic specialization `decl`
+/// (`check_monomorph_closures::clone_spec_closures`, `spec` its suffix
+/// and substitution) and check it as a statement, the speculative
+/// rewrites of its body (`id_map`) and of its closures carried; each
+/// one the check demoted gets its member-call shape back, as
+/// `monomorphize_and_check` gives the program's own before cloning.
+/// Returns the closures' rename map.
 pub(crate) fn check_clone(
     c: &mut crate::check::Checker,
     owned_ast: &mut Ast,
-    decl: &Stmt,
+    (decl, spec): (&Stmt, (&str, &[(String, String)])),
     id_map: &[(ExprId, ExprId)],
-) {
+) -> HashMap<String, String> {
+    let (suffix, subst) = spec;
+    let (rename, closure_ids) = crate::check_monomorph_closures::clone_spec_closures(
+        c,
+        owned_ast,
+        suffix,
+        id_map,
+        (subst, true),
+    );
     carry_speculative(owned_ast, id_map);
+    let saved_spec_body = std::mem::replace(&mut c.checking_spec_body, true);
     crate::let_widen::check_spec_stmt(c, owned_ast, decl);
+    c.checking_spec_body = saved_spec_body;
     restore_demoted(c, owned_ast, id_map);
+    restore_demoted(c, owned_ast, &closure_ids);
+    rename
 }
 
 fn restore_demoted(

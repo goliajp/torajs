@@ -46,8 +46,14 @@ pub(crate) use prune::prune_unresolved_captures;
 /// re-check, so its records are unreliable), and lowering reads the
 /// same fresh ExprIds the retargets then land on.
 ///
-/// Returns the original-name → clone-name map; the caller feeds its
-/// keys to the lower-side skip set. Lowering order is safe regardless
+/// Returns the original-name → clone-name map, whose keys the caller
+/// feeds to the lower-side skip set, and the clones' id pairs. With
+/// `carry` (a generic specialization) each clone carries its
+/// speculative `__cm_` rewrites onto its own ids here, and the caller
+/// restores the ones the spec check demotes
+/// (`check_monomorph_clone_tables::check_clone`). A widened clone of a
+/// plain function keeps them: its `any` parameter reaches a class
+/// method through the rewrite's checked cast into the class's layout. Lowering order is safe regardless
 /// of stmt position: `partition_closure_decls` defers every closure
 /// body behind the plain fns, so the spec's construction sites always
 /// lower first.
@@ -56,9 +62,10 @@ pub(crate) fn clone_spec_closures(
     owned_ast: &mut Ast,
     spec_suffix: &str,
     spec_body_id_map: &[(ExprId, ExprId)],
-    subst: &[(String, String)],
-) -> HashMap<String, String> {
+    (subst, carry): (&[(String, String)], bool),
+) -> (HashMap<String, String>, Vec<(ExprId, ExprId)>) {
     let mut rename: HashMap<String, String> = HashMap::new();
+    let mut clone_ids: Vec<(ExprId, ExprId)> = Vec::new();
     let mut rewrite_sites: Vec<ExprId> = Vec::new();
     let mut queue: VecDeque<String> = VecDeque::new();
 
@@ -113,6 +120,9 @@ pub(crate) fn clone_spec_closures(
             .collect();
         owned_ast.ary_destr_groups.extend(cloned_groups);
         crate::check_monomorph_clone_tables::carry_awaits(owned_ast, &id_map);
+        if carry {
+            crate::check_monomorph_clone_tables::carry_speculative(owned_ast, &id_map);
+        }
 
         collect_lifted_refs(owned_ast, &id_map, &mut queue, &mut rewrite_sites, &rename);
         crate::check_monomorph_ctor_face::carry_sites(owned_ast, &id_map);
@@ -161,6 +171,7 @@ pub(crate) fn clone_spec_closures(
         // Straight into the stmt list — `closure_sig` resolves clone
         // names against `ast.stmts` during the spec's own check.
         owned_ast.stmts.push(clone_decl);
+        clone_ids.extend(id_map);
     }
 
     // Point every recorded `Expr::Closure` site (spec body + clone
@@ -172,7 +183,7 @@ pub(crate) fn clone_spec_closures(
             *fn_name = clone_name.clone();
         }
     }
-    rename
+    (rename, clone_ids)
 }
 
 /// Scan a deep-clone `id_map` for `Expr::Closure` references to
