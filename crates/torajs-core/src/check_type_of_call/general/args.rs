@@ -63,6 +63,9 @@ pub(super) fn check(
             ));
         };
         boxed_entry |= boxed;
+        // an object literal argument stores its members into the
+        // parameter's fields, as an annotated binding's initializer does
+        crate::check::face_slots::record_objlit_stores(checker, ast, param_ty, *arg_id);
         crate::iface_witness::note_flow(param_ty, &arg_ty, true);
         // TS-shape: function parameters SHARE non-Copy args —
         // calling `f(x)` never marks `x` moved. The consuming-

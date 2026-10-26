@@ -21,6 +21,10 @@ pub(super) struct Sources {
     /// another place too; read off the program the first time a
     /// member value is asked about, which most programs never do
     sites: OnceCell<HashMap<String, Option<HashSet<ExprId>>>>,
+    /// every expression's place, read off the program as `sites` is
+    places: OnceCell<HashMap<ExprId, Place>>,
+    /// the initializers of the bindings written with an annotation
+    annotated: OnceCell<HashSet<ExprId>>,
 }
 
 impl Sources {
@@ -61,7 +65,32 @@ impl Sources {
             consts,
             fns,
             sites: OnceCell::new(),
+            places: OnceCell::new(),
+            annotated: OnceCell::new(),
         }
+    }
+
+    pub(super) fn places(&self, ast: &Ast) -> &HashMap<ExprId, Place> {
+        self.places.get_or_init(|| places(ast))
+    }
+
+    /// Whether `e` initializes a binding written with an annotation.
+    pub(super) fn annotated_init(&self, ast: &Ast, e: ExprId) -> bool {
+        let inits = self.annotated.get_or_init(|| {
+            let mut out = HashSet::new();
+            crate::ast::walk_stmts(&ast.stmts, &mut |s| {
+                if let Stmt::LetDecl {
+                    type_ann: Some(_),
+                    init,
+                    ..
+                } = s
+                {
+                    out.insert(*init);
+                }
+            });
+            out
+        });
+        inits.contains(&e)
     }
 
     /// The functions the value `v` is, or `None` when it may be another
@@ -96,7 +125,8 @@ impl Sources {
                 }
                 _ => return None,
             };
-            let all = (self.sites).get_or_init(|| Reach::new(ast, &self.consts, &self.fns).all());
+            let all = (self.sites)
+                .get_or_init(|| Reach::new(ast, self.places(ast), &self.consts, &self.fns).all());
             let sites = all.get(f)?.as_ref()?;
             // one written in a member reaches at least that member
             if sites.is_empty() || !sites.is_subset(allowed) {
@@ -141,7 +171,7 @@ fn declarations(ast: &Ast) -> HashMap<String, usize> {
 /// reach, read off the places their values go.
 struct Reach<'a> {
     ast: &'a Ast,
-    places: HashMap<ExprId, Place>,
+    places: &'a HashMap<ExprId, Place>,
     /// a `const` binding's initializer → the binding
     inits: HashMap<ExprId, &'a String>,
     /// the reads of each function or `const` binding by name
@@ -154,7 +184,12 @@ struct Reach<'a> {
 }
 
 impl<'a> Reach<'a> {
-    fn new(ast: &'a Ast, consts: &'a HashMap<String, ExprId>, fns: &'a HashSet<String>) -> Self {
+    fn new(
+        ast: &'a Ast,
+        places: &'a HashMap<ExprId, Place>,
+        consts: &'a HashMap<String, ExprId>,
+        fns: &'a HashSet<String>,
+    ) -> Self {
         let mut reads: HashMap<&String, Vec<ExprId>> = HashMap::new();
         let mut closures: HashMap<&String, Vec<ExprId>> = HashMap::new();
         for (i, e) in ast.exprs.iter().enumerate() {
@@ -174,7 +209,7 @@ impl<'a> Reach<'a> {
         }
         Reach {
             ast,
-            places: places(ast),
+            places,
             inits: consts.iter().map(|(n, e)| (*e, n)).collect(),
             reads,
             closures,

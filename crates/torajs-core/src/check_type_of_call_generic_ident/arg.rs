@@ -28,6 +28,24 @@ pub(super) fn unify_view(
     unification_ty(ast, arg_id, arg_ty)
 }
 
+/// The member stores of the object literal arguments into the fields
+/// of their parameters under `subst`, recorded as the general call path
+/// records them (`crate::check::face_slots::record_objlit_stores`).
+pub(super) fn record_objlit_args(
+    checker: &mut Checker,
+    ast: &Ast,
+    params: &[Type],
+    args: &[ExprId],
+    subst: &HashMap<String, Type>,
+) {
+    for (param_ty, arg_id) in params.iter().zip(args) {
+        if matches!(ast.get_expr(*arg_id), crate::ast::Expr::ObjectLit { .. }) {
+            let declared = substitute_typevars(param_ty, subst);
+            crate::check::face_slots::record_objlit_stores(checker, ast, &declared, *arg_id);
+        }
+    }
+}
+
 /// RC-4 — a `Nullable<Array<..>>` arg (exec/match result, chunk 598
 /// retype) decays to its inner Array against an Array-shaped generic
 /// param, mirroring the member/index decay: unification never binds

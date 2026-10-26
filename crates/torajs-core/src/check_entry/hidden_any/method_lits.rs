@@ -15,6 +15,7 @@ use std::collections::{HashMap, HashSet};
 use super::inlobj_fields;
 use super::lit_sources::Sources;
 use super::method_rets::{Family, returning_any};
+use super::value_places::{Into, Place, into};
 use crate::ast::{Ast, Expr, ExprId, PropKey, Stmt};
 use crate::check::Type;
 
@@ -103,7 +104,7 @@ pub(super) fn closures(
             continue;
         }
         let sure: HashSet<ExprId> = (member_values(ast, types, i, &keys))
-            .filter_map(|(v, sure)| sure.then_some(v))
+            .filter_map(|(_, v, sure)| sure.then_some(v))
             .collect();
         for v in &sure {
             out.extend(sources.of_value(ast, *v, &sure).into_iter().flatten());
@@ -113,14 +114,16 @@ pub(super) fn closures(
 }
 
 /// Whether an object literal that may be of the type of interface
-/// `iface` holds in its member `key` a function value [`Sources`]
+/// `iface` holds in its member `key` a function value whose typed
+/// answer would reach a caller reading the member as `any`: one whose
+/// literal may be of another interface's type too, or one [`Sources`]
 /// cannot follow to its declaration (a method read off an object, a
 /// call's result) or that also reaches a place other than the members
 /// `key` of this interface's literals (a direct call, another literal,
-/// an annotated binding), or one whose literal may be of another
-/// interface's type too: its return cannot be retyped with the
-/// member's, and it would hand its typed answer to a caller reading
-/// the member's as `any`.
+/// an annotated binding), held by a literal the face-slot census does
+/// not see ([`census_sees`]). A function the census sees in the member
+/// keeps its return: a call through the member rides the boxed entry,
+/// whose adapter boxes the function's own answer.
 pub(super) fn opaque(
     ast: &Ast,
     types: &HashMap<ExprId, Type>,
@@ -130,16 +133,50 @@ pub(super) fn opaque(
 ) -> bool {
     let keys = HashSet::from([key]);
     let held: HashSet<ExprId> = (member_values(ast, types, iface, &keys))
-        .filter_map(|(v, sure)| sure.then_some(v))
+        .filter_map(|(_, v, sure)| sure.then_some(v))
         .collect();
-    member_values(ast, types, iface, &keys).any(|(v, sure)| {
-        types.get(&v) != Some(&Type::Any) && (!sure || sources.of_value(ast, v, &held).is_none())
+    member_values(ast, types, iface, &keys).any(|(lit, v, sure)| {
+        types.get(&v) != Some(&Type::Any)
+            && (!sure
+                || sources.of_value(ast, v, &held).is_none()
+                    && !census_sees(ast, types, sources, iface, &keys, lit))
     })
+}
+
+/// Whether the face-slot census records the member stores of the
+/// object literal `lit` of interface `iface`
+/// (`crate::check::face_slots::record_objlit_stores`): the literal
+/// initializes a binding annotated with the interface's name, is the
+/// value of a `return` from a function declared to return it, or is
+/// an argument of a call whose parameter is typed with the interface.
+/// Anywhere else (an array element, a member of another literal, a
+/// binding with no annotation) the store is not recorded, and a call
+/// through the member would read the function's typed answer as the
+/// member's.
+fn census_sees(
+    ast: &Ast,
+    types: &HashMap<ExprId, Type>,
+    sources: &Sources,
+    iface: &str,
+    keys: &HashSet<&PropKey>,
+    lit: ExprId,
+) -> bool {
+    match sources.places(ast).get(&lit) {
+        Some(Place::Bind(Some(a))) => a.trim() == iface && sources.annotated_init(ast, lit),
+        Some(Place::Ret(Some(a))) => a.trim() == iface,
+        Some(Place::Expr(p)) => {
+            let want = ast.iface_slots.types.get(iface);
+            matches!(ast.get_expr(*p), Expr::Call { callee, .. } if *callee != lit)
+                && matches!((into(ast, types, *p, lit), want),
+                    (Into::Slot(Some(t)), Some(w)) if of_iface(t, w, keys) == Fit::Exact)
+        }
+        _ => false,
+    }
 }
 
 /// The values the object literals of the type of interface `iface`, or
 /// of it with the members `keys` returning `any`, hold in a member of
-/// `keys`, each with whether its literal is of that type for sure: one
+/// `keys`, each with its literal and whether its literal is of that type for sure: one
 /// whose members only fit the interface's ([`Fit::Loose`]) may be of
 /// another interface that fits it as well.
 fn member_values<'a>(
@@ -147,7 +184,7 @@ fn member_values<'a>(
     types: &'a HashMap<ExprId, Type>,
     iface: &'a str,
     keys: &'a HashSet<&PropKey>,
-) -> impl Iterator<Item = (ExprId, bool)> + 'a {
+) -> impl Iterator<Item = (ExprId, ExprId, bool)> + 'a {
     let all = &ast.iface_slots.types;
     let want = all.get(iface);
     (ast.exprs.iter().enumerate())
@@ -164,12 +201,12 @@ fn member_values<'a>(
                     (all.iter()).all(|(n, t)| n == iface || of_iface(lt, t, keys) == Fit::No)
                 }
             };
-            Some((fields, sure))
+            Some((ExprId(i as u32), fields, sure))
         })
-        .flat_map(move |(fields, sure)| {
+        .flat_map(move |(lit, fields, sure)| {
             (fields.iter())
                 .filter(|(k, _)| keys.contains(k))
-                .map(move |(_, v)| (*v, sure))
+                .map(move |(_, v)| (lit, *v, sure))
         })
 }
 

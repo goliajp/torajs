@@ -109,7 +109,8 @@ impl MethodRets {
     /// hands the method to a slot typed with that return, and the
     /// interface's get face hands on every other row's member too. So
     /// does one whose interface an object literal fills with a function
-    /// whose declaration is out of reach (`super::method_lits::opaque`).
+    /// that keeps its return, held where the face-slot census does not
+    /// see the store (`super::method_lits::opaque`).
     pub(super) fn family<'a>(
         &self,
         ast: &Ast,

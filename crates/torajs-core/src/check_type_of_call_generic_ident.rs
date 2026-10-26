@@ -170,6 +170,7 @@ pub(crate) fn try_match(
                     .generic_call_sites
                     .insert(eid, (name.clone(), type_args));
                 checker.arity_pad_count.insert(eid, missing);
+                arg::record_objlit_args(checker, ast, &params, args, &subst);
                 return Some(Ok(resolved_ret));
             }
         }
@@ -246,6 +247,7 @@ pub(crate) fn try_match(
             }
         }
         fn_face::box_generic_params(checker, ast, name, &faced);
+        arg::record_objlit_args(checker, ast, &params, args, &subst);
         let resolved_ret = substitute_typevars(&ret, &subst);
         // Record the substitution for the SSA monomorphizer.
         // Keyed by ExprId of the call so each call site gets
