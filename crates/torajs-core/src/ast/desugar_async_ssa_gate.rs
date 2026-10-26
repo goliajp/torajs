@@ -107,8 +107,14 @@ pub fn record_async_method(ast: &mut Ast, decl_id: u32, is_static: bool, member:
 
 pub fn mark_async_ssa_fns(ast: &mut Ast) {
     let mut census = nested::Census::default();
-    for s in &ast.stmts {
-        census.top(ast, s);
+    // the census judges only an async declaration that is no async
+    // generator, and a method the parser recorded async
+    let judged = (ast.async_fns.iter()).any(|n| !ast.async_generator_fns.contains(n))
+        || !ast.async_ssa.async_methods.is_empty();
+    if judged {
+        for s in &ast.stmts {
+            census.top(ast, s);
+        }
     }
     let mut names = census.names();
     let mut async_methods = Vec::new();
