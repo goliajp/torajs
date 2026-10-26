@@ -186,28 +186,19 @@ fn rewrite_stmt(ast: &mut Ast, s: &mut Stmt, cx: &Cx, log: &mut LiftLog) -> bool
             true
         }
         Stmt::While { .. } => loops::rewrite_while(ast, s, cx, log),
-        Stmt::DoWhile { cond, body } => loops::rewrite_do_while(ast, *cond, body, cx, log),
-        Stmt::For {
-            init,
-            cond,
-            step,
-            body,
-        } => loops::rewrite_for(ast, init.as_deref(), cond, *step, body, cx, log),
+        Stmt::DoWhile { .. } => loops::rewrite_do_while(ast, s, cx, log),
+        Stmt::For { .. } => loops::rewrite_for(ast, s, cx, log),
         Stmt::Switch { .. } => loops::rewrite_switch(ast, s, cx, log),
-        Stmt::Labeled { body, .. } => rewrite_stmt(ast, body, cx, log),
+        Stmt::Labeled { .. } => loops::rewrite_labeled(ast, s, cx, log),
         // `for (x of src)` / `for await (x of src)` — the parser hoisted a
         // non-identifier source into a `let` ahead of the loop, so an
         // await in it lifts through the LetDecl arm; the body's awaits
         // become the loop's suspends, and `desugar_generators_forof`
         // turns the loop into the manual iterator protocol (a `for
         // await`'s step is a suspend of its own, RFC 20260915 blade 4).
-        // for-in (`forin_obj`) keeps the refusal below — that rewrite
-        // has no arm for it.
-        Stmt::ForOf {
-            forin_obj: None,
-            body,
-            ..
-        } => rewrite_stmt(ast, body, cx, log),
+        // A for-in's object is a name the parser bound ahead of it, and
+        // its body suspends like any loop's (`desugar_generators_forin`).
+        Stmt::ForOf { body, .. } => rewrite_stmt(ast, body, cx, log),
         Stmt::Block(stmts) | Stmt::Multi(stmts) => rewrite_list(ast, stmts, cx, log),
         Stmt::Try {
             body,
@@ -223,8 +214,7 @@ fn rewrite_stmt(ast: &mut Ast, s: &mut Stmt, cx: &Cx, log: &mut LiftLog) -> bool
         }
         // Everything else blocks the move if it holds an await; the
         // conservative direction is refusing to move, never dropping a
-        // suspend point. `for` heads, `switch` discriminants and the
-        // for-of/for-in iterables all land here.
+        // suspend point.
         other => !stmt_has_await(ast, other),
     }
 }

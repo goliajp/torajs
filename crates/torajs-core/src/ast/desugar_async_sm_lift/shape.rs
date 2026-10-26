@@ -73,14 +73,25 @@ pub(super) fn shape(ast: &Ast, eid: ExprId) -> Shape {
             Expr::Ident(_) => Shape::Ordered(vec![*value]),
             Expr::Member { obj, .. } => Shape::Ordered(vec![*obj, *value]),
             Expr::Index { obj, index } => Shape::Ordered(vec![*obj, *index, *value]),
+            // a destructuring pattern reads its references only after
+            // the value is evaluated (§13.15.2 step 2)
+            _ if !expr_has_await(ast, *target) => Shape::Ordered(vec![*value]),
             _ => Shape::Refuse(vec![*target, *value]),
         },
-        Expr::OptChain { obj, .. } => Shape::Refuse(vec![*obj]),
+        // the base of `o?.p` is evaluated whatever it turns out to be
+        Expr::OptChain { obj, .. } => Shape::Ordered(vec![*obj]),
         Expr::OptIndex { obj, index } => Shape::Refuse(vec![*obj, *index]),
         Expr::OptCall { callee, args } => {
             let mut kids = vec![*callee];
             kids.extend(args.iter().copied());
             Shape::Refuse(kids)
+        }
+        // a member or index reference is evaluated part by part like an
+        // operand; anything else is not a reference to update
+        Expr::Delete { expr: r } | Expr::PostIncr { target: r, .. }
+            if matches!(ast.get_expr(*r), Expr::Member { .. } | Expr::Index { .. }) =>
+        {
+            Shape::Ordered(vec![*r])
         }
         Expr::Delete { expr } => Shape::Refuse(vec![*expr]),
         Expr::PostIncr { target, .. } => Shape::Refuse(vec![*target]),

@@ -36,13 +36,14 @@
 //! runs the rewrite over that prefix, so the awaits inside the branches
 //! become yields like any statement's.
 //!
-//! Positions the lift does NOT take, leaving the statement — and so the
-//! function — on the synchronous lowering as before: an assignment
-//! target that is not a name or a member / index over hoistable parts,
-//! a `delete` operand, `++` / `--`, optional chains, and a nested
-//! function body (its awaits are its own). Loop heads and switch
-//! discriminants are the caller's refusal — a hoist before the loop is
-//! not a re-evaluation per iteration.
+//! Positions the lift does NOT take, which the caller refuses: an await
+//! inside a destructuring target, under a `delete` / `++` / `--` of
+//! something that is not a member or index reference, in the guarded
+//! part of an optional index or call (`o?.[await k]`, `f?.(await x)`),
+//! and a nested function body (its awaits are its own). Loop heads and
+//! case values are the caller's to place (`desugar_async_sm_rewrite::
+//! loops`) — a hoist before the loop is not a re-evaluation per
+//! iteration.
 //!
 //! The rewrite mutates the arena in place, and the caller decides
 //! whether to move the function only after the WHOLE body is rewritten;
