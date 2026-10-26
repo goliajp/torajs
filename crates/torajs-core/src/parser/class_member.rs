@@ -30,9 +30,8 @@ pub(super) struct ClassMemberModifierPrefix {
     pub is_static: bool,
     pub accessor_kind: Option<AccessorKind>,
     /// P10.3-A3a — `async` method modifier (`[static] async name(...) {}`).
-    /// When true `finalize_class_method` registers the mangled
-    /// `__cm_<C>__<M>` / `__sm_<C>__<M>` fn name into `ast.async_fns`
-    /// so `desugar_async` picks it up.
+    /// When true `finalize_class_method` records the method as async
+    /// by its declaration (`record_async_method`).
     pub is_async: bool,
     /// RFC 20260719-fn-tostring-source B3a — byte offset of the
     /// consumed `async` / `get` / `set` modifier token when one was
@@ -246,8 +245,8 @@ impl<'a> Parser<'a> {
     /// Finalize a non-ctor class method after its params / return-type
     /// / body have been parsed. Applies the readonly cross-modifier
     /// check, resolves visibility (default `Public`), registers
-    /// `member_visibility` for non-default values, registers async
-    /// method mangled names into `ast.async_fns` (P10.3-A3a), and
+    /// `member_visibility` for non-default values, records async
+    /// methods by their declaration (P10.3-A3a), and
     /// pushes the `ClassMethod` onto the appropriate methods or
     /// static_methods vector. Centralised so the god-fn doesn't grow
     /// when new modifier-driven side-effects (async / generator /
@@ -285,8 +284,8 @@ impl<'a> Parser<'a> {
                 .insert((class_name.to_string(), member_name.clone()), visibility);
         }
         if is_async {
-            let class = (class_name, self.current_class_decl_id);
-            crate::ast::record_async_method(&mut self.ast, class, is_static, &member_name);
+            let decl_id = self.current_class_decl_id;
+            crate::ast::record_async_method(&mut self.ast, decl_id, is_static, &member_name);
         }
         let m = ClassMethod {
             name: member_name,

@@ -85,28 +85,23 @@ pub struct AsyncSsa {
     /// A function that moved has a `for await`: its any-lane steps call
     /// the runtime's frame entries (`ssa_lower_fn::suspend::frame_step`).
     pub frame_for_await: bool,
-    /// The parser's async methods ([`record_async_method`]). Two
-    /// classes of one name (in two functions) share their mangled name
-    /// until the hoist renames one, so the name cannot say which of
-    /// them is async.
+    /// The parser's async methods ([`record_async_method`]), by
+    /// declaration: two classes of one name (in two functions) share
+    /// their mangled name until the hoist renames one, so the name
+    /// cannot say which of them is async.
     pub async_methods: HashSet<MethodKey>,
     /// The methods that moved.
     pub methods: HashSet<MethodKey>,
 }
 
-/// The parser's record of an async method of the class `class`
-/// (declaration `decl_id`): by its mangled name in `async_fns`, which
-/// every "is this async" reader keys on, and by declaration.
-pub fn record_async_method(
-    ast: &mut Ast,
-    (class, decl_id): (&str, u32),
-    is_static: bool,
-    member: &PropKey,
-) {
-    let sym = mangle_key(member);
-    let prefix = if is_static { "__sm_" } else { "__cm_" };
-    ast.async_fns.insert(format!("{prefix}{class}__{sym}"));
-    let key = (decl_id, is_static, sym.into_owned());
+/// The parser's record of an async method of the class declaration
+/// `decl_id`. Its mangled name, which every "is this async" reader of
+/// `async_fns` keys on, is written only once the class's name is final:
+/// for a top-level class by [`mark_async_ssa_fns`], for a hoisted one by
+/// [`name_moved_methods`]; a capturing class's methods are read by
+/// declaration ([`method_value`]).
+pub fn record_async_method(ast: &mut Ast, decl_id: u32, is_static: bool, member: &PropKey) {
+    let key = (decl_id, is_static, mangle_key(member).into_owned());
     ast.async_ssa.async_methods.insert(key);
 }
 
@@ -116,9 +111,12 @@ pub fn mark_async_ssa_fns(ast: &mut Ast) {
         census.top(ast, s);
     }
     let mut names = census.names();
+    let mut async_methods = Vec::new();
     for s in &ast.stmts {
         names.extend(moved_names(&census.methods, s));
+        async_methods.extend(moved_names(&ast.async_ssa.async_methods, s));
     }
+    ast.async_fns.extend(async_methods);
     names.sort();
     names.dedup();
     ast.async_ssa.fns.extend(names);
@@ -168,15 +166,16 @@ fn moved_names(moved: &HashSet<MethodKey>, s: &Stmt) -> Vec<String> {
     out
 }
 
-/// `desugar_classes`, once the hoist has given every class its final
-/// name and before the methods are emitted under it: mark each moved
-/// method's mangled name, and record it as async under that name.
+/// `desugar_classes`, once the hoist has given every class it moved to
+/// the top level its final name and before the methods are emitted
+/// under it: mark each moved method's mangled name, and record it as
+/// async under that name. A class still nested is a capturing one,
+/// whose methods are read by declaration ([`method_value`]); its name
+/// is not the one its methods would be emitted under.
 pub(super) fn name_moved_methods(ast: &mut Ast) {
     let mut names: Vec<String> = Vec::new();
-    for top in &ast.stmts {
-        nested::each_stmt(ast, top, &mut |s| {
-            names.extend(moved_names(&ast.async_ssa.methods, s))
-        });
+    for s in &ast.stmts {
+        names.extend(moved_names(&ast.async_ssa.methods, s));
     }
     for n in names {
         ast.async_fns.insert(n.clone());
