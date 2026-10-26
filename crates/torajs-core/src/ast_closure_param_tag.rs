@@ -345,8 +345,12 @@ fn closure_shape(
         Expr::Ident(n) => {
             closure_idents.contains(n) || slot_reads.is_some_and(|b| b.contains(&eid))
         }
+        // a method that hands back an element (`hs.at(i)`, `hs.pop()`)
+        // reads a slot as an index does
         Expr::Call { callee, .. } => {
             matches!(ast.get_expr(*callee), Expr::Ident(f) if ret_marked.contains(f))
+                || (slot_reads.is_some()
+                    && crate::check::face_slots::elem_source(ast, eid).is_some())
         }
         // ANY member or index read: a fn value living in a slot is
         // Closure repr across the board — struct / class fn-typed

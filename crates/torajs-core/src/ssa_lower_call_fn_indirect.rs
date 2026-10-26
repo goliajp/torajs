@@ -74,6 +74,7 @@ fn try_lower_call_or_closure_callee(
         ctx.ast.get_expr(callee),
         Expr::Call { .. } | Expr::Closure { .. } | Expr::Index { .. } | Expr::Sequence { .. }
     ) && !is_choice(ctx, callee)
+        && nonnull_inner(ctx, callee).is_none()
     {
         return None;
     }
@@ -99,7 +100,12 @@ fn try_lower_call_or_closure_callee(
     // with no promoted fn-expr anywhere the gate it feeds is compiled
     // out, and a callee the checker did not call a Function does not
     // reach the Closure arm below.
-    let base_id = match ctx.ast.get_expr(callee) {
+    // `hs[i]!(x)` is still a property Reference: the assertion has no
+    // runtime face
+    let base_id = match ctx
+        .ast
+        .get_expr(nonnull_inner(ctx, callee).unwrap_or(callee))
+    {
         Expr::Index { obj, .. } => Some(*obj),
         _ => None,
     };
@@ -152,8 +158,12 @@ fn try_lower_call_or_closure_callee(
                         && !ctx.ast.gen_fn_exprs.contains_key(&callee)
                 }
                 Expr::Call { .. } => ctx.expr_owned_shape(callee),
-                // a choice answers a fresh closure when an arm mints one
-                _ => is_choice(ctx, callee) && ctx.expr_owned_shape(callee),
+                // a choice answers a fresh closure when an arm mints one,
+                // an assertion when its operand does (`hs.pop()!(x)`)
+                _ => {
+                    (is_choice(ctx, callee) || nonnull_inner(ctx, callee).is_some())
+                        && ctx.expr_owned_shape(callee)
+                }
             };
             let parked = minted.then(|| ctx.push_throw_temp(callee_op, Type::Closure(user_sig_id)));
             let result =
@@ -165,10 +175,12 @@ fn try_lower_call_or_closure_callee(
             Some(result)
         }
         Type::FnSig(sig_id) => Some(emit_fnsig_callee(ctx, eid, callee_op, sig_id, args)),
-        // a method read off a typed receiver comes out boxed
+        // a method read off a typed receiver comes out boxed, as does an
+        // element of an array whose element type admits `undefined`
         Type::Any
             if matches!(ctx.ast.get_expr(callee), Expr::Sequence { .. })
-                || is_choice(ctx, callee) =>
+                || is_choice(ctx, callee)
+                || nonnull_inner(ctx, callee).is_some() =>
         {
             Some(crate::ssa_lower_any_call::emit(
                 ctx, eid, callee, callee_op, args,
@@ -188,6 +200,14 @@ fn elem_face_slot(ctx: &LowerCtx<'_>, obj: ExprId) -> bool {
     ctx.expr_types
         .get(&obj)
         .is_some_and(|t| crate::check::face_slots::elem_hit(&ctx.ast.face_slots, t))
+}
+
+/// The operand of a non-null assertion callee (`hs.at(i)!(x)`).
+fn nonnull_inner(ctx: &LowerCtx<'_>, callee: ExprId) -> Option<ExprId> {
+    match ctx.ast.get_expr(callee) {
+        Expr::As { expr, ty_ann } if ty_ann == "__nonnull__" => Some(*expr),
+        _ => None,
+    }
 }
 
 /// A choice among values (`c ? f : g`, `f || g`, `f ?? g`): no
