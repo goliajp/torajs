@@ -203,6 +203,45 @@ impl Analysis<'_> {
         }
     }
 
+    /// The functions whose return a call at `eid` answers: the one it
+    /// lands on by name ([`Self::direct_callee`]), or, for a method
+    /// called on a receiver typed as a class, the declaration the class
+    /// inherits and every override below the class, whichever the
+    /// instance's class runs.
+    pub(super) fn callee_rets(&self, eid: ExprId, callee: ExprId) -> Option<Vec<String>> {
+        if let Some(f) = self.direct_callee(eid, callee) {
+            return Some(vec![f]);
+        }
+        let Expr::Member { obj, name } = self.ast.get_expr(callee) else {
+            return None;
+        };
+        let Some(crate::check::Type::ClassRef(c)) = self.expr_types.get(obj) else {
+            return None;
+        };
+        let c = c.split('<').next().unwrap_or(c);
+        let key = crate::ast::PropKey::from(name);
+        let key = crate::ast::mangle_key(&key);
+        let parents = &self.ast.class_parents;
+        let mut at = Some(c);
+        let inherited = std::iter::from_fn(|| {
+            let k = at?;
+            at = parents.get(k).and_then(|p| p.as_deref());
+            Some(format!("__cm_{k}__{key}"))
+        })
+        .find(|f| self.fn_params.contains_key(f))?;
+        let mut out = vec![inherited];
+        for k in parents
+            .keys()
+            .filter(|k| k.as_str() != c && descends(parents, k, c))
+        {
+            let f = format!("__cm_{k}__{key}");
+            if self.fn_params.contains_key(&f) {
+                out.push(f);
+            }
+        }
+        Some(out)
+    }
+
     /// Join the parameter and return slots of the closures one binding
     /// may hold: a call through the binding reaches any of them with
     /// the same arguments and hands back whichever one ran.
@@ -224,6 +263,19 @@ impl Analysis<'_> {
                     self.uf.union(&self.keys, a, b);
                 }
             }
+        }
+    }
+}
+
+/// Whether class `k` is `c` or descends from it.
+fn descends<'a>(parents: &'a HashMap<String, Option<String>>, mut k: &'a str, c: &str) -> bool {
+    loop {
+        if k == c {
+            return true;
+        }
+        match parents.get(k) {
+            Some(Some(p)) => k = p,
+            _ => return false,
         }
     }
 }

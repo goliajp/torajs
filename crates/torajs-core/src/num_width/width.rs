@@ -319,12 +319,12 @@ impl<'a> Analysis<'a> {
     }
 
     /// [`Self::width_of`]'s Call arm — monomorphised retargets read
-    /// their Ret key; named fns read `Ret(f)`; Math.* is libm-shaped
-    /// f64; other member calls and indirect fn-value calls read
-    /// through the container lattice.
+    /// their Ret key; named fns and a class receiver's methods read
+    /// `Ret(f)`; Math.* is libm-shaped f64; other member calls and
+    /// indirect fn-value calls read through the container lattice.
     fn width_of_call(&self, eid: ExprId, callee: ExprId, args: &[ExprId], scope: &Scope) -> W {
-        if let Some(f) = self.direct_callee(eid, callee) {
-            return W::Num(vec![(self.keys.ret(&f), false)]);
+        if let Some(fs) = self.callee_rets(eid, callee) {
+            return W::Num(fs.iter().map(|f| (self.keys.ret(f), false)).collect());
         }
         match self.ast.get_expr(callee) {
             // Math.* numeric intrinsics are libm-shaped f64
