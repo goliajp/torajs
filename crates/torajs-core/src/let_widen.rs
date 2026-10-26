@@ -137,8 +137,10 @@ enum Binding {
     /// scalar or an object type (`check_stmt_let_decl::any_layout_slot`
     /// decides on the resolved type; for any other annotation the mark
     /// changes nothing): the binding has to hold either from its
-    /// declaration.
-    Annotated { init: ExprId },
+    /// declaration. A `JSON.parse` / `Object.fromEntries` stored into a
+    /// binding of an object type decodes into its layout, as its
+    /// initializer does, and marks nothing.
+    Annotated { init: ExprId, scalar: bool },
     /// An unannotated `const`: never reassigned, but an array it holds
     /// may be pushed a value of any kind (`push`).
     Fixed { init: ExprId },
@@ -223,8 +225,10 @@ impl Walker<'_> {
         // a binding annotated `any` or `unknown` already holds a value of
         // any kind; marking it would only ask the checker for another run
         let open = ann.is_some_and(|a| matches!(a.trim(), "any" | "unknown"));
-        let binding = if mutable && ann.is_some() && !open {
-            Binding::Annotated { init }
+        let binding = if let Some(a) = ann.filter(|_| mutable && !open) {
+            let a = crate::check_type_ann::strip_nullable(a).trim();
+            let scalar = matches!(a, "number" | "string" | "boolean");
+            Binding::Annotated { init, scalar }
         } else if open {
             Binding::Opaque
         } else if mutable && ann.is_none() {
@@ -278,11 +282,12 @@ impl Walker<'_> {
         // (const, annotated, param) is never widened
         let (init, family) = match self.scopes.iter().rev().find_map(|s| s.get(name).cloned()) {
             Some(Binding::Tracked { init, family }) => (init, family),
-            Some(Binding::Annotated { init }) => {
+            Some(Binding::Annotated { init, scalar }) => {
+                use crate::check_stmt_let_decl::any_layout_slot::{decoder_call, has_dynamic_elem};
                 if let Some(types) = self.types
-                    && (crate::check_stmt_let_decl::any_layout_slot::has_dynamic_elem(
-                        value, self.ast, types,
-                    ) || types.get(&value) == Some(&Type::Any))
+                    && (has_dynamic_elem(value, self.ast, types)
+                        || (types.get(&value) == Some(&Type::Any)
+                            && (scalar || !decoder_call(self.ast, value))))
                 {
                     self.out.insert(init);
                 }

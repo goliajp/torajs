@@ -144,26 +144,30 @@ fn held_read(
 }
 
 /// Whether `init` is a call answering an `any` value other than the two
-/// whose typed lanes decode into the declared layout (`JSON.parse`,
-/// `Object.fromEntries`): a function returning `any` hands its value
-/// back as it is.
+/// whose typed lanes decode into the declared layout ([`decoder_call`]):
+/// a function returning `any` hands its value back as it is.
 fn any_call(init: ExprId, ast: &Ast, types: &HashMap<ExprId, T>) -> bool {
-    let Expr::Call { callee, .. } = ast.get_expr(init) else {
+    matches!(ast.get_expr(init), Expr::Call { .. })
+        && types.get(&init) == Some(&T::Any)
+        && !decoder_call(ast, init)
+}
+
+/// Whether `e` calls `JSON.parse` or `Object.fromEntries`, whose typed
+/// lanes decode into an object binding's declared layout.
+pub(crate) fn decoder_call(ast: &Ast, e: ExprId) -> bool {
+    let Expr::Call { callee, .. } = ast.get_expr(e) else {
         return false;
     };
-    let decoder = match ast.get_expr(*callee) {
-        Expr::Member { obj, name } => {
-            matches!(
-                (ast.get_expr(*obj), name.as_str()),
-                (Expr::Ident(ns), "parse") if ns == "JSON"
-            ) || matches!(
-                (ast.get_expr(*obj), name.as_str()),
-                (Expr::Ident(ns), "fromEntries") if ns == "Object"
-            )
-        }
-        _ => false,
+    let Expr::Member { obj, name } = ast.get_expr(*callee) else {
+        return false;
     };
-    types.get(&init) == Some(&T::Any) && !decoder
+    matches!(
+        (ast.get_expr(*obj), name.as_str()),
+        (Expr::Ident(ns), "parse") if ns == "JSON"
+    ) || matches!(
+        (ast.get_expr(*obj), name.as_str()),
+        (Expr::Ident(ns), "fromEntries") if ns == "Object"
+    )
 }
 
 /// The lowering mirror of [`checker_face`], [`cast_face`],
