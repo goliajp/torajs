@@ -180,3 +180,41 @@ impl FieldStores {
         inlobj_fields::retype(r, &self.objects, names);
     }
 }
+
+/// The values of the object literal members named in `names` that
+/// `types` types an object or a function. The literal's slot is the
+/// compiler's inference from its first value, and the object is handed
+/// as it is to a slot of a type its shape fits (`st(o, raw)` with
+/// `st(x: { c: C }, v: any)`), so a reader through the literal's own
+/// binding reads the slot the store wrote: it holds the value of any
+/// kind, as the declared fields of the name do.
+pub(super) fn lit_values(
+    ast: &Ast,
+    types: &HashMap<ExprId, Type>,
+    names: &HashSet<PropKey>,
+) -> HashSet<ExprId> {
+    let mut out = HashSet::new();
+    if names.is_empty() {
+        return out;
+    }
+    for e in &ast.exprs {
+        let Expr::ObjectLit { fields } = e else {
+            continue;
+        };
+        let held = |v: &ExprId| match types.get(v) {
+            Some(Type::Nullable(t)) => is_held(t),
+            Some(t) => is_held(t),
+            None => false,
+        };
+        out.extend(
+            (fields.iter())
+                .filter(|(k, v)| names.contains(k) && held(v))
+                .map(|(_, v)| *v),
+        );
+    }
+    out
+}
+
+fn is_held(t: &Type) -> bool {
+    matches!(t, Type::Struct(_) | Type::ClassRef(_) | Type::Function(..))
+}

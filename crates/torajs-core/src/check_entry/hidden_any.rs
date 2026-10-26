@@ -79,13 +79,15 @@ fn settle_with(
             let found = hidden.rets.iter().chain(&obj);
             rets.extend(found.filter(|f| ok.contains(*f)).cloned());
         }
+        let lits = obj_fields::lit_values(ast, &cur.0.1, &obj_fields);
         let grew = (rets.len() > before)
             | promise_rets::extend(ast, &cur.0.1, &mut promise_rets)
             | extend_fields(&mut obj_fields, field_stores.found(ast, &cur.0.1))
             | executor_any::extend(ast, &cur.0.1, &mut executors)
             | extend_own(ast, &mut inits, &hidden.inits)
             | extend_own(ast, &mut fields, &scalar_values(&cur.0.1, &hidden.fields))
-            | extend_own(ast, &mut fields, &objects_given_any(ast, &cur.0.1));
+            | extend_own(ast, &mut fields, &objects_given_any(ast, &cur.0.1))
+            | extend_own(ast, &mut fields, &lits);
         if !(extend_own(ast, &mut args, &hidden.args) || grew) {
             let needs = match &retypable {
                 Some((_, flow)) if !rets.is_empty() => {
