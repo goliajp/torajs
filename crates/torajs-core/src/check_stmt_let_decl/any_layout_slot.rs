@@ -125,14 +125,22 @@ pub(crate) fn holds_any(
 /// this one spelling. The annotation converts nothing (§14.3.1.2,
 /// §13.15.2), so an instance of another class, or an object that is no
 /// instance at all, is held as it is in a binding annotated with a
-/// class too, and its members are read by name.
+/// class too, and its members are read by name. A `__`-named type other
+/// than an object type literal or a function type is one a desugar pass
+/// wrote (a generator's own object), whose binding only ever holds an
+/// instance of it.
 fn held_read(
     ann: Option<&str>,
     init: ExprId,
     (ast, types): (&Ast, &HashMap<ExprId, T>),
     widened: bool,
 ) -> bool {
-    ann.is_some() && (widened || any_read(init, ast, types) || any_call(init, ast, types))
+    let Some(ann) = ann else { return false };
+    let base = crate::check_type_ann::strip_nullable(ann).trim();
+    let compiler_made = base.starts_with("__")
+        && !base.starts_with("__inlobj(")
+        && !crate::ast::is_fn_like_ann(base);
+    !compiler_made && (widened || any_read(init, ast, types) || any_call(init, ast, types))
 }
 
 /// Whether `init` is a call answering an `any` value other than the two
