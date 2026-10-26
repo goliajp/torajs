@@ -52,6 +52,18 @@ pub(crate) fn check(
     callee: &ExprId,
     args: &Vec<ExprId>,
 ) -> Result<Type, String> {
+    let ty = routes(checker, ast, eid, callee, args)?;
+    crate::check_stmt_let_decl::held_any::face_class::check_call(checker, ast, *callee, args)?;
+    Ok(ty)
+}
+
+fn routes(
+    checker: &mut Checker,
+    ast: &Ast,
+    eid: ExprId,
+    callee: &ExprId,
+    args: &Vec<ExprId>,
+) -> Result<Type, String> {
     if let Expr::Ident(f) = ast.get_expr(*callee)
         && let Some(c) = f.strip_prefix("__new_")
         && ast.type_only_classes.contains(c)

@@ -125,6 +125,7 @@ pub(crate) fn check(
         &checker.expr_types,
         checker.cross_type_widened.contains(&init),
     );
+    checker.held_any.objects |= held_any;
     if held_any && checker.scopes.len() == 1 {
         checker.held_any.globals.insert(name.to_string());
     }

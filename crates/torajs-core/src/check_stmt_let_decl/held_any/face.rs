@@ -10,6 +10,7 @@
 //! a call makes of one; the checks that compare a value with a slot ask
 //! it whenever the value is typed `any`.
 
+use super::face_class::member_face;
 use crate::ast::{Ast, BinOp, Expr, ExprId, UnaryOp};
 use crate::check::{Checker, DiagPush, Type};
 
@@ -32,16 +33,13 @@ pub(crate) fn face(c: &Checker, ast: &Ast, eid: ExprId) -> Option<Type> {
             op: UnaryOp::Neg | UnaryOp::Plus | UnaryOp::BitNot,
             expr,
         } => face(c, ast, *expr).map(|_| Type::Number),
-        Expr::Member { obj, name } => match face(c, ast, *obj)? {
-            t @ (Type::Number | Type::String | Type::Boolean) => {
-                crate::check_type_of_member::try_family_dispatch(&t, name)?.ok()
+        Expr::Member { obj, name } => member_face(c, ast, &face(c, ast, *obj)?, name),
+        Expr::Call { callee, args } => {
+            match super::face_class::callee_face(c, ast, *callee, args)?.0 {
+                Type::Function(_, ret) => Some(*ret),
+                _ => None,
             }
-            _ => None,
-        },
-        Expr::Call { callee, .. } => match face(c, ast, *callee)? {
-            Type::Function(_, ret) => Some(*ret),
-            _ => None,
-        },
+        }
         Expr::Ternary {
             then_branch,
             else_branch,
@@ -116,7 +114,7 @@ pub(crate) fn check_arg(
     }
 }
 
-/// A member `name` read through `obj`, a read of a held scalar: the
+/// A member `name` read through `obj`, a read of a held value: the
 /// member must exist on the declared type, as on a typed receiver
 /// (`n.toUpperCase()` with `n: number` is refused).
 pub(crate) fn check_receiver(
@@ -125,8 +123,13 @@ pub(crate) fn check_receiver(
     (obj, name): (ExprId, &str),
     lenient_missing: bool,
 ) -> Result<(), String> {
-    let Some(f @ (Type::Number | Type::String | Type::Boolean)) = face(c, ast, obj) else {
-        return Ok(());
+    let f = match face(c, ast, obj) {
+        Some(f @ (Type::Number | Type::String | Type::Boolean)) => f,
+        Some(f) => {
+            let read = (obj, name);
+            return super::face_class::check_receiver(c, ast, read, &f, lenient_missing);
+        }
+        None => return Ok(()),
     };
     let shadowed = !c.proto_shadow.is_empty()
         && crate::builtin_proto_shadow::family_of(&f)

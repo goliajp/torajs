@@ -48,6 +48,7 @@ use crate::check_stmt_let_decl_destr_lane::pick_ary_destr_lane;
 mod index_target;
 mod setter;
 pub(crate) use index_target::check_index;
+pub(crate) use setter::setter_param;
 use setter::{try_accessor_setter, try_objlit_setter};
 
 pub(crate) fn check_member(
@@ -87,6 +88,9 @@ pub(crate) fn check_member(
     // writes.
     if matches!(*obj_ty, Type::Any | Type::Function(..) | Type::Array(_)) {
         checker.check_dict_write(ast, obj, Some(&field), value)?;
+        crate::check_stmt_let_decl::held_any::face_class::check_store(
+            checker, ast, obj, &field, value,
+        )?;
         return Ok(Type::Any);
     }
     // A namespace with a runtime singleton (RFC 20260801

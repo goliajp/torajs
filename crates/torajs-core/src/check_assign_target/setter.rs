@@ -130,6 +130,16 @@ pub(super) fn try_accessor_setter(
     }))
 }
 
+/// The value-param type of the setter a store of `field` through a
+/// receiver declared `cls` runs, generic or not, as the store's check
+/// reads it; nothing is recorded for the lowering.
+pub(crate) fn setter_param(checker: &Checker, ast: &Ast, cls: &str, field: &str) -> Option<Type> {
+    use crate::ast::accessor_lookup::{accessor_setter_in_chain, declared_setter_in_chain};
+    let hit = accessor_setter_in_chain(ast, cls, field)
+        .or_else(|| declared_setter_in_chain(ast, cls, field))?;
+    setter_value_ty(checker, ast, &hit).map(|(t, _)| t)
+}
+
 /// The value-param type of the setter `hit` names. A generic
 /// declarer's (blade 3) substitutes its TypeVars through the walk's
 /// substitution so the check runs against the instantiated type, and

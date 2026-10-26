@@ -17,6 +17,9 @@
 //! refused as tsc refuses it.
 
 pub(crate) mod face;
+pub(crate) mod face_class;
+#[cfg(test)]
+mod face_class_tests;
 #[cfg(test)]
 mod face_tests;
 
@@ -36,6 +39,9 @@ pub(crate) struct HeldAny {
     pub(crate) scalar_globals: HashMap<String, Type>,
     /// whether any `number` / `string` / `boolean` binding holds one
     pub(crate) scalars: bool,
+    /// whether any binding of an object, a class or a function type
+    /// holds one
+    pub(crate) objects: bool,
     /// the declared type of every read of a binding that holds one and
     /// is typed `any` for the lowering
     pub(crate) reads: HashMap<ExprId, Type>,
