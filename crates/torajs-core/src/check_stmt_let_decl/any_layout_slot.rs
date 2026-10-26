@@ -100,9 +100,10 @@ pub(crate) fn cast_face(ty: &T, init: ExprId, ast: &Ast, types: &HashMap<ExprId,
     (matches!(ty, T::Struct(_) | T::ClassRef(_)) && any_cast(init, ast, types)).then_some(T::Any)
 }
 
-/// Whether a binding of checker type `ty` annotated `ann` holds the
-/// `any` value `init` reads, or one a later assignment stores into it
-/// (`widened`) (`super::held_any`).
+/// Whether a binding of checker type `ty` (an object type, a class or a
+/// function type) annotated `ann` holds the `any` value `init` reads,
+/// or one a later assignment stores into it (`widened`)
+/// (`super::held_any`).
 pub(crate) fn holds_any(
     ty: &T,
     (ann, init): (Option<&str>, ExprId),
@@ -114,7 +115,8 @@ pub(crate) fn holds_any(
         T::Nullable(t) => t,
         t => t,
     };
-    matches!(inner, T::Struct(_) | T::ClassRef(_)) && held_read(ann, init, (ast, types), widened)
+    matches!(inner, T::Struct(_) | T::ClassRef(_) | T::Function(..))
+        && held_read(ann, init, (ast, types), widened)
 }
 
 /// [`any_read`] or [`any_call`] into an annotated binding, or an `any`
@@ -167,7 +169,7 @@ pub(crate) fn value_repr(
     widened: bool,
     arr_layouts: &mut crate::ssa::ArrLayouts,
 ) -> Option<Type> {
-    if matches!(slot, Type::Obj(_))
+    if matches!(slot, Type::Obj(_) | Type::Closure(_) | Type::FnSig(_))
         && (any_cast(init, ast, types) || held_read(ann, init, (ast, types), widened))
     {
         return Some(Type::Any);

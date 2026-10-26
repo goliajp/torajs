@@ -1,10 +1,12 @@
-// An `any` value written into a slot the program typed as a function is
-// checked where it is stored, as an object slot is: a function object of
-// any kind (a closure, a bound function, a builtin)
-// is stored as it is and called through its own entry; anything else is
-// a TypeError at the store. bun stores the non-function and throws when
-// it is called, so the lines marked `store` differ from bun (checked
-// against the .expected).
+// An `any` value written into a slot the program typed as a function: a
+// function object of any kind (a closure, a bound function, a builtin)
+// is stored as it is and called through its own entry. A binding (a
+// `let`, a reassigned one, a module global) holds a non-function as it
+// is too, as bun does. An element of a function array and a field of an
+// object type literal still check the value where it is stored, a
+// TypeError for a non-function where bun stores it and throws when it is
+// called, so the `store index` and `store field` lines differ from bun
+// (checked against the .expected).
 function attempt(tag: string, f: () => void): void {
   try {
     f()

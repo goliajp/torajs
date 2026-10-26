@@ -250,9 +250,11 @@ pub(crate) fn check(
 /// A read of a binding that holds an `any` value types as `any` unless
 /// a member access reads through it (`crate::check_stmt_let_decl::held_any`);
 /// its declared type is kept for the TypeScript rules. A receiver
-/// declared with a class types `any` too: the class's members resolve
-/// to its own methods and offsets, and §13.3.2 / §13.3.6 read them off
-/// the value the binding holds, which need not be an instance of it.
+/// declared with a class or a function type types `any` too: the
+/// class's members resolve to its own methods and offsets, a function's
+/// to the closure's, and §13.3.2 / §13.3.6 read them off the value the
+/// binding holds, which need not be an instance of the class or a
+/// function.
 fn held_face(
     checker: &mut Checker,
     ast: &crate::ast::Ast,
@@ -261,8 +263,8 @@ fn held_face(
     ty: Type,
 ) -> Type {
     let by_name = match &ty {
-        Type::Nullable(t) => matches!(**t, Type::ClassRef(_)),
-        t => matches!(t, Type::ClassRef(_)),
+        Type::Nullable(t) => matches!(**t, Type::ClassRef(_) | Type::Function(..)),
+        t => matches!(t, Type::ClassRef(_) | Type::Function(..)),
     };
     if held && (by_name || !checker.held_any.is_receiver(ast, eid)) {
         checker.held_any.reads.insert(eid, ty);
