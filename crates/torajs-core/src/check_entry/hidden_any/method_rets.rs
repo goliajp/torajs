@@ -17,7 +17,7 @@
 use std::collections::{HashMap, HashSet};
 
 use super::retypable::ObjectTypes;
-use crate::ast::{Ast, Expr, ExprId, PropKey, Stmt, unmangle_key};
+use crate::ast::{Ast, ExprId, PropKey, Stmt, unmangle_key};
 use crate::check::Type;
 use crate::iface_witness::{class_thunk, get_face, lit_thunk};
 
@@ -102,7 +102,7 @@ impl MethodRets {
         found: impl Iterator<Item = &'a String>,
     ) -> Family {
         let mut out = Family::default();
-        let read = value_reads(ast, types);
+        let read = super::value_reads::value_reads(ast, types);
         for f in found {
             let Some((c, m, true)) = self.methods.get(generic_of(f)) else {
                 continue;
@@ -195,40 +195,6 @@ fn declares_method(ast: &Ast, i: &str, key: &PropKey) -> bool {
         }
         _ => false,
     })
-}
-
-/// `(class, member)` of every member a receiver typed as the class
-/// reads as a value rather than calls. A witness thunk's read is not
-/// one: the thunk is retyped with the method ([`MethodRets::ifaces`]).
-fn value_reads(ast: &Ast, types: &HashMap<ExprId, Type>) -> HashSet<(String, PropKey)> {
-    let mut calls: HashSet<ExprId> = (ast.exprs.iter())
-        .filter_map(|e| match e {
-            Expr::Call { callee, .. } => Some(*callee),
-            _ => None,
-        })
-        .collect();
-    for s in &ast.stmts {
-        if let Stmt::FnDecl { name, body, .. } = s
-            && (name.starts_with("__iw_") || name.starts_with("__ilit_"))
-        {
-            calls.extend(super::promise_rets::own_returns(body));
-        }
-    }
-    let mut out = HashSet::new();
-    for (i, e) in ast.exprs.iter().enumerate() {
-        if let Expr::Member { obj, name } = e
-            && !calls.contains(&ExprId(i as u32))
-            && let Some(Type::ClassRef(c)) = types.get(obj)
-        {
-            let c = c.split('<').next().unwrap_or(c);
-            let mut at = Some(c);
-            while let Some(k) = at {
-                out.insert((k.to_string(), PropKey::from(name)));
-                at = ast.class_parents.get(k).and_then(|p| p.as_deref());
-            }
-        }
-    }
-    out
 }
 
 /// Retype the return of every declaration of `fam` to `any`, and the
