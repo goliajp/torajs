@@ -7,9 +7,10 @@
 //! check (`check_type_of_call::any_widen`), an object literal field
 //! that may be stored one is initialized through `as any` (the field's
 //! slot is laid out from the value it is initialized with), a function
-//! that may return one returns `any`, and the program checked again,
-//! until no round asks for another. A program that asks for none is
-//! checked once.
+//! that may return one returns `any` (a method together with every
+//! declaration that shares its return slot), and the program checked
+//! again, until no round asks for another. A program that asks for none
+//! is checked once.
 
 use std::collections::{HashMap, HashSet};
 
@@ -69,6 +70,8 @@ fn settle_with(
     let mut retypable = None;
     let mut retyped: Option<Ast> = None;
     let (obj_rets, field_stores) = (obj_rets::ObjRets::of(ast), obj_fields::FieldStores::of(ast));
+    let methods = method_rets::MethodRets::of(ast);
+    let mut method_found: HashSet<String> = HashSet::new();
     loop {
         let cur = round.as_ref().unwrap_or(first);
         let hidden = &cur.0.5.widths.hidden_any;
@@ -79,8 +82,12 @@ fn settle_with(
             let found = hidden.rets.iter().chain(&obj);
             rets.extend(found.filter(|f| ok.contains(*f)).cloned());
         }
+        let before_methods = method_found.len();
+        let found = hidden.rets.iter().chain(&obj);
+        method_found.extend(found.filter(|f| methods.holds(f)).cloned());
         let lits = obj_fields::lit_values(ast, &cur.0.1, &obj_fields);
         let grew = (rets.len() > before)
+            | (method_found.len() > before_methods)
             | promise_rets::extend(ast, &cur.0.1, &mut promise_rets)
             | extend_fields(&mut obj_fields, field_stores.found(ast, &cur.0.1))
             | executor_any::extend(ast, &cur.0.1, &mut executors)
@@ -100,6 +107,7 @@ fn settle_with(
         let r = retyped.get_or_insert_with(|| ast.clone());
         retype_any(&mut r.stmts, &inits);
         retype_returns_any(&mut r.stmts, &rets);
+        method_rets::retype(r, &methods.family(ast, &cur.0.1, method_found.iter()));
         promise_rets::retype(&mut r.stmts, &promise_rets);
         field_stores.retype(r, &obj_fields);
         executor_any::retype(r, &executors);
@@ -253,6 +261,7 @@ fn retype_returns_any(stmts: &mut [Stmt], fns: &HashSet<String>) {
 mod executor_any;
 mod fn_slots;
 mod inlobj_fields;
+mod method_rets;
 mod obj_fields;
 mod obj_rets;
 mod promise_rets;

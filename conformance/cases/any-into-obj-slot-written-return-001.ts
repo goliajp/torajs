@@ -1,12 +1,11 @@
 // An `any` value returned from a function whose return type the
-// program wrote as an object type literal is checked like any other
-// slot annotated with that type: an object whose fields are there with
-// their types is copied into the layout (other properties, and whether
-// something else holds it, do not matter); a missing field, a field of
-// another type or a non-object throws a TypeError at the return. Function declarations, arrows, class methods and getters,
-// object literal methods and functions nested in another function all
-// count. bun runs these returns (an annotation does nothing at run
-// time), so this case is checked against its .expected.
+// program wrote as an object type literal is handed back as it is
+// (§10.2.1.12; an annotation does nothing at run time): function
+// declarations, arrows, class methods and getters, and functions nested
+// in another function return it without a check, as bun does. An object
+// literal's method still checks the value against the type and throws a
+// TypeError for one that does not fit, so this case is checked against
+// its .expected.
 
 function attempt(tag: string, f: () => void): void {
   try {

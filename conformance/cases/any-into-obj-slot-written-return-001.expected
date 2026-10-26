@@ -10,8 +10,8 @@ arrow ok
 arrow missing ok
 3
 method ok
-method null true cannot return null from function returning `__inlobj(x:number)`
-getter true cannot return object from function returning `__inlobj(x:number)`
+method null ok
+getter ok
 4
 object method ok
 object method array true cannot return object from function returning `__inlobj(x:number)`

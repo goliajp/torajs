@@ -5,10 +5,10 @@ use std::collections::{HashMap, HashSet};
 use super::fn_slots::{Guarded, SlotFlow, fn_slot_values};
 use crate::ast::{Ast, Expr, ExprId, Stmt};
 
-/// The functions whose return a round may retype `any`: a declaration
-/// or a lifted closure declared to return a `number`, `string`,
-/// `boolean` or an object type ([`retypable_ann`]), or with no
-/// annotation, and only ever called by name or
+/// The functions whose return a round may retype `any`: a declaration,
+/// a static method or a lifted closure declared to return a `number`,
+/// `string`, `boolean` or an object type ([`retypable_ann`]), or with
+/// no annotation, and only ever called by name or
 /// handed to a fn-typed slot ([`called_by_name_only`]). A generator or
 /// an async function answers an object of its own and keeps its face.
 pub(super) fn retypable_returns(
@@ -26,7 +26,9 @@ pub(super) fn retypable_returns(
             is_generator: false,
             ..
         } = s
-            && (!name.starts_with("__") || name.starts_with("__closure_"))
+            && (!name.starts_with("__")
+                || name.starts_with("__closure_")
+                || name.starts_with("__sm_"))
             && !ast.async_fns.contains(name)
             && return_type.as_deref().is_none_or(retypable_ann)
         {
