@@ -56,6 +56,75 @@ pub(crate) fn lower_any_slot(
     Operand::Value(new_v)
 }
 
+/// A typed instance's `any` field (`o.f++` where `f: any`) whose store
+/// no guard stands in front of: the slot's value goes through the
+/// value kernel, the slot then releases what it holds at the store and
+/// takes the stepped value. The slot is read again for that release —
+/// a `valueOf` the ToNumeric ran may have stored into it.
+pub(crate) fn lower_any_field(
+    ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
+    obj_val: Operand,
+    offset: u64,
+    step: Step,
+) -> Operand {
+    let cur = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::Any, obj_val, offset),
+        Type::Any,
+        None,
+    );
+    // the kernel borrows `cur` across ToNumeric, and a `valueOf` that
+    // stores into this field would otherwise free it mid-call
+    ctx.emit_owned_result_inc(Operand::Value(cur), Type::Any);
+    let old_slot = ctx.alloca(Type::Any, Some("__incr_old"));
+    let flag = Operand::ConstI64(if step.is_inc { 1 } else { 0 });
+    let new_v = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.anyv_incr_value,
+            vec![Operand::Value(cur), flag, Operand::Value(old_slot)],
+        ),
+        Type::Any,
+        None,
+    );
+    ctx.emit_drop_value(Operand::Value(cur), Type::Any);
+    // A throwing ToNumeric leaves both answers undefined: no PutValue.
+    ctx.emit_throw_check(None);
+    let held = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::Any, obj_val, offset),
+        Type::Any,
+        None,
+    );
+    ctx.emit_drop_value(Operand::Value(held), Type::Any);
+    let cur_block = ctx.cur_block;
+    ctx.f.append_void(
+        cur_block,
+        InstKind::Store(Operand::Value(new_v), obj_val, offset),
+    );
+    ctx.owned_member_reads.insert(eid);
+    if step.is_prefix {
+        // the slot holds the kernel's stake; the answer takes its own
+        let old = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Load(Type::Any, Operand::Value(old_slot), 0),
+            Type::Any,
+            None,
+        );
+        ctx.emit_drop_value(Operand::Value(old), Type::Any);
+        ctx.emit_owned_result_inc(Operand::Value(new_v), Type::Any);
+        return Operand::Value(new_v);
+    }
+    let old = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::Any, Operand::Value(old_slot), 0),
+        Type::Any,
+        None,
+    );
+    Operand::Value(old)
+}
+
 /// The `any`-receiver lane of [`lower_member`] — §13.4.4.1 over a
 /// receiver whose shape is a runtime question. Three existing lanes
 /// compose: the accessor-aware any-member read answers the current

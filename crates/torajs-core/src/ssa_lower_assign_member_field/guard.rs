@@ -51,12 +51,7 @@ pub(crate) fn emit_field_writable_guard(
     (field, slot_ty): (&str, Type),
     v: Operand,
 ) -> Option<BlockId> {
-    // a ctor's leading writes reach an instance nothing has seen yet
-    // (`ssa_lower_fn::fresh_this`)
-    if generator_own_slot(ctx, obj)
-        || ctx.proofs.fresh_this_recv.contains(&obj)
-        || !store_may_divert(ctx, field, slot_ty)
-    {
+    if !store_guarded(ctx, obj, field, slot_ty) {
         return None;
     }
     let hdr_word = ctx.f.append_inst(
@@ -150,6 +145,17 @@ pub(crate) fn emit_field_writable_guard(
     }
     ctx.cur_block = store_blk;
     Some(done_blk)
+}
+
+/// Whether a store into `obj.field` stands behind the guard
+/// [`emit_field_writable_guard`] emits: `false` when no instance this
+/// store reaches can be frozen, redefined or missing the field.
+pub(crate) fn store_guarded(ctx: &LowerCtx, obj: ExprId, field: &str, slot_ty: Type) -> bool {
+    // a ctor's leading writes reach an instance nothing has seen yet
+    // (`ssa_lower_fn::fresh_this`)
+    !generator_own_slot(ctx, obj)
+        && !ctx.proofs.fresh_this_recv.contains(&obj)
+        && store_may_divert(ctx, field, slot_ty)
 }
 
 /// Whether some instance's `field` can be anything but a writable data

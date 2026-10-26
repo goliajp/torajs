@@ -341,6 +341,17 @@ fn lower_member(
         return boxed_member_step(ctx, eid, target, obj_val, &field, step);
     }
     let offset = OBJ_HEADER_SIZE + (idx as u64) * 8;
+    // an `any` slot holds a NaN-box, which no inline add steps: the
+    // value kernel runs ToNumeric once and steps in the operand's own
+    // domain; a store the writable guard stands in front of takes the
+    // any lane, whose [[Set]] runs after that ToNumeric
+    if field_ty == Type::Any {
+        use crate::ssa_lower_assign_member_field::guard::store_guarded;
+        if store_guarded(ctx, obj, &field, field_ty) {
+            return boxed_member_step(ctx, eid, target, obj_val, &field, step);
+        }
+        return crate::ssa_lower_post_incr_any::lower_any_field(ctx, eid, obj_val, offset, step);
+    }
     let guarded = crate::ssa_lower_member_obj_field::exotic_read::guarded_load(
         ctx,
         eid,
