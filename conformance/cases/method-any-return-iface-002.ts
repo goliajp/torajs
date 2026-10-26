@@ -1,9 +1,10 @@
 // A method that returns an any value behind an interface, in three
 // more spellings: the interface declares the member as a function-typed
 // property, an object literal fills it with method shorthand, and a
-// member is read as a value through the interface. An interface of
-// the same shape as one read that way is one type with it, so the
-// read interface is spelled with a member of its own.
+// member is read as a value through the interface (by name, by a key
+// and by a pattern). An interface of the same shape as one read that
+// way is one type with it, so the read interface is spelled with a
+// member of its own.
 const raw: any = JSON.parse('{"x": 1.5, "y": "s"}');
 
 interface J {
@@ -77,9 +78,18 @@ function read(k: K): number {
   const h = k.p;
   return h();
 }
+function readKey(k: K): number {
+  const h = k["p"];
+  return h();
+}
+function readPattern(k: K): number {
+  const { p } = k;
+  return p();
+}
 const arrow: K = { p: () => 4.5 };
 const ks: K[] = [new T(raw), arrow];
 for (const k of ks) console.log(k.p());
 console.log(read(arrow), arrow.p());
+console.log(readKey(arrow), readPattern(arrow));
 const h2 = arrow.p;
 console.log(h2() + 1);
