@@ -36,7 +36,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
-mod any_fn_param;
+pub(crate) mod any_fn_param;
 mod any_ret;
 mod finish;
 mod let_faces;

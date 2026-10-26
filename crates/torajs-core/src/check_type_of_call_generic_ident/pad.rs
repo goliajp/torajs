@@ -58,6 +58,11 @@ pub(super) fn try_pad(
             Ok(t) => t,
             Err(e) => return Some(Err(e)),
         };
+        // an `any` argument the instantiation takes as `any` binds no
+        // type variable; those left unbound pad to `any` below
+        if crate::check_monomorph::any_fn_param::takes_any(param_ty, &arg_ty) {
+            continue;
+        }
         let arg_ty = arg::unify_view(checker, ast, param_ty, None, *arg_id, arg_ty);
         if let Err(e) = unify_typevar(param_ty, &arg_ty, &mut subst, &ast.class_parents) {
             return Some(Err(format!("argument {i} to `{name}`: {e}")));

@@ -9,7 +9,8 @@
 //! extending it field for field). An array, a string, a Proxy, a
 //! function, a `3`, `null` — anything else the any world hands over —
 //! has no such slot, and the body read garbage: a pointer printed as a
-//! number, a silent exit.
+//! number, a silent exit. A generic target takes a shell twin of its
+//! own (`generic_shell`).
 //!
 //! §13.3.2.1 makes `p.x` a [[Get]] on the value `p` holds at the read,
 //! whatever it is, and §10.2.1.3 binds the argument as it is. The
@@ -47,8 +48,8 @@
 //! async function's clone reaches its machine's generator through a
 //! direct call with `any` arguments, which takes that generator's
 //! twin. Out of reach, and left on the coercion kernel: a target with
-//! an argv channel (`__torajs_argv`, new.target), a generic, and a
-//! receiver channel (`__this`) except at the callback of an iteration
+//! an argv channel (`__torajs_argv`, new.target), a generic without an
+//! object parameter, and a receiver channel (`__this`) except at the callback of an iteration
 //! handing `any` elements (`escaped_cb`), where the receiver rides
 //! argv[0] on both faces. Class methods take `__cmany_` / `__smany_`;
 //! a class factory reached through the construct channel takes a clone
@@ -60,6 +61,7 @@ mod boxed_reach;
 pub(super) mod closure;
 pub(crate) mod escaped_cb;
 mod factory;
+mod generic_shell;
 mod named_cb;
 mod pair;
 mod target;
@@ -115,6 +117,11 @@ pub(super) fn run(
         .collect();
     let loose_shells = closure::loose_values(c, owned_ast, "__forward_");
     for (shell, target) in shells {
+        if c.generic_type_params.contains_key(&target) {
+            let tables = (worklist as &mut _, call_retargets as &mut _);
+            generic_shell::run(c, owned_ast, (generics, cache), tables, &shell, &target);
+            continue;
+        }
         let Some(found) = widenable_target(c, owned_ast, &target, false) else {
             continue;
         };

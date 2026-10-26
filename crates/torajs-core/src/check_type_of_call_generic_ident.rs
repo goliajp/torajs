@@ -37,6 +37,7 @@ use std::collections::HashMap;
 
 use crate::ast::{Ast, Expr, ExprId};
 use crate::check::{Checker, Type, substitute_typevars};
+use crate::check_monomorph::any_fn_param;
 use crate::check_type_of_call::fn_face;
 use crate::check_typevar::{typevar_appears_in_iter, unify_typevar};
 
@@ -138,10 +139,10 @@ pub(crate) fn try_match(
         let mut subst: HashMap<String, Type> =
             explicit_type_arg_subst(checker, ast, eid, &type_params);
         let mut arg_tys: Vec<Type> = Vec::with_capacity(args.len());
-        // an `any` argument for a fn-typed parameter says nothing about
-        // the type variables: those no other argument binds take `any`
-        // (the instantiation takes that parameter as `any`,
-        // `check_monomorph::any_fn_param`)
+        // an `any` argument for a fn-typed, object or array parameter
+        // says nothing about the type variables: those no other argument
+        // binds take `any` (the instantiation takes that parameter as
+        // `any`, `check_monomorph::any_fn_param`)
         let mut any_fn_params: Vec<(usize, &Type)> = Vec::new();
         let mut faced = Vec::new();
         for (i, (param_ty, arg_id)) in params.iter().zip(args.iter()).enumerate() {
@@ -150,7 +151,7 @@ pub(crate) fn try_match(
                 Err(e) => return Some(Err(e)),
             };
             let arg_ty = arg::unify_view(checker, ast, param_ty, Some(&subst), *arg_id, arg_ty);
-            if matches!((param_ty, &arg_ty), (Type::Function(..), Type::Any)) {
+            if any_fn_param::takes_any(param_ty, &arg_ty) {
                 any_fn_params.push((i, param_ty));
             } else if let Err(e) = unify_typevar(param_ty, &arg_ty, &mut subst, &ast.class_parents)
                 && !fn_face::fn_face_into_generic_param(
