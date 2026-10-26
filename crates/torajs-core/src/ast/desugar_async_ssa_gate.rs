@@ -13,7 +13,7 @@
 //!
 //! A function moves when all of these hold:
 //!
-//! - no await sits inside a `class` body. An await inside a `try` (any
+//! - no await sits in a generator step. An await inside a `try` (any
 //!   of its blocks, `await using` included, which `desugar_using`
 //!   turned into one) or a `for…of` moves, and so does a `for await`,
 //!   whose steps and close suspend the frame (`ssa_lower_fn::suspend::
@@ -241,7 +241,10 @@ pub fn body_awaits(ast: &Ast, body: &[Stmt]) -> bool {
 
 /// The statement holds one of the function's own awaits.
 fn stmt_awaits(ast: &Ast, s: &Stmt) -> bool {
-    walk::stmt_exprs(s).into_iter().any(|e| expr_awaits(ast, e))
+    walk::stmt_exprs(s)
+        .into_iter()
+        .chain(class_exprs(ast, s))
+        .any(|e| expr_awaits(ast, e))
         || walk::stmt_children_ref(s)
             .into_iter()
             .any(|c| stmt_awaits(ast, c))
@@ -256,13 +259,35 @@ fn expr_awaits(ast: &Ast, eid: ExprId) -> bool {
             .any(|c| expr_awaits(ast, c))
 }
 
+/// The expressions a class declaration evaluates where it stands, in
+/// the enclosing function (§15.7.14 ClassDefinitionEvaluation): its
+/// `extends` operand and its computed member keys. The member bodies
+/// are functions of their own.
+fn class_exprs(ast: &Ast, s: &Stmt) -> Vec<ExprId> {
+    let Stmt::ClassDecl {
+        name,
+        decl_id,
+        parent,
+        ..
+    } = s
+    else {
+        return Vec::new();
+    };
+    let mut out: Vec<ExprId> = parent.iter().copied().collect();
+    for ((owner, sentinel), &key) in &ast.class_computed_keys {
+        if owner == name
+            && (ast.class_computed_owner.get(sentinel)).is_some_and(|ids| ids.contains(decl_id))
+        {
+            out.push(key);
+        }
+    }
+    out
+}
+
 /// The statement keeps the body off the SSA lowering: an await in a
-/// class body or a generator step.
+/// generator step.
 fn stmt_blocks(ast: &Ast, s: &Stmt) -> bool {
-    let protocol = matches!(
-        s,
-        Stmt::ClassDecl { .. } | Stmt::Yield(_) | Stmt::YieldInto { .. }
-    );
+    let protocol = matches!(s, Stmt::Yield(_) | Stmt::YieldInto { .. });
     if protocol && stmt_awaits(ast, s) {
         return true;
     }
