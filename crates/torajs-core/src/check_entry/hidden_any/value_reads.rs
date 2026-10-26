@@ -4,9 +4,12 @@
 //! its declaration spells, so a round that retypes the method's return
 //! leaves the hierarchy of a method read that way as it is
 //! (`super::method_rets`). A read that only compares the function,
-//! inspects it or keys a collection with it never calls it, and no
-//! slot reads its answer: §7.2.10 SameValue and the function's own
-//! properties do not depend on the return its declaration spells.
+//! inspects it or looks a collection's key up with it never calls it,
+//! and no slot reads its answer: §7.2.10 SameValue and the function's
+//! own properties do not depend on the return its declaration spells.
+//! A store into a collection is one only where the collection hands
+//! the function back to no slot typed with a return: a `Map` key typed
+//! `() => number` is read back as that type and called.
 
 use std::collections::{HashMap, HashSet};
 
@@ -39,34 +42,43 @@ pub(super) fn value_reads(ast: &Ast, types: &HashMap<ExprId, Type>) -> HashSet<(
             continue;
         };
         let read = ExprId(i as u32);
-        if calls.contains(&read)
-            || inspected(ast, types, at.get_or_insert_with(|| places(ast)), read)
-        {
+        if calls.contains(&read) {
             continue;
         }
-        match types.get(obj) {
-            Some(Type::ClassRef(c)) => {
-                let c = c.split('<').next().unwrap_or(c);
-                let mut at = Some(c);
-                while let Some(k) = at {
-                    out.insert((k.to_string(), PropKey::from(name)));
-                    at = ast.class_parents.get(k).and_then(|p| p.as_deref());
-                }
-            }
-            Some(t) => out.extend(
-                (ast.iface_slots.types.iter())
-                    .filter(|(_, it)| same_shape(t, it))
-                    .map(|(i, _)| (i.clone(), PropKey::from(name))),
-            ),
-            None => {}
+        let owners = owners(ast, types.get(obj));
+        if owners.is_empty() || inspected(ast, types, at.get_or_insert_with(|| places(ast)), read) {
+            continue;
         }
+        out.extend(owners.into_iter().map(|k| (k, PropKey::from(name))));
     }
     out
 }
 
+/// The class and its ancestors a receiver typed `t` reads a member
+/// of, or the interfaces of its shape.
+fn owners(ast: &Ast, t: Option<&Type>) -> Vec<String> {
+    match t {
+        Some(Type::ClassRef(c)) => {
+            let mut out = Vec::new();
+            let mut at = Some(c.split('<').next().unwrap_or(c));
+            while let Some(k) = at {
+                out.push(k.to_string());
+                at = ast.class_parents.get(k).and_then(|p| p.as_deref());
+            }
+            out
+        }
+        Some(t) => (ast.iface_slots.types.iter())
+            .filter(|(_, it)| same_shape(t, it))
+            .map(|(i, _)| i.clone())
+            .collect(),
+        None => Vec::new(),
+    }
+}
+
 /// Whether the value `read` goes only into a comparison, an operator,
 /// `typeof`, a property read other than `call` / `apply` / `bind`, or
-/// the key argument of a `Map` / `Set` method.
+/// the key argument of a `Map` / `Set` lookup, or of a store whose
+/// collection never hands the key back typed with a return.
 fn inspected(
     ast: &Ast,
     types: &HashMap<ExprId, Type>,
@@ -81,12 +93,31 @@ fn inspected(
         Expr::Unary { .. } | Expr::TypeOf { .. } => true,
         Expr::Member { name, .. } => !matches!(name.as_str(), "call" | "apply" | "bind"),
         Expr::Call { callee, args } => {
+            let Expr::Member { obj, name } = ast.get_expr(*callee) else {
+                return false;
+            };
             args.first() == Some(&read)
-                && matches!(ast.get_expr(*callee), Expr::Member { obj, name }
-                    if matches!(name.as_str(), "get" | "has" | "delete" | "add" | "set")
-                        && matches!(types.get(obj),
-                            Some(Type::Map(..) | Type::Set | Type::WeakMap | Type::WeakSet)))
+                && match (name.as_str(), types.get(obj)) {
+                    (
+                        "get" | "has" | "delete",
+                        Some(Type::Map(..) | Type::Set | Type::WeakMap | Type::WeakSet),
+                    ) => true,
+                    // a set hands its elements back as `any` values, and a
+                    // weak collection never hands its keys back
+                    ("add", Some(Type::Set | Type::WeakSet)) | ("set", Some(Type::WeakMap)) => true,
+                    ("set", Some(Type::Map(key, _))) => !returns_typed(key),
+                    _ => false,
+                }
         }
+        _ => false,
+    }
+}
+
+/// Whether a slot typed `t` calls the function it holds through a
+/// declared return other than `any`.
+fn returns_typed(t: &Type) -> bool {
+    match non_null(t) {
+        Type::Function(_, ret) => **ret != Type::Any,
         _ => false,
     }
 }
