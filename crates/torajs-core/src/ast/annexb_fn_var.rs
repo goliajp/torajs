@@ -339,6 +339,11 @@ impl LiftCtx {
             ast.add_expr(e);
         }
         for (mangled, mut source) in std::mem::take(&mut self.source_names) {
+            // an async declaration that suspends over a frame keeps
+            // doing so under its lifted name
+            if ast.async_ssa.fns.contains(&source) {
+                ast.async_ssa.fns.insert(mangled.clone());
+            }
             // a body `function arguments` renamed apart from the
             // parameter-scope object still answers its own spelling
             if source == super::apply_args_materialize::body_arguments::BODY_ARGUMENTS {

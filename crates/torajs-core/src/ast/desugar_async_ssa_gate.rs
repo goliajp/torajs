@@ -37,11 +37,17 @@
 //!
 //! Declarations and class methods are marked by name (a method by its
 //! mangled `__cm_` / `__sm_` name), values by ExprId; `lift_arrow_fns`
-//! carries a value's mark onto its lifted name.
+//! carries a value's mark onto its lifted name. A declaration nested in
+//! another function's body (or in a block) is judged here too, and its
+//! name marked when every async declaration of that name moves (the
+//! name is all the later passes key on): the lift that hoists it under
+//! a fresh name carries the mark over (`annexb_fn_var`'s flush), and so
+//! does the rewrite of a capturing one into a function value
+//! (`nested_fns_capture::rewrite`).
 
 use super::desugar_with::walk;
 use super::{Ast, ClassMethod, Expr, ExprId, Param, Stmt, mangle_key};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 /// `Ast::async_ssa`: the async functions this gate moved.
 #[derive(Debug, Clone, Default)]
@@ -105,6 +111,23 @@ pub fn mark_async_ssa_fns(ast: &mut Ast) {
             _ => {}
         }
     }
+    let mut nested: HashMap<String, bool> = HashMap::new();
+    for s in &ast.stmts {
+        visit_bodies(ast, s, &mut nested);
+    }
+    for (name, all_move) in nested {
+        let top = ast
+            .stmts
+            .iter()
+            .any(|s| matches!(s, Stmt::FnDecl { name: n, .. } if *n == name));
+        if !all_move {
+            names.retain(|n| *n != name);
+        } else if !top {
+            names.push(name);
+        }
+    }
+    names.sort();
+    names.dedup();
     ast.async_ssa.fns.extend(names);
     let mut values: Vec<ExprId> = ast.async_fn_value_exprs.iter().copied().collect();
     values.sort_by_key(|e| e.0);
@@ -125,6 +148,65 @@ pub fn mark_async_ssa_fns(ast: &mut Ast) {
             .iter()
             .any(|s| stmt_awaits(ast, s) || stmt_for_awaits(s))
         && !ast.stmts.iter().any(|s| stmt_blocks(ast, s));
+}
+
+/// Judge every async function declaration nested in the bodies under
+/// `s` (a top-level declaration is `s` itself and is judged by the
+/// caller), arrows' bodies included: `out` keeps, per name, whether all
+/// of them move.
+fn visit_bodies(ast: &Ast, s: &Stmt, out: &mut HashMap<String, bool>) {
+    match s {
+        Stmt::FnDecl { body, .. } => visit_list(ast, body, out),
+        Stmt::ClassDecl {
+            ctor,
+            methods,
+            static_methods,
+            ..
+        } => {
+            if let Some(c) = ctor {
+                visit_list(ast, &c.body, out);
+            }
+            for m in methods.iter().chain(static_methods) {
+                visit_list(ast, &m.body, out);
+            }
+        }
+        _ => visit_nested(ast, s, out),
+    }
+}
+
+fn visit_list(ast: &Ast, body: &[Stmt], out: &mut HashMap<String, bool>) {
+    for s in body {
+        visit_nested(ast, s, out);
+    }
+}
+
+/// `s` is nested in a body or a block.
+fn visit_nested(ast: &Ast, s: &Stmt, out: &mut HashMap<String, bool>) {
+    if let Stmt::FnDecl {
+        name,
+        type_params,
+        params,
+        body,
+        is_generator,
+        ..
+    } = s
+        && ast.async_fns.contains(name)
+        && !ast.async_generator_fns.contains(name)
+    {
+        let ok = !is_generator && type_params.is_empty() && moves(ast, params, body);
+        *out.entry(name.clone()).or_insert(true) &= ok;
+    }
+    if matches!(s, Stmt::FnDecl { .. } | Stmt::ClassDecl { .. }) {
+        return visit_bodies(ast, s, out);
+    }
+    for arrow in walk::arrow_nodes(ast, s) {
+        if let Expr::ArrowFn { body, .. } = ast.get_expr(arrow) {
+            visit_list(ast, body, out);
+        }
+    }
+    for c in walk::stmt_children_ref(s) {
+        visit_nested(ast, c, out);
+    }
 }
 
 /// A method's receiver-polymorphic twin (`__cmany_` / `__smany_`) is

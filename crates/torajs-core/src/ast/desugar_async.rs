@@ -66,6 +66,7 @@ fn rewrite_async_decls(ast: &mut Ast, s: &mut Stmt) {
     for c in super::desugar_with::walk::stmt_children(s) {
         rewrite_async_decls(ast, c);
     }
+    rewrite_in_arrow_bodies(ast, s);
     let Stmt::FnDecl { name, .. } = s else {
         return;
     };
@@ -111,6 +112,25 @@ fn rewrite_async_decls(ast: &mut Ast, s: &mut Stmt) {
         // answers the source text they wrote (B1b)
         span,
     };
+}
+
+/// The declarations in the bodies of the arrows `s`'s own expressions
+/// hold: an arrow is still an expression here, so `stmt_children`
+/// does not reach into it, and `lift_arrow_fns` only lifts it later.
+fn rewrite_in_arrow_bodies(ast: &mut Ast, s: &Stmt) {
+    for arrow in super::desugar_with::walk::arrow_nodes(ast, s) {
+        let i = arrow.0 as usize;
+        let Expr::ArrowFn { body, .. } = &mut ast.exprs[i] else {
+            continue;
+        };
+        let mut body = std::mem::take(body);
+        for st in &mut body {
+            rewrite_async_decls(ast, st);
+        }
+        if let Expr::ArrowFn { body: b, .. } = &mut ast.exprs[i] {
+            *b = body;
+        }
+    }
 }
 
 /// RFC 20260713 blade 3 — async function-VALUE expressions (`async

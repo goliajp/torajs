@@ -60,6 +60,11 @@ pub(super) fn rewrite_in_place(ast: &mut Ast, slot: &mut Stmt, shared: bool) {
     });
     ast.set_expr_span(eid, span);
     ast.fn_expr_exprs.insert(eid);
+    // an async declaration that suspends over a frame keeps doing so
+    // as a value (`lift_arrow_fns` names it)
+    if ast.async_ssa.fns.contains(&name) {
+        ast.async_ssa.value_exprs.insert(eid);
+    }
     // a value has no static callee to pad its defaults at
     crate::ast::apply_args_materialize::materialize_declared_fn_value(ast, eid, &name);
     *slot = Stmt::LetDecl {
