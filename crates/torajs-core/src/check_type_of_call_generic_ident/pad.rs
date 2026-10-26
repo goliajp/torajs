@@ -17,16 +17,13 @@ use crate::check_typevar::{typevar_appears_in_iter, unify_typevar};
 /// missing-arg shape) — but one bound by an EARLIER param stays a
 /// strict arity error: its binding could be a concrete type whose slot
 /// can't carry the undefined pad. `None` when the call does not take
-/// this path.
-#[allow(clippy::too_many_arguments)]
+/// this path. `sig` is the callee's type parameters, parameter types
+/// and return type.
 pub(super) fn try_pad(
     checker: &mut Checker,
     ast: &Ast,
-    eid: ExprId,
-    name: &str,
-    type_params: &[String],
-    params: &[Type],
-    ret: &Type,
+    (eid, name): (ExprId, &str),
+    (type_params, params, ret): (&[String], &[Type], &Type),
     args: &[ExprId],
 ) -> Option<Result<Type, String>> {
     if args.len() >= params.len() {
@@ -58,6 +55,9 @@ pub(super) fn try_pad(
             Ok(t) => t,
             Err(e) => return Some(Err(e)),
         };
+        if arg::class_into_iface(param_ty, &arg_ty) {
+            continue;
+        }
         // an `any` argument the instantiation takes as `any` binds no
         // type variable; those left unbound pad to `any` below
         if crate::check_monomorph::any_fn_param::takes_any(param_ty, &arg_ty) {

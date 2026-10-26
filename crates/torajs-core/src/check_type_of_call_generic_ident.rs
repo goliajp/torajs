@@ -113,7 +113,8 @@ pub(crate) fn try_match(
             }
         }
         let params = params;
-        if let Some(r) = pad::try_pad(checker, ast, eid, name, &type_params, &params, &ret, args) {
+        let sig = (&type_params[..], &params[..], &*ret);
+        if let Some(r) = pad::try_pad(checker, ast, (eid, name), sig, args) {
             return Some(r);
         }
         // Regular path. Beyond-arity calls are admitted (the S3.5
@@ -150,6 +151,10 @@ pub(crate) fn try_match(
                 Ok(t) => t,
                 Err(e) => return Some(Err(e)),
             };
+            if arg::class_into_iface(param_ty, &arg_ty) {
+                arg_tys.push(arg_ty);
+                continue;
+            }
             let arg_ty = arg::unify_view(checker, ast, param_ty, Some(&subst), *arg_id, arg_ty);
             if any_fn_param::takes_any(param_ty, &arg_ty) {
                 any_fn_params.push((i, param_ty));

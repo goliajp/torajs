@@ -28,6 +28,16 @@ pub(super) fn unify_view(
     unification_ty(ast, arg_id, arg_ty)
 }
 
+/// Whether `arg_ty` is a class instance that fills the rows of the
+/// interface `param_ty`: the argument is the interface's value as it
+/// is, dispatched through the class's witness rows, and binds no type
+/// variable (a declared interface has none). The unifier would compare
+/// the class's own layout with the interface's member by member and
+/// refuse a class with a field of its own.
+pub(super) fn class_into_iface(param_ty: &Type, arg_ty: &Type) -> bool {
+    crate::iface_witness::class_admit(param_ty, arg_ty) == Some(true)
+}
+
 /// The member stores of the object literal arguments into the fields
 /// of their parameters under `subst`, recorded as the general call path
 /// records them (`crate::check::face_slots::record_objlit_stores`).
