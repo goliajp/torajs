@@ -1,8 +1,8 @@
 // The function an object literal holds in a member whose interface
 // method returns an any value is the same function object the program
-// declared: identity, name and a Map key survive the member. The member
-// is read off a receiver typed `any`, as a typed receiver's value read
-// keeps the interface's declared return.
+// declared: identity, name and a Map key survive the member, read off a
+// receiver typed `any` and off one typed with the interface (§7.2.10,
+// §13.3.6.1), and the class row still returns its any value.
 interface J {
   m(): number;
   n: number;
@@ -24,3 +24,4 @@ function call(o: J) {
   return o.m();
 }
 console.log(d.m === g, d.m.name, seen.get(d.m), call(o), o.m(), call(new S()));
+console.log(o.m === g, o.m.name, seen.get(o.m), seen.has(o.m), typeof o.m, call(new S()));

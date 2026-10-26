@@ -3,11 +3,15 @@
 //! A method read as a value is handed to a slot typed with the return
 //! its declaration spells, so a round that retypes the method's return
 //! leaves the hierarchy of a method read that way as it is
-//! (`super::method_rets`).
+//! (`super::method_rets`). A read that only compares the function,
+//! inspects it or keys a collection with it never calls it, and no
+//! slot reads its answer: §7.2.10 SameValue and the function's own
+//! properties do not depend on the return its declaration spells.
 
 use std::collections::{HashMap, HashSet};
 
-use crate::ast::{Ast, Expr, ExprId, PropKey, Stmt};
+use super::value_places::{Place, places};
+use crate::ast::{Ast, BinOp, Expr, ExprId, PropKey, Stmt};
 use crate::check::Type;
 
 /// `(class or interface, member)` of every member a receiver typed as
@@ -29,11 +33,15 @@ pub(super) fn value_reads(ast: &Ast, types: &HashMap<ExprId, Type>) -> HashSet<(
         }
     }
     let mut out = HashSet::new();
+    let mut at = None;
     for (i, e) in ast.exprs.iter().enumerate() {
         let Expr::Member { obj, name } = e else {
             continue;
         };
-        if calls.contains(&ExprId(i as u32)) {
+        let read = ExprId(i as u32);
+        if calls.contains(&read)
+            || inspected(ast, types, at.get_or_insert_with(|| places(ast)), read)
+        {
             continue;
         }
         match types.get(obj) {
@@ -54,6 +62,33 @@ pub(super) fn value_reads(ast: &Ast, types: &HashMap<ExprId, Type>) -> HashSet<(
         }
     }
     out
+}
+
+/// Whether the value `read` goes only into a comparison, an operator,
+/// `typeof`, a property read other than `call` / `apply` / `bind`, or
+/// the key argument of a `Map` / `Set` method.
+fn inspected(
+    ast: &Ast,
+    types: &HashMap<ExprId, Type>,
+    places: &HashMap<ExprId, Place>,
+    read: ExprId,
+) -> bool {
+    let Some(Place::Expr(p)) = places.get(&read) else {
+        return false;
+    };
+    match ast.get_expr(*p) {
+        Expr::BinOp { op, .. } => !matches!(op, BinOp::LAnd | BinOp::LOr),
+        Expr::Unary { .. } | Expr::TypeOf { .. } => true,
+        Expr::Member { name, .. } => !matches!(name.as_str(), "call" | "apply" | "bind"),
+        Expr::Call { callee, args } => {
+            args.first() == Some(&read)
+                && matches!(ast.get_expr(*callee), Expr::Member { obj, name }
+                    if matches!(name.as_str(), "get" | "has" | "delete" | "add" | "set")
+                        && matches!(types.get(obj),
+                            Some(Type::Map(..) | Type::Set | Type::WeakMap | Type::WeakSet)))
+        }
+        _ => false,
+    }
 }
 
 /// Whether a receiver typed `t` may be a value of the interface typed
