@@ -1,8 +1,9 @@
 // Two unrelated classes declare a field of the same name, each with its
-// own object type. A store of an `any` value into one of them widens the
-// field under its name, so the other one's field holds its value as it
-// is too: the answers stay what bun prints, and the typed lane the
-// second class loses is what the typed census counts here.
+// own object type. A store of an `any` value into one of them widens
+// that class's field; no value of any kind reaches a slot typed with
+// the first class and no instance of the second leaves its own type,
+// so the second class's field keeps its type, and its typed lane is
+// what the typed census counts here.
 class C {
   x: number;
   constructor(x: number) {

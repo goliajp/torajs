@@ -23,6 +23,10 @@ use crate::check::Type;
 /// A field: its class and its name.
 type Field = (String, PropKey);
 
+/// The classes whose receivers a field name is stored an `any` value
+/// through, or `None` when one of the receivers is of another type.
+pub(super) type Owners = Option<HashSet<String>>;
+
 /// The fields of a program's classes and declared object types declared
 /// with an object type (`super::retypable::object_ann`) or a function
 /// type, and every `o.f = v` of the program that names one of them:
@@ -91,8 +95,12 @@ impl FieldStores {
     /// class instance to a parameter of a declared object type, an
     /// interface to its parent's), so a reader through any of them
     /// reads the slot the store wrote.
-    pub(super) fn found(&self, ast: &Ast, types: &HashMap<ExprId, Type>) -> HashSet<PropKey> {
-        let mut names = HashSet::new();
+    pub(super) fn found(
+        &self,
+        ast: &Ast,
+        types: &HashMap<ExprId, Type>,
+    ) -> HashMap<PropKey, Owners> {
+        let mut names: HashMap<PropKey, Owners> = HashMap::new();
         for (obj, value, name) in &self.stores {
             if types.get(value) != Some(&Type::Any) {
                 continue;
@@ -106,8 +114,18 @@ impl FieldStores {
                     _ => Vec::new(),
                 },
             };
-            if (owners.iter()).any(|o| self.holds(o, name)) {
-                names.insert(name.clone());
+            let owners: Vec<String> = (owners.into_iter())
+                .filter(|o| self.holds(o, name))
+                .collect();
+            if !owners.is_empty() {
+                let classes = (owners.iter()).all(|o| ast.class_parents.contains_key(o));
+                let at = names
+                    .entry(name.clone())
+                    .or_insert_with(|| Some(HashSet::new()));
+                match at {
+                    Some(cs) if classes => cs.extend(owners),
+                    _ => *at = None,
+                }
             }
         }
         names
@@ -164,20 +182,33 @@ fn inlobj_held_names(ast: &Ast, objects: &ObjectTypes) -> HashSet<PropKey> {
 }
 
 impl FieldStores {
-    /// Respell `any` every held field named in `names`, of every class,
-    /// declared object type and object type literal.
-    pub(super) fn retype(&self, r: &mut Ast, names: &HashSet<PropKey>) {
+    /// Respell `any` every held field named in `fields`, of every class
+    /// but those `kept` lists for the name, declared object type and
+    /// object type literal.
+    pub(super) fn retype(
+        &self,
+        r: &mut Ast,
+        fields: &HashMap<PropKey, Owners>,
+        kept: &HashMap<PropKey, HashSet<String>>,
+    ) {
         for s in &mut r.stmts {
-            let Stmt::TypeDecl { fields: fs, .. } = s else {
+            let Stmt::TypeDecl {
+                name, fields: fs, ..
+            } = s
+            else {
                 continue;
             };
             for (k, ann) in fs {
-                if names.contains(k) && self.objects.held(ann) {
+                if fields.contains_key(k)
+                    && self.objects.held(ann)
+                    && !kept.get(k).is_some_and(|cs| cs.contains(name))
+                {
                     *ann = "any".to_string();
                 }
             }
         }
-        inlobj_fields::retype(r, &self.objects, names);
+        let names: HashSet<PropKey> = fields.keys().cloned().collect();
+        inlobj_fields::retype(r, &self.objects, &names);
     }
 }
 
