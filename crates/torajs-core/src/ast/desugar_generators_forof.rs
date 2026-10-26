@@ -33,8 +33,9 @@
 //! probe ternary-selects the derive call, nullish falling to the
 //! sync symbol per §7.3.11 GetMethod), and both the step and the
 //! value reads go through the parser's `await` desugar (`.value`
-//! member + `await_value_reads` mark) — `__torajs_anyv_await` is
-//! identity for non-Promises, so a sync source's plain step passes
+//! member + `await_value_reads` mark), each of which suspends the
+//! frame; awaiting a non-Promise resumes with the value itself
+//! (§27.7.5.3 Await), so a sync source's plain step passes
 //! untouched while its Promise-valued element unwraps
 //! (§27.1.4.4), and an async iterator's Promise step settles
 //! before `done` / `value` are read (§14.7.5.6 step 6.d).

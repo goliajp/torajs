@@ -856,7 +856,6 @@ pub(crate) struct Intrinsics {
     pub(crate) promise_drop: FuncId,
     pub(crate) promise_get_value: FuncId,
     pub(crate) promise_get_value_as: FuncId,
-    pub(crate) anyv_await: FuncId,
     pub(crate) promise_then_simple: FuncId,
     pub(crate) promise_then_passthrough: FuncId,
     pub(crate) promise_then2: FuncId,

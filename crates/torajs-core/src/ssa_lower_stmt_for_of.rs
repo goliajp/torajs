@@ -141,16 +141,9 @@ pub(crate) fn lower(
     let step_blk = ctx.f.add_block();
     let after = ctx.f.add_block();
     ctx.f.set_term(ctx.cur_block, Terminator::Br(header));
-    // every `for await` is in a body that suspends, which awaits
-    // each step (`ast::desugar_async_ssa_gate` moves every function
-    // that has one)
-    assert!(
-        !is_await || ctx.suspend_body,
-        "internal error: a `for await` in `{}`, which does not suspend",
-        ctx.f.name
-    );
-    let steps_await = is_await;
-    let (exhausted, brk) = if steps_await {
+    // `ast::desugar_async_ssa_gate` moves every `for await` into a suspending body
+    assert!(!is_await || ctx.suspend_body, "for await in {}", ctx.f.name);
+    let (exhausted, brk) = if is_await {
         crate::ssa_lower_fn::suspend::sync_iter_exits(ctx, after)
     } else {
         (after, after)
@@ -181,14 +174,14 @@ pub(crate) fn lower(
     ctx.cur_block = body_blk;
     ctx.scope_stack.push(Vec::new());
     ctx.shadow_stack.push(Vec::new());
-    let v_val = element_value(ctx, elem_expr, steps_await);
+    let v_val = element_value(ctx, elem_expr, is_await);
     let v_ty = ctx.operand_ty(&v_val);
     if let Some(obj_eid) = forin_obj {
         emit_forin_guard(ctx, obj_eid, &v_val, step_blk);
     }
     crate::ssa_lower_for_of_written::note_sentinel_loop_var(ctx, var_name, v_ty, src_ref_eid);
     // an awaited step answers its value owned
-    let init = if steps_await {
+    let init = if is_await {
         crate::ssa_lower_for_of_written::LoopVarInit::Owned
     } else {
         crate::ssa_lower_for_of_written::LoopVarInit::Alias
@@ -196,7 +189,7 @@ pub(crate) fn lower(
     crate::ssa_lower_for_of_written::bind_loop_var(ctx, var_name, v_val, v_ty, body, init);
     // a rejected element's close runs nothing (an array iterator has no
     // `return`); the body's exits close
-    if steps_await {
+    if is_await {
         ctx.for_of_teardown_stack
             .push(crate::ssa_lower_for_of_teardown::ForOfTeardown::AsyncFromSync);
     }
@@ -213,7 +206,7 @@ pub(crate) fn lower(
     ctx.lower_stmt(body);
     let body_open_at_end = ctx.cur_open();
     ctx.loop_stack.pop();
-    if steps_await {
+    if is_await {
         ctx.for_of_teardown_stack.pop();
     }
 
