@@ -69,17 +69,22 @@ pub(super) fn apply_mapset_stored_arm(
     closure_args: &[(usize, String)],
     updates: &mut HashMap<String, (Vec<String>, String)>,
 ) -> bool {
-    let anns: Vec<&str> = match method {
-        "set" => match ann.strip_prefix("Map<").and_then(|r| r.strip_suffix('>')) {
-            Some(inner) => crate::check_type_ann::split_top_pipe(inner),
-            None => return false,
-        },
-        "add" => match ann.strip_prefix("Set<").and_then(|r| r.strip_suffix('>')) {
-            Some(inner) => vec![inner],
-            None => return false,
-        },
+    // The parser spells `Map<K, V>` as `Map<K|V>`, so a union key or
+    // value leaves more top-level parts than arguments and no way to
+    // tell which belong to the key: such a receiver seeds nothing, as
+    // `mapset_foreach_expected` answers nothing for it.
+    let (prefix, arity) = match method {
+        "set" => ("Map<", 2),
+        "add" => ("Set<", 1),
         _ => return false,
     };
+    let Some(inner) = ann.strip_prefix(prefix).and_then(|r| r.strip_suffix('>')) else {
+        return false;
+    };
+    let anns = crate::check_type_ann::split_top_pipe(inner);
+    if anns.len() != arity {
+        return false;
+    }
     let mut seeded = false;
     for (arg_idx, fn_name) in closure_args {
         if let Some(projected) = anns.get(*arg_idx).and_then(|a| project_fn_type_ann(ast, a)) {
