@@ -219,6 +219,10 @@ pub(crate) fn record_objlit_stores(
     let Type::Struct(slot_fields) = slot_ty else {
         return;
     };
+    let seen = checker.face_slots.objlits.entry(value).or_default();
+    if !seen.contains(slot_ty) {
+        seen.push(slot_ty.clone());
+    }
     for (key, v) in fields {
         let Some((_, field_ty)) = slot_fields.iter().find(|(n, _)| n == key) else {
             continue;

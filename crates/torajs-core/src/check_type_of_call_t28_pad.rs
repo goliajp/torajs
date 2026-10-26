@@ -10,31 +10,21 @@
 //! typed missing params still surface as strict-arity errors
 //! downstream. ssa_lower pads the missing positions with
 //! `ANY_UNDEF` boxes at the call site, keyed off the
-//! `arity_pad_count` entry stashed here.
+//! `arity_pad_count` entry the caller stashes.
 //!
-//! Returns:
-//! - `Some(Ok(ret))` — wedge fired (trailing all-Any), each
-//!   supplied arg type_of'd, `arity_pad_count[eid]` set to
-//!   the missing count, and the call typechecks to `ret`
-//!   (cloned from the callee's return type)
-//! - `Some(Err(_))` — any supplied arg's `type_of` failed
-//! - `None` — wedge did not fire (effective_args.len() >=
-//!   params.len(), or trailing slots are not all Type::Any);
-//!   caller falls through to the Date setter / splice
-//!   defaults and the strict-arity check that follows
+//! The supplied arguments are admitted against their parameters
+//! as every other call's are (`check_type_of_call::general::args`):
+//! the route, the interface witness flow and the face-slot census of
+//! an object literal argument do not depend on whether a trailing
+//! parameter was left out.
 
-use crate::ast::{Ast, ExprId};
-use crate::check::{Checker, Type};
+use crate::check::Type;
 
-pub(crate) fn try_pad(
-    checker: &mut Checker,
-    ast: &Ast,
-    eid: ExprId,
-    params: &[Type],
-    effective_args: &[ExprId],
-    ret: &Type,
-) -> Option<Result<Type, String>> {
-    if effective_args.len() >= params.len() {
+/// How many trailing parameters the call leaves to the undefined pad,
+/// or `None` when it supplies them all or one left out cannot hold
+/// undefined.
+pub(crate) fn missing(params: &[Type], supplied: usize) -> Option<usize> {
+    if supplied >= params.len() {
         return None;
     }
     // 424-01 — an optional trailing param (`(p?: number) =>`,
@@ -44,21 +34,10 @@ pub(crate) fn try_pad(
     // set); a pointer-shaped Nullable slot carries a per-type
     // sentinel instead and keeps the strict-arity error (recorded
     // residual).
-    let trailing_all_padable = params[effective_args.len()..].iter().all(|t| {
+    let trailing_all_padable = params[supplied..].iter().all(|t| {
         matches!(t, Type::Any)
             || matches!(t, Type::Nullable(inner)
                 if matches!(inner.as_ref(), Type::Number | Type::Boolean))
     });
-    if !trailing_all_padable {
-        return None;
-    }
-    for arg_id in effective_args.iter() {
-        if let Err(e) = checker.type_of(ast, *arg_id) {
-            return Some(Err(e));
-        }
-    }
-    checker
-        .arity_pad_count
-        .insert(eid, params.len() - effective_args.len());
-    Some(Ok(ret.clone()))
+    trailing_all_padable.then_some(params.len() - supplied)
 }

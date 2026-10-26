@@ -108,13 +108,12 @@ impl MethodRets {
     /// interface it fills, keeps its declared return: a value read
     /// hands the method to a slot typed with that return, and the
     /// interface's get face hands on every other row's member too. So
-    /// does one whose interface an object literal fills with a function
-    /// that keeps its return, held where the face-slot census does not
-    /// see the store (`super::method_lits::opaque`).
+    /// does one whose interface a literal fills with a function keeping
+    /// its return, the store unseen by the census ([`opaque`]).
     pub(super) fn family<'a>(
         &self,
         ast: &Ast,
-        types: &HashMap<ExprId, Type>,
+        (types, seen): (&HashMap<ExprId, Type>, &HashMap<ExprId, Vec<Type>>),
         found: impl Iterator<Item = &'a String>,
     ) -> Family {
         let mut out = Family::default();
@@ -134,7 +133,7 @@ impl MethodRets {
                     || read.contains(&((*o).clone(), key.clone()))
             }) || (tree_ifaces(ast, &tree, &key)).any(|i| {
                 read.contains(&(i.clone(), key.clone()))
-                    || opaque(ast, types, &self.sources, i, &key)
+                    || opaque(ast, types, &self.sources, seen, (i, &key))
             });
             if blocked {
                 continue;

@@ -31,6 +31,11 @@ pub struct FaceSlots {
     /// their boxed answer is returned unconverted. Filled after
     /// checking.
     pub ret_any: HashSet<ExprId>,
+    /// The object literals whose member stores the census was handed,
+    /// each with the slot types it was handed them for: a literal
+    /// missing here, or here only for another slot type, stores its
+    /// members unrecorded.
+    pub objlits: HashMap<ExprId, Vec<crate::check::Type>>,
 }
 
 impl FaceSlots {

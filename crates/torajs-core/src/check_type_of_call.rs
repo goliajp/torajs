@@ -40,6 +40,7 @@ mod route_globals;
 mod route_namespace_trailing;
 mod route_str_arr_trailing;
 mod source_array_param;
+mod spread_objlits;
 pub(crate) mod union_callee;
 
 use crate::ast::{Ast, Expr, ExprId};
@@ -144,6 +145,7 @@ fn routes(
                 }
             }
         }
+        spread_objlits::record(checker, ast, *callee, args);
         match ast.get_expr(*callee) {
             Expr::Member { obj, .. } => {
                 let _ = checker.type_of(ast, *obj);

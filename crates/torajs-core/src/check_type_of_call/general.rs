@@ -114,30 +114,28 @@ pub(crate) fn general_call(
         &mut params,
     );
     let variadic = crate::check_type_of_call_rest_param::apply(&mut params, &effective_args);
-    // T-28 — Default param missing → undefined widen wedge
-    // extracted to [`crate::check_type_of_call_t28_pad`]
-    // (chunk 298).
-    if let Some(r) = crate::check_type_of_call_t28_pad::try_pad(
-        checker,
-        ast,
-        eid,
-        &params,
-        &effective_args,
-        &ret,
-    ) {
-        // a padded call through a census fn slot answers what the
-        // stored value returns, as an unpadded one does
-        return r.map(|ret| super::fn_slot_ret::call_ret_face(checker, ast, eid, *callee, ret));
-    }
-    super::arity_wedges::apply(checker, ast, callee, &mut effective_args, &mut params)?;
-    super::arity_wedges::drop_extra_args(checker, ast, &mut effective_args, &params)?;
-    // §18 hands a missing argument undefined, and some slots have a
-    // clause that throws on it — the sibling names which.
-    if let Some(msg) =
-        super::arity_wedges::missing_callback_throw(checker, ast, callee, &params, &effective_args)?
+    // T-28 — a call leaving trailing parameters to the undefined pad
+    // admits what it supplies against the parameters it fills
+    // ([`crate::check_type_of_call_t28_pad`]).
+    if let Some(missing) = crate::check_type_of_call_t28_pad::missing(&params, effective_args.len())
     {
-        checker.spec_throws.insert(eid, msg);
-        return Ok(*ret);
+        params.truncate(effective_args.len());
+        checker.arity_pad_count.insert(eid, missing);
+    } else {
+        super::arity_wedges::apply(checker, ast, callee, &mut effective_args, &mut params)?;
+        super::arity_wedges::drop_extra_args(checker, ast, &mut effective_args, &params)?;
+        // §18 hands a missing argument undefined, and some slots have a
+        // clause that throws on it — the sibling names which.
+        if let Some(msg) = super::arity_wedges::missing_callback_throw(
+            checker,
+            ast,
+            callee,
+            &params,
+            &effective_args,
+        )? {
+            checker.spec_throws.insert(eid, msg);
+            return Ok(*ret);
+        }
     }
     if params.len() != effective_args.len() {
         // A variadic callee has no exact arity to name: what the call

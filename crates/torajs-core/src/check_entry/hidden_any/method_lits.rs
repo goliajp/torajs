@@ -15,7 +15,6 @@ use std::collections::{HashMap, HashSet};
 use super::inlobj_fields;
 use super::lit_sources::Sources;
 use super::method_rets::{Family, returning_any};
-use super::value_places::{Into, Place, into};
 use crate::ast::{Ast, Expr, ExprId, PropKey, Stmt};
 use crate::check::Type;
 
@@ -120,65 +119,38 @@ pub(super) fn closures(
 /// cannot follow to its declaration (a method read off an object, a
 /// call's result) or that also reaches a place other than the members
 /// `key` of this interface's literals (a direct call, another literal,
-/// an annotated binding), held by a literal the face-slot census does
-/// not see ([`census_sees`]). A function the census sees in the member
-/// keeps its return: a call through the member rides the boxed entry,
-/// whose adapter boxes the function's own answer.
+/// an annotated binding), held by a literal whose member stores the
+/// face-slot census was not handed for the interface's type (`seen`,
+/// the last round's `FaceSlots::objlits`). A function the census sees
+/// in the member keeps its return: a call through the member rides the
+/// boxed entry, whose adapter boxes the function's own answer.
 pub(super) fn opaque(
     ast: &Ast,
     types: &HashMap<ExprId, Type>,
     sources: &Sources,
-    iface: &str,
-    key: &PropKey,
+    seen: &HashMap<ExprId, Vec<Type>>,
+    (iface, key): (&str, &PropKey),
 ) -> bool {
     let keys = HashSet::from([key]);
     let held: HashSet<ExprId> = (member_values(ast, types, iface, &keys))
         .filter_map(|(_, v, sure)| sure.then_some(v))
         .collect();
+    let want = ast.iface_slots.types.get(iface);
+    let census_sees = |lit: &ExprId| {
+        (seen.get(lit).into_iter().flatten())
+            .any(|t| want.is_some_and(|w| of_iface(t, w, &keys) == Fit::Exact))
+    };
     member_values(ast, types, iface, &keys).any(|(lit, v, sure)| {
         types.get(&v) != Some(&Type::Any)
-            && (!sure
-                || sources.of_value(ast, v, &held).is_none()
-                    && !census_sees(ast, types, sources, iface, &keys, lit))
+            && (!sure || sources.of_value(ast, v, &held).is_none() && !census_sees(&lit))
     })
-}
-
-/// Whether the face-slot census records the member stores of the
-/// object literal `lit` of interface `iface`
-/// (`crate::check::face_slots::record_objlit_stores`): the literal
-/// initializes a binding annotated with the interface's name, is the
-/// value of a `return` from a function declared to return it, or is
-/// an argument of a call whose parameter is typed with the interface.
-/// Anywhere else (an array element, a member of another literal, a
-/// binding with no annotation) the store is not recorded, and a call
-/// through the member would read the function's typed answer as the
-/// member's.
-fn census_sees(
-    ast: &Ast,
-    types: &HashMap<ExprId, Type>,
-    sources: &Sources,
-    iface: &str,
-    keys: &HashSet<&PropKey>,
-    lit: ExprId,
-) -> bool {
-    match sources.places(ast).get(&lit) {
-        Some(Place::Bind(Some(a))) => a.trim() == iface && sources.annotated_init(ast, lit),
-        Some(Place::Ret(Some(a))) => a.trim() == iface,
-        Some(Place::Expr(p)) => {
-            let want = ast.iface_slots.types.get(iface);
-            matches!(ast.get_expr(*p), Expr::Call { callee, .. } if *callee != lit)
-                && matches!((into(ast, types, *p, lit), want),
-                    (Into::Slot(Some(t)), Some(w)) if of_iface(t, w, keys) == Fit::Exact)
-        }
-        _ => false,
-    }
 }
 
 /// The values the object literals of the type of interface `iface`, or
 /// of it with the members `keys` returning `any`, hold in a member of
-/// `keys`, each with its literal and whether its literal is of that type for sure: one
-/// whose members only fit the interface's ([`Fit::Loose`]) may be of
-/// another interface that fits it as well.
+/// `keys`, each with its literal and whether the literal is of that
+/// type for sure: one whose members only fit the interface's
+/// ([`Fit::Loose`]) may be of another interface that fits it as well.
 fn member_values<'a>(
     ast: &'a Ast,
     types: &'a HashMap<ExprId, Type>,
