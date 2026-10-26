@@ -94,11 +94,27 @@ impl Analysis<'_> {
     }
 
     /// `forEach`'s element wiring, which is per-receiver: a Set hands
-    /// the member twice (see [`Self::wire_elem_to_cb_param_at`]).
-    fn wire_foreach_params(&mut self, ek: SlotKeyId, cb_arg: ExprId, recv: ExprId, scope: &Scope) {
+    /// the member twice (see [`Self::wire_elem_to_cb_param_at`]), a Map
+    /// its key second (the `__key` point `set` writes).
+    fn wire_foreach_params(
+        &mut self,
+        ek: SlotKeyId,
+        cb_arg: ExprId,
+        recv: ExprId,
+        rk: SlotKeyId,
+        scope: &Scope,
+    ) {
         self.wire_elem_to_cb_param_at(ek, recv, cb_arg, 0, scope);
-        if matches!(self.expr_types.get(&recv), Some(crate::check::Type::Set)) {
-            self.wire_elem_to_cb_param_at(ek, recv, cb_arg, 1, scope);
+        match self.expr_types.get(&recv) {
+            Some(crate::check::Type::Set) => {
+                self.wire_elem_to_cb_param_at(ek, recv, cb_arg, 1, scope)
+            }
+            Some(crate::check::Type::Map(..)) => {
+                let kk = self.keys.field(rk, "__key");
+                self.mark_containerish(kk);
+                self.wire_elem_to_cb_param_at(kk, recv, cb_arg, 1, scope);
+            }
+            _ => {}
         }
     }
 
@@ -120,7 +136,7 @@ impl Analysis<'_> {
             | "flatMap" => {
                 if let Some(a0) = args.first() {
                     if name == "forEach" {
-                        self.wire_foreach_params(ek, *a0, obj, scope);
+                        self.wire_foreach_params(ek, *a0, obj, recv, scope);
                     } else {
                         self.wire_elem_to_cb_param(ek, obj, *a0, scope);
                     }

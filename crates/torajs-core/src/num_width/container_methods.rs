@@ -214,6 +214,21 @@ impl<'a> Analysis<'a> {
                 }
             }
         }
+        // §24.1.3.9 — `m.set(k, v)` keeps k too, and `forEach` hands it
+        // back as the callback's second argument: the key point is that
+        // parameter's class (`wire_foreach_params`).
+        if name == "set"
+            && let Some(&k) = args.first()
+        {
+            let kk = self.keys.field(recv, "__key");
+            self.mark_containerish(kk);
+            let w = self.flow(k, scope);
+            self.add_container_constraint(kk, w);
+            self.fn_value_flow(kk, k, scope);
+            if let Some(ak) = self.container_key_of(k, scope) {
+                self.nested_unions.push((kk, ak));
+            }
+        }
         if answers_undef_sentinel(&name) {
             self.add_container_constraint(ek, super::magnitude::f64_flow());
         }
