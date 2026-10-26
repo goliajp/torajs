@@ -127,7 +127,9 @@ fn sext_seeds(
 
 /// The per-function egraph pass over every function.
 fn egraph_functions(module: &mut Module) {
-    for func in module.funcs.iter_mut() {
+    // the pass hands a declaration back as a clone of itself, and most
+    // of a module is runtime declarations
+    for func in module.funcs.iter_mut().filter(|f| !f.is_declaration()) {
         *func = EgraphPass::new(func).run();
     }
 }
