@@ -71,8 +71,11 @@ pub(crate) fn try_match(
     // any-assignability), paired with the lowering's shared
     // `coerce_push_value` unbox at the store boundary — the same
     // admit/coerce pairing as the push/unshift lane (rotation 158).
-    let any_into_scalar =
-        matches!(v_ty, Type::Any) && matches!(**elem, Type::Number | Type::String);
+    // A function elem checks an Any value is a function, as push does.
+    let any_into_scalar = matches!(v_ty, Type::Any)
+        && (matches!(**elem, Type::Number | Type::String)
+            || crate::check::face_slots::is_fn_elem(elem));
+    crate::check::face_slots::record_elem_store(checker, elem, &v_ty);
     if v_ty != **elem && !matches!(**elem, Type::Any) && !any_into_scalar {
         return Some(Err(format!(
             "Array.fill arg 0 must match elem type {:?}, got {v_ty:?}",

@@ -11,8 +11,8 @@
 //! adapter unboxes per the stored value's own face, and the checker
 //! types it by what the stored values return
 //! (`check_type_of_call::fn_slot_ret`). Only a slot some store recorded
-//! changes its calls; every other field and return keeps its direct
-//! call.
+//! changes its calls; every other field, element and return keeps its
+//! direct call.
 
 use std::collections::{HashMap, HashSet};
 
@@ -26,6 +26,12 @@ pub struct FaceSlots {
     pub fields: HashSet<(String, String)>,
     /// The functions that return such a value.
     pub rets: HashSet<String>,
+    /// The element slots: the spelling (`check::type_to_ann`) of an
+    /// array's function element type some store (an element write, an
+    /// array literal's element, `push` / `unshift` / `splice`) handed
+    /// such a value. Every array of that element type shares the
+    /// verdict, as an array value moves between bindings of its type.
+    pub elems: HashSet<String>,
     /// The calls through such a slot, a binding of the let-lane census
     /// or an `argv_boxed_params` parameter the checker typed `any`:
     /// their boxed answer is returned unconverted. Filled after

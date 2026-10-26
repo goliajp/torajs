@@ -6,8 +6,9 @@
 //! params for FEWER args, so the ES §23.1.3.31 `...items` insert
 //! form was arity-rejected outright. This wedge admits it: every
 //! item must match the element type, or be `Any` when the elem is
-//! Number / String (paired with `coerce_push_value`'s Any→scalar/Str
-//! unbox on the lowering side — the same admit/coerce pairing as the
+//! Number / String or a function (paired with `coerce_push_value`'s
+//! Any→scalar/Str unbox or function check on the lowering side — the
+//! same admit/coerce pairing as the
 //! push and fill lanes; a Boolean elem has no Any-coerce arm, so Any
 //! items stay rejected there rather than storing box bits).
 //!
@@ -63,7 +64,9 @@ pub(crate) fn try_match(
             )));
         }
     }
-    let any_ok = matches!(inner, Type::Number | Type::String);
+    // a function element checks an `any` item is a function, as `push`
+    let any_ok = matches!(inner, Type::Number | Type::String)
+        || crate::check::face_slots::is_fn_elem(&inner);
     for (i, aid) in args.iter().enumerate().skip(2) {
         let aty = match checker.type_of(ast, *aid) {
             Ok(t) => t,
@@ -77,6 +80,7 @@ pub(crate) fn try_match(
             }
             continue;
         }
+        crate::check::face_slots::record_elem_store(checker, &inner, &aty);
         if aty != inner && !(any_ok && aty == Type::Any) {
             return Some(Err(format!(
                 "Array.{m_name} item {i}: expected element type {:?}, got {aty:?}",

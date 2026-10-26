@@ -201,9 +201,12 @@ fn try_lower_call_or_closure_callee(
         Expr::Index { obj, .. } => Some(*obj),
         _ => None,
     };
+    // an element of the census (`Ast::face_slots`) is called with the
+    // array as its `this` (§13.3.6.1), which a stored method reads
+    let face_elem = base_id.is_some_and(|obj| elem_face_slot(ctx, obj));
     let recv_base = match base_id {
         Some(obj)
-            if !ctx.ast.fnexpr_recv_fns.is_empty()
+            if (face_elem || !ctx.ast.fnexpr_recv_fns.is_empty())
                 && matches!(
                     ctx.expr_types.get(&callee),
                     Some(crate::check::Type::Function(..))
@@ -277,6 +280,14 @@ fn try_lower_call_or_closure_callee(
     }
 }
 
+/// Is `obj` an array whose function elements some store handed a
+/// value of another face (`Ast::face_slots`)?
+fn elem_face_slot(ctx: &LowerCtx<'_>, obj: ExprId) -> bool {
+    ctx.expr_types
+        .get(&obj)
+        .is_some_and(|t| crate::check::face_slots::elem_hit(&ctx.ast.face_slots, t))
+}
+
 /// A choice among values (`c ? f : g`, `f || g`, `f ?? g`): no
 /// Reference, so the chosen function is called with an undefined
 /// `this`, as a comma expression's is.
@@ -335,6 +346,22 @@ fn emit_closure_arm(
             (eid, user_sig_id),
             callee_op,
             None,
+            passed,
+        );
+    }
+    // a call through an element of the census: the boxed entry, as
+    // for a property slot
+    if let Expr::Index { obj, .. } = ctx.ast.get_expr(callee)
+        && elem_face_slot(ctx, *obj)
+    {
+        crate::ssa_lower_nullable_guard::emit_undefable_heap_guard(ctx, callee, &callee_op);
+        let this = recv_base.map(|b| ctx.box_to_any(b));
+        let passed = &args[..crate::ast::source_argc(ctx.ast, eid, args)];
+        return crate::ssa_lower_call_closure_local::emit_face_slot_call(
+            ctx,
+            (eid, user_sig_id),
+            callee_op,
+            this,
             passed,
         );
     }

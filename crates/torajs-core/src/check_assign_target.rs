@@ -233,13 +233,12 @@ pub(crate) fn check_member(
             "type mismatch assigning to `{field}`: field is {field_ty:?}, value is {value_ty:?}"
         ));
     }
-    crate::check::face_slots::record_field_store(
+    crate::check::face_slots::record_field_assign(
         checker,
         ast,
         &obj_ty_nominal,
-        &field,
-        &field_ty,
-        &value_ty,
+        (&field, &field_ty),
+        (value, &value_ty),
     );
     Ok(field_ty)
 }

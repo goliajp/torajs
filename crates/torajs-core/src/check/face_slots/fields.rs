@@ -6,7 +6,7 @@
 use crate::ast::{Ast, Expr, ExprId};
 use crate::check::{Checker, Type};
 
-use super::{faces_differ, remember};
+use super::{elems, faces_differ, remember};
 
 /// The census owner of receiver `obj` when its field `name` holds such
 /// a value ([`crate::ast::face_slots::FaceSlots::field_hit`]); a miss
@@ -78,7 +78,9 @@ pub(crate) fn record_field_store(
 /// `slot_ty`. The literal joins the census's literals only once every
 /// member of the slot it holds is recorded: one whose value the checker
 /// has not typed yet is not, and a reader of the census
-/// (`hidden_any::method_lits::opaque`) takes the literal as seen.
+/// (`hidden_any::method_lits::opaque`) takes the literal as seen. An
+/// array literal's elements are recorded against a function element
+/// type instead.
 pub(crate) fn record_objlit_stores(
     checker: &mut Checker,
     ast: &Ast,
@@ -86,6 +88,7 @@ pub(crate) fn record_objlit_stores(
     value: ExprId,
 ) {
     let Expr::ObjectLit { fields } = ast.get_expr(value) else {
+        elems::record_arrlit_stores(checker, ast, slot_ty, value);
         return;
     };
     let Type::Struct(slot_fields) = slot_ty else {
@@ -106,4 +109,19 @@ pub(crate) fn record_objlit_stores(
     if whole && !seen.contains(slot_ty) {
         seen.push(slot_ty.clone());
     }
+}
+
+/// `recv.field = value` (a class field's initializer included, which
+/// the constructor stores through `this`): the store itself, and an
+/// array or object literal's members against the field's type
+/// (`b.fs = [tag]`).
+pub(crate) fn record_field_assign(
+    checker: &mut Checker,
+    ast: &Ast,
+    recv: &Type,
+    (field, slot_ty): (&str, &Type),
+    (value, value_ty): (ExprId, &Type),
+) {
+    record_field_store(checker, ast, recv, field, slot_ty, value_ty);
+    record_objlit_stores(checker, ast, slot_ty, value);
 }

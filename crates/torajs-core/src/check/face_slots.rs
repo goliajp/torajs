@@ -18,8 +18,10 @@ use std::collections::HashSet;
 use crate::ast::{Ast, Expr, ExprId};
 use crate::check::{Checker, Type};
 
+mod elems;
 mod fields;
-pub(crate) use fields::{field_read, owner_key, record_field_store, record_objlit_stores};
+pub(crate) use elems::{elem_hit, elem_read, is_fn_elem, record_elem_store};
+pub(crate) use fields::{field_read, owner_key, record_field_assign, record_objlit_stores};
 
 /// What the reads of one run asked the census for and did not find: a
 /// field by its name alone (whatever the receiver), a function by its
@@ -29,6 +31,8 @@ pub(crate) use fields::{field_read, owner_key, record_field_store, record_objlit
 pub(crate) struct Reads {
     fields: HashSet<String>,
     rets: HashSet<String>,
+    /// element types, by spelling
+    elems: HashSet<String>,
     /// bindings, by declaration, a call reached before any store
     /// joined them to the census
     lets: HashSet<ExprId>,

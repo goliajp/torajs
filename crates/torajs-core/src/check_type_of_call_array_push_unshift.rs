@@ -55,7 +55,12 @@ pub(crate) fn try_match(
         // An object-layout element takes it too when the lowering casts
         // it (`casts_any_into`); an inferred one is retyped `any[]`
         // first (`let_widen::push`).
+        // A function element takes any value the lowering checks is a
+        // function; a call through the element rides the boxed entry
+        // (`face_slots::record_elem_store`).
+        let fn_elem = crate::check::face_slots::is_fn_elem(&inner);
         if !matches!(inner, Type::Number | Type::String)
+            && !fn_elem
             && !casts_any_into(checker, ast, &inner, *src_id)
         {
             return None;
@@ -64,6 +69,9 @@ pub(crate) fn try_match(
             Ok(t) => t,
             Err(e) => return Some(Err(e)),
         };
+        if fn_elem {
+            crate::check::face_slots::record_elem_store(checker, &inner, &aty);
+        }
         if aty != Type::Any {
             return None;
         }
@@ -83,6 +91,7 @@ pub(crate) fn try_match(
         {
             return Some(Err(format!("argument {i}: expected {inner:?}, got Any")));
         }
+        crate::check::face_slots::record_elem_store(checker, &inner, &aty);
         let admitted = inner == Type::Any
             || aty == Type::Any
             || crate::check_assignable::is_assignable_to(&inner, &aty)

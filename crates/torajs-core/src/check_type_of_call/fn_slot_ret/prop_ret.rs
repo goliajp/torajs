@@ -1,6 +1,7 @@
-//! The property and return slots of the census (`ast::face_slots`):
-//! `o.f()` through a field some store handed a function value of
-//! another face, and `ret()()` through what such a function returns.
+//! The property, element and return slots of the census
+//! (`ast::face_slots`): `o.f()` through a field some store handed a
+//! function value of another face, `hs[i]()` through such an element,
+//! and `ret()()` through what such a function returns.
 //!
 //! The stores are found by scanning the whole arena, as the binding
 //! lane does, so the verdict does not depend on which store was checked
@@ -11,7 +12,7 @@
 
 use crate::ast::{Ast, Expr, ExprId, Stmt};
 use crate::check::Checker;
-use crate::check::face_slots::{field_read, ret_read};
+use crate::check::face_slots::{elem_read, field_read, ret_read};
 
 /// A slot's census key, and its stores paired with the slot's spelling.
 type Slot = (String, Option<Vec<(String, ExprId)>>);
@@ -42,6 +43,12 @@ pub(super) fn slot(checker: &mut Checker, ast: &Ast, callee: ExprId) -> Option<S
                 return None;
             }
             Some((format!("ret:{g}"), pair(checker, return_stores(ast, g))))
+        }
+        // an element's stores are not traced: an array moves between
+        // bindings, and a store through any of them reaches the element
+        Expr::Index { obj, .. } => {
+            let arr = checker.expr_types.get(obj)?.clone();
+            Some((format!("elem:{}", elem_read(checker, &arr)?), None))
         }
         _ => None,
     }
