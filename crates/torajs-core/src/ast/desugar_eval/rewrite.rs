@@ -207,3 +207,44 @@ fn rewrite_stmt(s: &mut Stmt, ast: &mut Ast, in_fn: bool, home: bool, strict: &[
         _ => {}
     }
 }
+
+/// The statement walk (`desugar_eval`) reaches a `FnDecl` body because that body
+/// hangs off the statement tree. A function written in *expression*
+/// position does not: `() => { … }`, `function () { … }` and a method
+/// shorthand all park their statements inside an `Expr::ArrowFn` in the
+/// expression arena, which no statement walk visits. Missing them is
+/// not a corner: `closure __closure_N references unknown identifier
+/// eval` accounts for ~390 of the eval-blocked cases on its own, and
+/// `assert.throws(…, function () { eval("…") })` is how test262 spells
+/// most of its eval assertions.
+///
+/// The loop re-reads `len()` each turn rather than snapshotting it,
+/// because inlining appends to the arena — an arrow written inside an
+/// eval'd literal lands past the original end and still has to be
+/// visited. Each body is taken out before the rewrite so `ast` can be
+/// handed to `parse_into`, then put back. An arrow body is a function
+/// scope, so the walk enters it with `in_fn` set.
+pub(super) fn rewrite_arrow_bodies(ast: &mut Ast) {
+    // Home verdict per arrow (r334 blade 6): an arrow inherits its
+    // enclosure's this-environment, so a direct eval inside one may
+    // contain `super` exactly when the arrow itself sits in a class
+    // member body. Arrows appended by inlining read `false` through
+    // the bounds check — conservative (their eval supers decline to a
+    // runtime SyntaxError rather than resolving).
+    let class_owned = super::walk::class_owned_exprs(ast);
+    let caller_strict = super::walk::caller_strict_exprs(ast);
+    let mut i = 0;
+    while i < ast.exprs.len() {
+        let Some(Expr::ArrowFn { body, .. }) = ast.exprs.get_mut(i) else {
+            i += 1;
+            continue;
+        };
+        let mut taken = std::mem::take(body);
+        let home = class_owned.get(i).copied().unwrap_or(false);
+        rewrite_list(&mut taken, ast, true, home, &caller_strict);
+        if let Some(Expr::ArrowFn { body, .. }) = ast.exprs.get_mut(i) {
+            *body = taken;
+        }
+        i += 1;
+    }
+}

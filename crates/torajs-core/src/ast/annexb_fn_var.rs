@@ -319,46 +319,4 @@ impl LiftCtx {
     pub(super) fn catch_param_shadows_write(&self, p: &str, catch_body: &[Stmt]) -> bool {
         annexb_fn_span(catch_body, p).is_some_and(|span| self.goal.applies(p, span))
     }
-
-    /// Move what has been minted into the arena and re-base.
-    ///
-    /// Must run before anything READS an id this pass handed out. The
-    /// rewrite half does: it walks the very statements the lift just
-    /// wrote, `var f: any = <mangled>` among them, and an id past the
-    /// end of the arena is an `index out of bounds` there — reached
-    /// only when one parent scope has both an Annex B declaration and a
-    /// legacy one, since the rewrite is skipped when every name is
-    /// block-scoped.
-    pub(super) fn flush(&mut self, ast: &mut super::Ast) {
-        // Through `add_expr`, never `exprs.append`: the arena has a
-        // parallel span vector, and pushing to one without the other
-        // desynchronizes them. The ids stay the ones `mint` handed out
-        // because `add_expr` numbers from `exprs.len()`, which is
-        // `base` here.
-        for e in std::mem::take(&mut self.minted) {
-            ast.add_expr(e);
-        }
-        for (mangled, mut source) in std::mem::take(&mut self.source_names) {
-            // an async declaration that suspends over a frame keeps
-            // doing so under its lifted name
-            if ast.async_ssa.fns.contains(&source) {
-                ast.async_ssa.fns.insert(mangled.clone());
-            }
-            // a body `function arguments` renamed apart from the
-            // parameter-scope object still answers its own spelling
-            if source == super::apply_args_materialize::body_arguments::BODY_ARGUMENTS {
-                source = "arguments".to_string();
-            }
-            // likewise one renamed out of a default's way, or apart
-            // from a same-named declaration of another kind
-            if let Some(shown) = ast.renamed_binding_display.get(&source) {
-                source = shown.clone();
-            }
-            ast.nested_fn_names.insert(mangled, source);
-        }
-        for (init, flavor) in std::mem::take(&mut self.eval_var_inits) {
-            ast.eval_var_sites.insert(init, flavor);
-        }
-        self.base = ast.exprs.len() as u32;
-    }
 }
