@@ -250,7 +250,8 @@ pub(super) fn prepare(ast: &mut Ast) -> bool {
 /// The driver therefore settles a done step with its value as is.
 fn await_returns(ast: &mut Ast, s: &mut Stmt) {
     match s {
-        Stmt::FnDecl { .. } => {}
+        // a class's members are functions of their own
+        Stmt::FnDecl { .. } | Stmt::ClassDecl { .. } => {}
         Stmt::Return(Some(e)) => {
             let read = ast.add_expr(Expr::Member {
                 obj: *e,
