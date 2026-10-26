@@ -93,8 +93,10 @@ impl MethodRets {
     /// The declarations the methods `found` share their return slot
     /// with. A hierarchy one of whose declarers of the method cannot
     /// be retyped, or whose method some typed receiver reads as a value
-    /// (`types`), keeps its declared return: a value read hands the
-    /// method to a slot typed with that return.
+    /// (`types`), the receiver typed as a class of it or as an
+    /// interface it fills, keeps its declared return: a value read
+    /// hands the method to a slot typed with that return, and the
+    /// interface's get face hands on every other row's member too.
     pub(super) fn family<'a>(
         &self,
         ast: &Ast,
@@ -116,7 +118,8 @@ impl MethodRets {
             let blocked = tree.iter().any(|o| {
                 !self.holds(&format!("__cm_{o}__{m}"))
                     || read.contains(&((*o).clone(), key.clone()))
-            });
+            }) || (tree_ifaces(ast, &tree, &key))
+                .any(|i| read.contains(&(i.clone(), key.clone())));
             if blocked {
                 continue;
             }
@@ -143,10 +146,7 @@ impl MethodRets {
     /// row of it calls and reads the method through.
     fn ifaces(&self, ast: &Ast, tree: &[&String], m: &str, key: &PropKey, out: &mut Family) {
         let slots = &ast.iface_slots;
-        for (i, cs) in slots.witnesses.iter().chain(&slots.loose) {
-            if !cs.iter().any(|c| tree.contains(&c)) || !declares_method(ast, i, key) {
-                continue;
-            }
+        for i in tree_ifaces(ast, tree, key) {
             out.members.insert((i.clone(), key.clone()));
             let rows = (slots.witnesses.get(i).into_iter().flatten())
                 .chain(slots.loose.get(i).into_iter().flatten());
@@ -158,6 +158,19 @@ impl MethodRets {
             out.getters.insert(lit_thunk(i, &get_face(m)));
         }
     }
+}
+
+/// The interfaces a class of `tree` fills the witness slots of, whose
+/// member `key` is a method.
+fn tree_ifaces<'a>(
+    ast: &'a Ast,
+    tree: &'a [&String],
+    key: &'a PropKey,
+) -> impl Iterator<Item = &'a String> {
+    let slots = &ast.iface_slots;
+    (slots.witnesses.iter().chain(&slots.loose))
+        .filter(move |(i, cs)| cs.iter().any(|c| tree.contains(&c)) && declares_method(ast, i, key))
+        .map(|(i, _)| i)
 }
 
 /// The declaration a specialization `f` the mono pass made is a clone
