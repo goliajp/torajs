@@ -7,9 +7,13 @@
 //! inspects it or looks a collection's key up with it never calls it,
 //! and no slot reads its answer: §7.2.10 SameValue and the function's
 //! own properties do not depend on the return its declaration spells.
-//! A store into a collection is one only where the collection hands
-//! the function back to no slot typed with a return: a `Map` key typed
-//! `() => number` is read back as that type and called.
+//! A store into a collection is one only where the collection never
+//! hands the function back: a weak one, or one the program only looks
+//! keys up in, never iterates nor hands elsewhere; or where it hands it
+//! back typed with a return of `any`. A `Map` key typed `() => number`
+//! is read back as that type and called, and so is a `Set` element or
+//! a key of a `Map` keyed `any` or `Function`, which come back as `any`
+//! values a slot typed `() => number` admits and calls through.
 
 use std::collections::{HashMap, HashSet};
 
@@ -26,6 +30,9 @@ pub(super) fn value_reads(
     (ast, mono): (&Ast, &Ast),
     types: &HashMap<ExprId, Type>,
 ) -> HashSet<(String, PropKey)> {
+    // a round's program is `ast` or a clone of it, and every pass
+    // after (the retype, the mono pass) only appends to its arena: the
+    // first `ast.exprs.len()` nodes of `mono` are `ast`'s own
     let mut calls: HashSet<ExprId> = (ast.exprs.iter().chain(&mono.exprs[ast.exprs.len()..]))
         .filter_map(|e| match e {
             Expr::Call { callee, .. } => Some(*callee),
@@ -87,7 +94,8 @@ fn owners(ast: &Ast, t: Option<&Type>) -> Vec<String> {
 /// Whether the value `read` goes only into a comparison, an operator,
 /// `typeof`, a property read other than `call` / `apply` / `bind`, or
 /// the key argument of a `Map` / `Set` lookup, or of a store whose
-/// collection never hands the key back typed with a return.
+/// collection hands the key back to no slot but one typed with a
+/// return of `any` ([`only_looked_up`]).
 fn inspected(
     ast: &Ast,
     types: &HashMap<ExprId, Type>,
@@ -111,10 +119,12 @@ fn inspected(
                         "get" | "has" | "delete",
                         Some(Type::Map(..) | Type::Set | Type::WeakMap | Type::WeakSet),
                     ) => true,
-                    // a set hands its elements back as `any` values, and a
-                    // weak collection never hands its keys back
-                    ("add", Some(Type::Set | Type::WeakSet)) | ("set", Some(Type::WeakMap)) => true,
-                    ("set", Some(Type::Map(key, _))) => !returns_typed(key),
+                    // a weak collection never hands its keys back
+                    ("add", Some(Type::WeakSet)) | ("set", Some(Type::WeakMap)) => true,
+                    ("set", Some(Type::Map(key, _))) if returns_any(key) => true,
+                    ("add", Some(Type::Set)) | ("set", Some(Type::Map(..))) => {
+                        !returns_typed(map_key(types.get(obj))) && only_looked_up(ast, *obj)
+                    }
                     _ => false,
                 }
         }
@@ -123,12 +133,55 @@ fn inspected(
 }
 
 /// Whether a slot typed `t` calls the function it holds through a
+/// declared return of `any`.
+fn returns_any(t: &Type) -> bool {
+    matches!(non_null(t), Type::Function(_, ret) if **ret == Type::Any)
+}
+
+/// Whether a slot typed `t` calls the function it holds through a
 /// declared return other than `any`.
-fn returns_typed(t: &Type) -> bool {
-    match non_null(t) {
-        Type::Function(_, ret) => **ret != Type::Any,
-        _ => false,
+fn returns_typed(t: Option<&Type>) -> bool {
+    matches!(t.map(non_null), Some(Type::Function(_, ret)) if **ret != Type::Any)
+}
+
+/// The key type of a `Map`; a `Set`'s elements are `any`.
+fn map_key(t: Option<&Type>) -> Option<&Type> {
+    match t {
+        Some(Type::Map(key, _)) => Some(key),
+        _ => None,
     }
+}
+
+/// Whether the collection `obj` reads is a binding every read of
+/// which, by name anywhere in `ast`, looks a key up, stores one or
+/// reads `size`: nothing iterates it or takes it elsewhere, so no key
+/// stored into it comes back.
+fn only_looked_up(ast: &Ast, obj: ExprId) -> bool {
+    let Expr::Ident(n) = ast.get_expr(obj) else {
+        return false;
+    };
+    let callees: HashSet<ExprId> = (ast.exprs.iter())
+        .filter_map(|e| match e {
+            Expr::Call { callee, .. } => Some(*callee),
+            _ => None,
+        })
+        .collect();
+    let mut looked: HashSet<ExprId> = HashSet::new();
+    for (i, e) in ast.exprs.iter().enumerate() {
+        if let Expr::Member { obj, name } = e
+            && matches!(ast.get_expr(*obj), Expr::Ident(m) if m == n)
+            && match name.as_str() {
+                "add" | "set" | "get" | "has" | "delete" | "clear" => {
+                    callees.contains(&ExprId(i as u32))
+                }
+                name => name == "size",
+            }
+        {
+            looked.insert(*obj);
+        }
+    }
+    (ast.exprs.iter().enumerate())
+        .all(|(i, e)| !matches!(e, Expr::Ident(m) if m == n) || looked.contains(&ExprId(i as u32)))
 }
 
 /// Whether a receiver typed `t` may be a value of the interface typed
