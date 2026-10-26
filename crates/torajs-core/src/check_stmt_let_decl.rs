@@ -33,6 +33,7 @@ pub(crate) mod any_layout_slot;
 pub(crate) mod any_promise_slot;
 pub(crate) mod any_scalar_slot;
 pub(crate) mod contextual_array;
+mod empty_array;
 pub(crate) mod fn_face_slot;
 mod fresh_map;
 pub(crate) mod held_any;
@@ -42,7 +43,7 @@ use crate::ast::{Ast, Expr, ExprId};
 use crate::check::{Checker, DiagPush, LocalInfo, Type, face_slots};
 use crate::check_stmt_let_decl_destr_lane::pick_ary_destr_lane;
 use crate::check_stmt_let_decl_selfref::{SelfRef, predeclare_self_ref_closure};
-use crate::check_type_ann::{resolve_type_ann_full, unknown_type};
+use empty_array::check_empty_array_ann;
 use fresh_map::{map_ty_from_type_args, record_fresh_map_ty};
 
 pub(crate) fn check(
@@ -343,37 +344,4 @@ fn is_builtin_mv_init(checker: &mut Checker, ast: &Ast, init: ExprId) -> bool {
 /// is left untouched until a probe motivates it.
 fn struct_has_undef_field(t: &Type) -> bool {
     matches!(t, Type::Struct(fs) if fs.iter().any(|(_, ft)| matches!(ft, Type::Undefined)))
-}
-
-fn check_empty_array_ann(
-    checker: &mut Checker,
-    name: &str,
-    type_ann: &Option<String>,
-) -> Option<Type> {
-    match type_ann {
-        Some(ann) => {
-            let Some(t) =
-                resolve_type_ann_full(ann, &checker.aliases, &[], &checker.generic_alias_decls)
-            else {
-                checker.errors.push_err(unknown_type(ann));
-                return None;
-            };
-            // An `any` annotation absorbs the literal (chunk-809
-            // any-ann family; rotation 73 L3b): `const e: any = []`
-            // is a plain Arr<Any> boxed into the any slot — bun
-            // accepts. Only a non-array, non-any annotation is a
-            // real mismatch.
-            if matches!(t, Type::Any) {
-                return Some(Type::Array(Box::new(Type::Any)));
-            }
-            if !matches!(t, Type::Array(_)) {
-                checker.errors.push_err(format!(
-                    "empty array literal `{name}` needs an array type annotation, got `{ann}`"
-                ));
-                return None;
-            }
-            Some(t)
-        }
-        None => Some(Type::Array(Box::new(Type::Any))),
-    }
 }
