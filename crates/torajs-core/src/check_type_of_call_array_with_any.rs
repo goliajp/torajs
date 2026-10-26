@@ -65,8 +65,14 @@ pub(crate) fn try_match(
         Err(e) => return Some(Err(e)),
     };
     // §23.1.3.39 step 2 coerces `index`; `Number` is the strict
-    // table's own business, everything else lands here.
-    if matches!(aty0, Type::Number) {
+    // table's own business, everything else lands here, as does any
+    // index into an array of a function type, whose element takes a
+    // function of another face or an `any` value as `push` does
+    // (`face_slots::record_elem_store`); a function literal stays with
+    // the table, which types its parameters by the element type
+    let fn_elem = crate::check::face_slots::is_fn_elem(elem)
+        && !matches!(ast.get_expr(args[1]), Expr::Closure { .. });
+    if matches!(aty0, Type::Number) && !fn_elem {
         return None;
     }
     let inner = (**elem).clone();
@@ -74,7 +80,12 @@ pub(crate) fn try_match(
         Ok(t) => t,
         Err(e) => return Some(Err(e)),
     };
-    if aty1 != inner && !matches!(inner, Type::Any) {
+    if fn_elem {
+        crate::check::face_slots::record_elem_store(checker, &inner, &aty1);
+    }
+    let fn_admits =
+        fn_elem && (aty1 == Type::Any || crate::check_assignable::is_assignable_to(&inner, &aty1));
+    if aty1 != inner && !matches!(inner, Type::Any) && !fn_admits {
         return Some(Err(format!(
             "Array.with arg 1 (value) must match elem type {:?}, got {aty1:?}",
             inner

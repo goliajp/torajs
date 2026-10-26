@@ -120,9 +120,17 @@ pub(crate) fn record_arrlit_stores(
     if key_of(elem).is_none() {
         return;
     }
-    for el in els {
-        if let Some(value_ty) = checker.expr_types.get(el).cloned() {
-            record_elem_store(checker, elem, &value_ty);
-        }
+    for &el in els {
+        // a spread hands over the elements of its source
+        let (src, spread) = match ast.get_expr(el) {
+            Expr::Spread { expr } => (*expr, true),
+            _ => (el, false),
+        };
+        let value_ty = match checker.expr_types.get(&src).cloned() {
+            Some(Type::Array(t)) if spread => *t,
+            Some(t) if !spread || t == Type::Any => t,
+            _ => continue,
+        };
+        record_elem_store(checker, elem, &value_ty);
     }
 }
