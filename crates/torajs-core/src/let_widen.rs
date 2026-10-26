@@ -132,11 +132,13 @@ enum Binding {
     },
     /// An annotated mutable `let`: an array literal holding an `any`
     /// element stored into it later keeps the dynamic layout when the
-    /// annotation resolves to a struct array
-    /// (`check_stmt_let_decl::any_layout_slot` decides on the resolved
-    /// type; for any other annotation the mark changes nothing), and
-    /// the binding has to hold it from its declaration.
-    LayoutArr { init: ExprId },
+    /// annotation resolves to a struct array, and an `any` value stored
+    /// into it later is held as it is when the annotation resolves to a
+    /// scalar or an object type (`check_stmt_let_decl::any_layout_slot`
+    /// decides on the resolved type; for any other annotation the mark
+    /// changes nothing): the binding has to hold either from its
+    /// declaration.
+    Annotated { init: ExprId },
     /// An unannotated `const`: never reassigned, but an array it holds
     /// may be pushed a value of any kind (`push`).
     Fixed { init: ExprId },
@@ -219,7 +221,7 @@ impl Walker<'_> {
             self.out.insert(init);
         }
         let binding = if mutable && ann.is_some() {
-            Binding::LayoutArr { init }
+            Binding::Annotated { init }
         } else if mutable && ann.is_none() {
             let family = classify(self.ast, init).or_else(|| {
                 // A generator-factory call initializes a `__Gen_*`
@@ -271,11 +273,11 @@ impl Walker<'_> {
         // (const, annotated, param) is never widened
         let (init, family) = match self.scopes.iter().rev().find_map(|s| s.get(name).cloned()) {
             Some(Binding::Tracked { init, family }) => (init, family),
-            Some(Binding::LayoutArr { init }) => {
+            Some(Binding::Annotated { init }) => {
                 if let Some(types) = self.types
-                    && crate::check_stmt_let_decl::any_layout_slot::has_dynamic_elem(
+                    && (crate::check_stmt_let_decl::any_layout_slot::has_dynamic_elem(
                         value, self.ast, types,
-                    )
+                    ) || types.get(&value) == Some(&Type::Any))
                 {
                     self.out.insert(init);
                 }

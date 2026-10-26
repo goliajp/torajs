@@ -101,29 +101,61 @@ pub(crate) fn cast_face(ty: &T, init: ExprId, ast: &Ast, types: &HashMap<ExprId,
 }
 
 /// Whether a binding of checker type `ty` annotated `ann` holds the
-/// `any` value `init` reads (`super::held_any`).
+/// `any` value `init` reads, or one a later assignment stores into it
+/// (`widened`) (`super::held_any`).
 pub(crate) fn holds_any(
     ty: &T,
-    ann: Option<&str>,
-    init: ExprId,
+    (ann, init): (Option<&str>, ExprId),
     ast: &Ast,
     types: &HashMap<ExprId, T>,
+    widened: bool,
 ) -> bool {
     let inner = match ty {
         T::Nullable(t) => t,
         t => t,
     };
-    matches!(inner, T::Struct(_) | T::ClassRef(_)) && held_read(ann, init, ast, types)
+    matches!(inner, T::Struct(_) | T::ClassRef(_)) && held_read(ann, init, (ast, types), widened)
 }
 
-/// [`any_read`] into a binding annotated `ann` with anything but a
-/// class: the binding holds the box (`super::held_any`), which the
-/// checker and the lowering both read off this one spelling.
-fn held_read(ann: Option<&str>, init: ExprId, ast: &Ast, types: &HashMap<ExprId, T>) -> bool {
+/// [`any_read`] or [`any_call`] into a binding annotated `ann` with
+/// anything but a class, or an `any` value assigned to it later
+/// (`widened`): the binding holds the box (`super::held_any`), which the
+/// checker and the lowering both read off this one spelling. The
+/// annotation converts nothing (§14.3.1.2, §13.15.2).
+fn held_read(
+    ann: Option<&str>,
+    init: ExprId,
+    (ast, types): (&Ast, &HashMap<ExprId, T>),
+    widened: bool,
+) -> bool {
     let Some(ann) = ann else { return false };
     let base = crate::check_type_ann::strip_nullable(ann);
     let base = base.split('<').next().unwrap_or(base).trim();
-    !ast.class_parents.contains_key(base) && any_read(init, ast, types)
+    !ast.class_parents.contains_key(base)
+        && (widened || any_read(init, ast, types) || any_call(init, ast, types))
+}
+
+/// Whether `init` is a call answering an `any` value other than the two
+/// whose typed lanes decode into the declared layout (`JSON.parse`,
+/// `Object.fromEntries`): a function returning `any` hands its value
+/// back as it is.
+fn any_call(init: ExprId, ast: &Ast, types: &HashMap<ExprId, T>) -> bool {
+    let Expr::Call { callee, .. } = ast.get_expr(init) else {
+        return false;
+    };
+    let decoder = match ast.get_expr(*callee) {
+        Expr::Member { obj, name } => {
+            matches!(
+                (ast.get_expr(*obj), name.as_str()),
+                (Expr::Ident(ns), "parse") if ns == "JSON"
+            ) || matches!(
+                (ast.get_expr(*obj), name.as_str()),
+                (Expr::Ident(ns), "fromEntries") if ns == "Object"
+            )
+        }
+        _ => false,
+    };
+    types.get(&init) == Some(&T::Any) && !decoder
 }
 
 /// The lowering mirror of [`checker_face`], [`cast_face`],
@@ -138,7 +170,7 @@ pub(crate) fn value_repr(
     arr_layouts: &mut crate::ssa::ArrLayouts,
 ) -> Option<Type> {
     if matches!(slot, Type::Obj(_))
-        && (any_cast(init, ast, types) || held_read(ann, init, ast, types))
+        && (any_cast(init, ast, types) || held_read(ann, init, (ast, types), widened))
     {
         return Some(Type::Any);
     }

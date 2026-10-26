@@ -120,10 +120,10 @@ pub(crate) fn check(
     }
     let held_any = any_layout_slot::holds_any(
         &final_ty,
-        type_ann.as_deref(),
-        init,
+        (type_ann.as_deref(), init),
         ast,
         &checker.expr_types,
+        checker.cross_type_widened.contains(&init),
     );
     if held_any && checker.scopes.len() == 1 {
         checker.held_any.globals.insert(name.to_string());

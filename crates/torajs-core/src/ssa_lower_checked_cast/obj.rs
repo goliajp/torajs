@@ -38,7 +38,13 @@ impl LowerCtx<'_> {
     /// the program wrote ([`Self::written_ret_ann`]); the value's own
     /// stake goes.
     pub(crate) fn cast_returned_obj(&mut self, op: Operand) -> Option<Operand> {
-        let (Type::Obj(sid), Some(ann)) = (self.f.ret, self.written_ret_ann()) else {
+        // a callback whose context seeded its return hands the value to
+        // a caller that reads it at the seeded layout: copied into it,
+        // since that caller has no lane for a value of any kind
+        let seeded = (self.ast.contextual_ret_fns.contains(&self.f.name))
+            .then(|| self.ret_ann.clone())
+            .flatten();
+        let (Type::Obj(sid), Some(ann)) = (self.f.ret, self.written_ret_ann().or(seeded)) else {
             return None;
         };
         let v = self.checked_cast_obj(op, sid, &ann, CastSlot::Return)?;
