@@ -2,6 +2,8 @@
 //! Mach-O byte stream including user fns + member text/data
 //! payloads + chained-fixups + ad-hoc codesign blob.
 
+use std::borrow::Cow;
+
 use crate::archive_emit_lc_meta::compute_emit_lc_meta;
 use crate::archive_emit_lcs::{write_header_and_load_commands, write_symtab_and_strtab};
 use crate::archive_emit_members::MemberText;
@@ -11,9 +13,8 @@ use crate::chained_fixups_call::recompute_chained_fixups_with_data_rebase;
 use crate::class_name_table_layout::build_class_name_table_payload;
 use crate::data_section_emit::DataAt;
 use crate::data_section_layout::DataSectionLayout;
-use crate::dead_strip_config::dead_strip_prepass;
+use crate::dead_strip_config::{Retired, Stripped, detach_image, strip_inputs};
 use crate::dead_strip_reach_cache::ReachCache;
-use crate::dead_strip_repack::{DeadRows, StrippedMembers, install_cuts};
 use crate::defined_extern_resolve::{effective_syms, link_defined_syms};
 use crate::dyld_emit::{write_la_ptr_section, write_stubs_section};
 use crate::exec::LinkConfig;
@@ -32,16 +33,17 @@ use crate::user_vtables_layout::build_user_vtables_payload;
 /// relocs both resolve against one effective sym table (caller
 /// externs + every member defined-external + dyld stub vaddrs).
 pub fn link_to_exec_with_archives(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLayoutError> {
-    link(cfg, Release::Free)
+    link(Cow::Borrowed(cfg), Release::Free)
 }
 
 /// [`link_to_exec_with_archives`] for a process that exits once the
 /// bytes are written: the link's working state (the merged index, the
 /// member parses, the layout, the payloads) is left to the exit
 /// instead of being freed piece by piece, as clang's driver does with
-/// `-disable-free`.
-pub fn link_to_exec_for_exit(cfg: &LinkConfig) -> Result<Vec<u8>, ArchiveLayoutError> {
-    link(cfg, Release::AtExit)
+/// `-disable-free`. The config is taken so the dead-strip pre-pass
+/// can rewrite it in place instead of copying the parts it keeps.
+pub fn link_to_exec_for_exit(cfg: LinkConfig) -> Result<Vec<u8>, ArchiveLayoutError> {
+    link(Cow::Owned(cfg), Release::AtExit)
 }
 
 #[derive(PartialEq)]
@@ -50,33 +52,22 @@ enum Release {
     AtExit,
 }
 
-fn link(cfg: &LinkConfig, release: Release) -> Result<Vec<u8>, ArchiveLayoutError> {
+fn link(mut cfg: Cow<'_, LinkConfig>, release: Release) -> Result<Vec<u8>, ArchiveLayoutError> {
     // Read the image once: the dead-strip pre-pass walks it and
     // installs its cuts into it, and layout and emit share it.
     let mut t = PhaseTimer::start(1);
-    let merged = merge_archive_indexes(&cfg.image).map_err(ArchiveLayoutError::Merge)?;
+    let image = detach_image(&mut cfg);
+    let merged = merge_archive_indexes(&image).map_err(ArchiveLayoutError::Merge)?;
     t.tick("merge_archive_indexes");
     // one parse per member body for every closure walk of this link
     let mut cache = ReachCache::default();
-    let (stripped_cfg, dead_rows, stripped_members) =
-        match dead_strip_prepass(cfg, &merged, &mut cache)? {
-            Some((c, dead, members)) => (Some(c), dead, members),
-            None => (None, DeadRows::new(), StrippedMembers::new()),
-        };
-    t.tick("dead_strip_prepass");
-    install_cuts(&merged, stripped_members)?;
-    t.tick("install_cuts");
-    let cfg = stripped_cfg.as_ref().unwrap_or(cfg);
-
-    // r499 — with the archives stripped, a forced table global whose
-    // readers all died drops, and an empty `__DATA_CONST` with it
-    // (module doc in force_emit_derive).
-    let (derived_cfg, required) = match &stripped_cfg {
-        Some(c) => crate::force_emit_derive::derive_force_emit(c, &merged, &mut cache)?,
-        None => (None, None),
-    };
-    let cfg = derived_cfg.as_ref().unwrap_or(cfg);
-    t.tick("derive_force_emit");
+    let mut retired = Retired::default();
+    let Stripped {
+        cfg: link_cfg,
+        dead_rows,
+        required,
+    } = strip_inputs(cfg, &merged, &mut cache, &mut retired, &mut t)?;
+    let cfg = &*link_cfg;
     let mut layout = crate::archive_link::compute_archive_layout_with_required(
         cfg, &merged, &dead_rows, required, &mut cache,
     )?;
@@ -172,7 +163,7 @@ fn link(cfg: &LinkConfig, release: Release) -> Result<Vec<u8>, ArchiveLayoutErro
     if release == Release::AtExit {
         std::mem::forget(effective_sym_table);
         std::mem::forget((merged, cache, layout, resolved, member_syms, link_defined));
-        std::mem::forget((stripped_cfg, derived_cfg, dead_rows));
+        std::mem::forget((dead_rows, link_cfg, image, retired));
     }
     Ok(bytes)
 }

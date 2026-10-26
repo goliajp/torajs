@@ -27,6 +27,7 @@ use std::collections::BTreeSet;
 
 use crate::archive_link_extra_syms::collect_extra_defined_syms;
 use crate::archives_merge::{MergedArchives, RequiredMembers, compute_required_members_cached};
+use crate::dead_strip_config::Retired;
 use crate::dead_strip_reach_cache::ReachCache;
 use crate::dead_strip_reach_table::ImportRef;
 use crate::exec::LinkConfig;
@@ -44,17 +45,19 @@ const CLASS_NAMES_SYMS: [&str; 2] = ["___torajs_class_name_table", "___torajs_n_
 /// structmeta, the cycle collector), so with every reader stripped
 /// the rows are a `__DATA_CONST` page nobody will open (a program with
 /// one named closure carried a one-row fn-name table and, through it,
-/// a 16 KiB segment). `None` when nothing changes. Also answers the
-/// member closure it walked when that is also the closure of the
-/// config the caller links next (the derived one, or `cfg`).
+/// a 16 KiB segment). `cfg` is narrowed in place, the emptied tables
+/// going to `retired`. Answers the member
+/// closure it walked when that is also the closure of the narrowed
+/// `cfg`.
 pub(crate) fn derive_force_emit<'a>(
-    cfg: &LinkConfig,
+    cfg: &mut LinkConfig,
     merged: &MergedArchives<'a>,
     cache: &mut ReachCache<'a>,
-) -> Result<(Option<LinkConfig>, Option<RequiredMembers>), ArchiveLayoutError> {
+    retired: &mut Retired,
+) -> Result<Option<RequiredMembers>, ArchiveLayoutError> {
     let set = table_state(cfg);
     if set == (false, false, false) {
-        return Ok((None, None));
+        return Ok(None);
     }
     let extra = collect_extra_defined_syms(cfg);
     let required = compute_required_members_cached(&cfg.funcs, merged, &extra, cache)
@@ -94,25 +97,23 @@ pub(crate) fn derive_force_emit<'a>(
     }
     let keep = derive_flags(set, &undefs);
     if keep == set {
-        return Ok((None, Some(required)));
+        return Ok(Some(required));
     }
-    let mut out = cfg.clone();
     if !keep.0 {
-        out.force_emit_class_layouts_globals = false;
-        out.class_layouts.clear();
+        cfg.force_emit_class_layouts_globals = false;
+        (retired.class_layouts).push(std::mem::take(&mut cfg.class_layouts));
     }
     if !keep.1 {
-        out.force_emit_fn_name_globals = false;
-        out.fn_name_globals.clear();
+        cfg.force_emit_fn_name_globals = false;
+        (retired.fn_name_globals).push(std::mem::take(&mut cfg.fn_name_globals));
     }
     if !keep.2 {
-        out.force_emit_class_names_globals = false;
-        out.class_names.clear();
+        cfg.force_emit_class_names_globals = false;
+        (retired.class_names).push(std::mem::take(&mut cfg.class_names));
     }
     // the fns are the same; the closure is too unless the dropped
     // tables changed the link-defined names it skips
-    let required = (collect_extra_defined_syms(&out) == extra).then_some(required);
-    Ok((Some(out), required))
+    Ok((collect_extra_defined_syms(cfg) == extra).then_some(required))
 }
 
 /// Which of the three tables the config would emit at all (forced or

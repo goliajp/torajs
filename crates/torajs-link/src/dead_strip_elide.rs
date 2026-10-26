@@ -70,7 +70,7 @@ use torajs_codegen::frame::FrameLayout;
 use crate::archives_merge::{ExtraDefined, MergedArchives, compute_required_members_cached};
 use crate::dead_strip_elide_columns::{Columns, columns_present};
 use crate::dead_strip_elide_guard::{GuardIndex, guard_live};
-use crate::dead_strip_elide_work::{Assumed, assume};
+use crate::dead_strip_elide_work::{Assumed, Working};
 use crate::dead_strip_reach::{ReachResult, compute_reachability};
 use crate::dead_strip_reach_cache::ReachCache;
 use crate::exec::LinkConfig;
@@ -186,16 +186,17 @@ pub(crate) fn judge_and_patch<'a>(
     // rooted) — and a page-line away from costing a whole page.
     let mut referenced: Vec<bool> = vec![true; cfg.guarded_stubs.len()];
     let mut t = PhaseTimer::start(3);
+    let mut work = Working::new(cfg);
     let last = loop {
-        let assumed = assume(cfg, &elided, &applied, dropped, diag)?;
+        work.assume(cfg, &elided, &applied, dropped, diag)?;
         t.tick("elide_assume");
         let required =
-            compute_required_members_cached(&assumed.funcs, merged, extra_defined_syms, cache)
+            compute_required_members_cached(&work.funcs, merged, extra_defined_syms, cache)
                 .map_err(|e| format!("member closure (elide probe): {e:?}"))?;
         t.tick("elide_required");
         // preds only under diag — `explain_live` walks them.
         let reach = compute_reachability(
-            &assumed.funcs,
+            &work.funcs,
             merged,
             &required,
             extra_defined_syms,
@@ -224,7 +225,7 @@ pub(crate) fn judge_and_patch<'a>(
             // (`user_refs`) or by a user fn's own reloc — the closure
             // env-drop legs (A5) are called from synthesized user fns
             // and never appear in a member's undef table.
-            let fn_named = user_fn_reloc_names(&assumed.funcs);
+            let fn_named = user_fn_reloc_names(&work.funcs);
             for (i, stub) in cfg.guarded_stubs.iter().enumerate() {
                 referenced[i] = !applied[i]
                     || reach.user_refs.contains(&stub.sym)
@@ -233,14 +234,12 @@ pub(crate) fn judge_and_patch<'a>(
             break reach;
         }
     };
-    // the last probe assumed exactly the final shape unless an applied
-    // stub drops out below; with diag its closure also carries preds
-    let last = (!diag && !applied.iter().zip(&referenced).any(|(a, r)| *a && !*r)).then_some(last);
-    let shadow: Vec<bool> = applied
-        .iter()
-        .zip(&referenced)
+    let shadow: Vec<bool> = (applied.iter().zip(&referenced))
         .map(|(a, r)| *a && !*r)
         .collect();
+    // the last probe assumed exactly the final shape unless an applied
+    // stub drops out below; with diag its closure also carries preds
+    let last = (!diag && !shadow.contains(&true)).then_some(last);
     for (a, r) in applied.iter_mut().zip(&referenced) {
         *a = *a && *r;
     }
@@ -255,7 +254,7 @@ pub(crate) fn judge_and_patch<'a>(
     {
         return Ok(None);
     }
-    let mut assumed = assume(cfg, &elided, &applied, dropped, false)?;
+    let mut assumed = work.finish(cfg, &elided, &applied, dropped)?;
     // An unreferenced stub stays as an empty user fn — no bytes, no
     // symtab row — so its name still shadows the archive copy in the
     // member closure. The closure is symbol-level: dead atoms of a
@@ -357,6 +356,15 @@ mod tests {
     use super::*;
     use torajs_codegen::reloc::{CallTarget, Reloc, RelocKind};
 
+    fn assume(
+        cfg: &LinkConfig,
+        elided: &[bool],
+        applied: &[bool],
+        dropped: Columns,
+    ) -> Result<Assumed, String> {
+        Working::new(cfg).finish(cfg, elided, applied, dropped)
+    }
+
     const NOP: u32 = 0xD503_201F;
 
     fn fn_with_bl(name: &str, callee: &str) -> CompiledFunction {
@@ -455,14 +463,12 @@ mod tests {
             vec![fn_with_bl("_main_user", "___torajs_drain")],
             vec![site("_main_user", 4)],
         );
-        let kept = assume(&cfg, &[false], &[false], Columns::NONE, false)
+        let kept = assume(&cfg, &[false], &[false], Columns::NONE)
             .unwrap()
             .funcs;
         assert_eq!(kept.len(), 1);
         assert_eq!(kept[0].relocs.len(), 1);
-        let taken = assume(&cfg, &[true], &[true], Columns::NONE, false)
-            .unwrap()
-            .funcs;
+        let taken = assume(&cfg, &[true], &[true], Columns::NONE).unwrap().funcs;
         assert_eq!(taken.len(), 2);
         assert!(taken[0].relocs.is_empty());
         assert_eq!(taken[1].name, "___torajs_hook");
@@ -486,14 +492,14 @@ mod tests {
             },
         };
         let cfg = cfg_with(funcs, vec![mint]);
-        let kept = assume(&cfg, &[false], &[false], Columns::NONE, false)
+        let kept = assume(&cfg, &[false], &[false], Columns::NONE)
             .unwrap()
             .funcs;
         assert!(
             !kept[1].bytes.is_empty(),
             "adapter stays while its mint does"
         );
-        let taken = assume(&cfg, &[true], &[false], Columns::NONE, false)
+        let taken = assume(&cfg, &[true], &[false], Columns::NONE)
             .unwrap()
             .funcs;
         // movz x9, #0 ; nop — relocs gone, adapter emptied.
@@ -502,6 +508,14 @@ mod tests {
         assert!(taken[0].relocs.is_empty());
         assert!(taken[1].bytes.is_empty(), "no mint left → adapter stripped");
         assert!(taken[1].relocs.is_empty());
+
+        // one working list through every shape reads as a fresh copy
+        let mut work = Working::new(&cfg);
+        for (e, a) in [(true, true), (false, false), (true, false), (false, true)] {
+            work.assume(&cfg, &[e], &[a], Columns::NONE, false).unwrap();
+            let fresh = assume(&cfg, &[e], &[a], Columns::NONE).unwrap();
+            assert_eq!(format!("{:?}", work.funcs), format!("{:?}", fresh.funcs));
+        }
     }
 
     #[test]
@@ -516,14 +530,14 @@ mod tests {
         };
         let prologue = fn_with_bl("__cprologue", "___torajs_dynobj_alloc");
         let cfg = cfg_with(vec![main, prologue], vec![site("_main_user", 4)]);
-        let kept = assume(&cfg, &[false], &[false], Columns::NONE, false)
+        let kept = assume(&cfg, &[false], &[false], Columns::NONE)
             .unwrap()
             .funcs;
         assert!(
             !kept[1].bytes.is_empty(),
             "the prologue stays while its call does"
         );
-        let taken = assume(&cfg, &[true], &[false], Columns::NONE, false)
+        let taken = assume(&cfg, &[true], &[false], Columns::NONE)
             .unwrap()
             .funcs;
         assert_eq!(&taken[0].bytes[4..], &NOP.to_le_bytes());
@@ -568,7 +582,7 @@ mod tests {
                 adapter: true
             }
         );
-        let kept = assume(&cfg, &[], &[], Columns::NONE, false).unwrap();
+        let kept = assume(&cfg, &[], &[], Columns::NONE).unwrap();
         assert!(kept.class_layouts.is_none());
         assert!(!kept.funcs[2].bytes.is_empty(), "the row roots the twin");
         let dropped = assume(
@@ -579,7 +593,6 @@ mod tests {
                 twin: true,
                 adapter: false,
             },
-            false,
         )
         .unwrap();
         let layouts = dropped.class_layouts.expect("column rewritten");
@@ -605,7 +618,6 @@ mod tests {
                 twin: true,
                 adapter: true,
             },
-            false,
         )
         .unwrap();
         let layouts = both.class_layouts.expect("columns rewritten");

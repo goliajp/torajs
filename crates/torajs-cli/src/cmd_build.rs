@@ -99,7 +99,7 @@ pub(crate) fn run(args: &[String]) -> ExitCode {
     let cfg = build_link_config(&ssa_module, true, !no_strip);
     t.tick("build_link_config");
 
-    let bytes = match link_to_exec_for_exit(&cfg) {
+    let bytes = match link_to_exec_for_exit(cfg) {
         Ok(b) => b,
         Err(e) => {
             eprintln!("link error: {e:?}");
@@ -129,7 +129,7 @@ pub(crate) fn run(args: &[String]) -> ExitCode {
         }
     }
 
-    std::mem::forget((ssa_module, cfg, bytes)); // the process exits next
+    std::mem::forget((ssa_module, bytes)); // the process exits next
     ExitCode::SUCCESS
 }
 

@@ -12,27 +12,29 @@ const NOP: u32 = 0xD503_201F;
 /// `movz Xd, #0` with `Rd` in the low five bits.
 const MOVZ_X_ZERO: u32 = 0xD280_0000;
 
-/// Rewrite `site` in `funcs`. A missing fn, reloc, or an instruction
-/// word of the wrong shape is a caller contract violation — loud,
-/// never skipped.
+/// Rewrite `site` in `funcs`; answers the index of the fn it
+/// rewrote. A missing fn, reloc, or an instruction word of the wrong
+/// shape is a caller contract violation — loud, never skipped.
 pub(crate) fn patch_site(
     funcs: &mut [CompiledFunction],
     site: &ElidableSite,
-) -> Result<(), String> {
-    let f = funcs
-        .iter_mut()
-        .find(|f| f.name == site.func)
+) -> Result<usize, String> {
+    let i = funcs
+        .iter()
+        .position(|f| f.name == site.func)
         .ok_or_else(|| format!("elidable site: no fn named {}", site.func))?;
+    let f = &mut funcs[i];
     match &site.shape {
         SiteShape::Call {
             byte_offset,
             replacement,
-        } => patch_call(f, *byte_offset, *replacement),
+        } => patch_call(f, *byte_offset, *replacement)?,
         SiteShape::FnAddr {
             adrp_offset,
             target,
-        } => patch_fn_addr(f, *adrp_offset, target),
+        } => patch_fn_addr(f, *adrp_offset, target)?,
     }
+    Ok(i)
 }
 
 /// Does assuming `site` drop a reference to a user fn — a fn-address
