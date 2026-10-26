@@ -71,9 +71,7 @@ pub(crate) mod test_fixtures;
 #[cfg(test)]
 mod throw_reg_tests;
 
-use torajs_core::ssa::id_hash::HashMap;
-
-use torajs_core::ssa::{Block, Function};
+use torajs_core::ssa::{Block, Function, id_hash::HashMap};
 
 use throw_reg::Role;
 
@@ -83,7 +81,6 @@ use crate::regalloc::Assignment;
 use crate::reloc::Reloc;
 use entry::open_frame;
 use inst::emit_inst_at;
-use loop_ranges::loop_ranges;
 use terminator::{BranchFixup, BranchKind, Fixups, emit_terminator};
 
 pub use binop::{emit_binop, emit_ctpop, emit_cttz, emit_neg};
@@ -177,12 +174,8 @@ pub fn compile_function_with(
     in_module::compile_with_role(func, alloc, facts, Default::default()).0
 }
 
-/// A function's emitted code, its relocations and its loop byte ranges.
-type EmittedBody = (Vec<u8>, Vec<Reloc>, Vec<(u32, u32)>);
-
 /// The function's code, relocations and loop byte ranges; None when a
-/// branch landed out of its reach (a bit test, or a conditional branch
-/// `far` left short).
+/// branch landed out of its reach (a bit test, or `far` left short).
 fn emit_body(
     func: &Function,
     alloc: &Assignment,
@@ -190,7 +183,7 @@ fn emit_body(
     frame: &FrameLayout,
     (role, pin): (Role, pin_reg::PinRole),
     (bit_tests, far): (bool, bool),
-) -> Option<EmittedBody> {
+) -> Option<loop_ranges::EmittedBody> {
     let mut bytes: Vec<u8> = Vec::new();
     let mut relocs: Vec<Reloc> = Vec::new();
     let mut fixups = Fixups::new(far);
@@ -287,10 +280,7 @@ fn emit_body(
     }
 
     let patched = terminator::patch_all(&mut bytes, &fixups, &landing, &block_byte_starts);
-    patched.then(|| {
-        let loops = loop_ranges(func, &block_byte_starts, bytes.len() as u32);
-        (bytes, relocs, loops)
-    })
+    patched.then(|| loop_ranges::emitted(func, bytes, relocs, &block_byte_starts))
 }
 
 /// The instructions of `block` ahead of `end` (a sibling call, or the
