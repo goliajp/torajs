@@ -11,6 +11,9 @@ use super::super::desugar_async_sm::{expr_has_await, stmt_has_await};
 use super::super::{Ast, BinOp, Expr, ExprId, Stmt, UnaryOp};
 use super::{Cx, lift_root, rewrite_list, rewrite_stmt, with_prefix};
 use crate::ast::desugar_async_sm_lift::LiftLog;
+use crate::ast::nested_fns_idents::{rewrite_idents_in_expr, rewrite_idents_in_stmt};
+use crate::ast::tdz_reads;
+use std::collections::{HashMap, HashSet};
 
 /// `if (!cond) break;`, its awaits rewritten.
 fn exit_unless(ast: &mut Ast, cond: ExprId, cx: &Cx, log: &mut LiftLog) -> Option<Stmt> {
@@ -59,7 +62,9 @@ fn first_pass(ast: &mut Ast, tag: &str, later: Stmt) -> (Stmt, Stmt) {
 /// increment). An await in `init`, which runs once, lifts ahead of the
 /// loop: a `let` / `const` init keeps its binding in the loop's scope
 /// and reads the lifted value; an expression or `var` init moves out
-/// whole.
+/// whole, and so does a lexical init of several declarations (a
+/// destructuring one is several too), under fresh names the loop's
+/// bindings copy ([`declarations_ahead`]).
 pub(super) fn rewrite_for(ast: &mut Ast, s: &mut Stmt, cx: &Cx, log: &mut LiftLog) -> bool {
     let Stmt::For {
         init,
@@ -74,16 +79,20 @@ pub(super) fn rewrite_for(ast: &mut Ast, s: &mut Stmt, cx: &Cx, log: &mut LiftLo
         return false;
     }
     let mut prefix = Vec::new();
-    if init.as_deref().is_some_and(|i| stmt_has_await(ast, i)) {
+    let several = matches!(init.as_deref(), Some(Stmt::Multi(ds))
+        if ds.iter().any(|d| matches!(d, Stmt::LetDecl { is_var: false, .. })));
+    if several && init.as_deref().is_some_and(|i| stmt_has_await(ast, i)) {
+        let Some(ahead) = declarations_ahead(ast, init, cx, log) else {
+            return false;
+        };
+        prefix = ahead;
+    } else if init.as_deref().is_some_and(|i| stmt_has_await(ast, i)) {
         let lexical = match init.as_deref() {
             Some(Stmt::LetDecl {
                 init: e,
                 is_var: false,
                 ..
             }) => Some(*e),
-            // two declarators: the second's await would run before the
-            // first's initializer
-            Some(Stmt::Multi(_)) => return false,
             _ => None,
         };
         if let Some(e) = lexical {
@@ -130,6 +139,114 @@ pub(super) fn rewrite_for(ast: &mut Ast, s: &mut Stmt, cx: &Cx, log: &mut LiftLo
     }
     with_prefix(s, prefix);
     true
+}
+
+/// `for (let a = i1, b = await i2; …)` becomes `let a' = i1; let b' =
+/// await i2'; for (let a = a', b = b'; …)`: the declarations run once
+/// ahead of the loop, in order, with their awaits rewritten, under
+/// fresh names (`i2'` reads `a'` wherever `i2` read `a`), and the
+/// loop's own bindings (the ones CreatePerIterationEnvironment copies,
+/// §14.7.4.4) start from their values. A closure an initializer made
+/// captures the binding ahead, which nothing writes after the copy, as
+/// the spec's captures the loop environment before the first
+/// iteration. Answers the statements ahead, leaving the copies as the
+/// loop's init; `None` when a declaration does not rewrite.
+fn declarations_ahead(
+    ast: &mut Ast,
+    init: &mut Option<Box<Stmt>>,
+    cx: &Cx,
+    log: &mut LiftLog,
+) -> Option<Vec<Stmt>> {
+    let Some(Stmt::Multi(mut decls)) = init.as_deref().cloned() else {
+        unreachable!("a lexical init of several declarations")
+    };
+    // every name the init declares is renamed before any initializer
+    // is: a closure reads a later one when called, a direct read of it
+    // stays one in the temporal dead zone, never a read of an outer one
+    let mut fresh: HashMap<String, String> = HashMap::new();
+    let mut reads = Vec::new();
+    for d in &decls {
+        match d {
+            Stmt::LetDecl {
+                name,
+                is_var: false,
+                ..
+            } => {
+                let read = ast.add_expr(Expr::Ident(String::new()));
+                let ahead = format!("__awd_{}", read.0);
+                ast.exprs[read.0 as usize] = Expr::Ident(ahead.clone());
+                fresh.insert(name.clone(), ahead);
+                reads.push(read);
+            }
+            // a `yield` in an initializer, hoisted to a declaration
+            Stmt::YieldInto { var, value, .. } => {
+                fresh.insert(var.clone(), format!("__awd_{}", value.0));
+            }
+            _ => {}
+        }
+    }
+    // a direct read of a name declared at or after its own position
+    // raises (§14.7.4.2 step 1 makes them all, uninitialized, first);
+    // under its fresh name the read is one the dead-zone rule no longer
+    // sees, so it is marked here
+    let mut later: Vec<&str> = Vec::new();
+    for d in decls.iter().rev() {
+        if let Stmt::LetDecl {
+            name,
+            is_var: false,
+            ..
+        } = d
+        {
+            later.push(name.as_str());
+        }
+        let names: HashSet<&str> = later.iter().copied().collect();
+        // the reads `d` makes itself, not a function written in it; a
+        // mark the log does not undo: a body given up keeps these reads
+        // under their own names, where they raise all the same
+        let mut dead = HashSet::new();
+        tdz_reads::mark_stmt(ast, d, &names, &HashSet::new(), &mut dead);
+        ast.tdz_reads.extend(dead);
+    }
+    let before = LiftLog::reads_of(ast, &fresh);
+    let mut copies = Vec::new();
+    let mut reads = reads.into_iter();
+    for d in &mut decls {
+        match d {
+            Stmt::LetDecl {
+                mutable,
+                name,
+                type_ann,
+                init: value,
+                is_var: false,
+            } => {
+                rewrite_idents_in_expr(ast, *value, &fresh, true);
+                let ahead = fresh[name.as_str()].clone();
+                let Some(read) = reads.next() else {
+                    unreachable!("one read per declaration")
+                };
+                copies.push(Stmt::LetDecl {
+                    mutable: *mutable,
+                    name: std::mem::replace(name, ahead),
+                    type_ann: type_ann.clone(),
+                    init: read,
+                    is_var: false,
+                });
+            }
+            Stmt::YieldInto { var, value, .. } => {
+                rewrite_idents_in_expr(ast, *value, &fresh, true);
+                *var = fresh[var.as_str()].clone();
+            }
+            // a destructuring's checks and default branches run in
+            // their place, reading the fresh names
+            _ => rewrite_idents_in_stmt(ast, d, &fresh, true),
+        }
+    }
+    log.keep_renamed(ast, before);
+    if !rewrite_list(ast, &mut decls, cx, log) {
+        return None;
+    }
+    *init = Some(Box::new(Stmt::Multi(copies)));
+    Some(decls)
 }
 
 /// A loop head re-evaluates per iteration, so its await cannot hoist

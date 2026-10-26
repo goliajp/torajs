@@ -255,7 +255,7 @@ pub(super) fn collect_bound_names<'a>(s: &'a Stmt, out: &mut HashSet<&'a str>) {
     }
 }
 
-fn mark_stmt(
+pub(super) fn mark_stmt(
     ast: &Ast,
     s: &Stmt,
     wanted: &HashSet<&str>,

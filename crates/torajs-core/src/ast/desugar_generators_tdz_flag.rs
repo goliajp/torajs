@@ -57,7 +57,7 @@ fn flag_list(
         else {
             continue;
         };
-        if name.starts_with("__") {
+        if name.starts_with("__") && !name.starts_with("__awd_") {
             continue;
         }
         let name = name.clone();

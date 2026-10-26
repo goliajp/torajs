@@ -50,7 +50,7 @@
 //! every mutation is therefore logged in a [`LiftLog`] the caller
 //! replays backwards when it gives the body up.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 mod guarded;
 mod paren_callee;
@@ -72,6 +72,27 @@ pub(super) struct LiftLog {
 }
 
 impl LiftLog {
+    /// Every read of `names` as it is now, ahead of a rename of them in
+    /// place, for [`Self::keep_renamed`].
+    pub(super) fn reads_of(ast: &Ast, names: &HashMap<String, String>) -> Vec<(ExprId, String)> {
+        let reads = ast.exprs.iter().enumerate();
+        reads
+            .filter_map(|(i, e)| match e {
+                Expr::Ident(n) if names.contains_key(n) => Some((ExprId(i as u32), n.clone())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Keep the reads of `before` the rename changed, for it to be undone.
+    pub(super) fn keep_renamed(&mut self, ast: &Ast, before: Vec<(ExprId, String)>) {
+        for (eid, n) in before {
+            if !matches!(ast.get_expr(eid), Expr::Ident(m) if *m == n) {
+                self.exprs.push((eid, Expr::Ident(n)));
+            }
+        }
+    }
+
     pub(super) fn undo(self, ast: &mut Ast) {
         for (eid, e) in self.exprs.into_iter().rev() {
             ast.exprs[eid.0 as usize] = e;
