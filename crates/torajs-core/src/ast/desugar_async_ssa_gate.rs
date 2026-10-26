@@ -27,9 +27,11 @@
 //!   parameters on entry, before the first await, and an async
 //!   function is never a constructor, so its `new.target` is
 //!   undefined wherever it is read);
-//! - no parameter is a synthesized `__` one, and it is no generator,
-//!   no async generator and not generic (a specialized copy of a
-//!   generic body is minted later under another name).
+//! - it is no generator, no async generator and not generic (a
+//!   specialized copy of a generic body is minted later under another
+//!   name). A parameter the parser synthesized (a destructuring
+//!   pattern's `__destr_src_N`, an injected helper's `__`-spelled ones)
+//!   is a parameter of the frame like any other.
 //!
 //! The module body moves by the same rules; its awaits, `for await`
 //! steps included, run the jobs ahead of them in place
@@ -46,7 +48,7 @@
 //! (`nested_fns_capture::rewrite`).
 
 use super::desugar_with::walk;
-use super::{Ast, ClassMethod, Expr, ExprId, Param, Stmt, mangle_key};
+use super::{Ast, ClassMethod, Expr, ExprId, Stmt, mangle_key};
 use std::collections::{HashMap, HashSet};
 
 /// `Ast::async_ssa`: the async functions this gate moved.
@@ -79,14 +81,13 @@ pub fn mark_async_ssa_fns(ast: &mut Ast) {
             Stmt::FnDecl {
                 name,
                 type_params,
-                params,
                 body,
                 is_generator: false,
                 ..
             } if type_params.is_empty()
                 && ast.async_fns.contains(name)
                 && !ast.async_generator_fns.contains(name)
-                && moves(ast, params, body) =>
+                && moves(ast, body) =>
             {
                 for_await |= body.iter().any(stmt_for_awaits);
                 names.push(name.clone())
@@ -132,8 +133,8 @@ pub fn mark_async_ssa_fns(ast: &mut Ast) {
     let mut values: Vec<ExprId> = ast.async_fn_value_exprs.iter().copied().collect();
     values.sort_by_key(|e| e.0);
     for eid in values {
-        if let Expr::ArrowFn { params, body, .. } = ast.get_expr(eid)
-            && moves(ast, params, body)
+        if let Expr::ArrowFn { body, .. } = ast.get_expr(eid)
+            && moves(ast, body)
         {
             for_await |= body.iter().any(stmt_for_awaits);
             ast.async_ssa.value_exprs.insert(eid);
@@ -185,7 +186,6 @@ fn visit_nested(ast: &Ast, s: &Stmt, out: &mut HashMap<String, bool>) {
     if let Stmt::FnDecl {
         name,
         type_params,
-        params,
         body,
         is_generator,
         ..
@@ -193,7 +193,7 @@ fn visit_nested(ast: &Ast, s: &Stmt, out: &mut HashMap<String, bool>) {
         && ast.async_fns.contains(name)
         && !ast.async_generator_fns.contains(name)
     {
-        let ok = !is_generator && type_params.is_empty() && moves(ast, params, body);
+        let ok = !is_generator && type_params.is_empty() && moves(ast, body);
         *out.entry(name.clone()).or_insert(true) &= ok;
     }
     if matches!(s, Stmt::FnDecl { .. } | Stmt::ClassDecl { .. }) {
@@ -225,11 +225,11 @@ fn method_moves(ast: &Ast, m: &ClassMethod) -> bool {
         && !m.is_abstract
         && m.type_params.is_empty()
         && !m.name.lossy().starts_with("__priv_")
-        && moves(ast, &m.params, &m.body)
+        && moves(ast, &m.body)
 }
 
-fn moves(ast: &Ast, params: &[Param], body: &[Stmt]) -> bool {
-    !params.iter().any(|p| p.name.starts_with("__")) && !body.iter().any(|s| stmt_blocks(ast, s))
+fn moves(ast: &Ast, body: &[Stmt]) -> bool {
+    !body.iter().any(|s| stmt_blocks(ast, s))
 }
 
 /// The body holds one of the function's own awaits, or a `for await`:
