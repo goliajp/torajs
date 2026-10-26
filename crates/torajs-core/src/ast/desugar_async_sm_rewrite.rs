@@ -10,6 +10,7 @@
 //! so the driver can tell the body's own yields from its awaits
 //! (`desugar_generators_async`).
 
+mod class_heads;
 mod loops;
 
 use super::desugar_async_sm::{await_inner, expr_has_await, stmt_has_await};
@@ -190,6 +191,7 @@ fn rewrite_stmt(ast: &mut Ast, s: &mut Stmt, cx: &Cx, log: &mut LiftLog) -> bool
         Stmt::For { .. } => loops::rewrite_for(ast, s, cx, log),
         Stmt::Switch { .. } => loops::rewrite_switch(ast, s, cx, log),
         Stmt::Labeled { .. } => loops::rewrite_labeled(ast, s, cx, log),
+        Stmt::ClassDecl { .. } => class_heads::rewrite_class(ast, s, cx, log),
         // `for (x of src)` / `for await (x of src)` — the parser hoisted a
         // non-identifier source into a `let` ahead of the loop, so an
         // await in it lifts through the LetDecl arm; the body's awaits

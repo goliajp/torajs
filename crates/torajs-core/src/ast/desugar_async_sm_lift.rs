@@ -256,6 +256,23 @@ fn hoist(
     }
 }
 
+/// Wrap the node at `eid` in `wrap(<the node, moved to a fresh id>)`,
+/// the move carrying its await-read mark along.
+pub(super) fn wrap(
+    ast: &mut Ast,
+    eid: ExprId,
+    wrap: impl FnOnce(&mut Ast, ExprId) -> Expr,
+    log: &mut LiftLog,
+) {
+    let moved = ast.add_expr(ast.get_expr(eid).clone());
+    if ast.await_value_reads.remove(&eid) {
+        ast.await_value_reads.insert(moved);
+        log.await_reads.push(eid);
+    }
+    let with = wrap(ast, moved);
+    replace(ast, eid, with, log);
+}
+
 fn replace(ast: &mut Ast, eid: ExprId, with: Expr, log: &mut LiftLog) {
     let old = std::mem::replace(&mut ast.exprs[eid.0 as usize], with);
     log.exprs.push((eid, old));
