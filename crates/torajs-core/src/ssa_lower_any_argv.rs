@@ -49,6 +49,16 @@ impl AnyArgv {
         }
     }
 
+    /// Slots stored by a caller that lowered them first, the owned
+    /// ones already parked under `parked`.
+    pub(crate) fn parked(argv: ValueId, boxed: Vec<Option<Operand>>, parked: Vec<usize>) -> Self {
+        Self {
+            argv,
+            boxed,
+            parked,
+        }
+    }
+
     /// Record one stored slot; a boxed (owned) one parks for the
     /// throw edges between here and the call.
     pub(crate) fn push_slot(&mut self, ctx: &mut LowerCtx<'_>, slot: Option<Operand>) {

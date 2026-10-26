@@ -37,8 +37,8 @@ pub use torajs_anyvalue::nanbox::{DOUBLE_ENCODE_OFFSET, TAG_TYPE_NUMBER};
 pub use arr_layouts::ArrLayouts;
 pub use call_hold::{CallHold, CallHolds, HoldGuard};
 pub use consts::{
-    ANY_SLOT_TAG_HEAP, HEADER_FLAGS_COLLECTOR, HEADER_WORD_ARR_ANY, THROW_ACTIVE_SYM,
-    WEAKREF_ACTIVE_SYM,
+    ANY_SLOT_TAG_HEAP, HEADER_FLAGS_COLLECTOR, HEADER_WORD_ARR_ANY, TAIL_ARGV_SYM, TAIL_ENTRY_SYM,
+    THROW_ACTIVE_SYM, WEAKREF_ACTIVE_SYM,
 };
 pub use ids::{ArrId, BlockId, FuncId, SigId, StringId, StructId, ValueId};
 pub use module_class_layouts::{ClassLayoutMeta, FieldMetaSpec, MethodMetaSpec, field_type_tag_of};

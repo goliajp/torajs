@@ -85,6 +85,9 @@ pub(crate) fn emit(
     recv: Operand,
     args: &[crate::ast::ExprId],
 ) -> Operand {
+    if ctx.temps.tail.call == Some(eid) && !ctx.pins.operands.contains_key(&callee) {
+        return crate::ssa_lower_tail_call::emit(ctx, eid, callee, recv, args);
+    }
     // Rotation 550 — an owned callee temp (`f(1)(boom())`) is live
     // across the arguments' lowers; park it for their throw paths.
     let recv_tok = ctx.park_owned_temp(callee, &recv);

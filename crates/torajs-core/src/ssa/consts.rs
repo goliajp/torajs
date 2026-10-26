@@ -10,6 +10,12 @@
 /// a class instance dies).
 pub const THROW_ACTIVE_SYM: &str = "___torajs_throw_active";
 pub const WEAKREF_ACTIVE_SYM: &str = "___torajs_weakref_active";
+/// A tail-position any call (`ssa_lower_tail_call`) stores its
+/// arguments in the runtime's argv and calls its resolver through
+/// the address, so a module without such a call declares nothing
+/// new (`torajs_anyvalue::tail_call`).
+pub const TAIL_ARGV_SYM: &str = "___torajs_tail_argv";
+pub const TAIL_ENTRY_SYM: &str = "___torajs_any_tail_entry";
 /// The any-slot tag of a heap cell as `__torajs_anyv_box_from_pair`
 /// reads it (torajs-rc `AnySlotTag::Heap`); every other tag boxes an
 /// immediate, which no rc kernel touches.

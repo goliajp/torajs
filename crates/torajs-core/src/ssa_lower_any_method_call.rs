@@ -27,7 +27,7 @@ mod admit;
 mod argv;
 
 pub(crate) use admit::claims;
-pub(crate) use argv::{pack_any_argv, pack_any_argv_padded};
+pub(crate) use argv::{lower_any_slot, pack_any_argv, pack_any_argv_padded};
 use torajs_rc::any_method_id;
 
 use crate::ast::{Expr, ExprId};

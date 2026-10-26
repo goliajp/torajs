@@ -47,6 +47,9 @@ pub(crate) struct TempScratch {
     /// of a place (`ssa_lower::call_hold`), each piece behind its own
     /// guard, for the module-wide pass to keep or remove.
     pub(crate) holds: Vec<crate::ssa::CallHold>,
+    /// The `return` being lowered offers its call to the any lane's
+    /// tail-position form (`ssa_lower_tail_call`).
+    pub(crate) tail: crate::ssa_lower_tail_call::TailSite,
 }
 
 /// One parked temp: a value with its drop type, or a relocation slot

@@ -1,10 +1,6 @@
 //! `Stmt::Return` arm of `LowerCtx::lower_stmt` extracted from
 //! [`crate::ssa_lower`] (chunk 149).
 //!
-//! Pre-extract this arm was 168 LOC inline inside `lower_stmt`.
-//! Body verbatim moved here as a free fn; lower_stmt's match arm
-//! delegates with one line.
-//!
 //! Pipeline:
 //!
 //! 1. **Lower the optional return value** with borrowed-ident
@@ -169,7 +165,8 @@ pub(crate) fn lower(ctx: &mut LowerCtx, maybe: Option<crate::ast::ExprId>) {
         let eid = crate::ssa_lower_return_borrow::peel_passthrough(ctx.ast, eid);
         matches!(ctx.ast.get_expr(eid), Expr::Ident(_))
     });
-    let ret_operand = maybe.map(|eid| lower_return_value(ctx, eid));
+    let (ret_operand, tail_taken) =
+        crate::ssa_lower_tail_call::lower_return_value(ctx, maybe, lower_return_value);
     // §7.4.9 on the way out of every enclosing for-of. `break` gets
     // this from the loop's exit block; a return never reaches that
     // block, so the iterator stayed open AND its slot stake stayed
@@ -290,7 +287,9 @@ pub(crate) fn lower(ctx: &mut LowerCtx, maybe: Option<crate::ast::ExprId>) {
         ctx.f.set_term(cb, Terminator::Br(target.blk));
         return;
     }
-    ctx.emit_drops_for_owned_locals();
+    if !tail_taken {
+        ctx.emit_drops_for_owned_locals();
+    }
     let cb = ctx.cur_block;
     ctx.f.set_term(cb, Terminator::Ret(coerced));
     for name in unmoved {

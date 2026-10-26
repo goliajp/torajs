@@ -717,6 +717,7 @@ pub(crate) mod ssa_lower_struct_exotic_gate;
 pub(crate) mod ssa_lower_struct_own_props;
 pub mod ssa_lower_substr_trim_into;
 pub(crate) mod ssa_lower_synthesize_main;
+pub(crate) mod ssa_lower_tail_call;
 pub(crate) mod ssa_lower_teardown;
 pub(crate) mod ssa_lower_temp_scratch;
 pub(crate) mod ssa_lower_ternary;

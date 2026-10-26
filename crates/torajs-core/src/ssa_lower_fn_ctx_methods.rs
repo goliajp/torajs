@@ -259,6 +259,9 @@ impl<'a> LowerCtx<'a> {
             }
             let borrows_caller = !reassigned_owned
                 && (is_env_param || is_class_self || !ty.is_copy() || escape_captured);
+            if borrows_caller && !escape_captured {
+                crate::ssa_lower_tail_call::note_outer_slot(self, slot);
+            }
             self.locals.insert(
                 pname.clone(),
                 LocalInfo {
@@ -385,6 +388,7 @@ impl<'a> LowerCtx<'a> {
             // 403-02 — the call lane's self-recursion proof reads
             // this slot identity (see the field doc).
             self.self_name_slot = Some(local);
+            crate::ssa_lower_tail_call::note_outer_slot(self, local);
             self.scope_stack[0].push(sn);
         }
     }
@@ -451,6 +455,7 @@ impl<'a> LowerCtx<'a> {
                 );
                 local
             };
+            crate::ssa_lower_tail_call::note_outer_slot(self, cap_slot);
             self.locals.insert(
                 cap_name.clone(),
                 LocalInfo {
