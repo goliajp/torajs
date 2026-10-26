@@ -18,6 +18,9 @@ pub(super) struct ObjectAsks {
     obj_fields: HashMap<PropKey, obj_fields::Owners>,
     /// methods found returning an `any` value
     method_found: HashSet<String>,
+    /// the classes each widened field name leaves as they are
+    /// (`super::samename`), as of the last round
+    kept: HashMap<PropKey, HashSet<String>>,
 }
 
 impl ObjectAsks {
@@ -28,6 +31,7 @@ impl ObjectAsks {
             methods: method_rets::MethodRets::of(ast),
             obj_fields: HashMap::new(),
             method_found: HashSet::new(),
+            kept: HashMap::new(),
         }
     }
 
@@ -48,12 +52,15 @@ impl ObjectAsks {
         (self.method_found).extend(found.iter().filter(|f| self.methods.holds(f)).cloned());
         let names: HashSet<PropKey> = self.obj_fields.keys().cloned().collect();
         let mut lits = obj_fields::lit_values(ast, types, &names);
+        let fields_grew = extend_fields(&mut self.obj_fields, self.field_stores.found(ast, types));
+        let kept_shrank = self.settle_kept(ast, types);
         if !lits.is_empty() {
-            let layouts = samename::layout_values(ast, &self.kept(ast, types));
+            let layouts = samename::layout_values(ast, &self.kept);
             lits.retain(|v| !layouts.contains(v));
         }
         let grew = (self.method_found.len() > before)
-            | extend_fields(&mut self.obj_fields, self.field_stores.found(ast, types))
+            | fields_grew
+            | kept_shrank
             | extend_own(ast, fields, &lits);
         (found, grew)
     }
@@ -65,16 +72,31 @@ impl ObjectAsks {
         let lits = method_lits::closures(ast, types, &fam);
         fam.fns.extend(lits);
         method_rets::retype(r, &fam);
-        let kept = self.kept(ast, types);
-        (self.field_stores).retype(r, &self.obj_fields, &kept);
+        (self.field_stores).retype(r, &self.obj_fields, &self.kept);
     }
 
-    /// The classes each widened field name leaves as they are
-    /// (`super::samename`).
-    fn kept(&self, ast: &Ast, types: &HashMap<ExprId, Type>) -> HashMap<PropKey, HashSet<String>> {
-        (self.obj_fields.iter())
-            .filter_map(|(k, o)| Some((k.clone(), samename::kept(ast, types, o.as_ref()?))))
-            .collect()
+    /// Take the classes each widened field name leaves as they are
+    /// (`super::samename`) under a round's `types`; true when a class
+    /// the last round left was taken out. A class taken out once stays
+    /// out: its field was respelled `any` for the rounds after, whose
+    /// types no longer show what took it out.
+    fn settle_kept(&mut self, ast: &Ast, types: &HashMap<ExprId, Type>) -> bool {
+        let last = std::mem::take(&mut self.kept);
+        let mut shrank = last
+            .keys()
+            .any(|k| self.obj_fields.get(k).is_none_or(Option::is_none));
+        for (k, o) in &self.obj_fields {
+            let Some(owners) = o else {
+                continue;
+            };
+            let mut cs = samename::kept(ast, types, owners);
+            if let Some(was) = last.get(k) {
+                cs.retain(|c| was.contains(c));
+                shrank |= cs.len() < was.len();
+            }
+            self.kept.insert(k.clone(), cs);
+        }
+        shrank
     }
 }
 
