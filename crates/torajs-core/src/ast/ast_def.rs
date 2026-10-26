@@ -1513,13 +1513,13 @@ pub struct Ast {
     /// Populated by `analyze_let_owned_elems`.
     pub view_home_exprs: std::collections::HashSet<ExprId>,
     /// The separator ExprIds of the one-argument `R.split(S)` calls
-    /// whose product is only ever measured (`analyze_split_length_only`).
+    /// whose product is only ever measured (`analyze_scalar_lanes`).
     pub split_length_only_seps: std::collections::HashSet<ExprId>,
-    /// The `R.trim()` calls likewise only measured (`analyze_trim_length_only`).
+    /// The `R.trim()` calls likewise only measured (`analyze_scalar_lanes`).
     pub trim_length_only_calls: std::collections::HashSet<ExprId>,
     /// The `.match` member ExprIds whose `const m = s.match(re)`
     /// result is only null-tested or asked `m[0].length`. Populated by
-    /// `analyze_regex_match_len_only`; the lowering holds the first
+    /// `analyze_scalar_lanes`; the lowering holds the first
     /// match's length instead of building the array.
     pub regex_match_len_callees: std::collections::HashSet<ExprId>,
     /// The `.exec` member ExprIds — of the declaration and of each
@@ -1527,7 +1527,7 @@ pub struct Ast {
     /// null-tested, read as `m.index` / `m.input`, indexed by a
     /// constant or measured as `m[k].length`, each mapped to the
     /// group slots the record needs. Populated by
-    /// `analyze_regex_exec_record`; the lowering holds the match as
+    /// `analyze_scalar_lanes`; the lowering holds the match as
     /// spans in a stack record instead of building the array.
     pub regex_exec_record_callees: std::collections::HashMap<ExprId, u32>,
     /// The `.replace` / `.replaceAll` member ExprIds whose walk the

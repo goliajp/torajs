@@ -46,16 +46,14 @@ use super::{Ast, BinOp, Expr, ExprId, Stmt, UnaryOp};
 /// past it keeps the array.
 const MAX_INDEX: u32 = 63;
 
-/// Record the `.exec` member ExprIds whose result the lane may hold
-/// as spans. Runs at the end of the desugar pipeline, after every
-/// pass that could add a use.
-pub fn analyze_regex_exec_record(ast: &mut Ast) {
-    let census = Census::new(ast);
+/// The `.exec` member ExprIds whose result the lane may hold as spans,
+/// each with the number of group slots its record needs.
+pub(super) fn regex_exec_record_callees(ast: &Ast, census: &Census) -> HashMap<ExprId, u32> {
     let lane = ExecLane {
         slots: RefCell::new(HashMap::new()),
     };
-    census_bindings(ast, &lane, &census);
-    ast.regex_exec_record_callees = lane.slots.into_inner();
+    census_bindings(ast, &lane, census);
+    lane.slots.into_inner()
 }
 
 struct ExecLane {

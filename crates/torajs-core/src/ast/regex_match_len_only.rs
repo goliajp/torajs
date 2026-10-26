@@ -30,12 +30,13 @@
 use super::scalar_census::{Census, Lane, census_bindings, expr_uses_ok, is_x};
 use super::{Ast, BinOp, Expr, ExprId, UnaryOp};
 
-/// Record the `.match` member ExprIds whose result the lane may hold
-/// as a length. Runs at the end of the desugar pipeline, after every
-/// pass that could add a use.
-pub fn analyze_regex_match_len_only(ast: &mut Ast) {
-    let census = Census::new(ast);
-    ast.regex_match_len_callees = census_bindings(ast, &MatchLane, &census);
+/// The `.match` member ExprIds whose result the lane may hold as a
+/// length.
+pub(super) fn regex_match_len_callees(
+    ast: &Ast,
+    census: &Census,
+) -> std::collections::HashSet<ExprId> {
+    census_bindings(ast, &MatchLane, census)
 }
 
 struct MatchLane;

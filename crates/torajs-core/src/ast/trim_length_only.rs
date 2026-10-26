@@ -27,11 +27,8 @@ use std::collections::HashSet;
 use super::scalar_census::{Census, Lane, census_bindings, is_x};
 use super::{Ast, Expr, ExprId};
 
-/// Record the `R.trim()` calls whose product is only ever measured.
-/// Runs at the end of the desugar pipeline, after every pass that could
-/// add a use.
-pub fn analyze_trim_length_only(ast: &mut Ast) {
-    let census = Census::new(ast);
+/// The `R.trim()` calls whose product is only ever measured.
+pub(super) fn trim_length_only_calls(ast: &Ast, census: &Census) -> HashSet<ExprId> {
     let mut found: HashSet<ExprId> = HashSet::new();
     for i in 0..ast.exprs.len() {
         let eid = ExprId(i as u32);
@@ -43,8 +40,8 @@ pub fn analyze_trim_length_only(ast: &mut Ast) {
             census.accept(*obj, *obj, &mut found);
         }
     }
-    found.extend(census_bindings(ast, &TrimLane, &census));
-    ast.trim_length_only_calls = found;
+    found.extend(census_bindings(ast, &TrimLane, census));
+    found
 }
 
 /// `R.trim()` with no arguments.
