@@ -274,6 +274,11 @@ fn rewrite_value_position_evals(ast: &mut Ast) {
                 };
                 if closed && let Some(e) = ast.exprs.get(inner.0 as usize).cloned() {
                     ast.exprs[i] = e;
+                    // the copy is the async function value the parse
+                    // registered under `inner`
+                    if ast.async_fn_value_exprs.contains(&inner) {
+                        ast.async_fn_value_exprs.insert(eid);
+                    }
                     // Do not advance: the expression just written
                     // in may itself be an `eval("…")` that came out
                     // of a nested literal, and it now occupies this
