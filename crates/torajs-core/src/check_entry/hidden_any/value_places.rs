@@ -120,30 +120,41 @@ pub(super) fn into<'a>(
         Expr::Assign { .. } | Expr::Array(_) | Expr::ObjectLit { .. } => Into::Slot(types.get(&p)),
         Expr::As { ty_ann, .. } => Into::Ann(ty_ann),
         Expr::Call { callee, args } | Expr::OptCall { callee, args } => {
-            if *callee == c {
-                return Into::Read;
-            }
-            let (Some(Type::Function(ps, _)), Some(i)) =
-                (types.get(callee), args.iter().position(|a| *a == c))
-            else {
-                return match ast.get_expr(*callee) {
-                    Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => match types.get(obj) {
-                        Some(t) if builtin(t) => Into::Builtin(t),
-                        _ => Into::Unknown,
-                    },
-                    _ => Into::Unknown,
-                };
-            };
-            match ps
-                .get(i)
-                .or_else(|| ps.last().filter(|t| matches!(t, Type::Rest(_))))
-            {
-                Some(Type::Rest(t)) => Into::Slot(Some(t)),
-                Some(t) => Into::Slot(Some(t)),
-                None => Into::Unknown,
-            }
+            into_call(ast, types, *callee, args, c)
         }
         _ => Into::Unknown,
+    }
+}
+
+/// What a call of `callee` with `args` does with its child `c`.
+fn into_call<'a>(
+    ast: &'a Ast,
+    types: &'a HashMap<ExprId, Type>,
+    callee: ExprId,
+    args: &[ExprId],
+    c: ExprId,
+) -> Into<'a> {
+    if callee == c {
+        return Into::Read;
+    }
+    let (Some(Type::Function(ps, _)), Some(i)) =
+        (types.get(&callee), args.iter().position(|a| *a == c))
+    else {
+        return match ast.get_expr(callee) {
+            Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => match types.get(obj) {
+                Some(t) if builtin(t) => Into::Builtin(t),
+                _ => Into::Unknown,
+            },
+            _ => Into::Unknown,
+        };
+    };
+    match ps
+        .get(i)
+        .or_else(|| ps.last().filter(|t| matches!(t, Type::Rest(_))))
+    {
+        Some(Type::Rest(t)) => Into::Slot(Some(t)),
+        Some(t) => Into::Slot(Some(t)),
+        None => Into::Unknown,
     }
 }
 
