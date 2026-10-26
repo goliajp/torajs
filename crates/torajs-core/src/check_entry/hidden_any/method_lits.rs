@@ -16,8 +16,11 @@ use super::inlobj_fields;
 use super::method_rets::{Family, returning_any};
 use crate::ast::{Ast, Stmt};
 
-/// A declaration's members `(name, annotation)` in name order, and the
-/// names of those whose return is retyped.
+/// A declaration's members `(name, annotation)` in declaration order,
+/// and the names of those whose return is retyped. The order is part of
+/// the shape: a literal whose members come in another order checks as
+/// a declaration of its own (`IfaceSlots::iface_of` compares the types
+/// member by member).
 type Shape = (Vec<(String, String)>, HashSet<String>);
 
 /// Respell every object type literal of the shape of an interface with
@@ -28,10 +31,9 @@ pub(super) fn retype(r: &mut Ast, fam: &Family) {
         return;
     }
     inlobj_fields::respell(r, &|ms| {
-        let mut shape: Vec<(String, String)> = (ms.iter())
+        let shape: Vec<(String, String)> = (ms.iter())
             .map(|(k, a)| (k.trim().to_string(), a.trim().to_string()))
             .collect();
-        shape.sort();
         let keys: HashSet<&String> = (shapes.iter())
             .filter(|(s, _)| *s == shape)
             .flat_map(|(_, ks)| ks)
@@ -70,8 +72,7 @@ fn shapes(r: &Ast, fam: &Family) -> Vec<Shape> {
         let shape = (fields.iter())
             .map(|(k, a)| Some((k.as_str()?.to_string(), a.trim().to_string())))
             .collect::<Option<Vec<_>>>();
-        if let Some(mut shape) = shape.filter(|_| !keys.is_empty()) {
-            shape.sort();
+        if let Some(shape) = shape.filter(|_| !keys.is_empty()) {
             out.push((shape, keys));
         }
     }
