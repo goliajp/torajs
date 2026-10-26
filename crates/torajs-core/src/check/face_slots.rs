@@ -18,6 +18,9 @@ use std::collections::HashSet;
 use crate::ast::{Ast, Expr, ExprId};
 use crate::check::{Checker, Type};
 
+mod fields;
+pub(crate) use fields::{field_read, owner_key, record_field_store, record_objlit_stores};
+
 /// What the reads of one run asked the census for and did not find: a
 /// field by its name alone (whatever the receiver), a function by its
 /// name. Every call through a field asks, so the question allocates
@@ -40,27 +43,6 @@ fn remember(set: &mut HashSet<String>, name: &str) {
     if !set.contains(name) {
         set.insert(name.to_string());
     }
-}
-
-/// The census owner of receiver `obj` when its field `name` holds such
-/// a value ([`crate::ast::face_slots::FaceSlots::field_hit`]); a miss
-/// is remembered.
-pub(crate) fn field_read(
-    checker: &mut Checker,
-    ast: &Ast,
-    obj: ExprId,
-    name: &str,
-) -> Option<String> {
-    let recv = checker.expr_types.get(&obj)?;
-    let census = &checker.face_slots;
-    let hit = (census.fields.iter().any(|(_, n)| n == name))
-        .then(|| owner_key(ast, recv))
-        .flatten()
-        .filter(|owner| census.field_hit(&ast.class_parents, owner, name));
-    if hit.is_none() && matches!(recv, Type::ClassRef(_) | Type::Struct(_)) {
-        remember(&mut checker.face_slot_reads.fields, name);
-    }
-    hit
 }
 
 /// Does function `g` return such a value? A miss is remembered.
@@ -158,85 +140,6 @@ pub(crate) fn faces_differ(value_ty: &Type, slot_ty: &Type) -> bool {
     let params = aps.iter().zip(fps).any(|(a, f)| a != f);
     let ret = !(aret == fret || discards || matches!(**aret, Type::Never));
     params || ret
-}
-
-/// The census owner of a receiver typed `ty`: a class instance's class,
-/// or an inline struct type's structural spelling.
-pub(crate) fn owner_key(ast: &Ast, ty: &Type) -> Option<String> {
-    match ty {
-        Type::ClassRef(n) if ast.class_parents.contains_key(n) => Some(n.clone()),
-        Type::Struct(_) => Some(crate::check::type_to_ann(ty)),
-        _ => None,
-    }
-}
-
-/// A store of `value_ty` into field `field` of a receiver typed `recv`,
-/// the field declared `slot_ty`.
-pub(crate) fn record_field_store(
-    checker: &mut Checker,
-    ast: &Ast,
-    recv: &Type,
-    field: &str,
-    slot_ty: &Type,
-    value_ty: &Type,
-) {
-    if !faces_differ(value_ty, slot_ty) {
-        return;
-    }
-    let Some(mut owner) = owner_key(ast, recv) else {
-        return;
-    };
-    // the class that declares the field, which every receiver that can
-    // hold it names among its ancestors
-    while let Some(Some(parent)) = ast.class_parents.get(&owner) {
-        let declares = matches!(
-            checker.class_structs.get(parent),
-            Some(Type::Struct(fs)) if fs.iter().any(|(n, _)| n == field)
-        );
-        if !declares {
-            break;
-        }
-        owner = parent.clone();
-    }
-    let key = (owner, field.to_string());
-    if !checker.face_slots.fields.contains(&key) {
-        checker.face_slot_reads.stale |= checker.face_slot_reads.fields.contains(field);
-        checker.face_slots.fields.insert(key);
-    }
-}
-
-/// The fields of the object literal `value` admitted into a slot typed
-/// `slot_ty`. The literal joins the census's literals only once every
-/// member of the slot it holds is recorded: one whose value the checker
-/// has not typed yet is not, and a reader of the census
-/// (`hidden_any::method_lits::opaque`) takes the literal as seen.
-pub(crate) fn record_objlit_stores(
-    checker: &mut Checker,
-    ast: &Ast,
-    slot_ty: &Type,
-    value: ExprId,
-) {
-    let Expr::ObjectLit { fields } = ast.get_expr(value) else {
-        return;
-    };
-    let Type::Struct(slot_fields) = slot_ty else {
-        return;
-    };
-    let mut whole = true;
-    for (key, v) in fields {
-        let Some((_, field_ty)) = slot_fields.iter().find(|(n, _)| n == key) else {
-            continue;
-        };
-        let Some(value_ty) = checker.expr_types.get(v).cloned() else {
-            whole = false;
-            continue;
-        };
-        record_field_store(checker, ast, slot_ty, &key.lossy(), field_ty, &value_ty);
-    }
-    let seen = checker.face_slots.objlits.entry(value).or_default();
-    if whole && !seen.contains(slot_ty) {
-        seen.push(slot_ty.clone());
-    }
 }
 
 /// `return value` (typed `value_ty`) from the function being checked,
