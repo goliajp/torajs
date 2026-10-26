@@ -86,9 +86,9 @@ fn loop_ranges(
 }
 
 /// Where each block sits in `blocks`, by id: no table when every
-/// block's id is its position.
+/// block's id is its position (`Dense` holds the block count).
 enum Positions {
-    Dense,
+    Dense(usize),
     Table(Vec<u32>),
 }
 
@@ -96,7 +96,7 @@ impl Positions {
     fn of(func: &Function) -> Positions {
         let dense = (func.blocks.iter().enumerate()).all(|(i, b)| b.id.0 as usize == i);
         if dense {
-            return Positions::Dense;
+            return Positions::Dense(func.blocks.len());
         }
         let span = (func.blocks.iter())
             .map(|b| b.id.0 as usize + 1)
@@ -112,7 +112,7 @@ impl Positions {
     /// The position of block `b`; None for an id no block has.
     fn get(&self, b: BlockId) -> Option<usize> {
         match self {
-            Positions::Dense => Some(b.0 as usize),
+            Positions::Dense(n) => Some(b.0 as usize).filter(|p| p < n),
             Positions::Table(t) => (t.get(b.0 as usize).copied())
                 .filter(|&p| p != u32::MAX)
                 .map(|p| p as usize),
@@ -160,7 +160,9 @@ fn back_edges(func: &Function, pos: &Positions) -> Vec<(BlockId, BlockId)> {
             (Terminator::Br(t), 1) => *t,
             (Terminator::CondBr { then_blk, .. }, 1) => *then_blk,
             (Terminator::CondBr { else_blk, .. }, 2) => *else_blk,
-            _ => {
+            (Terminator::Br(_), _)
+            | (Terminator::CondBr { .. }, _)
+            | (Terminator::Ret(_) | Terminator::Unreachable, _) => {
                 state[p] = FINISHED;
                 depth -= 1;
                 continue;
@@ -306,6 +308,37 @@ mod tests {
         ]);
         assert_eq!(edges(&f), vec![(2, 1)]);
         assert_eq!(loop_ranges(&f, &every_16(4), 64), vec![(16, 48)]);
+    }
+
+    /// Ids that are not the positions (0, 5, 2, 7) take the table:
+    /// b0 → b5 (header) → b2 → b5 | b7 (ret).
+    #[test]
+    fn ids_out_of_position_close_the_same_range() {
+        let f = func(vec![
+            blk(0, Terminator::Br(BlockId(5))),
+            blk(5, Terminator::Br(BlockId(2))),
+            blk(2, cond(5, 7)),
+            blk(7, Terminator::Ret(None)),
+        ]);
+        assert!(matches!(Positions::of(&f), Positions::Table(_)));
+        assert_eq!(edges(&f), vec![(2, 5)]);
+        let starts = [(0, 0), (5, 16), (2, 32), (7, 48)].into_iter().collect();
+        assert_eq!(loop_ranges(&f, &starts, 64), vec![(16, 48)]);
+    }
+
+    /// A block the emitter left out after the latch (b3, no start):
+    /// the latch ends where the next emitted block starts.
+    #[test]
+    fn a_latch_ends_at_the_next_emitted_block() {
+        let f = func(vec![
+            blk(0, Terminator::Br(BlockId(1))),
+            blk(1, Terminator::Br(BlockId(2))),
+            blk(2, cond(1, 3)),
+            blk(3, Terminator::Br(BlockId(4))),
+            blk(4, Terminator::Ret(None)),
+        ]);
+        let starts = [(0, 0), (1, 16), (2, 32), (4, 48)].into_iter().collect();
+        assert_eq!(loop_ranges(&f, &starts, 64), vec![(16, 48)]);
     }
 
     /// A latch emitted last ends at the function's end.

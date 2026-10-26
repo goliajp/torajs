@@ -38,9 +38,9 @@
 //! costs only the pad, which sits in the `__TEXT` page slack. Where
 //! the function lands within the region depended on the runtime
 //! members and the user functions in front of it, so an edit anywhere
-//! before a loop moved its reading. The loops come from codegen and are read only for a
-//! function whose bytes would cross a region boundary, the one case a
-//! loop of it can straddle. Where no start keeps every loop whole, the
+//! before a loop moved its reading. The loops come from codegen and
+//! are read only for a function whose bytes would cross a region
+//! boundary, the one case a loop of it can straddle. Where no start keeps every loop whole, the
 //! one keeping the shortest whole is taken, then the next shortest,
 //! and so on; the pad is at most the longest straddling loop rounded
 //! up to a fetch line ([`loop_pad`]).
