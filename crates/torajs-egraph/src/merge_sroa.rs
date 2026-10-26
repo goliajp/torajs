@@ -330,9 +330,10 @@ mod tests {
         ]
     }
 
-    /// b0: cond → b1 | b2; b1 / b2 fill a step cell each and merge it
-    /// into %9; b3 reads `done` and `value`, tests %9 against null and
-    /// branches on the test to b4 (returns `value`) or b5 (returns 0).
+    /// b0: the parameter %13 → b1 | b2; b1 / b2 fill a step cell each
+    /// and merge it into %9; b3 reads `done` and `value`, tests %9
+    /// against null and branches on the test to b4 (returns `value`)
+    /// or b5 (returns 0).
     fn merged(join_extra: Vec<Inst>) -> Module {
         let mut join = vec![
             inst(Some(10), InstKind::Load(Type::Bool, v(9), 40)),
@@ -348,7 +349,7 @@ mod tests {
                 id: BlockId(0),
                 insts: vec![],
                 term: Terminator::CondBr {
-                    cond: Operand::ConstBool(true),
+                    cond: v(13),
                     then_blk: BlockId(1),
                     else_blk: BlockId(2),
                 },
@@ -390,6 +391,7 @@ mod tests {
             ty(Type::Bool),
             ty(Type::I64),
             ty(Type::Bool),
+            ty(Type::Bool),
         ]);
         Module {
             funcs: vec![
@@ -403,7 +405,7 @@ mod tests {
                 },
                 Function {
                     name: "main".into(),
-                    params: vec![],
+                    params: vec![ValueId(13)],
                     ret: Type::I64,
                     blocks,
                     values,
@@ -433,9 +435,8 @@ mod tests {
         for x in [1, 2, 9] {
             assert!(!mentions(f, x), "%{x} still mentioned");
         }
-        // b0 branched on a constant too: b2 is gone and b3 is now the
-        // third block
-        let join = &f.blocks[2].insts;
+        // both arms set the field cells, and the join reads them
+        let join = &f.blocks[3].insts;
         assert!(matches!(
             join[0].kind,
             InstKind::Copy(Type::Bool, Operand::Value(_))
@@ -444,24 +445,23 @@ mod tests {
             join[1].kind,
             InstKind::Copy(Type::I64, Operand::Value(_))
         ));
+        for arm in [1, 2] {
+            let insts = &f.blocks[arm].insts;
+            assert!(!insts.is_empty());
+            assert!(insts.iter().all(|i| matches!(i.kind, InstKind::Copy(..))));
+        }
         // the null test answered false: its compare, its branch and
         // the arm only that branch reached are gone
         assert_eq!(join.len(), 2);
-        assert!(matches!(f.blocks[2].term, Terminator::Br(BlockId(3))));
-        assert_eq!(f.blocks.len(), 4);
+        assert!(matches!(f.blocks[3].term, Terminator::Br(BlockId(4))));
+        assert_eq!(f.blocks.len(), 5);
         assert_eq!(
             st.tests_folded,
             ConstBoolFold {
                 ops: 0,
-                branches: 2,
-                blocks: 2
+                branches: 1,
+                blocks: 1
             }
-        );
-        assert!(
-            f.blocks[1]
-                .insts
-                .iter()
-                .all(|i| matches!(i.kind, InstKind::Copy(..)))
         );
     }
 
