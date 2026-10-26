@@ -102,8 +102,11 @@ pub(super) fn closures(
         if keys.is_empty() {
             continue;
         }
-        for (v, _) in member_values(ast, types, i, &keys).filter(|(_, sure)| *sure) {
-            out.extend(sources.of_value(ast, v).into_iter().flatten());
+        let sure: HashSet<ExprId> = (member_values(ast, types, i, &keys))
+            .filter_map(|(v, sure)| sure.then_some(v))
+            .collect();
+        for v in &sure {
+            out.extend(sources.of_value(ast, *v, &sure).into_iter().flatten());
         }
     }
     out
@@ -112,10 +115,12 @@ pub(super) fn closures(
 /// Whether an object literal that may be of the type of interface
 /// `iface` holds in its member `key` a function value [`Sources`]
 /// cannot follow to its declaration (a method read off an object, a
-/// call's result), or one whose literal may be of another interface's
-/// type too: its return cannot be retyped with the member's, and it
-/// would hand its typed answer to a caller reading the member's as
-/// `any`.
+/// call's result) or that also reaches a place other than the members
+/// `key` of this interface's literals (a direct call, another literal,
+/// an annotated binding), or one whose literal may be of another
+/// interface's type too: its return cannot be retyped with the
+/// member's, and it would hand its typed answer to a caller reading
+/// the member's as `any`.
 pub(super) fn opaque(
     ast: &Ast,
     types: &HashMap<ExprId, Type>,
@@ -124,8 +129,11 @@ pub(super) fn opaque(
     key: &PropKey,
 ) -> bool {
     let keys = HashSet::from([key]);
+    let held: HashSet<ExprId> = (member_values(ast, types, iface, &keys))
+        .filter_map(|(v, sure)| sure.then_some(v))
+        .collect();
     member_values(ast, types, iface, &keys).any(|(v, sure)| {
-        types.get(&v) != Some(&Type::Any) && (!sure || sources.of_value(ast, v).is_none())
+        types.get(&v) != Some(&Type::Any) && (!sure || sources.of_value(ast, v, &held).is_none())
     })
 }
 
