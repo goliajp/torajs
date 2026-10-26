@@ -117,7 +117,11 @@ pub(super) fn into<'a>(
         Expr::Ternary { .. } | Expr::Sequence { .. } | Expr::Nullish { .. } => Into::Through,
         Expr::Assign { target, .. } if *target == c => Into::Read,
         // an assignment is typed as its target, a literal by its members
-        Expr::Assign { .. } | Expr::Array(_) | Expr::ObjectLit { .. } => Into::Slot(types.get(&p)),
+        Expr::Assign { .. } | Expr::ObjectLit { .. } => Into::Slot(types.get(&p)),
+        Expr::Array(_) => Into::Slot(match types.get(&p) {
+            Some(Type::Array(e)) => Some(e),
+            t => t,
+        }),
         Expr::As { ty_ann, .. } => Into::Ann(ty_ann),
         Expr::Call { callee, args } | Expr::OptCall { callee, args } => {
             into_call(ast, types, *callee, args, c)

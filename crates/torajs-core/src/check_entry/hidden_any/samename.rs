@@ -19,6 +19,7 @@ use std::collections::{HashMap, HashSet};
 use super::type_parts::{Part, any_part};
 use super::value_places::{Into, Place, into, places};
 use crate::ast::{Ast, Expr, ExprId, PropKey, Stmt};
+use crate::ast_throw_info::{elem_ann, unalias};
 use crate::check::Type;
 use crate::check_type_ann::strip_nullable;
 
@@ -84,7 +85,11 @@ fn naming(ast: &Ast, tree: &HashSet<String>) -> HashSet<String> {
 }
 
 /// The values of the members of the object literals a class kept for
-/// the member's name (`kept`) is laid out from: `let o: L = { f: .. }`.
+/// the member's name (`kept`) is laid out from: a literal written where
+/// a binding, a parameter's default or a return is annotated with the
+/// class (`let o: L = { f: .. }`), or as an element of an array literal
+/// written where one is annotated with an array of the class
+/// (`const xs: L[] = [{ f: .. }]`).
 pub(super) fn layout_values(
     ast: &Ast,
     kept: &HashMap<PropKey, HashSet<String>>,
@@ -93,23 +98,33 @@ pub(super) fn layout_values(
     if kept.values().all(HashSet::is_empty) {
         return out;
     }
-    crate::ast::walk_stmts(&ast.stmts, &mut |s| {
-        if let Stmt::LetDecl {
-            type_ann: Some(a),
-            init,
-            ..
-        } = s
-            && let Expr::ObjectLit { fields } = ast.get_expr(*init)
-        {
-            let class = base(strip_nullable(a).trim());
-            out.extend(
-                (fields.iter())
-                    .filter(|(k, _)| kept.get(k).is_some_and(|cs| cs.contains(class)))
-                    .map(|(_, v)| *v),
-            );
-        }
-    });
+    let places = places(ast);
+    for (i, e) in ast.exprs.iter().enumerate() {
+        let Expr::ObjectLit { fields } = e else {
+            continue;
+        };
+        let Some(a) = layout_ann(ast, &places, ExprId(i as u32)) else {
+            continue;
+        };
+        let class = base(unalias(ast, &a));
+        out.extend(
+            (fields.iter())
+                .filter(|(k, _)| kept.get(k).is_some_and(|cs| cs.contains(class)))
+                .map(|(_, v)| *v),
+        );
+    }
     out
+}
+
+/// The annotation the value `e` is laid out from where it is written.
+fn layout_ann(ast: &Ast, places: &HashMap<ExprId, Place>, e: ExprId) -> Option<String> {
+    match places.get(&e)? {
+        Place::Bind(Some(a)) | Place::Ret(Some(a)) => Some(a.clone()),
+        Place::Expr(p) if matches!(ast.get_expr(*p), Expr::Array(_)) => {
+            elem_ann(ast, &layout_ann(ast, places, *p)?)
+        }
+        _ => None,
+    }
 }
 
 /// Whether a function some caller may reach without a call the checker
@@ -197,7 +212,7 @@ fn handed_on(
                 s == t
             }
         };
-        let same_ann = |a: &str| is_of(t, tree) && ann_is(a, tree);
+        let same_ann = |a: &str| ann_same(ast, t, a, tree);
         match places.get(&e) {
             None | Some(Place::Other) | Some(Place::Ret(None)) => true,
             Some(Place::Drop) | Some(Place::Bind(None)) => false,
@@ -239,6 +254,15 @@ fn is_of(t: &Type, tree: &HashSet<String>) -> bool {
 /// Whether the annotation `a` spells a class of `tree`, or null.
 fn ann_is(a: &str, tree: &HashSet<String>) -> bool {
     tree.contains(base(strip_nullable(a).trim()))
+}
+
+/// Whether a value typed `t`, a class of `tree` or an array of them at
+/// any depth, keeps its type in a slot the annotation `a` spells.
+fn ann_same(ast: &Ast, t: &Type, a: &str, tree: &HashSet<String>) -> bool {
+    match t {
+        Type::Array(e) => elem_ann(ast, a).is_some_and(|ea| ann_same(ast, e, &ea, tree)),
+        _ => is_of(t, tree) && ann_is(a, tree),
+    }
 }
 
 /// Whether the annotation `a` names a class of `tree` anywhere in it.
