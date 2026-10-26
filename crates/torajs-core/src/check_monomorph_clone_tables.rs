@@ -20,10 +20,15 @@
 //! * `field_default_objlits` — the class a nested field-default
 //!   literal mints a cell of; without it the specialization's copy
 //!   falls back to naming the enclosing factory's class.
+//! * `speculative_cm_rewrites`, for a generic specialization only
+//!   ([`check_clone`]) — the member-call shape of a call desugar
+//!   rewrote to a class method by name alone; without it the
+//!   specialization's check cannot demote the rewrite, and `o.m()` on
+//!   a receiver of no class calls that class's method.
 //!
 //! Split from `check_monomorph.rs` at the 500-line file cap.
 
-use crate::ast::{Ast, ExprId};
+use crate::ast::{Ast, Expr, ExprId, Stmt};
 
 /// A demoted speculative `__cm_` rewrite gets the ALT node's shape
 /// back at the CALL ExprId, and lowering consults the call id — so
@@ -111,6 +116,66 @@ pub(crate) fn carry(owned_ast: &mut Ast, id_map: &[(ExprId, ExprId)]) {
         .collect();
     owned_ast.field_default_objlits.extend(owners);
     carry_optchain(owned_ast, id_map);
+}
+
+/// The alt node of a speculative rewrite is no node of the cloned
+/// body: rebuild it over the clone's own receiver and arguments.
+fn carry_speculative(owned_ast: &mut Ast, id_map: &[(ExprId, ExprId)]) {
+    let alts: Vec<(ExprId, ExprId)> = (id_map.iter())
+        .filter_map(|&(old, new)| (owned_ast.speculative_cm_rewrites.get(&old)).map(|&a| (new, a)))
+        .collect();
+    for (new, alt) in alts {
+        let Expr::Call { callee, .. } = owned_ast.get_expr(alt) else {
+            continue;
+        };
+        let Expr::Member { name, .. } = owned_ast.get_expr(*callee) else {
+            continue;
+        };
+        let (name, member_span) = (name.clone(), owned_ast.expr_spans[callee.0 as usize]);
+        let Expr::Call { args, .. } = owned_ast.get_expr(new) else {
+            continue;
+        };
+        let Some((&recv, rest)) = args.split_first() else {
+            continue;
+        };
+        let rest = rest.to_vec();
+        let member = owned_ast.add_expr(Expr::Member { obj: recv, name });
+        owned_ast.set_expr_span(member, member_span);
+        let call = owned_ast.add_expr(Expr::Call {
+            callee: member,
+            args: rest,
+        });
+        owned_ast.set_expr_span(call, owned_ast.expr_spans[new.0 as usize]);
+        owned_ast.speculative_cm_rewrites.insert(new, call);
+    }
+}
+
+/// Check the generic specialization `decl` as a statement, its
+/// speculative rewrites carried; each one the check demoted gets its
+/// member-call shape back, as `monomorphize_and_check` gives the
+/// program's own before cloning.
+pub(crate) fn check_clone(
+    c: &mut crate::check::Checker,
+    owned_ast: &mut Ast,
+    decl: &Stmt,
+    id_map: &[(ExprId, ExprId)],
+) {
+    carry_speculative(owned_ast, id_map);
+    crate::let_widen::check_spec_stmt(c, owned_ast, decl);
+    restore_demoted(c, owned_ast, id_map);
+}
+
+fn restore_demoted(
+    c: &mut crate::check::Checker,
+    owned_ast: &mut Ast,
+    id_map: &[(ExprId, ExprId)],
+) {
+    for &(_, new) in id_map {
+        if let Some(&alt) = c.demoted_cm_rewrites.get(&new) {
+            owned_ast.exprs[new.0 as usize] = owned_ast.exprs[alt.0 as usize].clone();
+            carry_demoted(c, owned_ast, new, alt);
+        }
+    }
 }
 
 /// An `await` read and the frame-settled return of a suspending body:

@@ -30,11 +30,9 @@
 //!
 //! The demoted-cm restore (see `cm_demote.rs` hop 3) moves here from
 //! ssa_lower — it must still run before cloning so specialization
-//! bodies inherit the restored member-call shape. Speculative
-//! rewrites whose decision would only be reachable inside a generic
-//! body remain undecided (clone ExprIds aren't in
-//! `speculative_cm_rewrites`); that face never worked and is
-//! unchanged — recorded in the RFC.
+//! bodies inherit the restored member-call shape. A rewrite decided
+//! only inside a specialization rides the clone's ids
+//! (`check_monomorph_clone_tables::check_clone`).
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
@@ -340,7 +338,7 @@ pub(crate) fn process_one_generic(
             &subst,
         );
         let saved_spec_body = std::mem::replace(&mut c.checking_spec_body, true);
-        crate::let_widen::check_spec_stmt(c, owned_ast, &spec_decl);
+        crate::check_monomorph_clone_tables::check_clone(c, owned_ast, &spec_decl, &id_map);
         c.checking_spec_body = saved_spec_body;
         let inner_sites = std::mem::replace(&mut c.generic_call_sites, saved_sites);
         crate::check_monomorph_uninferred::settle_body_diagnostics(
