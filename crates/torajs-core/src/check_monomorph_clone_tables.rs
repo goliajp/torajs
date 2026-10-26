@@ -158,6 +158,9 @@ pub(crate) fn carry_speculative(owned_ast: &mut Ast, id_map: &[(ExprId, ExprId)]
     }
 }
 
+/// A generic specialization's name suffix and type substitution.
+type Spec<'a> = (&'a str, &'a [(String, String)]);
+
 /// Clone the lifted closures of the generic specialization `decl`
 /// (`check_monomorph_closures::clone_spec_closures`, `spec` its suffix
 /// and substitution) and check it as a statement, the speculative
@@ -168,7 +171,7 @@ pub(crate) fn carry_speculative(owned_ast: &mut Ast, id_map: &[(ExprId, ExprId)]
 pub(crate) fn check_clone(
     c: &mut crate::check::Checker,
     owned_ast: &mut Ast,
-    (decl, spec): (&Stmt, (&str, &[(String, String)])),
+    (decl, spec): (&Stmt, Spec<'_>),
     id_map: &[(ExprId, ExprId)],
 ) -> HashMap<String, String> {
     let (suffix, subst) = spec;
