@@ -1,14 +1,15 @@
 // An `any` value written into a slot whose declared type is an object
-// layout crosses the same way wherever the slot is: an object literal's
-// member, a field written through a receiver the program annotated, a
-// returned value. A cell the slot's readers can read as it is (one of
-// the layout, or of a layout that extends it field for field) keeps
-// its identity; an object that is no class instance and has the fields
-// is copied; anything else throws a TypeError at the write, as a `let`
-// of a class does. bun stores every one of them as it is (the lines
-// that differ are checked against the .expected): the slot is read and
-// released as the layout it declares, so a cell of another layout in
-// it would be read at the wrong offsets.
+// layout: an object literal's member, a field written through a
+// receiver the program annotated, a returned value. A field the
+// program stores an `any` value into (`h.t = v` in `store`) is widened
+// to `any` under its name in every type that declares it held, so
+// `Q.t` is widened with `H.t`, and `lit`, `store` and `ret` hold the
+// value as it is, as bun does. A member no such store names (`R.w`)
+// still crosses at the write: a cell of the layout keeps its identity,
+// an object that is no class instance and has the fields is copied,
+// and a class instance of another layout throws a TypeError (the line
+// that differs from bun is checked against the .expected). So whether
+// `lit` throws depends on a store elsewhere in the program.
 class X {
   n = 5
 }
@@ -50,7 +51,7 @@ function litW(v: any): number {
   const r: R = { w: v }
   return r.w.a + r.w.b
 }
-// the only raise in this body is the member's cast
+// the member is written and never read
 function dropOnly(v: any): number {
   const q: Q = { t: v }
   return 1
