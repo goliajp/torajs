@@ -268,32 +268,9 @@ fn shallow_inner(to: &Type, from: &Type) -> bool {
     false
 }
 
-/// 423-03 ④ — the fn-face admit for a DECLARED fn-typed slot (let /
-/// assign positions): the S2 call-face relaxations (excess-Any-tail
-/// arity, void-formal return) apply, because the sig-thunk pass
-/// reabstracts the admitted mismatched value exactly like a call
-/// argument. Deliberately a SEPARATE predicate from the
-/// `is_assignable_to` fn arm above — that one also serves
-/// array-literal unification, where the wider admit collapsed
-/// previously-heterogeneous literals (the rotation-355 regression).
-pub(crate) fn fn_slot_admits(
-    to: &Type,
-    from: &Type,
-    class_structs: &std::collections::HashMap<String, Type>,
-    aliases: &std::collections::HashMap<String, Type>,
-    generic_aliases: &crate::check::GenericAliasMap,
-) -> bool {
-    matches!(to, Type::Function(..))
-        && crate::check_type_of_call_callback_subtype::matches_resolved(
-            to,
-            from,
-            class_structs,
-            aliases,
-            generic_aliases,
-        )
-}
-
 mod declared_order;
 mod flow;
+mod fn_slot;
 pub(crate) use declared_order::{cast_in_declared_order, in_declared_order, literal_absent_fields};
 pub(crate) use flow::{is_assignable_to, is_assignable_to_deep};
+pub(crate) use fn_slot::fn_slot_admits;
