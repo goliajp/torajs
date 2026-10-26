@@ -3,6 +3,7 @@
 //! that may return one with every declaration sharing their return slot
 //! (`super::method_rets`).
 
+use std::cell::OnceCell;
 use std::collections::{HashMap, HashSet};
 
 use super::{extend_own, method_lits, method_rets, obj_fields, obj_rets, samename};
@@ -12,7 +13,9 @@ use crate::check::Type;
 pub(super) struct ObjectAsks {
     obj_rets: obj_rets::ObjRets,
     field_stores: obj_fields::FieldStores,
-    methods: method_rets::MethodRets,
+    /// read off the program the first time a round finds a function
+    /// returning a value of any kind, which most programs never do
+    methods: OnceCell<method_rets::MethodRets>,
     /// field names whose held fields are respelled `any`, with the
     /// receivers' classes they are stored through
     obj_fields: HashMap<PropKey, obj_fields::Owners>,
@@ -28,7 +31,7 @@ impl ObjectAsks {
         ObjectAsks {
             obj_rets: obj_rets::ObjRets::of(ast),
             field_stores: obj_fields::FieldStores::of(ast),
-            methods: method_rets::MethodRets::of(ast),
+            methods: OnceCell::new(),
             obj_fields: HashMap::new(),
             method_found: HashSet::new(),
             kept: HashMap::new(),
@@ -49,7 +52,11 @@ impl ObjectAsks {
         let obj = self.obj_rets.found(types);
         let found: Vec<String> = rets.iter().chain(&obj).cloned().collect();
         let before = self.method_found.len();
-        (self.method_found).extend(found.iter().filter(|f| self.methods.holds(f)).cloned());
+        if !found.is_empty() {
+            let methods = self.methods(ast);
+            let held: Vec<String> = found.iter().filter(|f| methods.holds(f)).cloned().collect();
+            self.method_found.extend(held);
+        }
         let names: HashSet<PropKey> = self.obj_fields.keys().cloned().collect();
         let mut lits = obj_fields::lit_values(ast, types, &names);
         let fields_grew = extend_fields(&mut self.obj_fields, self.field_stores.found(ast, types));
@@ -73,11 +80,19 @@ impl ObjectAsks {
         r: &mut Ast,
         (types, mono): (&HashMap<ExprId, Type>, &Ast),
     ) {
-        let mut fam = (self.methods).family(ast, (types, mono), self.method_found.iter());
-        let lits = method_lits::closures(ast, types, self.methods.sources(), &fam);
-        fam.fns.extend(lits);
-        method_rets::retype(r, &fam);
+        if !self.method_found.is_empty() {
+            let methods = self.methods(ast);
+            let mut fam = methods.family(ast, (types, mono), self.method_found.iter());
+            let lits = method_lits::closures(ast, types, methods.sources(), &fam);
+            fam.fns.extend(lits);
+            method_rets::retype(r, &fam);
+        }
         (self.field_stores).retype(r, &self.obj_fields, &self.kept);
+    }
+
+    fn methods(&self, ast: &Ast) -> &method_rets::MethodRets {
+        self.methods
+            .get_or_init(|| method_rets::MethodRets::of(ast))
     }
 
     /// Take the classes each widened field name leaves as they are
