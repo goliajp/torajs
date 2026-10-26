@@ -4,9 +4,9 @@ use torajs_core::ssa::{FuncId, Module, ValueId};
 
 use crate::{
     block_layout, concat_len, concat_licm, concat_num_fuse, const_copy_fwd, fdiv_pair, field_pin,
-    gated_pass, interval, iv_merge, loop_rotate, map_find_cse, pass_gates, pass_timer, rc_borrow,
-    rc_dec_immediate, rc_peephole, scaled_addr, select_form, srem_fquot, str_append, strip_assumes,
-    unroll_jam, unroll_pair,
+    gated_pass, interval, iv_merge, loop_rotate, map_find_cse, offset_base, pass_gates, pass_timer,
+    rc_borrow, rc_dec_immediate, rc_peephole, scaled_addr, select_form, srem_fquot, str_append,
+    strip_assumes, unroll_jam, unroll_pair,
 };
 
 mod global_ref_share;
@@ -177,6 +177,12 @@ pub(crate) fn finish_pipeline(
     gated_pass("EXIT_SPLIT", module, |m| {
         crate::int_entry::exit_split::split_exit_tests(m)
     });
+    // A loop's code-unit reads take their constant offset into a base
+    // computed ahead of the loop (`offset_base`). After every pass that
+    // matches a string's uses by reads through the string itself
+    // (concat_licm is the last), before block_layout.
+    // `TORAJS_OFFSET_BASE_OFF=1` skips.
+    gated_pass("OFFSET_BASE", module, offset_base::fold_offset_bases);
     // One address per symbol in a call-free run of a block, so codegen
     // folds a read and a write of one module `let` through one page;
     // after every pass that adds or moves instructions.

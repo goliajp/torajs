@@ -59,6 +59,7 @@ pub mod map_find_cse;
 pub mod mem2reg;
 pub mod merge_sroa;
 pub mod null_check_fold;
+pub mod offset_base;
 pub mod optimize;
 pub mod optimize_licm;
 mod pass_gates;
