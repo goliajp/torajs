@@ -16,7 +16,7 @@ use std::collections::{HashMap, HashSet};
 
 use super::{Round, check_round};
 use crate::ast::named_prop_census::shadow_names::ShadowedNames;
-use crate::ast::{Ast, Expr, ExprId, PropKey, Stmt};
+use crate::ast::{Ast, Expr, ExprId, Stmt};
 use crate::check::Type;
 use fn_slots::{Guarded, boxed};
 use retypable::{retypable_returns, roots};
@@ -60,41 +60,30 @@ fn settle_with(
     allow: &dyn Fn(&Guarded) -> bool,
 ) -> Result<(Option<Round>, Vec<Guarded>), String> {
     let mut round: Option<Round> = None;
-    let mut inits: HashSet<ExprId> = HashSet::new();
-    let mut args: HashSet<ExprId> = HashSet::new();
+    let (mut inits, mut args): (HashSet<ExprId>, HashSet<ExprId>) = Default::default();
     let mut rets: HashSet<String> = HashSet::new();
     let mut fields: HashSet<ExprId> = HashSet::new();
     let mut promise_rets: HashSet<String> = HashSet::new();
-    let mut obj_fields: HashSet<PropKey> = HashSet::new();
     let mut executors: HashSet<ExprId> = HashSet::new();
     let mut retypable = None;
     let mut retyped: Option<Ast> = None;
-    let (obj_rets, field_stores) = (obj_rets::ObjRets::of(ast), obj_fields::FieldStores::of(ast));
-    let methods = method_rets::MethodRets::of(ast);
-    let mut method_found: HashSet<String> = HashSet::new();
+    let mut objects = object_asks::ObjectAsks::of(ast);
     loop {
         let cur = round.as_ref().unwrap_or(first);
         let hidden = &cur.0.5.widths.hidden_any;
         let before = rets.len();
-        let obj = obj_rets.found(&cur.0.1);
-        if !(hidden.rets.is_empty() && obj.is_empty()) {
+        let (found, objects_grew) = objects.extend(ast, &cur.0.1, &hidden.rets, &mut fields);
+        if !found.is_empty() {
             let (ok, _) = retypable.get_or_insert_with(|| retypable_returns(ast, allow));
-            let found = hidden.rets.iter().chain(&obj);
-            rets.extend(found.filter(|f| ok.contains(*f)).cloned());
+            rets.extend(found.into_iter().filter(|f| ok.contains(f)));
         }
-        let before_methods = method_found.len();
-        let found = hidden.rets.iter().chain(&obj);
-        method_found.extend(found.filter(|f| methods.holds(f)).cloned());
-        let lits = obj_fields::lit_values(ast, &cur.0.1, &obj_fields);
         let grew = (rets.len() > before)
-            | (method_found.len() > before_methods)
+            | objects_grew
             | promise_rets::extend(ast, &cur.0.1, &mut promise_rets)
-            | extend_fields(&mut obj_fields, field_stores.found(ast, &cur.0.1))
             | executor_any::extend(ast, &cur.0.1, &mut executors)
             | extend_own(ast, &mut inits, &hidden.inits)
             | extend_own(ast, &mut fields, &scalar_values(&cur.0.1, &hidden.fields))
-            | extend_own(ast, &mut fields, &objects_given_any(ast, &cur.0.1))
-            | extend_own(ast, &mut fields, &lits);
+            | extend_own(ast, &mut fields, &objects_given_any(ast, &cur.0.1));
         if !(extend_own(ast, &mut args, &hidden.args) || grew) {
             let needs = match &retypable {
                 Some((_, flow)) if !rets.is_empty() => {
@@ -107,21 +96,13 @@ fn settle_with(
         let r = retyped.get_or_insert_with(|| ast.clone());
         retype_any(&mut r.stmts, &inits);
         retype_returns_any(&mut r.stmts, &rets);
-        method_rets::retype(r, &methods.family(ast, &cur.0.1, method_found.iter()));
+        objects.retype(ast, r, &cur.0.1);
         promise_rets::retype(&mut r.stmts, &promise_rets);
-        field_stores.retype(r, &obj_fields);
         executor_any::retype(r, &executors);
         spell_fields_any(r, &fields);
         reinfer::reinfer_returns(ast, r);
         round = Some(check_round(r, &args, &ShadowedNames::default(), false)?);
     }
-}
-
-/// Add `found` to `asked`; true when one was new.
-fn extend_fields(asked: &mut HashSet<PropKey>, found: HashSet<PropKey>) -> bool {
-    let before = asked.len();
-    asked.extend(found);
-    asked.len() > before
 }
 
 /// Add the ids of `found` that belong to `ast` to `asked`; true when
@@ -265,6 +246,7 @@ mod method_lits;
 mod method_rets;
 mod obj_fields;
 mod obj_rets;
+mod object_asks;
 mod promise_rets;
 mod reinfer;
 mod retypable;
