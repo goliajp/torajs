@@ -14,7 +14,9 @@ pub(super) struct ObjectAsks {
     obj_rets: obj_rets::ObjRets,
     field_stores: obj_fields::FieldStores,
     /// read off the program the first time a round finds a function
-    /// returning a value of any kind, which most programs never do
+    /// returning a value of any kind, which most programs never do; the
+    /// program is always the one the asks were made `of` (the `ast`
+    /// `settle_with` receives), as the cell keeps the first one read
     methods: OnceCell<method_rets::MethodRets>,
     /// field names whose held fields are respelled `any`, with the
     /// receivers' classes they are stored through

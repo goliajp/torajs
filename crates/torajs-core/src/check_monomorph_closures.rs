@@ -53,10 +53,10 @@ pub(crate) use prune::prune_unresolved_captures;
 /// restores the ones the spec check demotes
 /// (`check_monomorph_clone_tables::check_clone`). A widened clone of a
 /// plain function keeps them: its `any` parameter reaches a class
-/// method through the rewrite's checked cast into the class's layout. Lowering order is safe regardless
-/// of stmt position: `partition_closure_decls` defers every closure
-/// body behind the plain fns, so the spec's construction sites always
-/// lower first.
+/// method through the rewrite's checked cast into the class's layout.
+/// Lowering order is safe regardless of stmt position:
+/// `partition_closure_decls` defers every closure body behind the
+/// plain fns, so the spec's construction sites always lower first.
 pub(crate) fn clone_spec_closures(
     c: &mut Checker,
     owned_ast: &mut Ast,
@@ -106,24 +106,7 @@ pub(crate) fn clone_spec_closures(
                 *ann = substitute_in_ann(ann, subst);
             }
         }
-        // Same ExprId-keyed carry the spec body clone does today
-        // (destructuring group registry); the remaining table sweep is
-        // the recorded L3b follow-up, kept identical for both clones.
-        let cloned_groups: Vec<(ExprId, i64)> = id_map
-            .iter()
-            .filter_map(|&(old, new)| {
-                owned_ast
-                    .ary_destr_groups
-                    .get(&old)
-                    .map(|&limit| (new, limit))
-            })
-            .collect();
-        owned_ast.ary_destr_groups.extend(cloned_groups);
-        crate::check_monomorph_clone_tables::carry_awaits(owned_ast, &id_map);
-        if carry {
-            crate::check_monomorph_clone_tables::carry_speculative(owned_ast, &id_map);
-        }
-
+        carry_tables(owned_ast, &id_map, carry);
         collect_lifted_refs(owned_ast, &id_map, &mut queue, &mut rewrite_sites, &rename);
         crate::check_monomorph_ctor_face::carry_sites(owned_ast, &id_map);
         // Name-keyed side tables must mirror BEFORE the clone checks:
@@ -184,6 +167,21 @@ pub(crate) fn clone_spec_closures(
         }
     }
     (rename, clone_ids)
+}
+
+/// Carry a closure clone's ExprId-keyed entries onto its ids: the
+/// destructuring groups and the awaits, as the spec body clone does
+/// (the remaining table sweep is a recorded follow-up, kept identical
+/// for both clones), and with `carry` the speculative rewrites.
+fn carry_tables(owned_ast: &mut Ast, id_map: &[(ExprId, ExprId)], carry: bool) {
+    let groups: Vec<(ExprId, i64)> = (id_map.iter())
+        .filter_map(|&(old, new)| owned_ast.ary_destr_groups.get(&old).map(|&n| (new, n)))
+        .collect();
+    owned_ast.ary_destr_groups.extend(groups);
+    crate::check_monomorph_clone_tables::carry_awaits(owned_ast, id_map);
+    if carry {
+        crate::check_monomorph_clone_tables::carry_speculative(owned_ast, id_map);
+    }
 }
 
 /// Scan a deep-clone `id_map` for `Expr::Closure` references to

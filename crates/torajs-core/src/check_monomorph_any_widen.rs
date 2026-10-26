@@ -27,6 +27,7 @@ use crate::check::{Checker, Type};
 use crate::check_monomorph::{
     WorkItem, clone_spec_body, process_one_generic, seed_records, spec_params_env,
 };
+use crate::check_monomorph_closures::clone_spec_closures;
 use crate::ssa_lower_generics_monomorph::Generics;
 
 /// A widen site's target fn name and the (param index, target) pairs it widens.
@@ -372,14 +373,8 @@ fn emit_widened_spec(
     // keys are NOT retired into `generic_fn_names`: the original fn
     // still lowers, so its closures' original construction sites stay
     // live — retiring them would break the typed callers.
-    let (closure_rename, _) = crate::check_monomorph_closures::clone_spec_closures(
-        c,
-        owned_ast,
-        suffix,
-        &id_map,
-        (&no_subst, false),
-    );
-    (owned_ast.any_widen_clones).extend(closure_rename.into_values().chain([mono_name.into()]));
+    let (renamed, _) = clone_spec_closures(c, owned_ast, suffix, &id_map, (&no_subst, false));
+    (owned_ast.any_widen_clones).extend(renamed.into_values().chain([mono_name.into()]));
     if lifted {
         owned_ast.stmts.push(spec_decl.clone());
         let check = |c: &mut Checker, a: &Ast| check_lifted_spec(c, a, fn_name, &spec_decl);
