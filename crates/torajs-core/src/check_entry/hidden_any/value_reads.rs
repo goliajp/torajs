@@ -147,9 +147,8 @@ impl<'a> Seen<'a> {
 
 /// Whether the value `read` goes only into a comparison, an operator,
 /// `typeof`, a property read other than `call` / `apply` / `bind`, or
-/// the key argument of a `Map` / `Set` lookup, or of a store whose
-/// collection hands the key back to no slot but one typed with a
-/// return of `any` ([`only_looked_up`]).
+/// the key argument of a `Map` / `Set` lookup, or of a store into a
+/// collection the program only looks keys up in ([`only_looked_up`]).
 fn inspected(ast: &Ast, types: &HashMap<ExprId, Type>, seen: &Seen, read: ExprId) -> bool {
     let Some(Place::Expr(p)) = seen.places.get(&read) else {
         return false;
