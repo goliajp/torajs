@@ -188,18 +188,22 @@ fn chain_walk(ast: &Ast, eid: ExprId, inside: Option<ExprId>) -> Option<(ExprId,
 }
 
 /// A call's children: a member callee is the receiver's read, which
-/// stays with the call (module doc), so only the arguments are. So is a
-/// parenthesized optional one whose keys and arguments do not await
-/// (`((await p)?.m)(x)`): only its base is lifted.
+/// stays with the call (module doc), so only the arguments are — and
+/// the receiver's own operand when it awaits (`(await p).m(x)`), which
+/// a hoist keeps as the receiver; an index callee's object and key. A
+/// parenthesized optional callee whose keys and arguments do not await
+/// (`((await p)?.m)(x)`) is a member one too: only its base is lifted.
 fn call_kids(ast: &Ast, callee: ExprId, args: &[ExprId]) -> Shape {
     let mut kids = Vec::with_capacity(args.len() + 1);
     match ast.get_expr(callee) {
-        Expr::Member { .. } => {}
-        Expr::OptChain { obj, .. } | Expr::OptIndex { obj, .. } => {
-            if expr_has_await(ast, *obj) {
-                kids.push(*obj);
-            }
+        Expr::Member { obj, .. } | Expr::OptChain { obj, .. } | Expr::OptIndex { obj, .. }
+            if expr_has_await(ast, *obj) =>
+        {
+            kids.push(*obj)
         }
+        Expr::Member { .. } | Expr::OptChain { .. } | Expr::OptIndex { .. } => {}
+        // hoisted part by part, the call stays an index call
+        Expr::Index { obj, index } => kids.extend([*obj, *index]),
         _ => kids.push(callee),
     }
     kids.extend(args.iter().copied());
