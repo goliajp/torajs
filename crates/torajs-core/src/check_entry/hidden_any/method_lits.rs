@@ -10,11 +10,12 @@
 //! no longer be one of its values. Every literal of the declaration's
 //! shape is respelled with it.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use super::inlobj_fields;
 use super::method_rets::{Family, returning_any};
-use crate::ast::{Ast, Stmt};
+use crate::ast::{Ast, Expr, ExprId, PropKey, Stmt};
+use crate::check::Type;
 
 /// A declaration's members `(name, annotation)` in declaration order,
 /// and the names of those whose return is retyped. The order is part of
@@ -77,4 +78,66 @@ fn shapes(r: &Ast, fam: &Family) -> Vec<Shape> {
         }
     }
     out
+}
+
+/// The lifted closures that object literals of the type of an interface
+/// in `fam.members` hold in a retyped member: the closure is the
+/// member's slot, called through the interface's signature, so it
+/// returns its value as it is with the interface. `types` is a round's;
+/// a literal's type is the interface's before the retype, or after it
+/// once a previous round retyped its closures.
+pub(super) fn closures(ast: &Ast, types: &HashMap<ExprId, Type>, fam: &Family) -> HashSet<String> {
+    let mut out = HashSet::new();
+    if fam.members.is_empty() {
+        return out;
+    }
+    let ifaces: Vec<(&Type, HashSet<&PropKey>)> = (ast.iface_slots.types.iter())
+        .filter_map(|(i, t)| {
+            let keys: HashSet<&PropKey> = (fam.members.iter())
+                .filter(|(n, _)| n == i)
+                .map(|(_, k)| k)
+                .collect();
+            (!keys.is_empty()).then_some((t, keys))
+        })
+        .collect();
+    for (i, e) in ast.exprs.iter().enumerate() {
+        let Expr::ObjectLit { fields } = e else {
+            continue;
+        };
+        let Some(t) = types.get(&ExprId(i as u32)) else {
+            continue;
+        };
+        let Some((_, keys)) = ifaces.iter().find(|(it, ks)| of_iface(t, it, ks)) else {
+            continue;
+        };
+        for (k, v) in fields {
+            if keys.contains(k)
+                && let Expr::Closure { fn_name, .. } = ast.get_expr(*v)
+            {
+                out.insert(fn_name.clone());
+            }
+        }
+    }
+    out
+}
+
+/// Whether `t` is `iface`, or `iface` with the members `keys` returning
+/// `any`.
+fn of_iface(t: &Type, iface: &Type, keys: &HashSet<&PropKey>) -> bool {
+    let (Type::Struct(a), Type::Struct(b)) = (t, iface) else {
+        return false;
+    };
+    a.len() == b.len()
+        && a.iter().zip(b.iter()).all(|((ka, ta), (kb, tb))| {
+            ka == kb && (ta == tb || keys.contains(ka) && returns_any_of(ta, tb))
+        })
+}
+
+/// Whether `ta` is the function type `tb` returning `any`.
+fn returns_any_of(ta: &Type, tb: &Type) -> bool {
+    match (ta, tb) {
+        (Type::Function(pa, ra), Type::Function(pb, _)) => pa == pb && **ra == Type::Any,
+        (Type::Nullable(a), Type::Nullable(b)) => returns_any_of(a, b),
+        _ => false,
+    }
 }

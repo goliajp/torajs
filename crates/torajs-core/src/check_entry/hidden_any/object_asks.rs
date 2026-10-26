@@ -5,7 +5,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use super::{extend_own, method_rets, obj_fields, obj_rets};
+use super::{extend_own, method_lits, method_rets, obj_fields, obj_rets};
 use crate::ast::{Ast, ExprId, PropKey};
 use crate::check::Type;
 
@@ -55,7 +55,9 @@ impl ObjectAsks {
     /// Retype `r` for the asks taken so far, `types` being the last
     /// round's.
     pub(super) fn retype(&self, ast: &Ast, r: &mut Ast, types: &HashMap<ExprId, Type>) {
-        let fam = (self.methods).family(ast, types, self.method_found.iter());
+        let mut fam = (self.methods).family(ast, types, self.method_found.iter());
+        let lits = method_lits::closures(ast, types, &fam);
+        fam.fns.extend(lits);
         method_rets::retype(r, &fam);
         self.field_stores.retype(r, &self.obj_fields);
     }
