@@ -89,16 +89,24 @@ pub(crate) fn emit(
     // across the arguments' lowers; park it for their throw paths.
     let recv_tok = ctx.park_owned_temp(callee, &recv);
     let packed = pack_any_argv(ctx, args);
-    let argv = packed.argv;
+    let argc = crate::ast::source_argc(ctx.ast, eid, args) as i64;
+    finish(ctx, callee, recv, recv_tok, packed, argc)
+}
+
+/// The call over a packed argv, and the releases after it.
+pub(crate) fn finish(
+    ctx: &mut LowerCtx<'_>,
+    callee: crate::ast::ExprId,
+    recv: Operand,
+    recv_tok: Option<usize>,
+    packed: crate::ssa_lower_any_argv::AnyArgv,
+    argc: i64,
+) -> Operand {
     let result = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Call(
             ctx.intrinsics.any_call,
-            vec![
-                recv,
-                Operand::Value(argv),
-                Operand::ConstI64(crate::ast::source_argc(ctx.ast, eid, args) as i64),
-            ],
+            vec![recv, Operand::Value(packed.argv), Operand::ConstI64(argc)],
         ),
         Type::Any,
         None,
