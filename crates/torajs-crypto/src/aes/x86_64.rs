@@ -14,7 +14,9 @@ use core::arch::x86_64::*;
 use super::{BLOCK_LEN, MAX_ROUNDS};
 use crate::ct::zeroize::zeroize;
 
-/// Round keys as bytes, in the order the instructions consume them.
+/// Round keys as bytes, in the order the instructions consume them,
+/// 16-byte aligned so that no round-key load splits a cache line.
+#[repr(C, align(16))]
 pub(crate) struct Keys {
     rk: [[u8; BLOCK_LEN]; MAX_ROUNDS + 1],
     rounds: usize,
@@ -37,38 +39,23 @@ impl Keys {
         zeroize(self.rk.as_flattened_mut());
     }
 
-    /// Loads the round keys into vector registers.
+    /// Round key `k` in a vector register.
     #[inline]
     #[target_feature(enable = "aes")]
-    pub(crate) fn load(&self) -> Loaded {
-        let mut rk = [_mm_setzero_si128(); MAX_ROUNDS + 1];
-        for (r, k) in rk.iter_mut().zip(&self.rk) {
-            // SAFETY: the pointer addresses a whole 16-byte round key;
-            // `loadu` has no alignment requirement.
-            *r = unsafe { _mm_loadu_si128(k.as_ptr().cast()) };
-        }
-        Loaded {
-            rk,
-            rounds: self.rounds,
-        }
+    fn ld(k: &[u8; BLOCK_LEN]) -> __m128i {
+        // SAFETY: the pointer addresses a whole 16-byte round key; `loadu`
+        // has no alignment requirement.
+        unsafe { _mm_loadu_si128(k.as_ptr().cast()) }
     }
-}
 
-/// Round keys held in registers for the length of one operation.
-pub(crate) struct Loaded {
-    rk: [__m128i; MAX_ROUNDS + 1],
-    rounds: usize,
-}
-
-impl Loaded {
     #[inline]
     #[target_feature(enable = "aes")]
     pub(crate) fn encrypt(&self, b: __m128i) -> __m128i {
-        let mut b = _mm_xor_si128(b, self.rk[0]);
-        for &k in &self.rk[1..self.rounds] {
-            b = _mm_aesenc_si128(b, k);
+        let mut b = _mm_xor_si128(b, Self::ld(&self.rk[0]));
+        for k in &self.rk[1..self.rounds] {
+            b = _mm_aesenc_si128(b, Self::ld(k));
         }
-        _mm_aesenclast_si128(b, self.rk[self.rounds])
+        _mm_aesenclast_si128(b, Self::ld(&self.rk[self.rounds]))
     }
 
     /// `N` independent blocks, interleaved so the instruction latencies
@@ -76,16 +63,19 @@ impl Loaded {
     #[inline]
     #[target_feature(enable = "aes")]
     pub(crate) fn encrypt_n<const N: usize>(&self, mut b: [__m128i; N]) -> [__m128i; N] {
+        let k = Self::ld(&self.rk[0]);
         for x in &mut b {
-            *x = _mm_xor_si128(*x, self.rk[0]);
+            *x = _mm_xor_si128(*x, k);
         }
-        for &k in &self.rk[1..self.rounds] {
+        for k in &self.rk[1..self.rounds] {
+            let k = Self::ld(k);
             for x in &mut b {
                 *x = _mm_aesenc_si128(*x, k);
             }
         }
+        let k = Self::ld(&self.rk[self.rounds]);
         for x in &mut b {
-            *x = _mm_aesenclast_si128(*x, self.rk[self.rounds]);
+            *x = _mm_aesenclast_si128(*x, k);
         }
         b
     }

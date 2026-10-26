@@ -21,24 +21,22 @@
 use core::arch::x86_64::*;
 
 use crate::aes::BLOCK_LEN;
-use crate::aes::x86_64::{Keys, Loaded};
+use crate::aes::x86_64::Keys;
 use crate::cpu::{CpuFeatures, Feature};
 use crate::ct::zeroize::zeroize;
 
 /// Blocks per GHASH reduction on the main path.
 const WIDE: usize = 8;
 
-/// Keyed GCM state: round keys and `H^1..H^8` in natural order.
+/// Keyed GCM state: round keys, `H^1..H^8` in natural order, and for
+/// each power the XOR of its halves in the low lane for the Karatsuba
+/// middle product. 16-byte aligned so that no vector load splits a cache
+/// line.
+#[repr(C, align(16))]
 pub(super) struct Gcm {
     aes: Keys,
     h: [[u64; 2]; WIDE],
-}
-
-/// `H^1..H^8` in registers, each with the XOR of its halves in the low
-/// lane for the Karatsuba middle product.
-struct Powers {
-    h: [__m128i; WIDE],
-    fold: [__m128i; WIDE],
+    fold: [[u64; 2]; WIDE],
 }
 
 #[inline]
@@ -149,34 +147,6 @@ fn st64(p: &mut [u64; 2], v: __m128i) {
     unsafe { _mm_storeu_si128(p.as_mut_ptr().cast(), v) }
 }
 
-impl Powers {
-    #[inline]
-    #[target_feature(enable = "pclmulqdq")]
-    fn load(h: &[[u64; 2]; WIDE]) -> Powers {
-        let mut p = Powers {
-            h: [_mm_setzero_si128(); WIDE],
-            fold: [_mm_setzero_si128(); WIDE],
-        };
-        for (i, hi) in h.iter().enumerate() {
-            p.h[i] = ld64(hi);
-            p.fold[i] = fold(p.h[i]);
-        }
-        p
-    }
-
-    /// `(y ^ x[0]) * H^N ^ x[1] * H^(N-1) ^ ... ^ x[N-1] * H`, one
-    /// reduction.
-    #[inline]
-    #[target_feature(enable = "pclmulqdq")]
-    fn hash<const N: usize>(&self, y: __m128i, x: &[__m128i; N]) -> __m128i {
-        let mut acc = Acc::new(_mm_xor_si128(y, x[0]), self.h[N - 1], self.fold[N - 1]);
-        for (i, &xi) in x.iter().enumerate().skip(1) {
-            acc.add(xi, self.h[N - 1 - i], self.fold[N - 1 - i]);
-        }
-        acc.reduce()
-    }
-}
-
 /// Loads 16 bytes from `p`.
 ///
 /// # Safety
@@ -232,6 +202,7 @@ impl Gcm {
         let mut gcm = Gcm {
             aes: Keys::new(&words[..4 * (rounds + 1)], rounds),
             h: [[0; 2]; WIDE],
+            fold: [[0; 2]; WIDE],
         };
         // SAFETY: `cpu` vouches for AES-NI, PCLMULQDQ and SSSE3 (the
         // contract of `CpuFeatures::with`), which is all `init_powers`
@@ -243,18 +214,34 @@ impl Gcm {
     pub(super) fn wipe(&mut self) {
         self.aes.wipe();
         zeroize(self.h.as_flattened_mut());
+        zeroize(self.fold.as_flattened_mut());
     }
 
     #[target_feature(enable = "aes,pclmulqdq,sse2,ssse3")]
     fn init_powers(&mut self) {
-        let k = self.aes.load();
-        let h = natural(k.encrypt(_mm_setzero_si128()));
+        let h = natural(self.aes.encrypt(_mm_setzero_si128()));
         let hf = fold(h);
         let mut p = h;
-        for slot in &mut self.h {
+        for (slot, fslot) in self.h.iter_mut().zip(&mut self.fold) {
             st64(slot, p);
+            st64(fslot, fold(p));
             p = Acc::new(p, h, hf).reduce();
         }
+    }
+
+    /// `(y ^ x[0]) * H^N ^ x[1] * H^(N-1) ^ ... ^ x[N-1] * H`, one
+    /// reduction.
+    #[inline]
+    #[target_feature(enable = "pclmulqdq")]
+    fn hash<const N: usize>(&self, y: __m128i, x: &[__m128i; N]) -> __m128i {
+        let pow = |i: usize| (ld64(&self.h[i]), ld64(&self.fold[i]));
+        let (h, hf) = pow(N - 1);
+        let mut acc = Acc::new(_mm_xor_si128(y, x[0]), h, hf);
+        for (i, &xi) in x.iter().enumerate().skip(1) {
+            let (h, hf) = pow(N - 1 - i);
+            acc.add(xi, h, hf);
+        }
+        acc.reduce()
     }
 
     pub(super) fn encrypt_block(&self, b: [u8; BLOCK_LEN]) -> [u8; BLOCK_LEN] {
@@ -283,7 +270,7 @@ impl Gcm {
         let mut out = [0u8; BLOCK_LEN];
         // SAFETY: both pointers address 16-byte arrays.
         unsafe {
-            let c = self.aes.load().encrypt(ld(b.as_ptr()));
+            let c = self.aes.encrypt(ld(b.as_ptr()));
             st(out.as_mut_ptr(), c);
         }
         out
@@ -296,34 +283,33 @@ impl Gcm {
     /// `src` must be valid for reading `16 * N` bytes.
     #[inline]
     #[target_feature(enable = "aes,pclmulqdq,sse2,ssse3")]
-    unsafe fn ghash_blocks<const N: usize>(p: &Powers, acc: __m128i, src: *const u8) -> __m128i {
+    unsafe fn ghash_blocks<const N: usize>(&self, acc: __m128i, src: *const u8) -> __m128i {
         let mut x = [_mm_setzero_si128(); N];
         for (i, xi) in x.iter_mut().enumerate() {
             // SAFETY: block `i` lies inside the caller's `16 * N` bytes.
             *xi = natural(unsafe { ld(src.add(BLOCK_LEN * i)) });
         }
-        p.hash(acc, &x)
+        self.hash(acc, &x)
     }
 
     #[target_feature(enable = "aes,pclmulqdq,sse2,ssse3")]
     fn ghash_hw(&self, y: &mut [u64; 2], data: &[u8]) {
-        let p = Powers::load(&self.h);
         let mut acc = ld64(y);
         let (wide, rest) = data.as_chunks::<{ WIDE * BLOCK_LEN }>();
         for c in wide {
             // SAFETY: `c` is `16 * WIDE` bytes.
-            acc = unsafe { Self::ghash_blocks::<WIDE>(&p, acc, c.as_ptr()) };
+            acc = unsafe { self.ghash_blocks::<WIDE>(acc, c.as_ptr()) };
         }
         let (quads, rest) = rest.as_chunks::<{ 4 * BLOCK_LEN }>();
         for c in quads {
             // SAFETY: `c` is 64 bytes.
-            acc = unsafe { Self::ghash_blocks::<4>(&p, acc, c.as_ptr()) };
+            acc = unsafe { self.ghash_blocks::<4>(acc, c.as_ptr()) };
         }
         for c in rest.chunks(BLOCK_LEN) {
             let mut block = [0u8; BLOCK_LEN];
             block[..c.len()].copy_from_slice(c);
             // SAFETY: `block` is 16 bytes.
-            acc = unsafe { Self::ghash_blocks::<1>(&p, acc, block.as_ptr()) };
+            acc = unsafe { self.ghash_blocks::<1>(acc, block.as_ptr()) };
         }
         st64(y, acc);
     }
@@ -337,8 +323,7 @@ impl Gcm {
     #[inline]
     #[target_feature(enable = "aes,pclmulqdq,sse2,ssse3")]
     unsafe fn crypt_blocks<const N: usize, const SEAL: bool>(
-        k: &Loaded,
-        p: &Powers,
+        &self,
         base: __m128i,
         ctr: u32,
         acc: __m128i,
@@ -348,7 +333,7 @@ impl Gcm {
         for (i, b) in ctrs.iter_mut().enumerate() {
             *b = counter(base, ctr.wrapping_add(i as u32));
         }
-        let ks = k.encrypt_n(ctrs);
+        let ks = self.aes.encrypt_n(ctrs);
         let mut ct = [_mm_setzero_si128(); N];
         for (i, (c, k)) in ct.iter_mut().zip(ks).enumerate() {
             // SAFETY: block `i` lies inside the caller's `16 * N` bytes.
@@ -360,7 +345,7 @@ impl Gcm {
                 st(ptr, output);
             }
         }
-        p.hash(acc, &ct)
+        self.hash(acc, &ct)
     }
 
     /// Counter-mode encryption (`SEAL`) or decryption fused with GHASH
@@ -373,21 +358,18 @@ impl Gcm {
         y: &mut [u64; 2],
         data: &mut [u8],
     ) {
-        let k = self.aes.load();
-        let p = Powers::load(&self.h);
         let base = counter_base(prefix);
         let mut acc = ld64(y);
         let (wide, rest) = data.as_chunks_mut::<{ WIDE * BLOCK_LEN }>();
         for c in wide {
             // SAFETY: `c` is `16 * WIDE` bytes.
-            acc =
-                unsafe { Self::crypt_blocks::<WIDE, SEAL>(&k, &p, base, ctr, acc, c.as_mut_ptr()) };
+            acc = unsafe { self.crypt_blocks::<WIDE, SEAL>(base, ctr, acc, c.as_mut_ptr()) };
             ctr = ctr.wrapping_add(WIDE as u32);
         }
         let (quads, rest) = rest.as_chunks_mut::<{ 4 * BLOCK_LEN }>();
         for c in quads {
             // SAFETY: `c` is 64 bytes.
-            acc = unsafe { Self::crypt_blocks::<4, SEAL>(&k, &p, base, ctr, acc, c.as_mut_ptr()) };
+            acc = unsafe { self.crypt_blocks::<4, SEAL>(base, ctr, acc, c.as_mut_ptr()) };
             ctr = ctr.wrapping_add(4);
         }
         for c in rest.chunks_mut(BLOCK_LEN) {
@@ -399,18 +381,16 @@ impl Gcm {
                 // keystream past the end must not reach it
                 let mut ks = [0u8; BLOCK_LEN];
                 // SAFETY: `ks` is 16 bytes.
-                unsafe { st(ks.as_mut_ptr(), k.encrypt(counter(base, ctr))) };
+                unsafe { st(ks.as_mut_ptr(), self.aes.encrypt(counter(base, ctr))) };
                 for (b, k) in block[..c.len()].iter_mut().zip(ks) {
                     *b ^= k;
                 }
                 zeroize(&mut ks);
                 // SAFETY: `block` is 16 bytes.
-                acc = unsafe { Self::ghash_blocks::<1>(&p, acc, block.as_ptr()) };
+                acc = unsafe { self.ghash_blocks::<1>(acc, block.as_ptr()) };
             } else {
                 // SAFETY: `block` is 16 bytes.
-                acc = unsafe {
-                    Self::crypt_blocks::<1, SEAL>(&k, &p, base, ctr, acc, block.as_mut_ptr())
-                };
+                acc = unsafe { self.crypt_blocks::<1, SEAL>(base, ctr, acc, block.as_mut_ptr()) };
             }
             ctr = ctr.wrapping_add(1);
             c.copy_from_slice(&block[..c.len()]);
