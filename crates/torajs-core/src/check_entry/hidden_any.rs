@@ -252,5 +252,6 @@ mod promise_rets;
 mod reinfer;
 mod retypable;
 mod samename;
+mod type_parts;
 mod value_places;
 mod value_reads;

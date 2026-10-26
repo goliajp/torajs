@@ -11,6 +11,7 @@
 use std::collections::HashMap;
 
 use super::method_rets::Family;
+use super::type_parts::each_part_mut;
 use crate::ast::Ast;
 use crate::check::Type;
 
@@ -67,15 +68,7 @@ fn follow(t: &mut Type, moved: &[(Type, Type)]) -> bool {
         *t = now.clone();
         return true;
     }
-    match t {
-        Type::Struct(fs) => fs.iter_mut().fold(false, |c, (_, f)| follow(f, moved) | c),
-        Type::Function(ps, ret) => {
-            let c = follow(ret, moved);
-            ps.iter_mut().fold(c, |c, p| follow(p, moved) | c)
-        }
-        Type::Array(e) | Type::Nullable(e) | Type::Rest(e) | Type::MapIter(e) => follow(e, moved),
-        Type::Map(k, v) => follow(k, moved) | follow(v, moved),
-        Type::Union(ts) => ts.iter_mut().fold(false, |c, t| follow(t, moved) | c),
-        _ => false,
-    }
+    let mut changed = false;
+    each_part_mut(t, |p| changed |= follow(p, moved));
+    changed
 }

@@ -16,6 +16,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use super::type_parts::{Part, any_part};
 use super::value_places::{Into, Place, into, places};
 use crate::ast::{Ast, Expr, ExprId, PropKey, Stmt};
 use crate::check::Type;
@@ -183,26 +184,17 @@ fn handed_on(
     })
 }
 
-/// Whether a value typed `t` may hold a value of any kind.
+/// Whether a value typed `t` may hold a value of any kind: an `any`
+/// part it hands on (a function's result, never its parameters).
 fn carries_any(t: &Type) -> bool {
-    match t {
-        Type::Any => true,
-        Type::Array(e) | Type::Nullable(e) => carries_any(e),
-        Type::Union(ts) => ts.iter().any(carries_any),
-        _ => false,
-    }
+    *t == Type::Any || any_part(t, |p, k| k == Part::Held && carries_any(p))
 }
 
 /// Whether `t` names a class of `tree`, at any depth.
 fn mentions(t: &Type, tree: &HashSet<String>) -> bool {
     match t {
         Type::ClassRef(c) => tree.contains(base(c)),
-        Type::Struct(fs) => fs.iter().any(|(_, f)| mentions(f, tree)),
-        Type::Function(ps, r) => mentions(r, tree) || ps.iter().any(|p| mentions(p, tree)),
-        Type::Array(e) | Type::Nullable(e) | Type::Rest(e) | Type::MapIter(e) => mentions(e, tree),
-        Type::Map(k, v) => mentions(k, tree) || mentions(v, tree),
-        Type::Union(ts) => ts.iter().any(|t| mentions(t, tree)),
-        _ => false,
+        _ => any_part(t, |p, _| mentions(p, tree)),
     }
 }
 
