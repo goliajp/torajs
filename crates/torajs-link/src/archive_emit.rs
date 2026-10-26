@@ -443,6 +443,7 @@ mod tests {
         use crate::exec::link_to_exec;
         let main_fn = compile_function(&make_ret_const_fn("_main", 42));
         let cfg = LinkConfig {
+            user_loops: Default::default(),
             funcs: vec![main_fn],
             entry: "_main".into(),
             sym_table: SymTable::new(),
@@ -494,6 +495,7 @@ mod tests {
         let main_cf = fn_calls_extern_then_returns("_main", "_foo");
 
         let cfg = LinkConfig {
+            user_loops: Default::default(),
             funcs: vec![main_cf],
             entry: "_main".into(),
             sym_table: SymTable::new(),
@@ -573,6 +575,7 @@ mod tests {
         let main_cf = fn_calls_extern_then_returns("_main", "_foo");
 
         let cfg = LinkConfig {
+            user_loops: Default::default(),
             funcs: vec![main_cf],
             entry: "_main".into(),
             sym_table: SymTable::new(),
@@ -647,6 +650,7 @@ mod tests {
         // debug-assert is happy; the runtime never executes this
         // binary in this test.
         let probe_cfg = LinkConfig {
+            user_loops: Default::default(),
             funcs: vec![main_cf.clone()],
             entry: "_main".into(),
             sym_table: SymTable::new(),
@@ -674,6 +678,7 @@ mod tests {
         sym_table.insert("_malloc".into(), fake_malloc_vaddr);
 
         let cfg = LinkConfig {
+            user_loops: Default::default(),
             funcs: vec![main_cf.clone()],
             entry: "_main".into(),
             sym_table,
@@ -782,6 +787,7 @@ mod tests {
     fn libsystem_extern_routes_through_stub_trampoline() {
         let main_cf = fn_calls_extern_then_returns("_main", "_malloc");
         let cfg = LinkConfig {
+            user_loops: Default::default(),
             funcs: vec![main_cf.clone()],
             entry: "_main".into(),
             sym_table: SymTable::new(),
@@ -875,6 +881,7 @@ mod tests {
             &torajs_obj::write_object(std::slice::from_ref(&foo_cf)),
         );
         let cfg = LinkConfig {
+            user_loops: Default::default(),
             funcs: vec![main_cf],
             entry: "_main".into(),
             sym_table: SymTable::new(),
@@ -923,6 +930,7 @@ mod tests {
         let main_cf = fn_calls_extern_then_returns("_main", "_foo");
 
         let cfg = LinkConfig {
+            user_loops: Default::default(),
             funcs: vec![main_cf],
             entry: "_main".into(),
             sym_table: SymTable::new(),

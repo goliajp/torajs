@@ -180,6 +180,7 @@ mod tests {
 
     fn probe_cfg(funcs: Vec<CompiledFunction>, archives: Vec<Vec<u8>>) -> LinkConfig {
         LinkConfig {
+            user_loops: Default::default(),
             funcs,
             entry: "_main".into(),
             sym_table: SymTable::new(),

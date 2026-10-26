@@ -47,7 +47,8 @@ mod zext_load;
 
 pub use compile::{
     CellOps, CompiledFunction, InlineSites, ModuleFacts, StrAppendLit, compile_function,
-    compile_function_at, compile_function_in, compile_function_with,
+    compile_function_at, compile_function_at_with_loops, compile_function_in,
+    compile_function_with,
 };
 pub use reloc::{Reloc, RelocKind};
 pub use torajs_core::ssa::{id_hash, is_local_label};

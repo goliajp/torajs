@@ -350,6 +350,7 @@ mod tests {
     #[test]
     fn presence_predicate_matches_layout_for_every_table() {
         let base = crate::exec::LinkConfig {
+            user_loops: Default::default(),
             funcs: Vec::new(),
             entry: "_main".into(),
             sym_table: crate::resolve::SymTable::new(),

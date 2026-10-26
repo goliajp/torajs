@@ -339,6 +339,7 @@ mod tests {
     fn empty_archives_layout_matches_exec_baseline() {
         let main = fn_leaf("_main");
         let cfg = LinkConfig {
+            user_loops: Default::default(),
             funcs: vec![main],
             entry: "_main".into(),
             sym_table: SymTable::new(),
@@ -392,6 +393,7 @@ mod tests {
     fn layout_populates_dyld_stubs_when_libsystem_referenced() {
         let main = fn_with_extern_calls("_main", &["_malloc"]);
         let cfg = LinkConfig {
+            user_loops: Default::default(),
             funcs: vec![main.clone()],
             entry: "_main".into(),
             sym_table: SymTable::new(),
@@ -460,6 +462,7 @@ mod tests {
     fn layout_strides_stub_vaddrs_per_import() {
         let main = fn_with_extern_calls("_main", &["_malloc", "_free", "_pthread_create"]);
         let cfg = LinkConfig {
+            user_loops: Default::default(),
             funcs: vec![main],
             entry: "_main".into(),
             sym_table: SymTable::new(),
@@ -509,6 +512,7 @@ mod tests {
             build_short_name_archive("a.o", &torajs_obj::write_object(std::slice::from_ref(&foo)));
         let main = fn_with_extern_calls("_main", &["_foo"]);
         let cfg = LinkConfig {
+            user_loops: Default::default(),
             funcs: vec![main.clone()],
             entry: "_main".into(),
             sym_table: SymTable::new(),
@@ -574,6 +578,7 @@ mod tests {
             build_short_name_archive("a.o", &torajs_obj::write_object(std::slice::from_ref(&foo)));
         let main = fn_with_extern_calls("_main", &["_foo"]);
         let mut cfg = LinkConfig {
+            user_loops: Default::default(),
             funcs: vec![main.clone()],
             entry: "_main".into(),
             sym_table: SymTable::new(),
@@ -623,6 +628,7 @@ mod tests {
         };
         let main = fn_leaf("_main");
         let mut cfg = LinkConfig {
+            user_loops: Default::default(),
             funcs: vec![main.clone(), decl],
             entry: "_main".into(),
             sym_table: SymTable::new(),
@@ -666,6 +672,7 @@ mod tests {
             build_short_name_archive("b.o", &torajs_obj::write_object(std::slice::from_ref(&bar)));
         let main = fn_with_extern_calls("_main", &["_foo"]);
         let cfg = LinkConfig {
+            user_loops: Default::default(),
             funcs: vec![main.clone()],
             entry: "_main".into(),
             sym_table: SymTable::new(),
@@ -717,6 +724,7 @@ mod tests {
     fn unresolved_extern_returns_typed_error() {
         let main = fn_with_extern_calls("_main", &["_missing"]);
         let cfg = LinkConfig {
+            user_loops: Default::default(),
             funcs: vec![main],
             entry: "_main".into(),
             sym_table: SymTable::new(),
@@ -756,6 +764,7 @@ mod tests {
             build_short_name_archive("a.o", &torajs_obj::write_object(std::slice::from_ref(&foo)));
         let main = fn_with_extern_calls("_main", &["_foo"]);
         let cfg = LinkConfig {
+            user_loops: Default::default(),
             funcs: vec![main],
             entry: "_foo".into(), // wrong — _foo isn't a user fn
             sym_table: SymTable::new(),

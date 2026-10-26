@@ -7,6 +7,7 @@
 //! `LinkConfig` and shells out to the staticlib-aware emit path.
 
 use std::process::ExitCode;
+use std::sync::Arc;
 
 use crate::cmd_build_extern_relocs::rewrite_extern_relocs;
 use crate::cmd_build_regex_entries::{build_baked_regex_entries, build_regex_images};
@@ -22,10 +23,10 @@ use crate::runtime_image::TORAJS_RUNTIME_IMAGE;
 use torajs_codegen::CompiledFunction;
 use torajs_codegen::frame::FrameLayout;
 use torajs_codegen::reloc::{CallTarget, RelocKind};
-use torajs_codegen::{ModuleFacts, compile_function_at};
+use torajs_codegen::{ModuleFacts, compile_function_at_with_loops};
 use torajs_core::ssa::{FuncId, Module};
 use torajs_link::archive_emit::link_to_exec_for_exit;
-use torajs_link::exec::LinkConfig;
+use torajs_link::exec::{LinkConfig, UserLoops};
 use torajs_link::phase_timer::PhaseTimer;
 use torajs_link::resolve::SymTable;
 
@@ -151,9 +152,10 @@ pub(crate) fn run(args: &[String]) -> ExitCode {
 /// so the link layer resolves through the archive symbol table
 /// (`___torajs_*` with Apple's `_` prefix). Mirrors how LLVM/clang
 /// distinguishes external declarations from internal definitions.
-fn compile_module_funcs(ssa_module: &Module) -> Vec<CompiledFunction> {
+fn compile_module_funcs(ssa_module: &Module) -> (Vec<CompiledFunction>, Arc<UserLoops>) {
     // Indexed by FuncId, like the `funcs` vec below.
     let facts = ModuleFacts::of(ssa_module);
+    let mut looped: Vec<(usize, Vec<(u32, u32)>)> = Vec::new();
     let mut funcs: Vec<_> = ssa_module
         .funcs
         .iter()
@@ -169,7 +171,11 @@ fn compile_module_funcs(ssa_module: &Module) -> Vec<CompiledFunction> {
                     frame: FrameLayout::leaf_no_spill(),
                 }
             } else {
-                compile_function_at(f, FuncId(i as u32), &facts)
+                let (cf, loops) = compile_function_at_with_loops(f, FuncId(i as u32), &facts);
+                if !loops.is_empty() {
+                    looped.push((i, loops));
+                }
+                cf
             }
         })
         .collect::<Vec<_>>();
@@ -182,7 +188,10 @@ fn compile_module_funcs(ssa_module: &Module) -> Vec<CompiledFunction> {
         }
     }
     funcs.push(synthesize_main_argv_wrapper(reads_process_args(&funcs)));
-    funcs
+    let loops = (looped.into_iter())
+        .map(|(i, l)| (funcs[i].name.clone(), l))
+        .collect();
+    (funcs, loops)
 }
 
 /// Whether argv init must run: only for a program that can read
@@ -210,7 +219,7 @@ pub(crate) fn build_link_config(
     strip_member_symbols: bool,
 ) -> LinkConfig {
     let mut t = PhaseTimer::start(1);
-    let mut funcs = compile_module_funcs(ssa_module);
+    let (mut funcs, user_loops) = compile_module_funcs(ssa_module);
     t.tick("compile_module_funcs");
     // S2-5 blade 2b: stub the arms of the families the program never enters (dispatch judge);
     // TORAJS_DISPATCH_STUB_ALL / _OFF / _NS, TORAJS_LINK_STUB_FORCE=<sym,…> force (diagnostics).
@@ -238,7 +247,6 @@ pub(crate) fn build_link_config(
         );
         crate::cmd_build_dispatch_stubs::append_absent_settle_stub(&mut funcs, ssa_module);
     }
-
     t.tick("dispatch_stubs");
     let mut strings = build_user_strings(ssa_module);
     let class_names = build_class_names(ssa_module, &mut strings);
@@ -248,6 +256,7 @@ pub(crate) fn build_link_config(
 
     let mut cfg = LinkConfig {
         funcs,
+        user_loops,
         entry: ENTRY_SYM.to_string(),
         sym_table: SymTable::new(),
         codesign_ident: "tora".into(),

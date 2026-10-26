@@ -34,6 +34,7 @@ pub use crate::exec_user_entries::{
     UserFieldMetaEntry, UserFnNameEntry, UserMethodMetaEntry, UserStringEntry, UserStringKind,
     UserVtableEntry,
 };
+pub use crate::text_payload::UserLoops;
 
 /// Configuration for `link_to_exec` — caller supplies the per-fn
 /// codegen output, the entry-point symbol name (e.g. `"_main"`),
@@ -43,6 +44,9 @@ pub struct LinkConfig {
     /// Compiled functions in `FuncId` order — `funcs[i]`
     /// corresponds to `FuncId(i)`.
     pub funcs: Vec<CompiledFunction>,
+    /// The loops of the user functions that have any, held apart from
+    /// `funcs`, which the elision clones every round.
+    pub user_loops: std::sync::Arc<UserLoops>,
     /// Entry-point symbol name. Must match one of `funcs[i].name`.
     pub entry: String,
     /// External symbol resolution map for the linker's resolve
@@ -176,7 +180,12 @@ pub fn compute_layout(cfg: &LinkConfig) -> ExecLayout {
     let text_file_offset = round_up_to(u64::from(header_plus_lc), u64::from(TEXT_FN_ALIGN)) as u32;
 
     // Each fn's section-relative offset for the vaddr table.
-    let placement = place_text(cfg.funcs.iter().map(text_slot), &[], 0);
+    let placement = place_text(
+        cfg.funcs.iter().map(text_slot),
+        &[],
+        0,
+        (text_file_offset, &cfg.user_loops),
+    );
     let (fn_offsets_in_text, text_size) = (placement.user, placement.size);
 
     // `__TEXT` segment vmsize is page-aligned and covers
@@ -454,6 +463,7 @@ mod tests {
     fn compute_layout_pin_known_offsets() {
         let main = compile_function(&build_main_returns_42());
         let cfg = LinkConfig {
+            user_loops: Default::default(),
             funcs: vec![main],
             entry: "_main".into(),
             sym_table: SymTable::new(),
@@ -522,6 +532,7 @@ mod tests {
     fn link_to_exec_produces_expected_total_size() {
         let main = compile_function(&build_main_returns_42());
         let cfg = LinkConfig {
+            user_loops: Default::default(),
             funcs: vec![main],
             entry: "_main".into(),
             sym_table: SymTable::new(),
@@ -551,6 +562,7 @@ mod tests {
     fn link_to_exec_header_filetype_is_execute() {
         let main = compile_function(&build_main_returns_42());
         let cfg = LinkConfig {
+            user_loops: Default::default(),
             funcs: vec![main],
             entry: "_main".into(),
             sym_table: SymTable::new(),
@@ -589,6 +601,7 @@ mod tests {
     fn link_to_exec_text_payload_lands_at_text_file_offset() {
         let main = compile_function(&build_main_returns_42());
         let cfg = LinkConfig {
+            user_loops: Default::default(),
             funcs: vec![main.clone()],
             entry: "_main".into(),
             sym_table: SymTable::new(),
@@ -627,6 +640,7 @@ mod tests {
 
         let main = compile_function(&build_main_returns_42());
         let cfg = LinkConfig {
+            user_loops: Default::default(),
             funcs: vec![main],
             entry: "_main".into(),
             sym_table: SymTable::new(),
@@ -760,6 +774,7 @@ mod tests {
 
         let main = compile_function(&build_main_returns_42());
         let cfg = LinkConfig {
+            user_loops: Default::default(),
             funcs: vec![main],
             entry: "_main".into(),
             sym_table: SymTable::new(),

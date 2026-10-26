@@ -104,6 +104,7 @@ fn link_cfg(image: Vec<u8>, main: CompiledFunction, user: &BTreeSet<String>) -> 
         })
         .collect();
     LinkConfig {
+        user_loops: Default::default(),
         funcs: vec![main],
         entry: "_main".into(),
         sym_table: SymTable::new(),

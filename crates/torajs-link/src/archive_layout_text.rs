@@ -248,7 +248,12 @@ fn place_shifted_text(
 ) -> (u32, TextPlacement) {
     let (shift, user_gap) = text_shift();
     let offset = round_up_to(u64::from(header_plus_lc), u64::from(TEXT_FN_ALIGN)) as u32 + shift;
-    let placement = place_text(cfg.funcs.iter().map(text_slot), member_text_sizes, user_gap);
+    let placement = place_text(
+        cfg.funcs.iter().map(text_slot),
+        member_text_sizes,
+        user_gap,
+        (offset, &cfg.user_loops),
+    );
     (offset, placement)
 }
 

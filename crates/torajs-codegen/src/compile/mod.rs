@@ -42,6 +42,7 @@ mod in_module;
 mod inline_sites;
 mod inst;
 mod landing;
+mod loop_ranges;
 mod low32;
 mod mem;
 mod operand;
@@ -82,6 +83,7 @@ use crate::regalloc::Assignment;
 use crate::reloc::Reloc;
 use entry::open_frame;
 use inst::emit_inst_at;
+use loop_ranges::loop_ranges;
 use terminator::{BranchFixup, BranchKind, Fixups, emit_terminator};
 
 pub use binop::{emit_binop, emit_ctpop, emit_cttz, emit_neg};
@@ -94,7 +96,7 @@ pub use cast::{
 pub use cell::CellOps;
 pub use cmp::{emit_fcmp, emit_icmp};
 pub use ctpop_range_sum::emit_ctpop_range_sum;
-pub use in_module::{ModuleFacts, compile_function_at};
+pub use in_module::{ModuleFacts, compile_function_at, compile_function_at_with_loops};
 pub use inline_sites::InlineSites;
 pub use mem::{
     emit_alloca, emit_load, emit_load_dyn, emit_load_dyn_scaled8, emit_load_u8_dyn,
@@ -172,11 +174,15 @@ pub fn compile_function_with(
     alloc: Assignment,
     facts: &ModuleFacts,
 ) -> CompiledFunction {
-    in_module::compile_with_role(func, alloc, facts, Default::default())
+    in_module::compile_with_role(func, alloc, facts, Default::default()).0
 }
 
-/// The function's code and relocations; None when a branch landed out
-/// of its reach (a bit test, or a conditional branch `far` left short).
+/// A function's emitted code, its relocations and its loop byte ranges.
+type EmittedBody = (Vec<u8>, Vec<Reloc>, Vec<(u32, u32)>);
+
+/// The function's code, relocations and loop byte ranges; None when a
+/// branch landed out of its reach (a bit test, or a conditional branch
+/// `far` left short).
 fn emit_body(
     func: &Function,
     alloc: &Assignment,
@@ -184,7 +190,7 @@ fn emit_body(
     frame: &FrameLayout,
     (role, pin): (Role, pin_reg::PinRole),
     (bit_tests, far): (bool, bool),
-) -> Option<(Vec<u8>, Vec<Reloc>)> {
+) -> Option<EmittedBody> {
     let mut bytes: Vec<u8> = Vec::new();
     let mut relocs: Vec<Reloc> = Vec::new();
     let mut fixups = Fixups::new(far);
@@ -281,7 +287,10 @@ fn emit_body(
     }
 
     let patched = terminator::patch_all(&mut bytes, &fixups, &landing, &block_byte_starts);
-    patched.then_some((bytes, relocs))
+    patched.then(|| {
+        let loops = loop_ranges(func, &block_byte_starts, bytes.len() as u32);
+        (bytes, relocs, loops)
+    })
 }
 
 /// The instructions of `block` ahead of `end` (a sibling call, or the

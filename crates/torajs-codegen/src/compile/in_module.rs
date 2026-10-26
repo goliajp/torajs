@@ -15,6 +15,19 @@ use crate::regalloc::Assignment;
 /// Production entry: the module's function `id`, compiled with the
 /// module's facts.
 pub fn compile_function_at(func: &Function, id: FuncId, facts: &ModuleFacts) -> CompiledFunction {
+    compile_function_at_with_loops(func, id, facts).0
+}
+
+/// [`compile_function_at`], with the byte ranges `[start, end)` of the
+/// function's loops, shortest first, for the linker to keep each one
+/// inside a 4 KiB region of the address space where it can (measured
+/// on Apple Silicon: a loop straddling such a boundary ran 12-14%
+/// slower; the readings are with the linker's `LOOP_REGION`).
+pub fn compile_function_at_with_loops(
+    func: &Function,
+    id: FuncId,
+    facts: &ModuleFacts,
+) -> (CompiledFunction, Vec<(u32, u32)>) {
     let role = facts.throw_reg.role(id);
     let pin = facts.pin.role(id);
     let mut reserved = [throw_reg::THROW_REG; 5];
@@ -82,7 +95,7 @@ pub(super) fn compile_with_role(
     alloc: Assignment,
     facts: &ModuleFacts,
     (role, pin): (Role, PinRole),
-) -> CompiledFunction {
+) -> (CompiledFunction, Vec<(u32, u32)>) {
     // Frame carves alloca + spill + callee-save area in one sp
     // adjustment. `used_callee_*_mask` is 0 for leaf / non-crossing
     // functions, so this matches the pre-callee-save layout
@@ -102,14 +115,15 @@ pub(super) fn compile_with_role(
     // them; a conditional branch that cannot (a body past 1 MiB): emit
     // again with every one in the long form
     let roles = (role, pin);
-    let (bytes, relocs) = emit_body(func, &alloc, facts, &frame, roles, (true, false))
+    let (bytes, relocs, loops) = emit_body(func, &alloc, facts, &frame, roles, (true, false))
         .or_else(|| emit_body(func, &alloc, facts, &frame, roles, (false, false)))
         .or_else(|| emit_body(func, &alloc, facts, &frame, roles, (false, true)))
         .expect("with long conditional branches every displacement fits");
-    CompiledFunction {
+    let compiled = CompiledFunction {
         name: func.name.clone(),
         bytes,
         relocs,
         frame,
-    }
+    };
+    (compiled, loops)
 }

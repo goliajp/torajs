@@ -500,6 +500,7 @@ mod tests {
 
     fn cfg_with(funcs: Vec<CompiledFunction>, sites: Vec<ElidableSite>) -> LinkConfig {
         LinkConfig {
+            user_loops: Default::default(),
             funcs,
             entry: "_main_user".into(),
             sym_table: crate::resolve::SymTable::new(),

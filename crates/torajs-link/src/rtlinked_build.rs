@@ -130,6 +130,7 @@ pub(crate) fn link_cfg(runtime_image: &[u8], root: CompiledFunction) -> LinkConf
         })
         .collect();
     LinkConfig {
+        user_loops: Default::default(),
         funcs: vec![root],
         entry: ROOT_FN.into(),
         sym_table: SymTable::new(),

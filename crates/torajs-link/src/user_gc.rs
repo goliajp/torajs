@@ -294,6 +294,7 @@ mod tests {
         use crate::exec::{UserClassLayoutEntry, UserMethodMetaEntry};
         use crate::resolve::SymTable;
         let mut cfg = LinkConfig {
+            user_loops: Default::default(),
             funcs: vec![f("_main", Vec::new()), f("__boxed___cm_P__m", Vec::new())],
             entry: "_main".into(),
             sym_table: SymTable::new(),
@@ -345,6 +346,7 @@ mod tests {
             src_len: 0,
         };
         let mut cfg = LinkConfig {
+            user_loops: Default::default(),
             funcs: vec![
                 f("_main", vec![call_fid(1)]),
                 f("called", Vec::new()),

@@ -101,6 +101,7 @@ fn main() {
 
     let main_cf = fn_calls_extern_then_returns("_main", &extern_sym);
     let cfg = LinkConfig {
+        user_loops: Default::default(),
         funcs: vec![main_cf],
         entry: "_main".into(),
         sym_table: SymTable::new(),

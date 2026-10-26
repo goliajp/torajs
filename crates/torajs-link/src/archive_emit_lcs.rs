@@ -322,6 +322,7 @@ mod tests {
     #[test]
     fn local_label_rows_follow_the_strip_policy() {
         let mut cfg = LinkConfig {
+            user_loops: Default::default(),
             funcs: vec![leaf("_main"), leaf(".Lfib.int"), leaf("___torajs_hook")],
             entry: "_main".into(),
             sym_table: SymTable::new(),

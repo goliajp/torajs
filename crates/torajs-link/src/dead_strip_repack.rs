@@ -138,6 +138,7 @@ pub(crate) fn rewritten_config(
 ) -> LinkConfig {
     let LinkConfig {
         funcs: cfg_funcs,
+        user_loops,
         entry,
         sym_table,
         codesign_ident,
@@ -159,6 +160,7 @@ pub(crate) fn rewritten_config(
     } = cfg;
     LinkConfig {
         funcs: funcs.unwrap_or_else(|| cfg_funcs.clone()),
+        user_loops: user_loops.clone(),
         entry: entry.clone(),
         sym_table: sym_table.clone(),
         codesign_ident: codesign_ident.clone(),

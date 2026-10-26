@@ -19,6 +19,29 @@
 //! code of its neighbours and their timings with it. The gaps are
 //! zero-filled (`udf #0`): nothing branches into them.
 //!
+//! A user function with loops may start later still, by whole fetch
+//! lines, so that no loop of its straddles a 4 KiB boundary of the
+//! address space ([`LOOP_REGION`]). The size is a measured rule, not a
+//! documented one: objlit-optional-field-1m, one release tr, its
+//! 392-byte hot loop moved by the link gap through 0x7ef0..0xcef0 in
+//! 321 steps of 64 bytes (N=5, fastest run per step) read 1.124-1.143
+//! of the fastest step at each of the 16 steps that put the loop's
+//! first 336 bytes across a 4 KiB boundary that is not a 16 KiB page
+//! boundary (0x9000, 0xa000, 0xb000, 0xd000), 1.125-1.142 at the 10
+//! across a page boundary (0x8000, 0xc000), and at most 1.071 at the
+//! 295 others, 2 KiB crossings and the 5 steps where only the loop's
+//! last 56 bytes crossed among them. Where the function lands within the region
+//! depended on the runtime members and the user functions in front of
+//! it, so an edit anywhere before a loop moved its reading. The loops
+//! come from codegen and are read only for a function whose bytes
+//! would cross a region boundary, the one case a loop of it can
+//! straddle. Where no start keeps every loop whole, the one keeping
+//! the most, counted from the shortest, is taken; the pad stays under
+//! the longest straddling loop plus a fetch line ([`loop_pad`]).
+//! `TORAJS_LINK_LOOP_PLACE_STATS=1` prints the functions moved and the
+//! bytes left for it.
+//! `TORAJS_LINK_LOOP_PLACE_OFF=1` packs as before (bisect gate).
+//!
 //! A loud-reject stub (a judged-away entry that only tail-branches
 //! into the reject landing pad) never runs in a correctly judged
 //! program and has no timing to keep, so it packs on instruction
@@ -38,6 +61,13 @@ use crate::resolve::ResolvedFunction;
 /// One Apple Silicon fetch line.
 pub const TEXT_FN_ALIGN: u32 = 64;
 
+/// Per user function name, the byte ranges `[start, end)` of its
+/// loops, shortest first ([`crate::LinkConfig::user_loops`]).
+pub type UserLoops = [(String, Vec<(u32, u32)>)];
+
+/// The region a loop is kept inside of.
+pub const LOOP_REGION: u32 = 4096;
+
 /// Mach-O names of the reject landing pads share this prefix
 /// (`torajs-dispatch`: `__torajs_dispatch_stub_reject` and its
 /// pointer-answering twin).
@@ -46,11 +76,22 @@ const REJECT_PAD_PREFIX: &str = "___torajs_dispatch_stub_reject";
 /// The body of an answer-0 stub: `movz x0, #0` + `ret`.
 pub const ANSWER_ZERO_STUB: [u8; 8] = [0x00, 0x00, 0x80, 0xD2, 0xC0, 0x03, 0x5F, 0xD6];
 
-/// `f`'s placement: its byte length, and whether it is a reject stub
-/// (`movz x7, #fam` + `b <pad>`) or an answer-0 stub, which pack.
-pub(crate) fn text_slot(f: &CompiledFunction) -> (u32, bool) {
+/// What placing a user function needs to know of it.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct TextSlot<'a> {
+    /// Its byte length.
+    pub(crate) size: u32,
+    /// A reject stub (`movz x7, #fam` + `b <pad>`) or an answer-0
+    /// stub, which pack on instruction alignment.
+    pub(crate) packed: bool,
+    /// Its name, its loops are found by.
+    pub(crate) name: &'a str,
+}
+
+/// `f`'s placement.
+pub(crate) fn text_slot(f: &CompiledFunction) -> TextSlot<'_> {
     let zero = f.bytes == ANSWER_ZERO_STUB && f.relocs.is_empty();
-    let stub = zero
+    let packed = zero
         || f.bytes.len() == 8
             && matches!(
                 f.relocs.as_slice(),
@@ -58,7 +99,11 @@ pub(crate) fn text_slot(f: &CompiledFunction) -> (u32, bool) {
                     && matches!(&r.kind, RelocKind::CallSite { target: CallTarget::Extern(pad) }
                         if pad.starts_with(REJECT_PAD_PREFIX))
             );
-    (f.bytes.len() as u32, stub)
+    TextSlot {
+        size: f.bytes.len() as u32,
+        packed,
+        name: &f.name,
+    }
 }
 
 /// Offsets relative to the start of `__text`.
@@ -71,31 +116,100 @@ pub(crate) struct TextPlacement {
 
 /// `user_slots` are [`text_slot`]s, in function order. `user_gap` (a
 /// multiple of [`TEXT_FN_ALIGN`]) empty bytes separate the member run
-/// from the user functions.
-pub(crate) fn place_text(
-    user_slots: impl Iterator<Item = (u32, bool)>,
+/// from the user functions. `text_base` is the address `__text` starts
+/// at, modulo anything a multiple of [`LOOP_REGION`]: the file offset
+/// serves, the segment being mapped at a region-aligned address.
+/// `loops` are the user functions' loops by name
+/// ([`crate::LinkConfig::user_loops`]).
+pub(crate) fn place_text<'a>(
+    user_slots: impl Iterator<Item = TextSlot<'a>>,
     member_sizes: &[u32],
     user_gap: u32,
+    (text_base, loops): (u32, &UserLoops),
 ) -> TextPlacement {
-    fn place(cursor: &mut u32, (size, packed): (u32, bool)) -> u32 {
-        let at = cursor.next_multiple_of(if packed { 4 } else { TEXT_FN_ALIGN });
-        *cursor = at + size;
+    let keep_loops = std::env::var_os("TORAJS_LINK_LOOP_PLACE_OFF").is_none();
+    let mut loop_pads = (0u32, 0u32);
+    let mut place = |cursor: &mut u32, slot: TextSlot<'_>| {
+        let mut at = cursor.next_multiple_of(if slot.packed { 4 } else { TEXT_FN_ALIGN });
+        // a function inside one region keeps every loop of it inside too
+        let start = text_base + at;
+        let crosses = slot.size > 0 && start / LOOP_REGION != (start + slot.size - 1) / LOOP_REGION;
+        if keep_loops
+            && crosses
+            && let Some((_, l)) = loops.iter().find(|(name, _)| name == slot.name)
+        {
+            let pad = loop_pad(start, l);
+            if pad > 0 {
+                loop_pads = (loop_pads.0 + 1, loop_pads.1 + pad);
+            }
+            at += pad;
+        }
+        *cursor = at + slot.size;
         at
-    }
+    };
     let mut cursor: u32 = 0;
     let members = member_sizes
         .iter()
-        .map(|&s| place(&mut cursor, (s, false)))
+        .map(|&size| {
+            let at = cursor.next_multiple_of(TEXT_FN_ALIGN);
+            cursor = at + size;
+            at
+        })
         .collect();
     if user_gap > 0 && !member_sizes.is_empty() {
         cursor = cursor.next_multiple_of(TEXT_FN_ALIGN) + user_gap;
     }
     let user = user_slots.map(|s| place(&mut cursor, s)).collect();
+    if std::env::var_os("TORAJS_LINK_LOOP_PLACE_STATS").is_some() {
+        let (n, bytes) = loop_pads;
+        eprintln!("torajs-link-loop-place-stats: funcs_padded={n} pad_bytes={bytes}");
+    }
     TextPlacement {
         user,
         members,
         size: cursor,
     }
+}
+
+/// The fetch lines to leave in front of a function at address `at`
+/// so that as many of its `loops` as possible, counted shortest
+/// first, sit inside one [`LOOP_REGION`]: the smallest pad that
+/// leaves none straddling, else the smallest that leaves the fewest,
+/// the first of them counting most. The pad is at most the longest
+/// straddling loop rounded up to a fetch line: a loop straddling a
+/// boundary starts less than its length before it, so a pad that long
+/// moves any one of them past it, and a longer one only trades the
+/// loops among themselves.
+fn loop_pad(at: u32, loops: &[(u32, u32)]) -> u32 {
+    let straddles = |start: u32, &(lo, hi): &(u32, u32)| {
+        hi > lo
+            && hi - lo <= LOOP_REGION
+            && (start + lo) / LOOP_REGION != (start + hi - 1) / LOOP_REGION
+    };
+    // a loop's rank: the shortest counts more than all the longer ones together
+    let cost = |start: u32| {
+        loops
+            .iter()
+            .enumerate()
+            .filter(|(_, l)| straddles(start, l))
+            .map(|(i, _)| 1u64 << (63 - i.min(63)))
+            .sum::<u64>()
+    };
+    let mut best = (cost(at), 0);
+    let cap = (loops.iter())
+        .filter(|l| straddles(at, l))
+        .map(|&(lo, hi)| (hi - lo).next_multiple_of(TEXT_FN_ALIGN))
+        .max()
+        .unwrap_or(0);
+    let mut pad = TEXT_FN_ALIGN;
+    while best.0 > 0 && pad <= cap {
+        let c = cost(at + pad);
+        if c < best.0 {
+            best = (c, pad);
+        }
+        pad += TEXT_FN_ALIGN;
+    }
+    best.1
 }
 
 pub(crate) fn write_text_payload(
@@ -127,7 +241,7 @@ mod tests {
 
     #[test]
     fn every_start_is_aligned_and_nothing_overlaps() {
-        let p = place_text([4, 72, 64].map(|s| (s, false)).into_iter(), &[8, 100], 0);
+        let p = place_text(plain([4, 72, 64]), &[8, 100], 0, (0, &[]));
         assert_eq!(p.members, vec![0, 64]);
         assert_eq!(p.user, vec![192, 256, 384]);
         assert_eq!(p.size, 448);
@@ -136,8 +250,8 @@ mod tests {
     /// The members do not move when the user code grows.
     #[test]
     fn the_members_ignore_the_user_code() {
-        let short = place_text([4].map(|s| (s, false)).into_iter(), &[8, 100], 0);
-        let long = place_text([4, 4000].map(|s| (s, false)).into_iter(), &[8, 100], 0);
+        let short = place_text(plain([4]), &[8, 100], 0, (0, &[]));
+        let long = place_text(plain([4, 4000]), &[8, 100], 0, (0, &[]));
         assert_eq!(short.members, long.members);
     }
 
@@ -145,7 +259,7 @@ mod tests {
     /// and leaves the members where they were.
     #[test]
     fn a_user_gap_moves_only_the_user_functions() {
-        let p = place_text([4, 72, 64].map(|s| (s, false)).into_iter(), &[8, 100], 128);
+        let p = place_text(plain([4, 72, 64]), &[8, 100], 128, (0, &[]));
         assert_eq!(p.members, vec![0, 64]);
         assert_eq!(p.user, vec![320, 384, 512]);
         assert_eq!(p.size, 576);
@@ -156,13 +270,29 @@ mod tests {
     #[test]
     fn reject_stubs_pack_and_the_next_function_realigns() {
         let p = place_text(
-            [(72, false), (8, true), (8, true), (12, false)].into_iter(),
+            [(72, false), (8, true), (8, true), (12, false)]
+                .into_iter()
+                .map(|(size, packed)| TextSlot {
+                    size,
+                    packed,
+                    name: "",
+                }),
             &[8],
             0,
+            (0, &[]),
         );
         assert_eq!(p.members, vec![0]);
         assert_eq!(p.user, vec![64, 136, 144, 192]);
         assert_eq!(p.size, 204);
+    }
+
+    /// Unpacked slots of the given sizes, without loops.
+    fn plain<const N: usize>(sizes: [u32; N]) -> impl Iterator<Item = TextSlot<'static>> {
+        sizes.into_iter().map(|size| TextSlot {
+            size,
+            packed: false,
+            name: "",
+        })
     }
 
     fn fn_with(bytes: usize, target: &str, at: u32) -> CompiledFunction {
@@ -184,14 +314,15 @@ mod tests {
     #[test]
     fn only_a_reject_stub_packs() {
         let pad = "___torajs_dispatch_stub_reject";
-        assert_eq!(text_slot(&fn_with(8, pad, 4)), (8, true));
+        let slot = |f: &CompiledFunction| (text_slot(f).size, text_slot(f).packed);
+        assert_eq!(slot(&fn_with(8, pad, 4)), (8, true));
         assert_eq!(
-            text_slot(&fn_with(8, "___torajs_dispatch_stub_reject_ptr", 4)),
+            slot(&fn_with(8, "___torajs_dispatch_stub_reject_ptr", 4)),
             (8, true)
         );
-        assert_eq!(text_slot(&fn_with(12, pad, 8)), (12, false));
-        assert_eq!(text_slot(&fn_with(8, "___torajs_rc_dec", 4)), (8, false));
-        assert_eq!(text_slot(&fn_with(8, pad, 0)), (8, false));
+        assert_eq!(slot(&fn_with(12, pad, 8)), (12, false));
+        assert_eq!(slot(&fn_with(8, "___torajs_rc_dec", 4)), (8, false));
+        assert_eq!(slot(&fn_with(8, pad, 0)), (8, false));
     }
 
     /// The answer-0 stub packs only with its exact bytes and no reloc.
@@ -199,17 +330,55 @@ mod tests {
     fn an_answer_zero_stub_packs() {
         let mut f = fn_with(8, "___torajs_rc_dec", 4);
         f.bytes = ANSWER_ZERO_STUB.to_vec();
-        assert_eq!(text_slot(&f), (8, false));
+        assert!(!text_slot(&f).packed);
         f.relocs.clear();
-        assert_eq!(text_slot(&f), (8, true));
+        assert!(text_slot(&f).packed);
         f.bytes[0] = 0x20;
-        assert_eq!(text_slot(&f), (8, false));
+        assert!(!text_slot(&f).packed);
     }
 
     #[test]
     fn empty_layout_has_zero_size() {
-        let p = place_text(std::iter::empty(), &[], 0);
+        let p = place_text(std::iter::empty(), &[], 0, (0, &[]));
         assert!(p.user.is_empty() && p.members.is_empty());
         assert_eq!(p.size, 0);
+    }
+
+    /// A function whose loop would straddle the region boundary moves
+    /// down by whole fetch lines until the loop sits inside one; a
+    /// loop already inside costs nothing, and so does one too long to
+    /// fit any region.
+    #[test]
+    fn a_loop_is_kept_inside_one_region() {
+        // the loop at [0x80, 0x180) from a start of 0xf00 crosses 0x1000
+        assert_eq!(loop_pad(0xf00, &[(0x80, 0x180)]), 0x80);
+        assert_eq!(loop_pad(0xf00, &[(0x80, 0x140)]), 0x80);
+        assert_eq!(loop_pad(0xe00, &[(0x100, 0x200)]), 0);
+        assert_eq!(loop_pad(0xf00, &[(0, 0x100)]), 0);
+        assert_eq!(loop_pad(0xf00, &[(0x80, 0x80 + LOOP_REGION + 4)]), 0);
+        // two loops: the smallest pad keeping both whole
+        assert_eq!(loop_pad(0xf00, &[(0x80, 0x180), (0, 0x300)]), 0x100);
+        // the pad never passes the longest straddling loop, rounded up
+        // to a fetch line, even when a longer one would keep more
+        for at in (0xe00..0x1000).step_by(4) {
+            let loops = [(0x10, 0x90), (0x200, 0x2c4)];
+            assert!(loop_pad(at, &loops) <= 0x100, "{at:#x}");
+        }
+        let loops = [("f".to_string(), vec![(0x100, 0x200)])];
+        let p = place_text(
+            [TextSlot {
+                size: 0x300,
+                packed: false,
+                name: "f",
+            }]
+            .into_iter(),
+            &[0x40],
+            0,
+            (0xe80, &loops),
+        );
+        // the member at 0; the function would start at 0x40 (address 0xec0,
+        // loop 0xfc0..0x10c0) and moves to 0x80 (address 0xf00, loop 0x1000..)
+        assert_eq!(p.user, vec![0x80]);
+        assert_eq!(p.size, 0x380);
     }
 }

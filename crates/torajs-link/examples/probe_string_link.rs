@@ -93,6 +93,7 @@ fn build_main() -> CompiledFunction {
 fn main() {
     let main_cf = build_main();
     let cfg = LinkConfig {
+        user_loops: Default::default(),
         funcs: vec![main_cf],
         entry: "_main".into(),
         sym_table: SymTable::new(),
