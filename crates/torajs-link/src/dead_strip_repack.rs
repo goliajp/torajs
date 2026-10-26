@@ -127,61 +127,6 @@ fn cut_members(
     Ok((members, dead_rows))
 }
 
-/// `cfg` with the user fns and tables the pre-pass rewrote (`None`:
-/// unchanged). The other fields are cloned one by one: cloning the
-/// whole config would copy the fns only to drop them.
-pub(crate) fn rewritten_config(
-    cfg: &LinkConfig,
-    funcs: Option<Vec<CompiledFunction>>,
-    class_layouts: Option<Vec<UserClassLayoutEntry>>,
-    fn_name_globals: Option<Vec<UserFnNameEntry>>,
-) -> LinkConfig {
-    let LinkConfig {
-        funcs: cfg_funcs,
-        user_loops,
-        entry,
-        sym_table,
-        codesign_ident,
-        dead_strip,
-        strip_member_symbols,
-        elidable_sites,
-        guarded_stubs,
-        image,
-        strings,
-        data_globals,
-        vtable_globals,
-        class_layouts: cfg_class_layouts,
-        force_emit_class_layouts_globals,
-        force_emit_fn_name_globals,
-        fn_name_globals: cfg_fn_name_globals,
-        class_names,
-        force_emit_class_names_globals,
-        baked_regex_entries,
-    } = cfg;
-    LinkConfig {
-        funcs: funcs.unwrap_or_else(|| cfg_funcs.clone()),
-        user_loops: user_loops.clone(),
-        entry: entry.clone(),
-        sym_table: sym_table.clone(),
-        codesign_ident: codesign_ident.clone(),
-        dead_strip: *dead_strip,
-        strip_member_symbols: *strip_member_symbols,
-        elidable_sites: elidable_sites.clone(),
-        guarded_stubs: guarded_stubs.clone(),
-        image: image.clone(),
-        strings: strings.clone(),
-        data_globals: data_globals.clone(),
-        vtable_globals: vtable_globals.clone(),
-        class_layouts: class_layouts.unwrap_or_else(|| cfg_class_layouts.clone()),
-        force_emit_class_layouts_globals: *force_emit_class_layouts_globals,
-        force_emit_fn_name_globals: *force_emit_fn_name_globals,
-        fn_name_globals: fn_name_globals.unwrap_or_else(|| cfg_fn_name_globals.clone()),
-        class_names: class_names.clone(),
-        force_emit_class_names_globals: *force_emit_class_names_globals,
-        baked_regex_entries: baked_regex_entries.clone(),
-    }
-}
-
 /// Have `merged` read each cut member through its cut. The merged
 /// index stays as it is: a cut keeps every nlist row and its type
 /// (only `n_value` moves, and only undef rows lose `N_EXT`), so every

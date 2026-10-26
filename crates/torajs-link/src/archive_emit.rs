@@ -6,13 +6,14 @@ use crate::archive_emit_lc_meta::compute_emit_lc_meta;
 use crate::archive_emit_lcs::{write_header_and_load_commands, write_symtab_and_strtab};
 use crate::archive_emit_members::MemberText;
 use crate::archive_link::{ArchiveLayout, ArchiveLayoutError};
-use crate::archives_merge::{MergedArchives, merge_archive_indexes};
+use crate::archives_merge::merge_archive_indexes;
 use crate::chained_fixups_call::recompute_chained_fixups_with_data_rebase;
 use crate::class_name_table_layout::build_class_name_table_payload;
 use crate::data_section_emit::DataAt;
 use crate::data_section_layout::DataSectionLayout;
+use crate::dead_strip_config::dead_strip_prepass;
 use crate::dead_strip_reach_cache::ReachCache;
-use crate::dead_strip_repack::{DeadRows, StrippedMembers, install_cuts, rewritten_config};
+use crate::dead_strip_repack::{DeadRows, StrippedMembers, install_cuts};
 use crate::defined_extern_resolve::{effective_syms, link_defined_syms};
 use crate::dyld_emit::{write_la_ptr_section, write_stubs_section};
 use crate::exec::LinkConfig;
@@ -25,40 +26,6 @@ use crate::sign::build_adhoc_codesign_blob;
 use crate::text_payload::write_text_payload;
 use crate::user_class_layouts_layout::build_user_class_layouts_payload;
 use crate::user_vtables_layout::build_user_vtables_payload;
-
-/// S2 dead-strip blade 2b (RFC 20260824-s2-dead-strip) — opt-in
-/// input-normalization pre-pass: rewrite the archives with dead
-/// `__text` atoms dropped (and, r499, the user fns with elided drain
-/// sites patched), then link the rewritten inputs through the
-/// unchanged pipeline, plus the defined externs it dropped (for
-/// `LC_SYMTAB`) and the rewritten member bodies, which the caller
-/// swaps into `merged` — the returned config's `archives` stay the
-/// unstripped inputs. `None` = link the caller's config as is.
-fn dead_strip_prepass<'a>(
-    cfg: &LinkConfig,
-    merged: &MergedArchives<'a>,
-    cache: &mut ReachCache<'a>,
-) -> Result<Option<(LinkConfig, DeadRows, StrippedMembers)>, ArchiveLayoutError> {
-    let enabled = match std::env::var_os("TORAJS_LINK_DEADSTRIP") {
-        Some(v) if v == "0" => false,
-        Some(_) => true,
-        None => cfg.dead_strip,
-    };
-    if !enabled {
-        return Ok(None);
-    }
-    let out = crate::dead_strip_repack::strip_archives(cfg, merged, cache)
-        .map_err(ArchiveLayoutError::DeadStrip)?;
-    if out.members.is_empty()
-        && out.funcs.is_none()
-        && out.class_layouts.is_none()
-        && out.fn_name_globals.is_none()
-    {
-        return Ok(None);
-    }
-    let stripped = rewritten_config(cfg, out.funcs, out.class_layouts, out.fn_name_globals);
-    Ok(Some((stripped, out.dead_rows, out.members)))
-}
 
 /// Link a `LinkConfig` against its runtime image into a complete
 /// ad-hoc-codesigned `MH_EXECUTE` byte stream. User-fn + member
