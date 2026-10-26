@@ -56,6 +56,7 @@ impl<'a> Analysis<'a> {
                 var_name,
                 elem_expr,
                 body,
+                is_await,
                 ..
             } => {
                 // The element binding is fed by the indexed read the
@@ -74,6 +75,15 @@ impl<'a> Analysis<'a> {
                 if let Expr::Index { obj, .. } = self.ast.get_expr(*elem_expr)
                     && matches!(self.expr_types.get(obj),
                         Some(crate::check::Type::MapIter(t)) if **t == crate::check::Type::Number)
+                {
+                    self.add_constraint(key, super::magnitude::f64_flow());
+                }
+                // a `for await` over anything but an array steps through
+                // the any lane (`ssa_lower_stmt_for_of`): the value is the
+                // runtime's, at no width the program's slots can vouch for
+                if *is_await
+                    && let Expr::Index { obj, .. } = self.ast.get_expr(*elem_expr)
+                    && !matches!(self.expr_types.get(obj), Some(crate::check::Type::Array(_)))
                 {
                     self.add_constraint(key, super::magnitude::f64_flow());
                 }
