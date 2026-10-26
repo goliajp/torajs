@@ -75,7 +75,9 @@ pub(super) fn shape(ast: &Ast, eid: ExprId) -> Shape {
             Expr::Index { obj, index } => Shape::Ordered(vec![*obj, *index, *value]),
             // a destructuring pattern reads its references only after
             // the value is evaluated (§13.15.2 step 2)
-            _ if !expr_has_await(ast, *target) => Shape::Ordered(vec![*value]),
+            Expr::Array(_) | Expr::ObjectLit { .. } if !expr_has_await(ast, *target) => {
+                Shape::Ordered(vec![*value])
+            }
             _ => Shape::Refuse(vec![*target, *value]),
         },
         // the base of `o?.p` is evaluated whatever it turns out to be
