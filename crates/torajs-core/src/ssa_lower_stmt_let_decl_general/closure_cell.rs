@@ -23,6 +23,8 @@ use crate::ssa_lower::LowerCtx;
 /// - call — the callee's ret repr is Closure (`effective_ret_ty`
 ///   upgrades a fn-sig-annotated ret whose body returns closures;
 ///   the value arriving here IS that cell) (r359).
+/// - index — an element read of an array the checker typed with a
+///   function element: the array's slots are Closure-repr.
 /// - ternary / nullish — both arms yield cells, or one does and the
 ///   other is a null literal (r359; a mixed cell/code-address pair
 ///   keeps the FnSig repr and the pre-existing behavior — re-repring
@@ -50,6 +52,12 @@ pub(super) fn init_yields_closure_cell(ctx: &LowerCtx, init: ExprId) -> bool {
                 if ctx.fn_table.get(n).is_some_and(
                     |fid| matches!(ctx.signatures.get(fid), Some(Type::Closure(_)))))
         }
+        // an element of a function array, whatever the array expression
+        // (`hs[0]`, `this.fs[0]`, `mk()[0]`): its slots are Closure-repr
+        // (`ssa_lower_parse_type::parse_arr_suffix`)
+        Expr::Index { obj, .. } => matches!(ctx.expr_types.get(obj),
+            Some(crate::check::Type::Array(elem))
+                if matches!(**elem, crate::check::Type::Function(..))),
         Expr::Ternary {
             then_branch,
             else_branch,
