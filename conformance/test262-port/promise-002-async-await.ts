@@ -1,16 +1,7 @@
-// T-15.h (v0.5.0) — `async function` + `await` migrated from the
-// L.2 user-class MVP to the built-in Promise<T>. desugar_async now
-// rewrites each `return e` inside an async body to
-// `return Promise.resolve(e)` (no shared `__async_p` state); the
-// built-in Promise carries the resolved i64 value in its heap
-// header's value slot, and `await p` (= `p.value`) drains the
-// microtask queue then reads the value.
-//
-// Pending Promise + executor-style `new Promise(executor)` is
-// deferred to T-15.g.5 alongside the `(resolve, reject)` arrow-arg
-// shape. The pre-T-15.h `pending_aware` case (which relied on
-// `new Promise(0)` building a stuck-pending promise) is dropped
-// here since that path now resolves through built-in Promise.
+// `async function` + `await` on the built-in Promise<T>: an async
+// function's result is a Promise that settles after its body runs,
+// so the checks await each result (reading a field of the pending
+// Promise synchronously is not JS: a Promise has no `value` property).
 
 function presolved(v: number): Promise<number> {
   return Promise.resolve(v)
@@ -43,12 +34,12 @@ async function mixed(seed: number): number {
   return z + 100
 }
 
-function check(): number {
-  if (trivial().value !== 42) { throw '#1 trivial' }
-  if (inc().value !== 11) { throw '#2 inc' }
-  if (combine().value !== 333) { throw '#3 combine' }
-  if (mixed(7).value !== 115) { throw '#4 mixed' }   // 7→x; y=15; z=15; +100=115
+async function check(): Promise<number> {
+  if ((await trivial()) !== 42) { throw '#1 trivial' }
+  if ((await inc()) !== 11) { throw '#2 inc' }
+  if ((await combine()) !== 333) { throw '#3 combine' }
+  if ((await mixed(7)) !== 115) { throw '#4 mixed' }   // 7→x; y=15; z=15; +100=115
 
   return 0
 }
-console.log(check())
+check().then((v) => console.log(v))
