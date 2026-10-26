@@ -76,6 +76,13 @@ impl<'a> Analysis<'a> {
     /// the retired per-site heuristics (fract / out-of-range literal,
     /// Div / Pow, Math.*, NaN / Infinity) plus `-0` literals.
     pub(super) fn width_of(&self, eid: ExprId, scope: &Scope) -> W {
+        // A value the checker types `any` reaches a number slot only
+        // through ToNumber (§7.1.4), whose result is any Number: no
+        // integer face holds it, whatever the value was built from. A
+        // body no call enters writes nothing (`idle_bodies`).
+        if self.expr_types.get(&eid) == Some(&crate::check::Type::Any) && !self.is_idle(eid) {
+            return W::F64;
+        }
         match self.ast.get_expr(eid) {
             Expr::Number(n) => {
                 if literal_is_f64(*n) {

@@ -101,14 +101,19 @@ impl Analysis<'_> {
     /// §4.4 item 1). A write at `site` in a body that never runs casts
     /// nothing.
     pub(super) fn any_object_seed(&mut self, site: ExprId, key: SlotKeyId, ann: &str) {
-        let (ast, retargets, types) = (self.ast, self.retargets, self.expr_types);
-        let idle =
-            (self.idle).get_or_init(|| super::idle_bodies::IdleBodies::of(ast, retargets, types));
-        if idle.contains(site) {
+        if self.is_idle(site) {
             return;
         }
         let mut seen: HashSet<String> = HashSet::new();
         self.seed_number_faces(key, Some(ann), &mut seen);
+    }
+
+    /// Does `site` sit in a body no call can enter (`idle_bodies`)?
+    pub(super) fn is_idle(&self, site: ExprId) -> bool {
+        let (ast, retargets, types) = (self.ast, self.retargets, self.expr_types);
+        (self.idle)
+            .get_or_init(|| super::idle_bodies::IdleBodies::of(ast, retargets, types))
+            .contains(site)
     }
 
     /// [`Self::any_object_seed`] for the members of the object literal
