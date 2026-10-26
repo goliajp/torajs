@@ -40,12 +40,23 @@ pub(super) fn any_elem_sites(c: &Checker, ast: &Ast, widths: &WidthTable) -> Vec
         if let Some(&cb) = cb
             && (widths.hof_receiver_escapes(recv)
                 || any_arr
-                || any_reduce_seed(c, ast, *callee, args))
+                || any_reduce_seed(c, ast, *callee, args)
+                || mapset_fn_slot(c, recv, cb))
         {
             out.push((recv, cb));
         }
     }
     out
+}
+
+/// `m.forEach(cb)` on a Map or Set whose callback declares a fn-typed
+/// parameter: the walk hands every key, value and member as a box
+/// (the payload is `any` at every site), and no box carries the typed
+/// entry such a parameter calls through.
+fn mapset_fn_slot(c: &Checker, recv: ExprId, cb: ExprId) -> bool {
+    matches!(c.expr_types.get(&recv), Some(Type::Map(..) | Type::Set))
+        && matches!(c.expr_types.get(&cb),
+            Some(Type::Function(ps, _)) if ps.iter().any(|p| matches!(p, Type::Function(..))))
 }
 
 /// `xs.reduce(cb, seed)` with an `any` seed: the first step binds

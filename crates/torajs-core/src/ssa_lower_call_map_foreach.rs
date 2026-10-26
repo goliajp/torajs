@@ -152,44 +152,22 @@ pub(crate) fn emit_map_for_each(
     // the F64 sentinel the parameter could have carried. `typeof v`
     // then answered "number" where `m.get(k)` on the same entry
     // answered "undefined".
-    let v_arg = slot_value_for_typed_param(ctx, fn_ty, this_arg.is_some(), 0, v_box);
-    // Rotation 363 — an argv-face callback (collector's HOF-anon
-    // arm admits `forEach` on ANY receiver spelling, this channel
-    // included) must not take the direct / devirt call: its
-    // reshaped sig leads with the synthetic argv pointer, and the
-    // positional (value, key, map) would land in it (probe x1:
-    // silent no-op loop). Route through the boxed variadic pack —
-    // borrows only, the adapter's materialize incs what it stores,
-    // so the direct lane's per-iteration transfer inc is skipped.
-    let argv_face = crate::ast::argv_face_callback::lane_takes_argv_face(ctx.ast, args[0]);
-    if argv_face {
-        let _ = crate::ssa_lower_call_arr_ho_loop::emit_argv_face_call(
-            ctx,
-            &fn_val,
-            fn_ty,
-            vec![v_arg, Operand::Value(k_box), recv_op],
-            0,
-            3,
-        );
+    let sig_skip = usize::from(this_arg.is_some());
+    let boxed_fn =
+        crate::ssa_lower_call_arr_ho_loop::boxed_fn_slot(ctx, known_fid, fn_ty, sig_skip);
+    let v_arg = if boxed_fn {
+        Operand::Value(v_box)
     } else {
-        // The Map receiver is passed as the 3rd callback arg per
-        // spec — a borrow, like the array HOF lanes pass `O`
-        // (`cb_args`): a callback parameter takes no stake, and a
-        // body that keeps the value incs on its own store. Rotation
-        // 552 — the per-iteration "transfer" inc that stood here had
-        // no matching release anywhere, so every walk that reached
-        // its callback once leaked the whole receiver (387MB / 600k
-        // single-entry maps, throw or no throw).
-        let mut cb_args = vec![v_arg, Operand::Value(k_box), recv_op];
-        if let Some(t) = &this_arg {
-            cb_args.insert(0, *t);
-        }
-        let sig_skip = usize::from(this_arg.is_some());
-        let _ = match known_fid {
-            Some(fid) => ctx.call_fn_value_devirt(fid, fn_val, fn_ty, cb_args, sig_skip, 3),
-            None => ctx.call_fn_value(fn_val, fn_ty, cb_args, sig_skip, 3),
-        };
-    }
+        slot_value_for_typed_param(ctx, fn_ty, this_arg.is_some(), 0, v_box)
+    };
+    let walk = WalkCall {
+        known_fid,
+        fn_val,
+        fn_ty,
+        this_arg,
+        boxed_fn,
+    };
+    emit_walk_call(ctx, args[0], &walk, [v_arg, Operand::Value(k_box), recv_op]);
     // §24.1.3.9 / §24.2.3.6 step 8.a.iii ReturnIfAbrupt — a throwing
     // callback ends the walk (previously the loop swallowed it).
     ctx.emit_throw_check(known_fid);
@@ -205,6 +183,63 @@ pub(crate) fn emit_map_for_each(
         ctx.release_owned_temp(t, &op);
     }
     Operand::ConstI64(0)
+}
+
+/// The callback of one Map / Set walk and how each visit calls it.
+pub(crate) struct WalkCall {
+    pub(crate) known_fid: Option<FuncId>,
+    pub(crate) fn_val: Operand,
+    pub(crate) fn_ty: Type,
+    pub(crate) this_arg: Option<Operand>,
+    /// A fn-typed parameter meets a box (`boxed_fn_slot`).
+    pub(crate) boxed_fn: bool,
+}
+
+/// One visit's call of a Map / Set walk's callback `cb` with `spec`, the
+/// (value, key, receiver) list.
+pub(crate) fn emit_walk_call(ctx: &mut LowerCtx<'_>, cb: ExprId, w: &WalkCall, spec: [Operand; 3]) {
+    let sig_skip = usize::from(w.this_arg.is_some());
+    // Rotation 363 — an argv-face callback (collector's HOF-anon
+    // arm admits `forEach` on ANY receiver spelling, these channels
+    // included) must not take the direct / devirt call: its
+    // reshaped sig leads with the synthetic argv pointer, and the
+    // positional (value, key, map) would land in it (probe x1:
+    // silent no-op loop). Route through the boxed variadic pack —
+    // borrows only, the adapter's materialize incs what it stores,
+    // so the direct lane's per-iteration transfer inc is skipped.
+    if crate::ast::argv_face_callback::lane_takes_argv_face(ctx.ast, cb) {
+        let _ = crate::ssa_lower_call_arr_ho_loop::emit_argv_face_call(
+            ctx,
+            &w.fn_val,
+            w.fn_ty,
+            spec.to_vec(),
+            0,
+            3,
+        );
+        return;
+    }
+    // The receiver is passed as the 3rd callback arg per spec — a
+    // borrow, like the array HOF lanes pass `O` (`cb_args`): a
+    // callback parameter takes no stake, and a body that keeps the
+    // value incs on its own store. Rotation 552 — the per-iteration
+    // "transfer" inc that stood here had no matching release
+    // anywhere, so every walk that reached its callback once leaked
+    // the whole receiver (387MB / 600k single-entry maps, throw or no
+    // throw).
+    let mut cb_args = spec.to_vec();
+    if let Some(t) = &w.this_arg {
+        cb_args.insert(0, *t);
+    }
+    let (fn_val, fn_ty) = (w.fn_val, w.fn_ty);
+    // a fn-typed parameter meets a box: the boxed entry hands the call
+    // to the all-`any` twin
+    let _ = match w.known_fid {
+        _ if w.boxed_fn => crate::ssa_lower_call_arr_ho_loop::emit_argv_face_call(
+            ctx, &fn_val, fn_ty, cb_args, sig_skip, 3,
+        ),
+        Some(fid) => ctx.call_fn_value_devirt(fid, fn_val, fn_ty, cb_args, sig_skip, 3),
+        None => ctx.call_fn_value(fn_val, fn_ty, cb_args, sig_skip, 3),
+    };
 }
 
 fn load_i64(ctx: &mut LowerCtx<'_>, slot: ValueId) -> ValueId {

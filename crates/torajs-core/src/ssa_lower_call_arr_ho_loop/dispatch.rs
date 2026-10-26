@@ -184,6 +184,24 @@ pub(super) fn emit_do_call(
     r
 }
 
+/// A Map / Set walk hands every argument as a box: a callback with a
+/// boxed entry and a fn-typed parameter past `sig_skip` takes that
+/// entry, which hands the call to the all-`any` twin.
+pub(crate) fn boxed_fn_slot(
+    ctx: &LowerCtx<'_>,
+    known_fid: Option<FuncId>,
+    fn_ty: Type,
+    sig_skip: usize,
+) -> bool {
+    known_fid.is_some_and(|f| ctx.boxed_entries.contains_key(&f))
+        && matches!(fn_ty, Type::Closure(_))
+        && ctx.sig_param_tys(fn_ty).is_some_and(|ps| {
+            ps.iter()
+                .skip(sig_skip)
+                .any(|p| matches!(p, Type::Closure(_) | Type::FnSig(_)))
+        })
+}
+
 /// an `any` element meeting a struct parameter, or an `any[]` source
 /// meeting an element-typed one, has no typed repr to pass: the
 /// closure's boxed entry decides per value (a fitting cell passes
@@ -209,6 +227,10 @@ fn needs_boxed_entry(
             && match (actual, *p) {
                 (Type::Any, Type::Obj(_)) => true,
                 (Type::Any, Type::F64 | Type::I64 | Type::I32 | Type::Bool | Type::Str) => boxed,
+                // no run-time test proves a value is a function of the
+                // slot's signature, so the boxed entry hands every call
+                // to the twin (`build_reroute`)
+                (Type::Any, Type::Closure(_) | Type::FnSig(_)) => boxed,
                 // an `any[]` source handed to an element-typed array param
                 (Type::Arr(a), Type::Arr(p)) => {
                     ctx.arr_layouts[a.0 as usize] == Type::Any

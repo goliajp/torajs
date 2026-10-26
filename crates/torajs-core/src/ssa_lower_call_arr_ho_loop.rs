@@ -17,8 +17,8 @@ use crate::ssa_lower_arr_hole_gate::TypedGate;
 
 mod dispatch;
 mod methods;
+pub(crate) use dispatch::{boxed_fn_slot, emit_argv_face_call, emit_undef_any_box};
 use dispatch::{cb_args, emit_do_call};
-pub(crate) use dispatch::{emit_argv_face_call, emit_undef_any_box};
 use methods::{emit_filter, emit_map, emit_map_hole_block, emit_reduce};
 
 /// Per-loop SSA state shared by `begin_loop` / `emit_per_method_body` /

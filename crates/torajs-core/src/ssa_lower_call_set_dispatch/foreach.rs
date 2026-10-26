@@ -133,39 +133,30 @@ pub(super) fn emit_set_for_each(
     // (Map.forEach's twin: the generic conversion runs §7.1.4 and
     // spends the F64 sentinel for an ordinary NaN).
     let has_this = this_arg.is_some();
-    let a0 = crate::ssa_lower_call_map_foreach::slot_value_for_typed_param(
-        ctx, fn_ty, has_this, 0, v_box1,
-    );
-    let a1 = crate::ssa_lower_call_map_foreach::slot_value_for_typed_param(
-        ctx, fn_ty, has_this, 1, v_box2,
-    );
-    // Rotation 363 — argv-face callback: boxed variadic pack, not
-    // the direct call (map_dispatch mirror; borrows only, so the
-    // transfer inc is skipped).
-    let argv_face = crate::ast::argv_face_callback::lane_takes_argv_face(ctx.ast, args[0]);
-    if argv_face {
-        let _ = crate::ssa_lower_call_arr_ho_loop::emit_argv_face_call(
-            ctx,
-            &fn_val,
-            fn_ty,
-            vec![a0, a1, recv_op],
-            0,
-            3,
-        );
+    let sig_skip = usize::from(has_this);
+    let boxed_fn =
+        crate::ssa_lower_call_arr_ho_loop::boxed_fn_slot(ctx, known_fid, fn_ty, sig_skip);
+    let (a0, a1) = if boxed_fn {
+        (Operand::Value(v_box1), Operand::Value(v_box2))
     } else {
-        // The Set rides as the 3rd callback arg by borrow (Map.forEach
-        // mirror, rotation 552 — the transfer inc here leaked the
-        // receiver per walk).
-        let mut cb_args = vec![a0, a1, recv_op];
-        if let Some(t) = &this_arg {
-            cb_args.insert(0, *t);
-        }
-        let sig_skip = usize::from(this_arg.is_some());
-        let _ = match known_fid {
-            Some(fid) => ctx.call_fn_value_devirt(fid, fn_val, fn_ty, cb_args, sig_skip, 3),
-            None => ctx.call_fn_value(fn_val, fn_ty, cb_args, sig_skip, 3),
-        };
-    }
+        (
+            crate::ssa_lower_call_map_foreach::slot_value_for_typed_param(
+                ctx, fn_ty, has_this, 0, v_box1,
+            ),
+            crate::ssa_lower_call_map_foreach::slot_value_for_typed_param(
+                ctx, fn_ty, has_this, 1, v_box2,
+            ),
+        )
+    };
+    // the call itself is Map.forEach's (argv face, boxed entry, devirt)
+    let walk = crate::ssa_lower_call_map_foreach::WalkCall {
+        known_fid,
+        fn_val,
+        fn_ty,
+        this_arg,
+        boxed_fn,
+    };
+    crate::ssa_lower_call_map_foreach::emit_walk_call(ctx, args[0], &walk, [a0, a1, recv_op]);
     // §24.2.3.6 step 8.a.iii ReturnIfAbrupt — a throwing callback
     // ends the walk (previously the loop swallowed it).
     ctx.emit_throw_check(known_fid);
