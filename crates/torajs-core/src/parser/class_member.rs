@@ -17,7 +17,7 @@
 //!     conflicts (`static abstract`, abstract in non-abstract class).
 
 use super::Parser;
-use crate::ast::{AccessorKind, ClassMethod, Param, PropKey, Stmt, Visibility, mangle_key};
+use crate::ast::{AccessorKind, ClassMethod, Param, PropKey, Stmt, Visibility};
 use crate::lexer::Token;
 
 /// One class member's modifier prefix. `accessor_kind` may still be
@@ -285,13 +285,8 @@ impl<'a> Parser<'a> {
                 .insert((class_name.to_string(), member_name.clone()), visibility);
         }
         if is_async {
-            let sym = mangle_key(&member_name);
-            let mangled = if is_static {
-                format!("__sm_{class_name}__{sym}")
-            } else {
-                format!("__cm_{class_name}__{sym}")
-            };
-            self.ast.async_fns.insert(mangled);
+            let class = (class_name, self.current_class_decl_id);
+            crate::ast::record_async_method(&mut self.ast, class, is_static, &member_name);
         }
         let m = ClassMethod {
             name: member_name,

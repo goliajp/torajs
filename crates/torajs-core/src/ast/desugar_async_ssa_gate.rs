@@ -11,23 +11,21 @@
 //! return settling the result in place
 //! (`ssa_lower_fn::async_setup::sync_body`).
 //!
-//! A function moves when all of these hold:
-//!
-//! - no await sits in a generator step. An await inside a `try` (any
-//!   of its blocks, `await using` included, which `desugar_using`
-//!   turned into one) or a `for…of` moves, and so does a `for await`,
-//!   whose steps and close suspend the frame (`ssa_lower_fn::suspend::
-//!   sync_step` / `any_frame`): the slots their exit protocols keep
-//!   (the pending return, the throw a `finally` set aside, the
-//!   iterator) are stack slots the frame carries across, and a frame
-//!   dropped while it waits there unwinds past the handlers
-//!   (`ssa_lower_fn::suspend::cancel`). A dynamic `import()` moves:
-//!   its promise is awaited as any other. (`arguments` and
-//!   `new.target` move too: the arguments object is built from the
-//!   parameters on entry, before the first await, and an async
-//!   function is never a constructor, so its `new.target` is
-//!   undefined wherever it is read);
-//! - it is no generator and no async generator.
+//! Every async function moves but a generator: an await inside a `try`
+//! (any of its blocks, `await using` included, which `desugar_using`
+//! turned into one) or a `for…of` moves, and so does a `for await`,
+//! whose steps and close suspend the frame (`ssa_lower_fn::suspend::
+//! sync_step` / `any_frame`): the slots their exit protocols keep (the
+//! pending return, the throw a `finally` set aside, the iterator) are
+//! stack slots the frame carries across, and a frame dropped while it
+//! waits there unwinds past the handlers (`ssa_lower_fn::suspend::
+//! cancel`). A dynamic `import()` moves: its promise is awaited as any
+//! other. (`arguments` and `new.target` move too: the arguments object
+//! is built from the parameters on entry, before the first await, and
+//! an async function is never a constructor, so its `new.target` is
+//! undefined wherever it is read.) An async generator stays with the
+//! generator lowering, which lifts its awaits itself
+//! (`desugar_generators_async`).
 //!
 //! A generic function, a method of a generic class and a private
 //! method move too: each specialized copy minted later under another
@@ -40,8 +38,7 @@
 //! steps included, run the jobs ahead of them in place
 //! (`ssa_lower_fn::suspend::in_place`), with no frame to resume.
 //!
-//! Declarations and class methods are marked by name (a method by its
-//! mangled `__cm_` / `__sm_` name), values by ExprId; `lift_arrow_fns`
+//! Declarations are marked by name, values by ExprId; `lift_arrow_fns`
 //! carries a value's mark onto its lifted name. A declaration nested in
 //! another function's body (or in a block) is judged here too, and its
 //! name marked when every async declaration of that name moves (the
@@ -49,10 +46,24 @@
 //! a fresh name carries the mark over (`annexb_fn_var`'s flush), and so
 //! does the rewrite of a capturing one into a function value
 //! (`nested_fns_capture::rewrite`).
+//!
+//! A class method is marked by its declaration ([`MethodKey`]), at any
+//! depth: a nested class takes its final name only in `desugar_classes`
+//! (a collision rename's `__hc<N>_`, the capturing lane's `__cc<N>_`),
+//! where [`name_moved_methods`] marks the mangled `__cm_` / `__sm_`
+//! name it will emit. A top-level class keeps its name, and its methods
+//! are marked by name here as well, for the state machine that runs
+//! before the classes are desugared (`desugar_async_sm_methods`).
+
+mod nested;
 
 use super::desugar_with::walk;
-use super::{Ast, ClassMethod, Expr, ExprId, Stmt, mangle_key};
-use std::collections::{HashMap, HashSet};
+use super::{Ast, ClassMethod, Expr, ExprId, PropKey, Stmt, mangle_key};
+use std::collections::HashSet;
+
+/// A class method by the declaration that holds it: the class's
+/// `decl_id`, whether the method is static, and its `mangle_key`.
+pub type MethodKey = (u32, bool, String);
 
 /// `Ast::async_ssa`: the async functions this gate moved.
 #[derive(Debug, Clone, Default)]
@@ -74,68 +85,49 @@ pub struct AsyncSsa {
     /// A function that moved has a `for await`: its any-lane steps call
     /// the runtime's frame entries (`ssa_lower_fn::suspend::frame_step`).
     pub frame_for_await: bool,
+    /// The parser's async methods ([`record_async_method`]). Two
+    /// classes of one name (in two functions) share their mangled name
+    /// until the hoist renames one, so the name cannot say which of
+    /// them is async.
+    pub async_methods: HashSet<MethodKey>,
+    /// The methods that moved.
+    pub methods: HashSet<MethodKey>,
+}
+
+/// The parser's record of an async method of the class `class`
+/// (declaration `decl_id`): by its mangled name in `async_fns`, which
+/// every "is this async" reader keys on, and by declaration.
+pub fn record_async_method(
+    ast: &mut Ast,
+    (class, decl_id): (&str, u32),
+    is_static: bool,
+    member: &PropKey,
+) {
+    let sym = mangle_key(member);
+    let prefix = if is_static { "__sm_" } else { "__cm_" };
+    ast.async_fns.insert(format!("{prefix}{class}__{sym}"));
+    let key = (decl_id, is_static, sym.into_owned());
+    ast.async_ssa.async_methods.insert(key);
 }
 
 pub fn mark_async_ssa_fns(ast: &mut Ast) {
-    let mut names: Vec<String> = Vec::new();
-    let mut for_await = false;
+    let mut census = nested::Census::default();
     for s in &ast.stmts {
-        match s {
-            Stmt::FnDecl {
-                name,
-                body,
-                is_generator: false,
-                ..
-            } if ast.async_fns.contains(name)
-                && !ast.async_generator_fns.contains(name)
-                && moves(ast, body) =>
-            {
-                for_await |= body.iter().any(stmt_for_awaits);
-                names.push(name.clone())
-            }
-            Stmt::ClassDecl {
-                name,
-                methods,
-                static_methods,
-                ..
-            } => {
-                for (prefix, list) in [("__cm_", methods), ("__sm_", static_methods)] {
-                    for m in list {
-                        let mangled = format!("{prefix}{name}__{}", mangle_key(&m.name));
-                        if ast.async_fns.contains(&mangled) && method_moves(ast, m) {
-                            for_await |= m.body.iter().any(stmt_for_awaits);
-                            names.push(mangled);
-                        }
-                    }
-                }
-            }
-            _ => {}
-        }
+        census.top(ast, s);
     }
-    let mut nested: HashMap<String, bool> = HashMap::new();
+    let mut names = census.names();
     for s in &ast.stmts {
-        visit_bodies(ast, s, &mut nested);
-    }
-    for (name, all_move) in nested {
-        let top = ast
-            .stmts
-            .iter()
-            .any(|s| matches!(s, Stmt::FnDecl { name: n, .. } if *n == name));
-        if !all_move {
-            names.retain(|n| *n != name);
-        } else if !top {
-            names.push(name);
-        }
+        names.extend(moved_names(&census.methods, s));
     }
     names.sort();
     names.dedup();
     ast.async_ssa.fns.extend(names);
+    let mut for_await = census.for_await;
+    ast.async_ssa.methods.extend(census.methods);
     let mut values: Vec<ExprId> = ast.async_fn_value_exprs.iter().copied().collect();
     values.sort_by_key(|e| e.0);
     for eid in values {
-        if let Expr::ArrowFn { body, .. } = ast.get_expr(eid)
-            && moves(ast, body)
-        {
+        if let Expr::ArrowFn { body, .. } = ast.get_expr(eid) {
             for_await |= body.iter().any(stmt_for_awaits);
             ast.async_ssa.value_exprs.insert(eid);
         }
@@ -147,65 +139,85 @@ pub fn mark_async_ssa_fns(ast: &mut Ast) {
         && ast
             .stmts
             .iter()
-            .any(|s| stmt_awaits(ast, s) || stmt_for_awaits(s))
-        && !ast.stmts.iter().any(|s| stmt_blocks(ast, s));
+            .any(|s| stmt_awaits(ast, s) || stmt_for_awaits(s));
 }
 
-/// Judge every async function declaration nested in the bodies under
-/// `s` (a top-level declaration is `s` itself and is judged by the
-/// caller), arrows' bodies included: `out` keeps, per name, whether all
-/// of them move.
-fn visit_bodies(ast: &Ast, s: &Stmt, out: &mut HashMap<String, bool>) {
-    match s {
-        Stmt::FnDecl { body, .. } => visit_list(ast, body, out),
-        Stmt::ClassDecl {
-            ctor,
-            methods,
-            static_methods,
-            ..
-        } => {
-            if let Some(c) = ctor {
-                visit_list(ast, &c.body, out);
-            }
-            for m in methods.iter().chain(static_methods) {
-                visit_list(ast, &m.body, out);
-            }
-        }
-        _ => visit_nested(ast, s, out),
-    }
-}
-
-fn visit_list(ast: &Ast, body: &[Stmt], out: &mut HashMap<String, bool>) {
-    for s in body {
-        visit_nested(ast, s, out);
-    }
-}
-
-/// `s` is nested in a body or a block.
-fn visit_nested(ast: &Ast, s: &Stmt, out: &mut HashMap<String, bool>) {
-    if let Stmt::FnDecl {
+/// The mangled names, under the name it has now, of the moved methods
+/// (`moved`) of the class `s` declares.
+fn moved_names(moved: &HashSet<MethodKey>, s: &Stmt) -> Vec<String> {
+    let Stmt::ClassDecl {
         name,
-        body,
-        is_generator,
+        decl_id,
+        methods,
+        static_methods,
         ..
     } = s
-        && ast.async_fns.contains(name)
-        && !ast.async_generator_fns.contains(name)
-    {
-        let ok = !is_generator && moves(ast, body);
-        *out.entry(name.clone()).or_insert(true) &= ok;
-    }
-    if matches!(s, Stmt::FnDecl { .. } | Stmt::ClassDecl { .. }) {
-        return visit_bodies(ast, s, out);
-    }
-    for arrow in walk::arrow_nodes(ast, s) {
-        if let Expr::ArrowFn { body, .. } = ast.get_expr(arrow) {
-            visit_list(ast, body, out);
+    else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for (is_static, list) in [(false, methods), (true, static_methods)] {
+        let prefix = if is_static { "__sm_" } else { "__cm_" };
+        for m in list {
+            let sym = mangle_key(&m.name);
+            if moved.contains(&(*decl_id, is_static, sym.to_string())) {
+                out.push(format!("{prefix}{name}__{sym}"));
+            }
         }
     }
-    for c in walk::stmt_children_ref(s) {
-        visit_nested(ast, c, out);
+    out
+}
+
+/// `desugar_classes`, once the hoist has given every class its final
+/// name and before the methods are emitted under it: mark each moved
+/// method's mangled name, and record it as async under that name.
+pub(super) fn name_moved_methods(ast: &mut Ast) {
+    let mut names: Vec<String> = Vec::new();
+    for top in &ast.stmts {
+        nested::each_stmt(ast, top, &mut |s| {
+            names.extend(moved_names(&ast.async_ssa.methods, s))
+        });
     }
+    for n in names {
+        ast.async_fns.insert(n.clone());
+        ast.async_ssa.fns.insert(n);
+    }
+}
+
+/// The capturing lane installs the method `m` of the declaration
+/// `decl_id` as a function value (`capturing_classes::lower_to_es5`),
+/// after `desugar_async` settled the values it knew of: an async one is
+/// settled here the same way, and takes the value mark when it moved.
+pub(super) fn method_value(
+    ast: &mut Ast,
+    (decl_id, is_static): (u32, bool),
+    m: &mut ClassMethod,
+) -> ExprId {
+    let params = std::mem::take(&mut m.params);
+    let mut return_type = m.return_type.take();
+    let mut body = std::mem::take(&mut m.body);
+    let key = (decl_id, is_static, mangle_key(&m.name).into_owned());
+    let is_async = ast.async_ssa.async_methods.contains(&key);
+    let ssa = ast.async_ssa.methods.contains(&key);
+    if is_async {
+        let declared = return_type.unwrap_or_else(|| "any".into());
+        let (settled, promise_ty) =
+            super::desugar_async::build_async_body(ast, body, &declared, ssa);
+        body = settled;
+        return_type = Some(promise_ty);
+    }
+    let eid = ast.add_expr(Expr::ArrowFn {
+        params,
+        return_type,
+        body,
+    });
+    if is_async {
+        ast.async_fn_value_exprs.insert(eid);
+    }
+    if ssa {
+        ast.async_ssa.value_exprs.insert(eid);
+    }
+    eid
 }
 
 /// A method's receiver-polymorphic twin (`__cmany_` / `__smany_`) is
@@ -219,12 +231,10 @@ pub(super) fn mark_twin(ast: &mut Ast, method: &str, twin: &str) {
     }
 }
 
-fn method_moves(ast: &Ast, m: &ClassMethod) -> bool {
-    m.accessor_kind.is_none() && !m.is_abstract && moves(ast, &m.body)
-}
-
-fn moves(ast: &Ast, body: &[Stmt]) -> bool {
-    !body.iter().any(|s| stmt_blocks(ast, s))
+/// An async method moves unless it has no body of its own to move (an
+/// accessor or an abstract method).
+fn method_moves(m: &ClassMethod) -> bool {
+    m.accessor_kind.is_none() && !m.is_abstract
 }
 
 /// The body holds one of the function's own awaits, or a `for await`:
@@ -277,18 +287,6 @@ fn class_exprs(ast: &Ast, s: &Stmt) -> Vec<ExprId> {
         }
     }
     out
-}
-
-/// The statement keeps the body off the SSA lowering: an await in a
-/// generator step.
-fn stmt_blocks(ast: &Ast, s: &Stmt) -> bool {
-    let protocol = matches!(s, Stmt::Yield(_) | Stmt::YieldInto { .. });
-    if protocol && stmt_awaits(ast, s) {
-        return true;
-    }
-    walk::stmt_children_ref(s)
-        .into_iter()
-        .any(|c| stmt_blocks(ast, c))
 }
 
 /// The statement is a `for await`, whose steps await.

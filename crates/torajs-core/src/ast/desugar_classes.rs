@@ -30,12 +30,12 @@ pub fn desugar_classes(ast: &mut Ast) {
     // the hoist's capture check and the capturing lane's admit both
     // see an ordinary named parent binding.
     ast.extract_value_heritage();
-    // Pre-pass — move capture-free ClassDecls out of nested statement
-    // containers (fn bodies, fn-expression bodies, blocks) to the top
-    // level, where the snapshot below can see them. Doing it here
-    // rather than in the pipeline covers every caller (cli / repl /
-    // lsp / num_width) at once.
+    // Pre-pass — move capture-free ClassDecls out of nested containers
+    // (fn / fn-expression bodies, blocks) to the top level, for the
+    // snapshot below and every caller (cli / repl / lsp / num_width); then
+    // mark the moved async methods under the names the hoist gave them.
     super::hoist_nested_classes::hoist_nested_classes(ast);
+    super::desugar_async_ssa_gate::name_moved_methods(ast);
 
     // Pass 1 — extract every ClassDecl. After this loop the original
     // ClassDecl stmts are replaced by their generated TypeDecl in-place;

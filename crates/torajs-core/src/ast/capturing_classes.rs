@@ -303,7 +303,7 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str, inner: String) -> St
     if let Some(p) = &parent {
         extends::proto_chain_stmts(ast, &name, p, &mut out);
     }
-    for (m, on_prototype) in methods
+    for (mut m, on_prototype) in methods
         .into_iter()
         .map(|m| (m, true))
         .chain(static_methods.into_iter().map(|m| (m, false)))
@@ -315,11 +315,8 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str, inner: String) -> St
             extends::rewrite_super_sites(ast, &m.body, p, !on_prototype, &name);
             extends::rewrite_super_prop_sites(ast, &m.body, p, !on_prototype, &name);
         }
-        let eid = ast.add_expr(Expr::ArrowFn {
-            params: m.params,
-            return_type: m.return_type,
-            body: m.body,
-        });
+        let eid =
+            super::desugar_async_ssa_gate::method_value(ast, (decl_id, !on_prototype), &mut m);
         ast.set_expr_span(eid, m.span);
         ast.fn_expr_exprs.insert(eid);
         // An instance method hangs off `.prototype`; a static one hangs
