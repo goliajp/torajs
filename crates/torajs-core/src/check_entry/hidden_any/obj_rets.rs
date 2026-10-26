@@ -19,26 +19,34 @@ use super::promise_rets::own_returns;
 use crate::ast::{Ast, ExprId, Stmt};
 use crate::check::Type;
 
-/// The functions of `ast` declared to return an object type
-/// (`super::retypable::retypable_ann`) with a `return` of a value
-/// `types` types `any`.
-pub(super) fn found(ast: &Ast, types: &HashMap<ExprId, Type>) -> HashSet<String> {
-    let mut out = HashSet::new();
-    crate::ast::walk_stmts(&ast.stmts, &mut |s| {
-        let Stmt::FnDecl {
-            name,
-            return_type: Some(rt),
-            body,
-            ..
-        } = s
-        else {
-            return;
-        };
-        if super::retypable::object_ann(rt)
-            && (own_returns(body).iter()).any(|e| types.get(e) == Some(&Type::Any))
-        {
-            out.insert(name.clone());
-        }
-    });
-    out
+/// The functions of a program declared to return an object type
+/// (`super::retypable::object_ann`), with the values they return: what
+/// every check round asks again with its own types.
+pub(super) struct ObjRets(Vec<(String, Vec<ExprId>)>);
+
+impl ObjRets {
+    pub(super) fn of(ast: &Ast) -> Self {
+        let mut out = Vec::new();
+        crate::ast::walk_stmts(&ast.stmts, &mut |s| {
+            if let Stmt::FnDecl {
+                name,
+                return_type: Some(rt),
+                body,
+                ..
+            } = s
+                && super::retypable::object_ann(rt)
+            {
+                out.push((name.clone(), own_returns(body)));
+            }
+        });
+        ObjRets(out)
+    }
+
+    /// Those with a `return` of a value `types` types `any`.
+    pub(super) fn found(&self, types: &HashMap<ExprId, Type>) -> HashSet<String> {
+        (self.0.iter())
+            .filter(|(_, rets)| rets.iter().any(|e| types.get(e) == Some(&Type::Any)))
+            .map(|(name, _)| name.clone())
+            .collect()
+    }
 }

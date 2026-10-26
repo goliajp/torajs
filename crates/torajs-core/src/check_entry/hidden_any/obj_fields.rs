@@ -21,50 +21,76 @@ use crate::check::Type;
 /// A field: its class and its name.
 pub(super) type Field = (String, PropKey);
 
-/// The fields of `ast`'s classes and declared object types declared
+/// The fields of a program's classes and declared object types declared
 /// with an object type (`super::retypable::object_ann`) or a function
-/// type that some `o.f = v` of `ast` stores a value `types` types
-/// `any`, `o` an instance of the class or a binding annotated with the
-/// type. Bindings resolve by name, so a same-named binding elsewhere can
-/// widen a field too, which costs the typed lane, never an answer. The
-/// specializations the mono pass clones are not read: a class factory's
-/// all-`any` twin is minted ahead of any call that needs it, and a store
-/// of one of its parameters would widen the field for every instance.
-pub(super) fn found(ast: &Ast, types: &HashMap<ExprId, Type>) -> HashSet<Field> {
-    let mut stored: HashSet<Field> = HashSet::new();
-    let mut anns: Option<HashMap<String, String>> = None;
-    for e in &ast.exprs {
-        let Expr::Assign { target, value } = e else {
-            continue;
-        };
-        let (Expr::Member { obj, name }, Some(Type::Any)) =
-            (ast.get_expr(*target), types.get(value))
-        else {
-            continue;
-        };
-        let owner = class_of(types, *obj).or_else(|| match ast.get_expr(*obj) {
-            Expr::Ident(n) => (anns.get_or_insert_with(|| binding_anns(ast)).get(n))
-                .map(|a| crate::check_type_ann::strip_nullable(a).trim().to_string()),
-            _ => None,
-        });
-        if let Some(owner) = owner {
-            stored.insert((owner, PropKey::from(name)));
+/// type, and every `o.f = v` of the program that names one of them:
+/// what every check round asks again with its own types. Bindings
+/// resolve by name, so a same-named binding elsewhere can widen a field
+/// too, which costs the typed lane, never an answer. The specializations
+/// the mono pass clones are not read: a class factory's all-`any` twin
+/// is minted ahead of any call that needs it, and a store of one of its
+/// parameters would widen the field for every instance.
+pub(super) struct FieldStores {
+    held: HashSet<Field>,
+    /// `(o, v, f)` of each `o.f = v` with `f` among the held fields' names
+    stores: Vec<(ExprId, ExprId, PropKey)>,
+    /// the annotation of every annotated binding, by name
+    anns: HashMap<String, String>,
+}
+
+impl FieldStores {
+    pub(super) fn of(ast: &Ast) -> Self {
+        let mut held = HashSet::new();
+        for s in &ast.stmts {
+            let Stmt::TypeDecl { name, fields, .. } = s else {
+                continue;
+            };
+            for (k, ann) in fields {
+                if super::retypable::object_ann(ann) || crate::ast::is_fn_like_ann(ann) {
+                    held.insert((name.clone(), k.clone()));
+                }
+            }
         }
-    }
-    let mut out = HashSet::new();
-    for s in &ast.stmts {
-        let Stmt::TypeDecl { name, fields, .. } = s else {
-            continue;
+        let names: HashSet<&PropKey> = held.iter().map(|(_, k)| k).collect();
+        let mut stores = Vec::new();
+        for e in &ast.exprs {
+            if let Expr::Assign { target, value } = e
+                && let Expr::Member { obj, name } = ast.get_expr(*target)
+                && names.contains(&PropKey::from(name))
+            {
+                stores.push((*obj, *value, PropKey::from(name)));
+            }
+        }
+        let anns = if stores.is_empty() {
+            HashMap::new()
+        } else {
+            binding_anns(ast)
         };
-        for (k, ann) in fields {
-            let key = (name.clone(), k.clone());
-            let held = super::retypable::object_ann(ann) || crate::ast::is_fn_like_ann(ann);
-            if held && stored.contains(&key) {
+        FieldStores { held, stores, anns }
+    }
+
+    /// The held fields some store hands a value `types` types `any`,
+    /// `o` an instance of the class or a binding annotated with the type.
+    pub(super) fn found(&self, ast: &Ast, types: &HashMap<ExprId, Type>) -> HashSet<Field> {
+        let mut out = HashSet::new();
+        for (obj, value, name) in &self.stores {
+            if types.get(value) != Some(&Type::Any) {
+                continue;
+            }
+            let owner = class_of(types, *obj).or_else(|| match ast.get_expr(*obj) {
+                Expr::Ident(n) => (self.anns.get(n))
+                    .map(|a| crate::check_type_ann::strip_nullable(a).trim().to_string()),
+                _ => None,
+            });
+            if let Some(owner) = owner
+                && let key = (owner, name.clone())
+                && self.held.contains(&key)
+            {
                 out.insert(key);
             }
         }
+        out
     }
-    out
 }
 
 /// The annotation of every annotated `let` and parameter of `ast`, by

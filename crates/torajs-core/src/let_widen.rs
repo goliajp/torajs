@@ -220,8 +220,13 @@ impl Walker<'_> {
         {
             self.out.insert(init);
         }
-        let binding = if mutable && ann.is_some() {
+        // a binding annotated `any` or `unknown` already holds a value of
+        // any kind; marking it would only ask the checker for another run
+        let open = ann.is_some_and(|a| matches!(a.trim(), "any" | "unknown"));
+        let binding = if mutable && ann.is_some() && !open {
             Binding::Annotated { init }
+        } else if open {
+            Binding::Opaque
         } else if mutable && ann.is_none() {
             let family = classify(self.ast, init).or_else(|| {
                 // A generator-factory call initializes a `__Gen_*`

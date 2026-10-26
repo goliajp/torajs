@@ -68,11 +68,12 @@ fn settle_with(
     let mut executors: HashSet<ExprId> = HashSet::new();
     let mut retypable = None;
     let mut retyped: Option<Ast> = None;
+    let (obj_rets, field_stores) = (obj_rets::ObjRets::of(ast), obj_fields::FieldStores::of(ast));
     loop {
         let cur = round.as_ref().unwrap_or(first);
         let hidden = &cur.0.5.widths.hidden_any;
         let before = rets.len();
-        let obj = obj_rets::found(ast, &cur.0.1);
+        let obj = obj_rets.found(&cur.0.1);
         if !(hidden.rets.is_empty() && obj.is_empty()) {
             let (ok, _) = retypable.get_or_insert_with(|| retypable_returns(ast, allow));
             let found = hidden.rets.iter().chain(&obj);
@@ -80,7 +81,7 @@ fn settle_with(
         }
         let grew = (rets.len() > before)
             | promise_rets::extend(ast, &cur.0.1, &mut promise_rets)
-            | extend_fields(&mut obj_fields, obj_fields::found(ast, &cur.0.1))
+            | extend_fields(&mut obj_fields, field_stores.found(ast, &cur.0.1))
             | executor_any::extend(ast, &cur.0.1, &mut executors)
             | extend_own(ast, &mut inits, &hidden.inits)
             | extend_own(ast, &mut fields, &scalar_values(&cur.0.1, &hidden.fields))
