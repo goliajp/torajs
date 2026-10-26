@@ -19,3 +19,9 @@ function run(raw: any) {
   st.forEach((e: number | (() => number)) => console.log(typeof e === "number" ? e : e() * 2));
 }
 run(JSON.parse('{"y":3.5,"z":-1.25}'));
+const u = new Map<number | (() => number), (s: string) => string>();
+u.set(1, (s) => s + "!");
+u.forEach((v: (s: string) => string, k: number | (() => number)) => console.log(k, v("a")));
+const w = new Map<string | number, (n: number) => string>();
+w.set("a", (n) => "n" + n.toFixed(1));
+w.forEach((v: (n: number) => string, k: string | number) => console.log(k, v(2.25)));

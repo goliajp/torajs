@@ -13,3 +13,14 @@ function run(h: number) {
   ints.forEach((v: number, k: () => number) => console.log(v + k()));
 }
 run(7);
+function viaIterators(h: number) {
+  const ints = new Map<() => number, number>();
+  ints.set(() => h * 3, 1);
+  const fracs = new Map<() => number, number>();
+  fracs.set(() => h / 4, 2);
+  for (const k of ints.keys()) console.log(k() + 1);
+  for (const [k, v] of ints.entries()) console.log(v, k() - 1);
+  for (const k of fracs.keys()) console.log(k() + 1);
+  for (const [k, v] of fracs.entries()) console.log(v, k() * 2);
+}
+viaIterators(5);
