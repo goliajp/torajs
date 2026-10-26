@@ -27,11 +27,14 @@
 //!   parameters on entry, before the first await, and an async
 //!   function is never a constructor, so its `new.target` is
 //!   undefined wherever it is read);
-//! - it is no generator, no async generator and not generic (a
-//!   specialized copy of a generic body is minted later under another
-//!   name). A parameter the parser synthesized (a destructuring
-//!   pattern's `__destr_src_N`, an injected helper's `__`-spelled ones)
-//!   is a parameter of the frame like any other.
+//! - it is no generator and no async generator.
+//!
+//! A generic function, a method of a generic class and a private
+//! method move too: each specialized copy minted later under another
+//! name takes the mark along with the body (`check_monomorph`). A
+//! parameter the parser synthesized (a destructuring pattern's
+//! `__destr_src_N`, an injected helper's `__`-spelled ones) is a
+//! parameter of the frame like any other.
 //!
 //! The module body moves by the same rules; its awaits, `for await`
 //! steps included, run the jobs ahead of them in place
@@ -80,12 +83,10 @@ pub fn mark_async_ssa_fns(ast: &mut Ast) {
         match s {
             Stmt::FnDecl {
                 name,
-                type_params,
                 body,
                 is_generator: false,
                 ..
-            } if type_params.is_empty()
-                && ast.async_fns.contains(name)
+            } if ast.async_fns.contains(name)
                 && !ast.async_generator_fns.contains(name)
                 && moves(ast, body) =>
             {
@@ -94,11 +95,10 @@ pub fn mark_async_ssa_fns(ast: &mut Ast) {
             }
             Stmt::ClassDecl {
                 name,
-                type_params,
                 methods,
                 static_methods,
                 ..
-            } if type_params.is_empty() => {
+            } => {
                 for (prefix, list) in [("__cm_", methods), ("__sm_", static_methods)] {
                     for m in list {
                         let mangled = format!("{prefix}{name}__{}", mangle_key(&m.name));
@@ -185,7 +185,6 @@ fn visit_list(ast: &Ast, body: &[Stmt], out: &mut HashMap<String, bool>) {
 fn visit_nested(ast: &Ast, s: &Stmt, out: &mut HashMap<String, bool>) {
     if let Stmt::FnDecl {
         name,
-        type_params,
         body,
         is_generator,
         ..
@@ -193,7 +192,7 @@ fn visit_nested(ast: &Ast, s: &Stmt, out: &mut HashMap<String, bool>) {
         && ast.async_fns.contains(name)
         && !ast.async_generator_fns.contains(name)
     {
-        let ok = !is_generator && type_params.is_empty() && moves(ast, body);
+        let ok = !is_generator && moves(ast, body);
         *out.entry(name.clone()).or_insert(true) &= ok;
     }
     if matches!(s, Stmt::FnDecl { .. } | Stmt::ClassDecl { .. }) {
@@ -221,11 +220,7 @@ pub(super) fn mark_twin(ast: &mut Ast, method: &str, twin: &str) {
 }
 
 fn method_moves(ast: &Ast, m: &ClassMethod) -> bool {
-    m.accessor_kind.is_none()
-        && !m.is_abstract
-        && m.type_params.is_empty()
-        && !m.name.lossy().starts_with("__priv_")
-        && moves(ast, &m.body)
+    m.accessor_kind.is_none() && !m.is_abstract && moves(ast, &m.body)
 }
 
 fn moves(ast: &Ast, body: &[Stmt]) -> bool {
