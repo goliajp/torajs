@@ -113,11 +113,11 @@ impl MethodRets {
     pub(super) fn family<'a>(
         &self,
         ast: &Ast,
-        (types, seen): (&HashMap<ExprId, Type>, &HashMap<ExprId, Vec<Type>>),
+        (types, mono): (&HashMap<ExprId, Type>, &Ast),
         found: impl Iterator<Item = &'a String>,
     ) -> Family {
         let mut out = Family::default();
-        let read = super::value_reads::value_reads(ast, types);
+        let read = super::value_reads::value_reads((ast, mono), types);
         for f in found {
             let Some((c, m, true)) = self.methods.get(generic_of(f)) else {
                 continue;
@@ -133,7 +133,7 @@ impl MethodRets {
                     || read.contains(&((*o).clone(), key.clone()))
             }) || (tree_ifaces(ast, &tree, &key)).any(|i| {
                 read.contains(&(i.clone(), key.clone()))
-                    || opaque(ast, types, &self.sources, seen, (i, &key))
+                    || opaque((ast, mono), types, &self.sources, (i, &key))
             });
             if blocked {
                 continue;

@@ -18,11 +18,15 @@ use crate::ast::{Ast, BinOp, Expr, ExprId, PropKey, Stmt};
 use crate::check::Type;
 
 /// `(class or interface, member)` of every member a receiver typed as
-/// the class, or as an interface, reads as a value rather than calls.
-/// A witness thunk's read is not one: the thunk is retyped with the
-/// method (`MethodRets::ifaces`).
-pub(super) fn value_reads(ast: &Ast, types: &HashMap<ExprId, Type>) -> HashSet<(String, PropKey)> {
-    let mut calls: HashSet<ExprId> = (ast.exprs.iter())
+/// the class, or as an interface, reads as a value rather than calls,
+/// in `ast` or in a specialization `mono` adds past it: a generic body
+/// is typed only in its specializations. A witness thunk's read is not
+/// one: the thunk is retyped with the method (`MethodRets::ifaces`).
+pub(super) fn value_reads(
+    (ast, mono): (&Ast, &Ast),
+    types: &HashMap<ExprId, Type>,
+) -> HashSet<(String, PropKey)> {
+    let mut calls: HashSet<ExprId> = (ast.exprs.iter().chain(&mono.exprs[ast.exprs.len()..]))
         .filter_map(|e| match e {
             Expr::Call { callee, .. } => Some(*callee),
             _ => None,
@@ -36,21 +40,26 @@ pub(super) fn value_reads(ast: &Ast, types: &HashMap<ExprId, Type>) -> HashSet<(
         }
     }
     let mut out = HashSet::new();
-    let mut at = None;
-    for (i, e) in ast.exprs.iter().enumerate() {
-        let Expr::Member { obj, name } = e else {
-            continue;
-        };
-        let read = ExprId(i as u32);
-        if calls.contains(&read) {
-            continue;
+    let mut reads = |of: &Ast, from: usize| {
+        let mut at = None;
+        for (i, e) in of.exprs.iter().enumerate().skip(from) {
+            let Expr::Member { obj, name } = e else {
+                continue;
+            };
+            let read = ExprId(i as u32);
+            if calls.contains(&read) {
+                continue;
+            }
+            let owners = owners(ast, types.get(obj));
+            if owners.is_empty() || inspected(of, types, at.get_or_insert_with(|| places(of)), read)
+            {
+                continue;
+            }
+            out.extend(owners.into_iter().map(|k| (k, PropKey::from(name))));
         }
-        let owners = owners(ast, types.get(obj));
-        if owners.is_empty() || inspected(ast, types, at.get_or_insert_with(|| places(ast)), read) {
-            continue;
-        }
-        out.extend(owners.into_iter().map(|k| (k, PropKey::from(name))));
-    }
+    };
+    reads(ast, 0);
+    reads(mono, ast.exprs.len());
     out
 }
 

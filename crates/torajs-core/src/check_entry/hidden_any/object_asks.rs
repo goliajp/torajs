@@ -65,15 +65,15 @@ impl ObjectAsks {
         (found, grew)
     }
 
-    /// Retype `r` for the asks taken so far, `types` and the census's
-    /// object literals `seen` being the last round's.
+    /// Retype `r` for the asks taken so far, `types` and the
+    /// specialized program `mono` being the last round's.
     pub(super) fn retype(
         &self,
         ast: &Ast,
         r: &mut Ast,
-        (types, seen): (&HashMap<ExprId, Type>, &HashMap<ExprId, Vec<Type>>),
+        (types, mono): (&HashMap<ExprId, Type>, &Ast),
     ) {
-        let mut fam = (self.methods).family(ast, (types, seen), self.method_found.iter());
+        let mut fam = (self.methods).family(ast, (types, mono), self.method_found.iter());
         let lits = method_lits::closures(ast, types, self.methods.sources(), &fam);
         fam.fns.extend(lits);
         method_rets::retype(r, &fam);

@@ -102,7 +102,7 @@ pub(super) fn closures(
         if keys.is_empty() {
             continue;
         }
-        let sure: HashSet<ExprId> = (member_values(ast, types, i, &keys))
+        let sure: HashSet<ExprId> = (member_values((ast, ast), types, i, &keys))
             .filter_map(|(_, v, sure)| sure.then_some(v))
             .collect();
         for v in &sure {
@@ -120,29 +120,33 @@ pub(super) fn closures(
 /// call's result) or that also reaches a place other than the members
 /// `key` of this interface's literals (a direct call, another literal,
 /// an annotated binding), held by a literal whose member stores the
-/// face-slot census was not handed for the interface's type (`seen`,
-/// the last round's `FaceSlots::objlits`). A function the census sees
-/// in the member keeps its return: a call through the member rides the
-/// boxed entry, whose adapter boxes the function's own answer.
+/// face-slot census was not handed for the interface's type (the last
+/// round's `FaceSlots::objlits` over `mono`). A function the census
+/// sees in the member keeps its return: a call through the member rides
+/// the boxed entry, whose adapter boxes the function's own answer.
+/// A literal of a generic body is typed only in its specializations,
+/// `mono`'s clones of it; [`Sources`] reads the program as written and
+/// follows none of their values.
 pub(super) fn opaque(
-    ast: &Ast,
+    (ast, mono): (&Ast, &Ast),
     types: &HashMap<ExprId, Type>,
     sources: &Sources,
-    seen: &HashMap<ExprId, Vec<Type>>,
     (iface, key): (&str, &PropKey),
 ) -> bool {
     let keys = HashSet::from([key]);
-    let held: HashSet<ExprId> = (member_values(ast, types, iface, &keys))
+    let held: HashSet<ExprId> = (member_values((ast, mono), types, iface, &keys))
         .filter_map(|(_, v, sure)| sure.then_some(v))
         .collect();
     let want = ast.iface_slots.types.get(iface);
+    let seen = &mono.face_slots.objlits;
     let census_sees = |lit: &ExprId| {
         (seen.get(lit).into_iter().flatten())
             .any(|t| want.is_some_and(|w| of_iface(t, w, &keys) == Fit::Exact))
     };
-    member_values(ast, types, iface, &keys).any(|(lit, v, sure)| {
-        types.get(&v) != Some(&Type::Any)
-            && (!sure || sources.of_value(ast, v, &held).is_none() && !census_sees(&lit))
+    let follows =
+        |v: ExprId| (v.0 as usize) < ast.exprs.len() && sources.of_value(ast, v, &held).is_some();
+    member_values((ast, mono), types, iface, &keys).any(|(lit, v, sure)| {
+        types.get(&v) != Some(&Type::Any) && (!sure || !follows(v) && !census_sees(&lit))
     })
 }
 
@@ -151,15 +155,17 @@ pub(super) fn opaque(
 /// `keys`, each with its literal and whether the literal is of that
 /// type for sure: one whose members only fit the interface's
 /// ([`Fit::Loose`]) may be of another interface that fits it as well.
+/// The literals are those of `ast`, and those `mono` adds past it.
 fn member_values<'a>(
-    ast: &'a Ast,
+    (ast, mono): (&'a Ast, &'a Ast),
     types: &'a HashMap<ExprId, Type>,
     iface: &'a str,
     keys: &'a HashSet<&PropKey>,
 ) -> impl Iterator<Item = (ExprId, ExprId, bool)> + 'a {
     let all = &ast.iface_slots.types;
     let want = all.get(iface);
-    (ast.exprs.iter().enumerate())
+    let added = mono.exprs.iter().enumerate().skip(ast.exprs.len());
+    (ast.exprs.iter().enumerate().chain(added))
         .filter_map(move |(i, e)| {
             let (Expr::ObjectLit { fields }, Some(lt), Some(want)) =
                 (e, types.get(&ExprId(i as u32)), want)

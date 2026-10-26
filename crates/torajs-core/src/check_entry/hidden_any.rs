@@ -96,7 +96,7 @@ fn settle_with(
         let r = retyped.get_or_insert_with(|| ast.clone());
         retype_any(&mut r.stmts, &inits);
         retype_returns_any(&mut r.stmts, &rets);
-        objects.retype(ast, r, (&cur.0.1, &cur.0.5.mono_ast.face_slots.objlits));
+        objects.retype(ast, r, (&cur.0.1, &cur.0.5.mono_ast));
         promise_rets::retype(&mut r.stmts, &promise_rets);
         executor_any::retype(r, &executors);
         spell_fields_any(r, &fields);
