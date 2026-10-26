@@ -99,7 +99,7 @@ fn settle_with(
         retype_any(&mut r.stmts, &inits);
         retype_returns_any(&mut r.stmts, &rets);
         promise_rets::retype(&mut r.stmts, &promise_rets);
-        obj_fields::retype(r, &obj_fields);
+        field_stores.retype(r, &obj_fields);
         executor_any::retype(r, &executors);
         spell_fields_any(r, &fields);
         reinfer::reinfer_returns(ast, r);

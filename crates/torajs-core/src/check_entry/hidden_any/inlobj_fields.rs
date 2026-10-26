@@ -9,6 +9,7 @@
 
 use std::collections::HashSet;
 
+use super::retypable::ObjectTypes;
 use crate::ast::ann_rewrite::{AnnRewrite, rewrite_anns, sub};
 use crate::ast::{Ast, PropKey};
 
@@ -22,14 +23,9 @@ pub(super) fn members(ann: &str) -> Option<Vec<(&str, &str)>> {
         .collect::<Option<Vec<_>>>()
 }
 
-/// Whether a member declared `ann` is held by a slot laid out by it.
-pub(super) fn held_ann(ann: &str) -> bool {
-    super::retypable::object_ann(ann) || crate::ast::is_fn_like_ann(ann)
-}
-
 /// Add to `out` the names of the held members of every object type
 /// literal in `ann`, nested ones included.
-pub(super) fn held_names(ann: &str, out: &mut HashSet<PropKey>) {
+pub(super) fn held_names(objects: &ObjectTypes, ann: &str, out: &mut HashSet<PropKey>) {
     let mut rest = ann;
     while let Some(at) = rest.find("__inlobj(") {
         let open = at + "__inlobj(".len();
@@ -38,10 +34,10 @@ pub(super) fn held_names(ann: &str, out: &mut HashSet<PropKey>) {
         };
         for p in split_top(&rest[open..open + close]) {
             if let Some((k, a)) = p.split_once(':') {
-                if held_ann(a) {
+                if objects.held(a) {
                     out.insert(PropKey::from(k));
                 }
-                held_names(a, out);
+                held_names(objects, a, out);
             }
         }
         rest = &rest[open + close + 1..];
@@ -50,11 +46,11 @@ pub(super) fn held_names(ann: &str, out: &mut HashSet<PropKey>) {
 
 /// Respell `any` every object type literal member named in `names`
 /// whose annotation is held, in every annotation of `r`.
-pub(super) fn retype(r: &mut Ast, names: &HashSet<PropKey>) {
+pub(super) fn retype(r: &mut Ast, objects: &ObjectTypes, names: &HashSet<PropKey>) {
     if names.is_empty() {
         return;
     }
-    let rw = Widen { names };
+    let rw = Widen { objects, names };
     let mut stmts = std::mem::take(&mut r.stmts);
     rewrite_anns(r, &mut stmts, 0, &rw);
     r.stmts = stmts;
@@ -66,6 +62,7 @@ pub(super) fn retype(r: &mut Ast, names: &HashSet<PropKey>) {
 }
 
 struct Widen<'a> {
+    objects: &'a ObjectTypes,
     names: &'a HashSet<PropKey>,
 }
 
@@ -98,7 +95,9 @@ impl Widen<'_> {
             let body = &rest[open..open + close];
             let fields: Vec<String> = (split_top(body).into_iter())
                 .map(|p| match p.split_once(':') {
-                    Some((k, a)) if self.names.contains(&PropKey::from(k)) && held_ann(a) => {
+                    Some((k, a))
+                        if self.names.contains(&PropKey::from(k)) && self.objects.held(a) =>
+                    {
                         format!("{k}:any")
                     }
                     Some((k, a)) => format!("{k}:{}", self.widen(a)),
@@ -158,8 +157,17 @@ mod tests {
     use super::*;
 
     fn widen(ann: &str, names: &[&str]) -> String {
+        let src = "class C { x = 1 }\nclass Box<T> { v: T }\n";
+        let tokens = crate::lexer::tokenize(src).expect("lex");
+        let mut ast = crate::parser::parse(src, &tokens).expect("parse");
+        crate::ast::desugar_classes(&mut ast);
+        let objects = ObjectTypes::of(&ast);
         let names: HashSet<PropKey> = names.iter().map(|n| PropKey::from(*n)).collect();
-        Widen { names: &names }.widen(ann)
+        Widen {
+            objects: &objects,
+            names: &names,
+        }
+        .widen(ann)
     }
 
     #[test]
@@ -182,6 +190,21 @@ mod tests {
             "__inlobj(o:__inlobj(c:any)|c:any) | undefined"
         );
         assert_eq!(widen("Box<__inlobj(c:C)>", &["c"]), "Box<__inlobj(c:any)>");
+        assert_eq!(widen("__inlobj(b:Box<number>)", &["b"]), "__inlobj(b:any)");
+    }
+
+    #[test]
+    fn keeps_members_of_no_declared_object_type() {
+        for ann in [
+            "T",
+            "Map<string|number>",
+            "TypeError",
+            "Uint8Array",
+            "number[]",
+        ] {
+            let lit = format!("__inlobj(c:{ann})");
+            assert_eq!(widen(&lit, &["c"]), lit);
+        }
     }
 
     #[test]

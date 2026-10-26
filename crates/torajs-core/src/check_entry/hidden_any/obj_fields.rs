@@ -14,7 +14,8 @@
 
 use std::collections::{HashMap, HashSet};
 
-use super::inlobj_fields::{self, held_ann};
+use super::inlobj_fields;
+use super::retypable::ObjectTypes;
 use crate::ast::{Ast, Expr, ExprId, PropKey, Stmt};
 use crate::ast_throw_info::class_of;
 use crate::check::Type;
@@ -33,6 +34,7 @@ type Field = (String, PropKey);
 /// ahead of any call that needs it, and a store of one of its
 /// parameters would widen the field for every instance.
 pub(super) struct FieldStores {
+    objects: ObjectTypes,
     held: HashSet<Field>,
     /// `(o, v, f)` of each `o.f = v` with `f` among the held fields' names
     stores: Vec<(ExprId, ExprId, PropKey)>,
@@ -42,19 +44,20 @@ pub(super) struct FieldStores {
 
 impl FieldStores {
     pub(super) fn of(ast: &Ast) -> Self {
+        let objects = ObjectTypes::of(ast);
         let mut held = HashSet::new();
         for s in &ast.stmts {
             let Stmt::TypeDecl { name, fields, .. } = s else {
                 continue;
             };
             for (k, ann) in fields {
-                if held_ann(ann) {
+                if objects.held(ann) {
                     held.insert((name.clone(), k.clone()));
                 }
             }
         }
         // a member of an object type literal is a field of a type with no name
-        let lits = inlobj_held_names(ast);
+        let lits = inlobj_held_names(ast, &objects);
         let mut names: HashSet<&PropKey> = held.iter().map(|(_, k)| k).collect();
         names.extend(&lits);
         let mut stores = Vec::new();
@@ -71,7 +74,12 @@ impl FieldStores {
         } else {
             binding_anns(ast)
         };
-        FieldStores { held, stores, anns }
+        FieldStores {
+            objects,
+            held,
+            stores,
+            anns,
+        }
     }
 
     /// The names of the held fields some store hands a value `types`
@@ -108,9 +116,8 @@ impl FieldStores {
     /// Whether the type `owner` spells declares `name` held.
     fn holds(&self, owner: &str, name: &PropKey) -> bool {
         self.held.contains(&(owner.to_string(), name.clone()))
-            || inlobj_fields::members(owner).is_some_and(|ms| {
-                (ms.iter()).any(|(k, a)| PropKey::from(*k) == *name && held_ann(a))
-            })
+            || inlobj_fields::members(owner)
+                .is_some_and(|ms| (ms.iter()).any(|(k, a)| *name == *k && self.objects.held(a)))
     }
 }
 
@@ -140,15 +147,15 @@ fn binding_anns(ast: &Ast) -> HashMap<String, Vec<String>> {
 
 /// The names of the held members of the object type literals the
 /// program's bindings are annotated with.
-fn inlobj_held_names(ast: &Ast) -> HashSet<PropKey> {
+fn inlobj_held_names(ast: &Ast, objects: &ObjectTypes) -> HashSet<PropKey> {
     let mut out = HashSet::new();
     crate::ast::walk_stmts(&ast.stmts, &mut |s| match s {
         Stmt::LetDecl {
             type_ann: Some(a), ..
-        } => inlobj_fields::held_names(a, &mut out),
+        } => inlobj_fields::held_names(objects, a, &mut out),
         Stmt::FnDecl { params, .. } => {
             for a in params.iter().filter_map(|p| p.type_ann.as_deref()) {
-                inlobj_fields::held_names(a, &mut out);
+                inlobj_fields::held_names(objects, a, &mut out);
             }
         }
         _ => {}
@@ -156,18 +163,20 @@ fn inlobj_held_names(ast: &Ast) -> HashSet<PropKey> {
     out
 }
 
-/// Respell `any` every held field named in `names`, of every class,
-/// declared object type and object type literal.
-pub(super) fn retype(r: &mut Ast, names: &HashSet<PropKey>) {
-    for s in &mut r.stmts {
-        let Stmt::TypeDecl { fields: fs, .. } = s else {
-            continue;
-        };
-        for (k, ann) in fs {
-            if names.contains(k) && held_ann(ann) {
-                *ann = "any".to_string();
+impl FieldStores {
+    /// Respell `any` every held field named in `names`, of every class,
+    /// declared object type and object type literal.
+    pub(super) fn retype(&self, r: &mut Ast, names: &HashSet<PropKey>) {
+        for s in &mut r.stmts {
+            let Stmt::TypeDecl { fields: fs, .. } = s else {
+                continue;
+            };
+            for (k, ann) in fs {
+                if names.contains(k) && self.objects.held(ann) {
+                    *ann = "any".to_string();
+                }
             }
         }
+        inlobj_fields::retype(r, &self.objects, names);
     }
-    inlobj_fields::retype(r, names);
 }

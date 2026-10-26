@@ -20,12 +20,13 @@ use crate::ast::{Ast, ExprId, Stmt};
 use crate::check::Type;
 
 /// The functions of a program declared to return an object type
-/// (`super::retypable::object_ann`), with the values they return: what
+/// (`super::retypable::ObjectTypes`), with the values they return: what
 /// every check round asks again with its own types.
 pub(super) struct ObjRets(Vec<(String, Vec<ExprId>)>);
 
 impl ObjRets {
     pub(super) fn of(ast: &Ast) -> Self {
+        let objects = super::retypable::ObjectTypes::of(ast);
         let mut out = Vec::new();
         crate::ast::walk_stmts(&ast.stmts, &mut |s| {
             if let Stmt::FnDecl {
@@ -34,7 +35,7 @@ impl ObjRets {
                 body,
                 ..
             } = s
-                && super::retypable::object_ann(rt)
+                && objects.holds(rt)
             {
                 out.push((name.clone(), own_returns(body)));
             }

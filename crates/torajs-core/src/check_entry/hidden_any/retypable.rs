@@ -16,6 +16,9 @@ pub(super) fn retypable_returns(
     allow: &dyn Fn(&Guarded) -> bool,
 ) -> (HashSet<String>, SlotFlow) {
     let mut out = HashSet::new();
+    let objects = ObjectTypes::of(ast);
+    let retypable_ann =
+        |ann: &str| matches!(ann, "number" | "string" | "boolean") || objects.holds(ann);
     crate::ast::walk_stmts(&ast.stmts, &mut |s| {
         if let Stmt::FnDecl {
             name,
@@ -36,29 +39,43 @@ pub(super) fn retypable_returns(
     (out, flow)
 }
 
-/// Whether a return declared `ann` may be retyped `any`: a scalar, or
-/// an object type ([`object_ann`]).
-fn retypable_ann(ann: &str) -> bool {
-    matches!(ann, "number" | "string" | "boolean") || object_ann(ann)
-}
+/// The object types a program declares: its classes, and its declared
+/// types of fields (an interface, an alias of an object type literal).
+/// A slot of one reads the value at the layout's offsets. A builtin
+/// class, a type parameter and a compiler-made type are not among them.
+pub(super) struct ObjectTypes(HashSet<String>);
 
-/// Whether `ann` spells an object type: a class, an interface or an
-/// alias of one, or an object type literal, with or without
-/// `| undefined`; a slot of one reads the value at the layout's
-/// offsets. A promise, a function type, an array, a builtin class and a
-/// compiler-made type are not.
-pub(super) fn object_ann(ann: &str) -> bool {
-    let base = crate::check_type_ann::strip_nullable(ann).trim();
-    if base.starts_with("__inlobj(") {
-        return base != "__inlobj()";
+impl ObjectTypes {
+    pub(super) fn of(ast: &Ast) -> Self {
+        let decls = ast.stmts.iter().filter_map(|s| match s {
+            Stmt::TypeDecl { name, .. } => Some(name),
+            _ => None,
+        });
+        let names = (ast.class_parents.keys().chain(decls))
+            .filter(|n| !n.starts_with("__"))
+            .cloned()
+            .collect();
+        ObjectTypes(names)
     }
-    let named = base.chars().next().is_some_and(|c| c.is_ascii_uppercase())
-        && base.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
-    named
-        && !matches!(
-            base,
-            "Promise" | "Map" | "Set" | "Date" | "RegExp" | "Error"
-        )
+
+    /// Whether `ann` spells an object type: one of these, an
+    /// instantiation of a generic one (`Box<number>`), or an object
+    /// type literal, with or without `| undefined`. A promise, a
+    /// function type and an array are not.
+    pub(super) fn holds(&self, ann: &str) -> bool {
+        let base = crate::check_type_ann::strip_nullable(ann).trim();
+        if base.starts_with("__inlobj(") {
+            return base != "__inlobj()";
+        }
+        let name = base.split('<').next().unwrap_or(base);
+        (name.len() == base.len() || base.ends_with('>')) && self.0.contains(name)
+    }
+
+    /// Whether a member declared `ann` is held by a slot laid out by it:
+    /// an object type, or a function type.
+    pub(super) fn held(&self, ann: &str) -> bool {
+        self.holds(ann) || crate::ast::is_fn_like_ann(ann)
+    }
 }
 
 /// The names the functions `fns` are read by: their own, and the
