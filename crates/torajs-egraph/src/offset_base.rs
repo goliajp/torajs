@@ -350,12 +350,20 @@ fn place(func: &Function, reads: &[Read]) -> Plans {
             .filter(|l| l.contains(&at) && def.is_none_or(|d| !l.contains(&d)))
             .max_by_key(|l| l.body.len())?;
         let h = outer.header;
+        // the entry block stays first, so a loop headed by it has no
+        // block ahead of it to take the base
+        if h == id(0) {
+            return None;
+        }
         if let Some(k) = entries.iter().position(|(e, _)| *e == h) {
             return Some(Pre::New(k));
         }
+        // a block no path reaches is outside every loop, and a base
+        // placed on it alone would reach no read
         let from: Vec<usize> = (0..func.blocks.len())
             .filter(|&b| {
-                !outer.contains(&id(b)) && successors(&func.blocks[b].term).any(|s| s == h)
+                let enters = successors(&func.blocks[b].term).any(|s| s == h);
+                enters && !outer.contains(&id(b)) && dom.is_reachable(id(b))
             })
             .collect();
         match from.as_slice() {

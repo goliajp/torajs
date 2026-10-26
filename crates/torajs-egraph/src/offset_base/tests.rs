@@ -358,3 +358,38 @@ fn a_base_of_another_type_stays() {
     let (f, _) = run(f);
     assert_eq!(f, before);
 }
+
+/// A loop headed by the entry block, which an unreachable block also
+/// branches to: no block can take the base, and the read stays.
+///
+/// ```text
+/// bb0: %3 = icmp slt %2, %1 ; cond_br %3, bb1, bb2
+/// bb1: %10 = add %2, 16 ; %11 = load_u8 %0, %10 ; br bb0
+/// bb2: ret 0
+/// bb3: br bb0
+/// ```
+#[test]
+fn a_loop_headed_by_the_entry_block_keeps_its_reads() {
+    let mut f = scan(vec![]);
+    f.params = vec![ValueId(0), ValueId(1), ValueId(2)];
+    f.blocks = vec![
+        block(
+            0,
+            vec![inst(3, InstKind::ICmp(IPred::Slt, v(2), v(1)))],
+            cond(3, 1, 2),
+        ),
+        block(
+            1,
+            vec![
+                add(10, v(2), 16),
+                inst(11, InstKind::LoadU8Dyn(v(0), v(10))),
+            ],
+            br(0),
+        ),
+        block(2, vec![], Terminator::Ret(Some(Operand::ConstI64(0)))),
+        block(3, vec![], br(0)),
+    ];
+    let (f, stats) = run(f);
+    assert_eq!(stats.folded_reads, 0);
+    assert!(base_block(&f, v(0), 16).is_empty());
+}
