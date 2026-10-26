@@ -191,7 +191,7 @@ pub(crate) fn check_call(
         return Ok(());
     };
     for (i, p) in params.iter().enumerate() {
-        if matches!(p, Type::Rest(_)) || format!("{p:?}").contains("TypeVar(") {
+        if matches!(p, Type::Rest(_)) || generic(p) {
             return Ok(());
         }
         let Some(&arg) = args.get(i) else {
@@ -213,6 +213,24 @@ pub(crate) fn check_call(
     Ok(())
 }
 
+/// Whether `t` names a type parameter anywhere: a generic signature
+/// has no single type to hold an argument to.
+fn generic(t: &Type) -> bool {
+    match t {
+        Type::TypeVar(_) => true,
+        Type::Array(i)
+        | Type::MapIter(i)
+        | Type::Rest(i)
+        | Type::Nullable(i)
+        | Type::Promise(i) => generic(i),
+        Type::Map(k, v) | Type::Dict(k, v) => generic(k) || generic(v),
+        Type::Function(ps, r) => ps.iter().any(generic) || generic(r),
+        Type::Struct(fs) => fs.iter().any(|(_, t)| generic(t)),
+        Type::Union(ts) => ts.iter().any(generic),
+        _ => false,
+    }
+}
+
 /// A store of `value` into member `field` through `obj`, whose [`face`]
 /// is a class type: held to the field's declared type, or to the
 /// setter's parameter, as a typed receiver's store is.
@@ -223,7 +241,7 @@ pub(crate) fn check_store(
     field: &str,
     value: ExprId,
 ) -> Result<(), String> {
-    if c.held_any.reads.is_empty() {
+    if !c.held_any.objects {
         return Ok(());
     }
     let Some(Type::ClassRef(cls)) = face(c, ast, obj) else {

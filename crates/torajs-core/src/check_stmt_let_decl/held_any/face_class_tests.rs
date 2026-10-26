@@ -94,3 +94,13 @@ fn what_the_declared_type_admits_still_compiles() {
     accepted(&plain("q.n = 3"));
     accepted(&held_fn("console.log(g(2), g.length)"));
 }
+
+#[test]
+fn a_generic_signature_holds_no_argument_to_one_type() {
+    accepted(
+        "class G { id<T>(x: T): T { return x } \
+         size<T>(xs: T[] | undefined): number { return xs ? xs.length : 0 } }\n\
+         function f(v: any) { const q: G = v; console.log(q.id(\"x\"), q.id(1), q.size([1])) }\n\
+         f(new G());\n",
+    );
+}
