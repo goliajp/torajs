@@ -87,11 +87,8 @@ fn emit_next_call(
     // is a wild deref: `for (const v of gen)` over a generator that throws
     // on its first step was a SIGSEGV.
     ctx.emit_throw_check(None);
-    if next_call_ty == step_ret_ty {
-        return step_val;
-    }
-    // §14.7.5.10 — the async form awaits the step before reading it.
-    crate::ssa_lower_for_of_iter_protocol_await::emit_await_step(ctx, step_val, step_ret_ty)
+    debug_assert!(next_call_ty == step_ret_ty);
+    step_val
 }
 
 /// The loop's shared exit — §7.4.9 IteratorClose gated on how the loop
@@ -154,7 +151,6 @@ pub(crate) fn lower_for_of_iter_protocol(
     var_name: &str,
     body: &Stmt,
     src_class: &str,
-    is_await: bool,
 ) {
     let iter_ret_ty = ctx.f_ret_type_hint(iter_fid);
     let Type::Obj(iter_sid) = iter_ret_ty else {
@@ -173,7 +169,7 @@ pub(crate) fn lower_for_of_iter_protocol(
     // below).
     ctx.emit_throw_check(None);
 
-    let plan = resolve_iter_plan(ctx, iter_sid, src_class, is_await);
+    let plan = resolve_iter_plan(ctx, iter_sid, src_class);
     let IterPlan {
         next_fid,
         next_defaults,

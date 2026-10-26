@@ -9,7 +9,7 @@
 //! The `gc` global-fn alias (`fn_table.insert("gc", cycle_collect_id)`)
 //! stays in the caller — it depends on the FuncId returned here. The
 //! inline `ssa_lower_main_exit::declare` / `ssa_lower_process_on::declare`
-//! calls that sit between `microtask_drain` and the queueMicrotask
+//! calls that sit between `host_jobs_drain` and the queueMicrotask
 //! enqueue intrinsics also stay inline at the caller; they declare
 //! their own intrinsics in dedicated siblings already.
 //!
@@ -33,11 +33,10 @@
 //!   `process.stderr.write(s)` return bytes-written (i64 — sig
 //!   currently Bool, see runtime). Aborts on short-write per runtime
 //!   helper docstring. `process.stdin.read()` deferred to v0.5 async.
-//! - **Microtask queue drain** (v0.5 T-15.e, 1 id):
-//!   `microtask_run_until_idle` is auto-called at the end of main so
-//!   Promise callbacks chained via `.then` before exit get a chance
-//!   to run. No-op when queue empty → non-async programs pay one
-//!   fn-call worth of overhead at exit.
+//! - **Exit checkpoint** (1 id): `host_jobs_run_until_idle` runs the
+//!   microtasks, then the host jobs, until both are empty, at the end
+//!   of main. Nothing else runs the job queue in place outside the
+//!   module body's awaits (`ssa_lower_fn::suspend::in_place`).
 
 use std::collections::HashMap;
 
@@ -61,7 +60,6 @@ pub(crate) struct RuntimeMiscIds {
     pub symbol_well_known: FuncId,
     pub process_stdout_write: FuncId,
     pub process_stderr_write: FuncId,
-    pub microtask_drain: FuncId,
     /// Exit checkpoint: microtasks, then host jobs (FinalizationRegistry
     /// cleanup), until both are empty.
     pub host_jobs_drain: FuncId,
@@ -199,13 +197,6 @@ pub(crate) fn declare(
             "__torajs_process_stderr_write",
             &[Type::Str],
             Type::Bool,
-        ),
-        microtask_drain: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_microtask_run_until_idle",
-            &[],
-            Type::Void,
         ),
         host_jobs_drain: declare_intrinsic(
             module,

@@ -719,8 +719,6 @@ pub(crate) struct Intrinsics {
     pub(crate) any_accessor_get: FuncId,
     pub(crate) any_member_set: FuncId,
     pub(crate) any_iter_next: FuncId,
-    /// `for await (v of <any>)` — the async-iterate drive.
-    pub(crate) any_iter_next_await: FuncId,
     /// `Array.from`'s entry to the same walk — §23.1.2.1 step 3
     /// takes the array-like branch where every other consumer
     /// throws.
@@ -823,10 +821,6 @@ pub(crate) struct Intrinsics {
     /// The typed field store's slow leg (the any-lane [[Set]]) behind
     /// the frozen / redefined-field guard.
     pub(crate) obj_field_set_exotic: FuncId,
-    /// v0.5 T-15.e — drains the microtask queue. Auto-called at
-    /// main exit so chained Promise callbacks run before the
-    /// process returns.
-    pub(crate) microtask_drain: FuncId,
     pub(crate) host_jobs_drain: FuncId,
     /// P10.1-A1 — queueMicrotask(cb) closure-path enqueue. Takes
     /// the closure env pointer; runtime rc-inc's + dispatches at

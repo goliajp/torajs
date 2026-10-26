@@ -48,20 +48,10 @@ pub(super) fn lower_non_array_source(
     if let Type::Obj(sid) = src_ty {
         let cname = src_class_name(ctx, src_ref_eid);
         if let Some(cname) = cname {
-            // D4 — an async generator's `next()` answers `Promise<any>`
-            // of the driver's `{ value, done }` object
-            // (`desugar_generators_async`): the typed protocol lane has
-            // no struct to read, and the any lane's async drive is the
-            // same road every user async iterator takes.
-            let is_async_gen_class = ctx
-                .ast
-                .async_generator_fns
-                .iter()
-                .any(|g| ctx.ast.generator_factory_classes.get(g) == Some(&cname));
             // RFC 20260920-struct-user-proto K4 — in a program that can
             // re-parent, the instance's @@iterator may come from its user
             // chain; the any lane's GetIterator asks the chain.
-            if (is_await && is_async_gen_class) || ctx.ast.program_reparents {
+            if ctx.ast.program_reparents {
                 let boxed = ctx.box_to_any(src_ptr_op);
                 crate::ssa_lower_for_of_any_iter::lower(ctx, boxed, var_name, body, is_await);
                 return true;
@@ -69,7 +59,7 @@ pub(super) fn lower_non_array_source(
             let iter_fn = format!("__cm_{cname}____sym_Symbol_iterator__");
             if let Some(&iter_fid) = ctx.fn_table.get(&iter_fn) {
                 crate::ssa_lower_for_of_iter_protocol::lower_for_of_iter_protocol(
-                    ctx, src_ptr_op, iter_fid, var_name, body, &cname, is_await,
+                    ctx, src_ptr_op, iter_fid, var_name, body, &cname,
                 );
                 return true;
             }

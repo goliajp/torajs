@@ -1,77 +1,41 @@
-//! T-15.g.2 (v0.5.0) — `await p` (= parser-desugared `p.value`) on
-//! a built-in `Type::Promise(T)` plus P10.4 fast-path identity for
-//! `await <primitive>`. Pulled out of
-//! [`crate::ssa_lower::lower_expr_inner`]'s `Expr::Member` god-arm
-//! as chunk-62 of the decomp (chunks 1-61 = ... + T-27.c
-//! `f.length`/`f.name` dual-path).
+//! `p.value` Member reads: the parser spells `await e` as one
+//! (`Ast::await_value_reads` marks it), and the lowering of a body that
+//! suspends turns it into a suspension (`ssa_lower_fn::suspend`), using
+//! the helpers here to pick the lane a settled promise's value is read
+//! in. Every function that awaits suspends (`ast::desugar_async_ssa_gate`
+//! moves each one), so an await read anywhere else is a compiler bug.
 //!
-//! The Promise path lowers to a runtime
-//! `__torajs_promise_get_value(p)` call which reads the resolved
-//! i64 value slot, with microtask drain before and value-cast +
-//! rc_inc after. Static-only dispatch: only fire when we can
-//! determine `obj`'s type IS `Type::Promise` without lowering
-//! (eager lowering would double-side-effect the obj subexpression
-//! on fall-through).
+//! **P10.4 identity** — an unmarked `.value` read (a desugar-rebuilt
+//! Member that lost its mark) on a primitive whitelist (`check::Type`
+//! Number / String / Boolean / Array(_) / BigInt) answers the operand
+//! itself, as its await would (`Promise.resolve(e)` of a non-thenable
+//! yields e). `Type::Object("...")` and `Type::Struct` are NOT in the
+//! whitelist because they CAN carry a real user-defined `.value` field —
+//! those fall through to the regular Member path.
 //!
-//! **Built-in promise detection** — recognise the source shape from
-//! the AST so the fast path stays narrow:
-//! - Ident bound to `Type::Promise` in `LowerCtx::locals`
-//! - Call result: `Promise.{resolve|reject|all|race|any|allSettled}`,
-//!   `fs_promises.{readFile|writeFile|appendFile|unlink|mkdir|exists|
-//!   readdir}`, `Bun.file(...).{text|exists}()`, `<promise>.{then|
-//!   catch|finally}` chain result, user fn returning `Type::Promise`
-//!   (via `signatures`), `fetch(url)`, `<response>.text()`
-//! - Any other receiver typed `check::Type::Promise(_)` via
-//!   `expr_types` (covers `await ps[i]` indexing, tuple destructure,
-//!   etc.)
-//!
-//! **P10.4 identity fast-path** — `await <primitive>` collapses to
-//! the operand itself per ES spec (`Promise.resolve(e)` for
-//! non-thenable yields e). Whitelist of `check::Type` Number / String
-//! / Boolean / Array(_) / BigInt: lower obj directly, no promise
-//! alloc, no microtask drain. `Type::Object("...")` and
-//! `Type::Struct` are NOT in the whitelist because they CAN carry a
-//! real user-defined `.value` field — those fall through to the
-//! regular Member path. Pair this arm with the matching check.rs
-//! arm so typecheck + lowering agree.
-//!
-//! **Value-cast switch** — `promise_get_value` returns i64
-//! regardless of T; SSA value-table needs the proper shape:
+//! **Value-cast switch** — a settled cell's value word is an i64
+//! whatever T is; [`cast_promise_value`] gives it the SSA shape:
 //! - heap T (`Str / Substr / Obj / Arr / Closure / RegExp / Date /
-//!   Symbol / Promise / Any / Ptr`): `IntToPtr` + `emit_rc_inc`
-//!   (T-19.j: Promise owns ONE ref on inner value; when temp
-//!   Promise drops, value_drop_heap dec's that ref — without
-//!   `rc_inc` the value frees BEFORE the user reads it, UAF that
-//!   accidentally worked for n≤32 via pool block reuse but
-//!   corrupted at n>32 where libc free is real).
-//! - `Bool`: `TruncI64ToBool`.
-//! - `F64`: `BitCastI64ToF64` (②.6b — resolve/cb-thunk write f64
-//!   bits, decode symmetrically).
-//! - Other / None: raw i64 (covers Promise<Number> and legacy
-//!   `lower(...)` entry point with empty check map).
-//!
-//! P10.4-A2: post-call `emit_throw_check(None)` propagates
-//! catchable throw slot rejections into the user's `try/catch`.
-//!
-//! Returns `Some(op)` on hit; `None` on miss (Member name not
-//! `value`, or obj is neither built-in Promise nor primitive
-//! whitelist).
+//!   Symbol / Promise / Any / Ptr`): `IntToPtr` + `emit_rc_inc` (the
+//!   promise owns one reference on its value, released with the cell)
+//! - `Bool`: `TruncI64ToBool`
+//! - `F64`: `BitCastI64ToF64` (resolve and the callback thunks write
+//!   f64 bits)
+//! - Other / None: the raw i64
 
-use crate::ast::{Expr, ExprId};
+use crate::ast::ExprId;
 use crate::check::{self as check_mod};
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 use crate::ssa_lower_parse_type::parse_type;
 
-mod any_await;
 mod detect;
-mod object_await;
 mod undef_slot;
+mod unmarked;
 
-pub(crate) use any_await::lower_any_await;
 pub(crate) use detect::detect_obj_is_builtin_promise;
-use object_await::{lower_object_await, lower_typed_await, try_p10_4_primitive_identity};
 pub(crate) use undef_slot::{keep_undefined, undef_cell_slot};
+use unmarked::try_p10_4_primitive_identity;
 
 pub(crate) fn try_lower(
     ctx: &mut LowerCtx<'_>,
@@ -82,108 +46,15 @@ pub(crate) fn try_lower(
     if name != "value" {
         return None;
     }
-    if ctx.suspend_body && ctx.ast.await_value_reads.contains(&eid) {
+    if ctx.ast.await_value_reads.contains(&eid) {
+        assert!(
+            ctx.suspend_body,
+            "internal error: an await in `{}`, which does not suspend",
+            ctx.f.name
+        );
         return Some(crate::ssa_lower_fn::suspend::lower_await(ctx, eid, obj));
     }
-    let obj_is_builtin_promise = detect_obj_is_builtin_promise(ctx, obj);
-    if obj_is_builtin_promise {
-        // a promise of a thenable reads in the `any` lane its await is typed
-        let any_lane = matches!(ctx.expr_types.get(&eid), Some(check_mod::Type::Any));
-        return Some(lower_promise_value_read(ctx, obj, any_lane));
-    }
-    // rotation 233 — a parser-minted `await e` read
-    // (`Ast::await_value_reads`) on a NON-promise operand is identity
-    // for every type per §27.7.5.1 (`Promise.resolve(e)` of a
-    // non-thenable yields e) — including Struct / class receivers,
-    // which used to fall through to the field lookup and win a user
-    // `{value: T}` field (`await {value: 1}` answered `1`). The
-    // P10.4 whitelist below stays for unmarked `.value` reads (a
-    // desugar-rebuilt Member that lost its mark degrades to the old
-    // name-based posture, never to a crash).
-    if ctx.ast.await_value_reads.contains(&eid) {
-        let op = ctx.lower_expr(obj);
-        // An `any` operand only knows its form at runtime — route
-        // through the `__torajs_anyv_await` hook (heap Promise cell
-        // unwraps per its repr stamp, everything else identity).
-        if matches!(ctx.operand_ty(&op), Type::Any) {
-            return Some(lower_any_await(ctx, op, obj));
-        }
-        // an object awaits as `any` (its checker type): it settles
-        // through PromiseResolve, which runs a `then` it carries
-        if matches!(ctx.expr_types.get(&eid), Some(check_mod::Type::Any)) {
-            let borrowed = !ctx.expr_transfers_ownership(obj);
-            let boxed = ctx.box_owned_from_expr(obj, op, borrowed);
-            ctx.owned_member_reads.insert(eid);
-            return Some(lower_object_await(ctx, boxed));
-        }
-        return Some(lower_typed_await(ctx, eid, obj, op));
-    }
     try_p10_4_primitive_identity(ctx, obj)
-}
-
-/// `pub(crate)`: also the for-await element unwrap —
-/// `ssa_lower_stmt_for_of` calls this with the elem `Expr::Index`
-/// when the checker typed the element `Promise(_)` (hole Z removed
-/// the `.value` Member wrap that used to route it here).
-pub(crate) fn lower_promise_get_value(ctx: &mut LowerCtx<'_>, obj: ExprId) -> Operand {
-    lower_promise_value_read(ctx, obj, false)
-}
-
-fn lower_promise_value_read(ctx: &mut LowerCtx<'_>, obj: ExprId, any_lane: bool) -> Operand {
-    let obj_op = ctx.lower_expr(obj);
-    // an element of an array the `any` side reached, whatever it holds
-    if matches!(ctx.operand_ty(&obj_op), Type::Any) {
-        return lower_any_await(ctx, obj_op, obj);
-    }
-    // the drain below runs jobs that may rebind the binding a borrowed
-    // operand was read from and release the cell: the await takes its
-    // own stake on a borrowed cell, so every path below owns one
-    if matches!(
-        ctx.ast.get_expr(obj),
-        Expr::Ident(_) | Expr::Member { .. } | Expr::Index { .. }
-    ) {
-        ctx.emit_owned_result_inc(obj_op, Type::Promise);
-    }
-    let cur_block = ctx.cur_block;
-    ctx.f.append_void(
-        cur_block,
-        InstKind::Call(ctx.intrinsics.microtask_drain, vec![]),
-    );
-    let inner_ssa_ty = if any_lane {
-        Some(Type::Any)
-    } else {
-        let inner = recover_inner_ssa_ty(ctx, obj);
-        ctx.widen_promise_inner_ty(inner, obj)
-    };
-    let cur_block = ctx.cur_block;
-    // RFC 20260727 blade 3 — tell the read which lane it is feeding.
-    // `cast_promise_value` below casts by the STATIC inner type; when
-    // the cell was settled from an `any` its slot holds a NaN-box
-    // pointer, and that cast reinterprets it (NaN for a number, a wild
-    // deref for a string). The stamp on the cell is the only runtime
-    // record of the real form, so the read consults it.
-    let want_repr = awaited_lane_repr(inner_ssa_ty.as_ref());
-    // a still-pending cell raises here rather than answering 0 into
-    // the slot (null for a heap lane, `0` / `false` for a Copy lane)
-    let raw_v = ctx.f.append_inst(
-        cur_block,
-        InstKind::Call(
-            ctx.intrinsics.promise_get_value_as,
-            vec![obj_op, Operand::ConstI64(want_repr)],
-        ),
-        Type::I64,
-        None,
-    );
-    // A rejected cell leaves through the throw path, which never
-    // reaches the drop below, so the stake goes with it there.
-    ctx.emit_throw_check_owned(None, obj_op, Type::Promise);
-    let raw_v = match undef_cell_slot(ctx, obj, inner_ssa_ty.as_ref()) {
-        Some(slot) => keep_undefined(ctx, obj_op, raw_v, slot),
-        None => raw_v,
-    };
-    let v = cast_promise_value(ctx, raw_v, inner_ssa_ty);
-    ctx.emit_drop_value(obj_op, Type::Promise);
-    Operand::Value(v)
 }
 
 /// The repr code `__torajs_promise_get_value_as` should convert into,

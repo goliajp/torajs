@@ -113,23 +113,11 @@ pub(crate) fn lower(
     ctx.f.set_term(ctx.cur_block, Terminator::Br(header));
 
     ctx.cur_block = header;
-    let live = if is_await && ctx.suspend_body {
-        // a body that suspends awaits each step
+    let live = if is_await {
+        // a `for await` is in a body that suspends, which awaits each step
         crate::ssa_lower_fn::suspend::any_await_step(ctx, src_op, idx_slot, iter_slot, out_slot)
     } else {
-        // `for await` in a body that does not suspend drains the
-        // microtasks before each step
-        // so the kernel's settle taps see settled cells, then drives
-        // the await entry of the same cascade
-        let step_fid = if is_await {
-            ctx.f.append_void(
-                ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.microtask_drain, vec![]),
-            );
-            ctx.intrinsics.any_iter_next_await
-        } else {
-            ctx.intrinsics.any_iter_next
-        };
+        let step_fid = ctx.intrinsics.any_iter_next;
         let args = vec![
             src_op,
             Operand::Value(idx_slot),
@@ -182,7 +170,7 @@ pub(crate) fn lower(
         body,
         crate::ssa_lower_for_of_written::LoopVarInit::Owned,
     );
-    let teardown = if is_await && ctx.suspend_body {
+    let teardown = if is_await {
         crate::ssa_lower_for_of_teardown::ForOfTeardown::AnyAsync {
             src: src_op,
             idx_slot,

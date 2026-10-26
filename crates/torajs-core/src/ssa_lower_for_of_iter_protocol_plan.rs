@@ -115,7 +115,6 @@ pub(crate) fn resolve_iter_plan(
     ctx: &mut LowerCtx,
     iter_sid: crate::ssa::StructId,
     src_class: &str,
-    is_await: bool,
 ) -> IterPlan {
     let Some(iter_cname) = iter_class_name(ctx, src_class) else {
         panic!(
@@ -136,16 +135,12 @@ pub(crate) fn resolve_iter_plan(
         .map(|sid| ctx.fn_sigs[sid.0 as usize].0.clone())
         .unwrap_or_default();
     let next_call_ty = ctx.f_ret_type_hint(next_fid);
-    // §27.6 — an async generator's steps answer Promises. Under
-    // `for await` that is expected and gets unwrapped per step;
-    // without it the loop is a plain for-of over an object with no
-    // `[Symbol.iterator]`, which is a TypeError in JS, so say which
-    // form was needed rather than reporting the Promise as a shape
-    // surprise.
-    let awaited = (is_await && next_call_ty == Type::Promise)
-        .then(|| crate::ssa_lower_for_of_iter_protocol_await::awaited_step_ty(ctx, &next_fn))
-        .flatten();
-    let step_ret_ty = awaited.unwrap_or(next_call_ty);
+    // §27.6 — an async generator's steps answer Promises. A plain
+    // for-of over one is a for-of over an object with no
+    // `[Symbol.iterator]`, which is a TypeError in JS, so say which form
+    // was needed rather than reporting the Promise as a shape surprise
+    // (`for await` steps such a source through the any lane).
+    let step_ret_ty = next_call_ty;
     let Type::Obj(step_sid) = step_ret_ty else {
         if next_call_ty == Type::Promise {
             panic!(

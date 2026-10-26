@@ -184,7 +184,7 @@ pub(crate) type CallRetargets = HashMap<ExprId, String>;
 /// args with ANY_UNDEF Any-box operands at the call site for fns whose
 /// trailing missing params are Type::Any. ssa_lower's Expr::Call arm
 /// reads this and emits the padding before invoking the callee.
-pub fn lower_with_arity(ast: &Ast, artifacts: &crate::check::CheckArtifacts) -> Module {
+pub fn lower_with_arity(_ast: &Ast, artifacts: &crate::check::CheckArtifacts) -> Module {
     let (
         _generic_call_sites,
         expr_types,
@@ -194,7 +194,7 @@ pub fn lower_with_arity(ast: &Ast, artifacts: &crate::check::CheckArtifacts) -> 
         mono,
         global_spellings,
     ) = artifacts;
-    let _ = ast;
+    crate::ssa_lower_fn::suspend::assert_every_await_suspends(mono);
     lower_inner(
         expr_types,
         arity_pad_count,

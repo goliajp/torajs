@@ -37,7 +37,7 @@
 //! report.
 
 use crate::ast::ExprId;
-use crate::ssa::{InstKind, Operand, SuspendKind, SuspendLane, Type, ValueId};
+use crate::ssa::{InstKind, Operand, SuspendKind, SuspendLane, Type};
 use crate::ssa_lower::LowerCtx;
 use crate::ssa_lower_member_promise_value as pv;
 
@@ -49,6 +49,7 @@ mod held;
 mod in_place;
 mod object;
 mod read;
+mod stray;
 mod sync_step;
 mod then_fused;
 
@@ -56,8 +57,8 @@ pub(crate) use any_step::{any_await_step, any_close, close_rejected_step};
 pub(crate) use cancel::CANCELLED_PROBE;
 pub(crate) use frame_step::declare as declare_frame_steps;
 use held::held;
-pub(crate) use object::{cell_of, is_object_cell};
 use read::read_settled;
+pub(crate) use stray::assert_every_await_suspends;
 pub(crate) use sync_step::{await_sync_step, close_sync_iter, sync_iter_exits};
 
 /// The suspension releases the cell it awaited, so an operand that does
@@ -111,17 +112,6 @@ pub(crate) fn lower_await(ctx: &mut LowerCtx<'_>, eid: ExprId, obj: ExprId) -> O
             await_any(ctx, boxed)
         }
     }
-}
-
-/// The await of the step promise a typed async iterator's `next()`
-/// answered (owned): the settled cell, owned, and its value word, the
-/// IteratorResult pointer it settled to (borrowed from the cell).
-pub(crate) fn await_step(ctx: &mut LowerCtx<'_>, src: Operand) -> (Operand, ValueId) {
-    if in_place::in_module_body(ctx) {
-        return (src, in_place::await_read(ctx, src, None, 0, false));
-    }
-    let settled = suspend_on(ctx, src, Type::Any);
-    (settled, read_settled(ctx, settled, 0))
 }
 
 /// The lanes no thenable comes in.

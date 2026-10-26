@@ -28,13 +28,12 @@
 //!    refcount belongs to source slot, per-iter drop skips to
 //!    avoid double-dec of array slot child rc).
 //!
-//! Hole Z — `for await (decl of iter)` no longer wraps elem_expr in
-//! a `.value` Member (that conflated the await unwrap with a real
-//! user member and killed Struct elements on member lookup). The
-//! stmt's `is_await` flag drives the await: a Promise-typed element
-//! (checker verdict in `expr_types`) loads through
-//! `promise_get_value`; every other element awaits to itself per
-//! §27.2, so the plain Index load stands.
+//! `for await (decl of iter)` keeps elem_expr a plain index read (a
+//! `.value` Member wrap conflated the await with a user member); the
+//! stmt's `is_await` flag drives the await, which only a body that
+//! suspends holds: an array's steps are its own
+//! (`ssa_lower_fn::suspend::sync_step`), every other source steps
+//! through the any lane.
 
 use crate::ast::{Expr, Stmt};
 use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Terminator, Type};
@@ -77,7 +76,6 @@ pub(crate) fn lower(
     crate::ssa_lower_nullable_guard::emit_slot_guard(ctx, src_ref_eid, &src_ptr_op);
     let is_arr = matches!(src_ty, Type::Arr(_));
     if is_await
-        && ctx.suspend_body
         && !matches!(src_ty, Type::Any)
         && !for_await_steps_array(is_arr, || ctx.scans.proto_shadow.shadows_iteration("Array"))
     {
@@ -143,8 +141,15 @@ pub(crate) fn lower(
     let step_blk = ctx.f.add_block();
     let after = ctx.f.add_block();
     ctx.f.set_term(ctx.cur_block, Terminator::Br(header));
-    // a body that suspends awaits each step
-    let steps_await = is_await && ctx.suspend_body;
+    // every `for await` is in a body that suspends, which awaits
+    // each step (`ast::desugar_async_ssa_gate` moves every function
+    // that has one)
+    assert!(
+        !is_await || ctx.suspend_body,
+        "internal error: a `for await` in `{}`, which does not suspend",
+        ctx.f.name
+    );
+    let steps_await = is_await;
     let (exhausted, brk) = if steps_await {
         crate::ssa_lower_fn::suspend::sync_iter_exits(ctx, after)
     } else {
@@ -176,7 +181,7 @@ pub(crate) fn lower(
     ctx.cur_block = body_blk;
     ctx.scope_stack.push(Vec::new());
     ctx.shadow_stack.push(Vec::new());
-    let v_val = element_value(ctx, elem_expr, is_await, steps_await);
+    let v_val = element_value(ctx, elem_expr, steps_await);
     let v_ty = ctx.operand_ty(&v_val);
     if let Some(obj_eid) = forin_obj {
         emit_forin_guard(ctx, obj_eid, &v_val, step_blk);

@@ -228,9 +228,9 @@ pub(super) fn prepare(ast: &mut Ast) -> bool {
         for s in &mut marked {
             await_returns(ast, s);
         }
-        // An await the lift does not take leaves the body as it was —
-        // its awaits stay settled-slot reads, the yields still ride the
-        // driver.
+        // An await the rewrite does not take stays an await read, which
+        // the lowering refuses by the function's name before it lowers
+        // anything (`ssa_lower_fn::suspend::stray`).
         let ok = super::desugar_async_sm_rewrite::rewrite_body_marked(ast, &mut marked);
         let Stmt::FnDecl { body, .. } = &mut ast.stmts[idx] else {
             unreachable!()
