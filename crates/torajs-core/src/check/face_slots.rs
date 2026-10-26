@@ -206,7 +206,10 @@ pub(crate) fn record_field_store(
 }
 
 /// The fields of the object literal `value` admitted into a slot typed
-/// `slot_ty`.
+/// `slot_ty`. The literal joins the census's literals only once every
+/// member of the slot it holds is recorded: one whose value the checker
+/// has not typed yet is not, and a reader of the census
+/// (`hidden_any::method_lits::opaque`) takes the literal as seen.
 pub(crate) fn record_objlit_stores(
     checker: &mut Checker,
     ast: &Ast,
@@ -219,18 +222,20 @@ pub(crate) fn record_objlit_stores(
     let Type::Struct(slot_fields) = slot_ty else {
         return;
     };
-    let seen = checker.face_slots.objlits.entry(value).or_default();
-    if !seen.contains(slot_ty) {
-        seen.push(slot_ty.clone());
-    }
+    let mut whole = true;
     for (key, v) in fields {
         let Some((_, field_ty)) = slot_fields.iter().find(|(n, _)| n == key) else {
             continue;
         };
         let Some(value_ty) = checker.expr_types.get(v).cloned() else {
+            whole = false;
             continue;
         };
         record_field_store(checker, ast, slot_ty, &key.lossy(), field_ty, &value_ty);
+    }
+    let seen = checker.face_slots.objlits.entry(value).or_default();
+    if whole && !seen.contains(slot_ty) {
+        seen.push(slot_ty.clone());
     }
 }
 

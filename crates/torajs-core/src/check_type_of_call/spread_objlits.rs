@@ -14,12 +14,18 @@ use crate::ast::{Ast, Expr, ExprId};
 use crate::check::{Checker, Type};
 
 /// Record the member stores of the object literals among `args` into
-/// the parameters of `callee` they may land on.
+/// the parameters of `callee` they may land on. The callee's type is
+/// that of the binding the name resolves to in scope, a global's only
+/// when no local of that name shadows it.
 pub(super) fn record(checker: &mut Checker, ast: &Ast, callee: ExprId, args: &[ExprId]) {
     let Expr::Ident(name) = ast.get_expr(callee) else {
         return;
     };
-    let Some(Type::Function(params, _)) = checker.globals.get(name).cloned() else {
+    let ty = match checker.lookup(name) {
+        Some(local) => Some(local.ty),
+        None => checker.globals.get(name).cloned(),
+    };
+    let Some(Type::Function(params, _)) = ty else {
         return;
     };
     let (mut at, mut spread) = (0usize, false);
