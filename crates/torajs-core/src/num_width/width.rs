@@ -79,8 +79,15 @@ impl<'a> Analysis<'a> {
         // A value the checker types `any` reaches a number slot only
         // through ToNumber (§7.1.4), whose result is any Number: no
         // integer face holds it, whatever the value was built from. A
-        // body no call enters writes nothing (`idle_bodies`).
-        if self.expr_types.get(&eid) == Some(&crate::check::Type::Any) && !self.is_idle(eid) {
+        // body no call enters writes nothing (`idle_bodies`). The
+        // bitwise operators are the exception: the checker types them
+        // `any` over an `any` operand, yet §13.5.6 / §13.9 / §13.12
+        // give them only an int32 / uint32 result (or a BigInt, which a
+        // number slot's ToNumber rejects), so `raw.x | 0` stays integer.
+        if self.expr_types.get(&eid) == Some(&crate::check::Type::Any)
+            && !self.is_idle(eid)
+            && !self.is_bitwise(eid)
+        {
             return W::F64;
         }
         match self.ast.get_expr(eid) {
@@ -209,6 +216,25 @@ impl<'a> Analysis<'a> {
             // Everything else is not a tracked number source.
             _ => W::NotNum,
         }
+    }
+
+    /// An operator whose Number result is always an int32 / uint32.
+    fn is_bitwise(&self, eid: ExprId) -> bool {
+        matches!(
+            self.ast.get_expr(eid),
+            Expr::BinOp {
+                op: BinOp::BitAnd
+                    | BinOp::BitOr
+                    | BinOp::BitXor
+                    | BinOp::Shl
+                    | BinOp::Shr
+                    | BinOp::UShr,
+                ..
+            } | Expr::Unary {
+                op: UnaryOp::BitNot,
+                ..
+            }
+        )
     }
 
     /// [`Self::width_of`]'s BinOp arm — per-operator width facing.
