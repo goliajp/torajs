@@ -55,6 +55,11 @@ pub struct SelectFormStats {
     pub diamonds_converted: u32,
     /// triangles converted: one arm the join, the other setting cells.
     pub triangles_converted: u32,
+    /// triangles left a branch for a cell carried across iterations
+    /// (counted in every round that asks).
+    pub triangles_carried: u32,
+    /// triangles left a branch for a side marked cold (likewise).
+    pub triangles_cold: u32,
     /// Select instructions formed (one per φ-merged join value; the
     /// guard-reduction Selects are plumbing and not counted here).
     pub selects_formed: u32,

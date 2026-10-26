@@ -16,9 +16,10 @@
 //! somewhere before the header (the two arms of an earlier branch
 //! each setting it count, as a φ's inputs would).
 
+use torajs_core::ssa::branch_prob::cold_arms;
 use torajs_core::ssa::{BlockId, Function, Inst, InstKind, Operand, Terminator, ValueId};
 
-use super::arm::{arm_chain, plan_arm};
+use super::arm::{ArmPlan, arm_chain, plan_arm};
 use super::{SelectFormStats, Touched, plan_cells};
 use crate::float_demote::push_value;
 
@@ -64,30 +65,43 @@ impl Preds {
         &self.list[self.start[b] as usize..self.start[b + 1] as usize]
     }
 
-    /// Every path from the entry to block `h` sets `v` before `h`: no
-    /// walk back from `h` over predecessors reaches the entry without
-    /// passing a block that sets it. A block nothing reaches ends its
-    /// walk, as a path that never runs sets everything.
-    pub(super) fn set_on_every_path(&self, func: &Function, v: ValueId, h: usize) -> bool {
+    /// Whether every path from the entry to block `h` sets `v` before
+    /// `h` (no walk back from `h` over predecessors reaches the entry
+    /// without passing a block that sets it; a block nothing reaches
+    /// ends its walk, as a path that never runs sets everything), and
+    /// if so whether a walk back from `h` comes round to `h` itself:
+    /// some cycle through `h` sets `v` nowhere else, so the value `h`
+    /// reads can be the one `h` itself chose an iteration before.
+    pub(super) fn reaching_set(&self, func: &Function, v: ValueId, h: usize) -> Option<Carried> {
         if self.of(h).is_empty() {
-            return false;
+            return None;
         }
         let sets = |b: usize| func.blocks[b].insts.iter().any(|i| i.result == Some(v));
         let mut seen = vec![false; func.blocks.len()];
         let mut work: Vec<u32> = self.of(h).to_vec();
+        let mut carried = false;
         while let Some(b) = work.pop() {
             let b = b as usize;
             if std::mem::replace(&mut seen[b], true) || sets(b) {
                 continue;
             }
+            if b == h {
+                carried = true;
+                continue;
+            }
             if b == 0 {
-                return false;
+                return None;
             }
             work.extend_from_slice(self.of(b));
         }
-        true
+        Some(Carried(carried))
     }
 }
+
+/// Whether a cell's value at a header can come from the header's own
+/// choice in an earlier iteration ([`Preds::reaching_set`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct Carried(pub(super) bool);
 
 /// Where the plain branches from `first` lead: the first block with
 /// other predecessors, as `arm_chain` would end, without collecting
@@ -150,26 +164,8 @@ pub(super) fn try_form(
     if touched.any(&blocks, plan_cells(&plan)) {
         return false;
     }
-    // every copy sets a cell the header already holds a value of; a
-    // cell the header itself sets first counts
-    let sets_in_h = |v: ValueId| func.blocks[h].insts.iter().any(|i| i.result == Some(v));
-    if plan.copies.iter().any(|(v, _, _)| def_count(*v) < 2) {
-        return false;
-    }
-    let preds = preds.get_or_insert_with(|| Preds::compute(func));
-    if plan
-        .copies
-        .iter()
-        .any(|(v, _, _)| !sets_in_h(*v) && !preds.set_on_every_path(func, *v, h))
-    {
-        return false;
-    }
-    // a copy reading another of the arm's cells would need the arm's
-    // sequencing, which the selects do not keep
-    let self_ref = plan.copies.iter().any(
-        |(_, _, src)| matches!(src, Operand::Value(x) if plan.copies.iter().any(|(v, _, _)| v == x)),
-    );
-    if self_ref {
+    let arm = if arm_is_then { t_id } else { e_id };
+    if !cells_take_selects(func, h, &plan, (arm, join), def_count, preds, stats) {
         return false;
     }
     // each cell loses its def in the arm and gains one in the header,
@@ -202,6 +198,64 @@ pub(super) fn try_form(
         func.blocks[b].insts.clear();
     }
     stats.triangles_converted += 1;
+    true
+}
+
+/// Whether the cells `plan` sets in the arm `arm` may take selects at
+/// header `h`, the arm leading to `join`: each holds a value there and
+/// none comes round from an earlier iteration, none reads another, and
+/// neither side is marked cold. The stats count the last two refusals.
+fn cells_take_selects(
+    func: &Function,
+    h: usize,
+    plan: &ArmPlan,
+    (arm, join): (BlockId, BlockId),
+    def_count: &impl Fn(ValueId) -> u32,
+    preds: &mut Option<Preds>,
+    stats: &mut SelectFormStats,
+) -> bool {
+    // every copy sets a cell the header already holds a value of; a
+    // cell the header itself sets first counts
+    let sets_in_h = |v: ValueId| func.blocks[h].insts.iter().any(|i| i.result == Some(v));
+    if plan.copies.iter().any(|(v, _, _)| def_count(*v) < 2) {
+        return false;
+    }
+    let preds = preds.get_or_insert_with(|| Preds::compute(func));
+    let mut carried = false;
+    for (v, _, _) in &plan.copies {
+        if sets_in_h(*v) {
+            continue;
+        }
+        match preds.reaching_set(func, *v, h) {
+            None => return false,
+            Some(Carried(c)) => carried |= c,
+        }
+    }
+    // a cell carried from one iteration into the next would put the
+    // csel on the loop's own dependence chain, the latency that made
+    // the retired guarded-arm conversion a loss (module doc)
+    if carried {
+        stats.triangles_carried += 1;
+        return false;
+    }
+    // a copy reading another of the arm's cells would need the arm's
+    // sequencing, which the selects do not keep
+    let self_ref = plan.copies.iter().any(
+        |(_, _, src)| matches!(src, Operand::Value(x) if plan.copies.iter().any(|(v, _, _)| v == x)),
+    );
+    if self_ref {
+        return false;
+    }
+    // a side the lowerer's guards mark rare is a branch the predictor
+    // already gets right: the conversion would only add the csel
+    let hid = func.blocks[h].id;
+    if cold_arms(func)
+        .iter()
+        .any(|&(from, to, _)| from == hid && (to == arm || to == join))
+    {
+        stats.triangles_cold += 1;
+        return false;
+    }
     true
 }
 
@@ -261,9 +315,13 @@ mod tests {
         }
     }
 
-    fn holds(sets: [bool; 5], h: usize) -> bool {
+    fn reach(sets: [bool; 5], h: usize) -> Option<Carried> {
         let f = func(sets);
-        Preds::compute(&f).set_on_every_path(&f, ValueId(1), h)
+        Preds::compute(&f).reaching_set(&f, ValueId(1), h)
+    }
+
+    fn holds(sets: [bool; 5], h: usize) -> bool {
+        reach(sets, h).is_some()
     }
 
     #[test]
@@ -287,5 +345,23 @@ mod tests {
     fn a_set_on_the_back_edge_alone_does_not() {
         assert!(!holds([false, false, false, true, false], 3));
         assert!(holds([false, false, false, true, false], 4));
+    }
+
+    /// b3 branches back to itself: what b1 and b2 set reaches b3 on
+    /// the first entry, and b3's own value on every later one.
+    #[test]
+    fn a_header_on_a_cycle_that_sets_nothing_carries_it() {
+        assert_eq!(
+            reach([false, true, true, false, false], 3),
+            Some(Carried(true))
+        );
+        assert_eq!(
+            reach([false, true, true, false, false], 4),
+            Some(Carried(false))
+        );
+        assert_eq!(
+            reach([false, false, false, true, false], 4),
+            Some(Carried(false))
+        );
     }
 }
