@@ -12,7 +12,8 @@ store reassign ok
 1
 index arrow ok
 store index true
-store field true
+stored
+store field ok
 6
 field bound ok
 stored

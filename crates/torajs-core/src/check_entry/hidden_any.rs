@@ -15,7 +15,7 @@ use std::collections::{HashMap, HashSet};
 
 use super::{Round, check_round};
 use crate::ast::named_prop_census::shadow_names::ShadowedNames;
-use crate::ast::{Ast, Expr, ExprId, Stmt};
+use crate::ast::{Ast, Expr, ExprId, PropKey, Stmt};
 use crate::check::Type;
 use fn_slots::{Guarded, boxed};
 use retypable::{retypable_returns, roots};
@@ -64,7 +64,7 @@ fn settle_with(
     let mut rets: HashSet<String> = HashSet::new();
     let mut fields: HashSet<ExprId> = HashSet::new();
     let mut promise_rets: HashSet<String> = HashSet::new();
-    let mut obj_fields: HashSet<obj_fields::Field> = HashSet::new();
+    let mut obj_fields: HashSet<PropKey> = HashSet::new();
     let mut executors: HashSet<ExprId> = HashSet::new();
     let mut retypable = None;
     let mut retyped: Option<Ast> = None;
@@ -108,10 +108,7 @@ fn settle_with(
 }
 
 /// Add `found` to `asked`; true when one was new.
-fn extend_fields(
-    asked: &mut HashSet<obj_fields::Field>,
-    found: HashSet<obj_fields::Field>,
-) -> bool {
+fn extend_fields(asked: &mut HashSet<PropKey>, found: HashSet<PropKey>) -> bool {
     let before = asked.len();
     asked.extend(found);
     asked.len() > before
@@ -253,6 +250,7 @@ fn retype_returns_any(stmts: &mut [Stmt], fns: &HashSet<String>) {
 
 mod executor_any;
 mod fn_slots;
+mod inlobj_fields;
 mod obj_fields;
 mod obj_rets;
 mod promise_rets;
