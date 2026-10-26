@@ -37,6 +37,12 @@ fn gate_is(key: &str, suffix: &str, want: &str) -> bool {
     })
 }
 
+/// `TORAJS_<key>_OFF=1` is set: for a step another pass runs inside
+/// itself rather than as a module pass of its own.
+pub(crate) fn gate_off(key: &str) -> bool {
+    gate_is(key, "_OFF", "1")
+}
+
 /// Run one module pass behind the pair of environment gates every
 /// pass in the pipeline carries: `TORAJS_<KEY>_OFF=1` skips it
 /// (bisect gate) and `TORAJS_<KEY>_STATS=1` dumps its counters as

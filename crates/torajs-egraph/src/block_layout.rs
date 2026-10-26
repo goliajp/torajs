@@ -21,16 +21,13 @@
 //! unit inside its parent's partition. Block ids are renumbered to
 //! keep the `BlockId.0 == position` invariant.
 //!
-//! `TORAJS_BLOCK_LAYOUT_OFF=1` skips (bisect gate),
-//! `TORAJS_BLOCK_LAYOUT_STATS=1` dumps counters.
+//! `TORAJS_BLOCK_LAYOUT_OFF=1` skips (bisect gate), `TORAJS_BLOCK_LAYOUT_STATS=1` dumps counters.
 
 use crate::block_chain::{BlockSet, ChainFacts, ColdEdges, DomView};
 use crate::tail_dup::Copied;
-
-use torajs_core::ssa::{Block, BlockId, Function, Module, Terminator};
-
 use torajs_core::ssa::dominator::DominatorTree;
 use torajs_core::ssa::loop_analysis::LoopAnalysis;
+use torajs_core::ssa::{Block, BlockId, Function, Module, Terminator};
 
 mod forwarders;
 use forwarders::{fold_bare_branches, thread_empty_forwarders};
@@ -49,11 +46,13 @@ pub struct BlockLayoutStats {
     pub loops_chained: u32,
     /// Blocks copied into the extra arms of small joins (`tail_dup`).
     pub blocks_duplicated: u32,
+    pub consts: crate::iconst_hoist::IconstHoistStats, // loop constants hoisted (`iconst_hoist`)
 }
 
 /// Restore loop-body contiguity in every function body.
 pub fn layout_module(module: &mut Module) -> BlockLayoutStats {
     let mut stats = BlockLayoutStats::default();
+    let hoist = !crate::pass_gates::gate_off("BINOP_CONST_HOIST");
     for func in module.funcs.iter_mut() {
         if func.is_declaration() {
             continue;
@@ -72,6 +71,7 @@ pub fn layout_module(module: &mut Module) -> BlockLayoutStats {
         stats.blocks_pruned += fold_bare_branches(func);
         let dom = DominatorTree::compute(func);
         let la = LoopAnalysis::compute(func, &dom);
+        crate::iconst_hoist::hoist_in_layout(hoist, func, &dom, &la, &mut stats.consts);
         // before the chain, which then lays each copy after its arm
         let copied = crate::tail_dup::duplicate_small_joins(func, &dom, &la);
         stats.blocks_duplicated += copied.blocks();
