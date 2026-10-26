@@ -134,20 +134,31 @@ fn low_walk_stmts(
                             .any(|t| matches!(t, Stmt::FnDecl { .. }) && stmt_writes(ast, t, q))
                 }
             };
-            found.decls.push(Decl {
-                name: name.clone(),
-                init: *init,
-                candidate: alias::is_candidate(ast, names, name, type_ann.as_deref(), *init),
-                written: window(&Query {
-                    x: name,
-                    aliases: None,
-                    nest: None,
-                }),
-                poisoned: window(&Query {
+            let candidate = alias::is_candidate(ast, names, name, type_ann.as_deref(), *init);
+            let written = window(&Query {
+                x: name,
+                aliases: None,
+                nest: None,
+            });
+            // The alias-aware walk is asked only when its answer can
+            // matter, which leaves every verdict as it was. Without a
+            // nest, the alias tests only ever veto a write, so this
+            // walk answers true only where the one above did; and a
+            // non-candidate poisons its class whatever it answers
+            // (`alias::settle`).
+            let poisoned = candidate
+                && written
+                && window(&Query {
                     x: name,
                     aliases: Some(names),
                     nest: None,
-                }),
+                });
+            found.decls.push(Decl {
+                name: name.clone(),
+                init: *init,
+                candidate,
+                written,
+                poisoned,
             });
             // a container's element class is ruled on over the
             // container's window, and every occurrence of the
