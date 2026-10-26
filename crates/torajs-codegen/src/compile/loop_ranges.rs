@@ -44,39 +44,40 @@ fn loop_ranges(
     block_byte_starts: &HashMap<u32, u32>,
     end: u32,
 ) -> Vec<(u32, u32)> {
-    // a loop needs a branch to a block emitted at or before its own:
-    // most functions have none, and are answered before anything is
-    // allocated
-    let start = |b: BlockId| block_byte_starts.get(&b.0).copied();
-    let backward = func.blocks.iter().any(|block| {
-        start(block.id).is_some_and(|from| {
-            (targets(&block.term).into_iter().flatten())
-                .any(|t| start(t).is_some_and(|to| to <= from))
-        })
-    });
-    if !backward {
+    // this runs on every function of every build, and most have no
+    // loop: a cycle needs a branch to a block at or before its own in
+    // the emitted order, which is the block order, read off the ids
+    // alone when they are the positions (they are, for almost every
+    // function); a cold block at the end branching back to a join
+    // passes this and is turned away by the walk, before any byte
+    // offset is looked up
+    let pos = Positions::of(func);
+    if !pos.any_backward(func) {
         return Vec::new();
     }
-    let mut starts: Vec<u32> = block_byte_starts.values().copied().collect();
-    starts.sort_unstable();
-    starts.dedup();
-    // the end of the block starting at `from`: the first start past
-    // it, or the function's end
-    let block_end = |from: u32| {
-        let i = starts.partition_point(|&s| s <= from);
-        starts.get(i).copied().unwrap_or(end)
+    let edges = back_edges(func, &pos);
+    if edges.is_empty() {
+        return Vec::new();
+    }
+    let start = |b: BlockId| block_byte_starts.get(&b.0).copied();
+    // the end of the block at position `p`: the start of the next
+    // block the emitter laid down, or the function's end
+    let block_end = |p: usize| {
+        (func.blocks[p + 1..].iter())
+            .find_map(|b| start(b.id))
+            .unwrap_or(end)
     };
     // shortest first, as (length, start) pairs, a total order a plain
     // tuple sort keeps; two edges from one block close one range
-    let mut by_len: Vec<(u32, u32)> = back_edges(func)
+    let mut by_len: Vec<(u32, u32)> = edges
         .into_iter()
         .filter_map(|(from, to)| {
-            let (from, to) = (start(from)?, start(to)?);
+            let (from_at, to) = (start(from)?, start(to)?);
             // block layout lays a loop out from its header and never
             // rotates it (egraph `block_layout`), so a back edge's
             // target is emitted first; one that is not names no
             // contiguous range
-            (to <= from).then(|| (block_end(from) - to, to))
+            (to <= from_at).then(|| (block_end(pos.of_block(from)) - to, to))
         })
         .collect();
     by_len.sort_unstable();
@@ -84,56 +85,101 @@ fn loop_ranges(
     by_len.into_iter().map(|(len, lo)| (lo, lo + len)).collect()
 }
 
+/// Where each block sits in `blocks`, by id: no table when every
+/// block's id is its position.
+enum Positions {
+    Dense,
+    Table(Vec<u32>),
+}
+
+impl Positions {
+    fn of(func: &Function) -> Positions {
+        let dense = (func.blocks.iter().enumerate()).all(|(i, b)| b.id.0 as usize == i);
+        if dense {
+            return Positions::Dense;
+        }
+        let span = (func.blocks.iter())
+            .map(|b| b.id.0 as usize + 1)
+            .max()
+            .unwrap_or(0);
+        let mut table = vec![u32::MAX; span];
+        for (i, block) in func.blocks.iter().enumerate() {
+            table[block.id.0 as usize] = i as u32;
+        }
+        Positions::Table(table)
+    }
+
+    /// The position of block `b`; None for an id no block has.
+    fn get(&self, b: BlockId) -> Option<usize> {
+        match self {
+            Positions::Dense => Some(b.0 as usize),
+            Positions::Table(t) => (t.get(b.0 as usize).copied())
+                .filter(|&p| p != u32::MAX)
+                .map(|p| p as usize),
+        }
+    }
+
+    fn of_block(&self, b: BlockId) -> usize {
+        self.get(b).expect("a block of the function")
+    }
+
+    /// Whether any block branches to one at or before its own position.
+    fn any_backward(&self, func: &Function) -> bool {
+        let back = |i: usize, t: BlockId| self.get(t).is_some_and(|p| p <= i);
+        (func.blocks.iter().enumerate()).any(|(i, block)| match &block.term {
+            Terminator::Br(t) => back(i, *t),
+            Terminator::CondBr {
+                then_blk, else_blk, ..
+            } => back(i, *then_blk) || back(i, *else_blk),
+            Terminator::Ret(_) | Terminator::Unreachable => false,
+        })
+    }
+}
+
+/// A block the walk has left.
+const FINISHED: u32 = u32::MAX;
+
 /// The branches `(from, to)` of `func` to a block still on the
 /// depth-first walk from the entry, each closing a cycle, in the order
 /// the walk meets them; a block branching twice to one such block
 /// gives the edge twice.
-fn back_edges(func: &Function) -> Vec<(BlockId, BlockId)> {
-    let span = func
-        .blocks
-        .iter()
-        .map(|b| b.id.0 as usize + 1)
-        .max()
-        .unwrap_or(0);
-    let mut succ: Vec<[Option<BlockId>; 2]> = vec![[None, None]; span];
-    for block in &func.blocks {
-        succ[block.id.0 as usize] = targets(&block.term);
-    }
+fn back_edges(func: &Function, pos: &Positions) -> Vec<(BlockId, BlockId)> {
     let mut edges = Vec::new();
-    // 0 unvisited, 1 on the walk, 2 finished
-    let mut state = vec![0u8; span];
-    let entry = func.blocks[0].id;
-    let mut walk: Vec<(BlockId, usize)> = vec![(entry, 0)];
-    state[entry.0 as usize] = 1;
-    while let Some((b, next)) = walk.last_mut() {
-        let b = *b;
-        let Some(t) = succ[b.0 as usize].get(*next).copied() else {
-            state[b.0 as usize] = 2;
-            walk.pop();
-            continue;
-        };
-        *next += 1;
-        let Some(t) = t else { continue };
-        match state.get(t.0 as usize) {
-            Some(0) => {
-                state[t.0 as usize] = 1;
-                walk.push((t, 0));
+    // one allocation: per position, 0 unvisited, 1 + the branches
+    // taken while on the walk, FINISHED; then the walk, which never
+    // grows past the blocks
+    let n = func.blocks.len();
+    let mut mem = vec![0u32; 2 * n];
+    let (state, walk) = mem.split_at_mut(n);
+    let mut depth = 1;
+    walk[0] = 0;
+    state[0] = 1;
+    while depth > 0 {
+        let p = walk[depth - 1] as usize;
+        let t = match (&func.blocks[p].term, state[p]) {
+            (Terminator::Br(t), 1) => *t,
+            (Terminator::CondBr { then_blk, .. }, 1) => *then_blk,
+            (Terminator::CondBr { else_blk, .. }, 2) => *else_blk,
+            _ => {
+                state[p] = FINISHED;
+                depth -= 1;
+                continue;
             }
-            Some(1) => edges.push((b, t)),
-            _ => {}
+        };
+        state[p] += 1;
+        // a target no block has is not walked
+        let Some(tp) = pos.get(t) else { continue };
+        match state[tp] {
+            0 => {
+                state[tp] = 1;
+                walk[depth] = tp as u32;
+                depth += 1;
+            }
+            FINISHED => {}
+            _ => edges.push((func.blocks[p].id, t)),
         }
     }
     edges
-}
-
-fn targets(term: &Terminator) -> [Option<BlockId>; 2] {
-    match term {
-        Terminator::Br(t) => [Some(*t), None],
-        Terminator::CondBr {
-            then_blk, else_blk, ..
-        } => [Some(*then_blk), Some(*else_blk)],
-        Terminator::Ret(_) | Terminator::Unreachable => [None, None],
-    }
 }
 
 #[cfg(test)]
@@ -177,7 +223,9 @@ mod tests {
     }
 
     fn edges(f: &Function) -> Vec<(u32, u32)> {
-        back_edges(f).into_iter().map(|(a, b)| (a.0, b.0)).collect()
+        (back_edges(f, &Positions::of(f)).into_iter())
+            .map(|(a, b)| (a.0, b.0))
+            .collect()
     }
 
     /// b0 → b1 (outer header) → b2 (inner header) → b3 → b2 | b4 →
