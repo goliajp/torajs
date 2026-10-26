@@ -5,18 +5,19 @@
 //! this gate refuses keeps the generator-driven state machine
 //! (`desugar_async_sm`) or the synchronous lowering behind it.
 //!
-//! A body that never awaits (its own awaits; a nested async value is
-//! a function of its own and is judged by itself) runs to its end
-//! inside the call: it moves too, with no frame, its return settling
-//! the result in place (`ssa_lower_fn::async_setup::sync_body`).
+//! A body that never awaits (its own awaits and `for await` loops; a
+//! nested async value is a function of its own and is judged by itself)
+//! runs to its end inside the call: it moves too, with no frame, its
+//! return settling the result in place
+//! (`ssa_lower_fn::async_setup::sync_body`).
 //!
 //! A function moves when all of these hold:
 //!
-//! - no await sits inside a `class` body, and the function has no
-//!   `for await` (its steps await without spelling one; they still
-//!   drain the queue in place). An await inside a `try` (any of its
-//!   blocks, `await using` included, which `desugar_using` turned into
-//!   one) or a `for…of` moves: the slots their exit protocols keep
+//! - no await sits inside a `class` body. An await inside a `try` (any
+//!   of its blocks, `await using` included, which `desugar_using`
+//!   turned into one) or a `for…of` moves, and so does a `for await`,
+//!   whose steps and close suspend the frame (`ssa_lower_fn::suspend::
+//!   sync_step` / `any_frame`): the slots their exit protocols keep
 //!   (the pending return, the throw a `finally` set aside, the
 //!   iterator) are stack slots the frame carries across, and a frame
 //!   dropped while it waits there unwinds past the handlers
@@ -30,8 +31,8 @@
 //!   no async generator and not generic (a specialized copy of a
 //!   generic body is minted later under another name).
 //!
-//! The module body moves by the same rules, except that a `for await`
-//! in it moves too: it awaits in place
+//! The module body moves by the same rules; its awaits, `for await`
+//! steps included, run the jobs ahead of them in place
 //! (`ssa_lower_fn::suspend::in_place`), with no frame to resume.
 //!
 //! Declarations and class methods are marked by name (a method by its
@@ -59,10 +60,14 @@ pub struct AsyncSsa {
     /// place, behind a `main` that calls it and drains the queue
     /// (§16.2.1.5.3 Evaluate of a module with top-level await).
     pub main: bool,
+    /// A function that moved has a `for await`: its any-lane steps call
+    /// the runtime's frame entries (`ssa_lower_fn::suspend::frame_step`).
+    pub frame_for_await: bool,
 }
 
 pub fn mark_async_ssa_fns(ast: &mut Ast) {
     let mut names: Vec<String> = Vec::new();
+    let mut for_await = false;
     for s in &ast.stmts {
         match s {
             Stmt::FnDecl {
@@ -77,6 +82,7 @@ pub fn mark_async_ssa_fns(ast: &mut Ast) {
                 && !ast.async_generator_fns.contains(name)
                 && moves(ast, params, body) =>
             {
+                for_await |= body.iter().any(stmt_for_awaits);
                 names.push(name.clone())
             }
             Stmt::ClassDecl {
@@ -90,6 +96,7 @@ pub fn mark_async_ssa_fns(ast: &mut Ast) {
                     for m in list {
                         let mangled = format!("{prefix}{name}__{}", mangle_key(&m.name));
                         if ast.async_fns.contains(&mangled) && method_moves(ast, m) {
+                            for_await |= m.body.iter().any(stmt_for_awaits);
                             names.push(mangled);
                         }
                     }
@@ -105,9 +112,11 @@ pub fn mark_async_ssa_fns(ast: &mut Ast) {
         if let Expr::ArrowFn { params, body, .. } = ast.get_expr(eid)
             && moves(ast, params, body)
         {
+            for_await |= body.iter().any(stmt_for_awaits);
             ast.async_ssa.value_exprs.insert(eid);
         }
     }
+    ast.async_ssa.frame_for_await = for_await;
     // the walks stop at declarations' bodies, so these are the
     // module's own awaits; a script's `await` is an identifier
     ast.async_ssa.main = !ast.sloppy_script_goal
@@ -115,7 +124,7 @@ pub fn mark_async_ssa_fns(ast: &mut Ast) {
             .stmts
             .iter()
             .any(|s| stmt_awaits(ast, s) || stmt_for_awaits(s))
-        && !ast.stmts.iter().any(|s| stmt_blocks(ast, s, Owner::Module));
+        && !ast.stmts.iter().any(|s| stmt_blocks(ast, s));
 }
 
 /// A method's receiver-polymorphic twin (`__cmany_` / `__smany_`) is
@@ -138,14 +147,14 @@ fn method_moves(ast: &Ast, m: &ClassMethod) -> bool {
 }
 
 fn moves(ast: &Ast, params: &[Param], body: &[Stmt]) -> bool {
-    !params.iter().any(|p| p.name.starts_with("__"))
-        && !body.iter().any(|s| stmt_blocks(ast, s, Owner::Function))
+    !params.iter().any(|p| p.name.starts_with("__")) && !body.iter().any(|s| stmt_blocks(ast, s))
 }
 
-/// The body holds one of the function's own awaits: without one it
-/// runs to its end inside the call and needs no frame.
+/// The body holds one of the function's own awaits, or a `for await`:
+/// without one it runs to its end inside the call and needs no frame.
 pub fn body_awaits(ast: &Ast, body: &[Stmt]) -> bool {
-    body.iter().any(|s| stmt_awaits(ast, s))
+    body.iter()
+        .any(|s| stmt_awaits(ast, s) || stmt_for_awaits(s))
 }
 
 /// The statement holds one of the function's own awaits.
@@ -165,30 +174,19 @@ fn expr_awaits(ast: &Ast, eid: ExprId) -> bool {
             .any(|c| expr_awaits(ast, c))
 }
 
-/// Whose body [`stmt_blocks`] judges.
-#[derive(Clone, Copy, PartialEq)]
-enum Owner {
-    Function,
-    Module,
-}
-
 /// The statement keeps the body off the SSA lowering: an await in a
-/// class body or a generator step, or in a function a `for await` (its
-/// steps await without spelling one, and only the state machine
-/// suspends them). The module body awaits those steps in place.
-fn stmt_blocks(ast: &Ast, s: &Stmt, owner: Owner) -> bool {
+/// class body or a generator step.
+fn stmt_blocks(ast: &Ast, s: &Stmt) -> bool {
     let protocol = matches!(
         s,
         Stmt::ClassDecl { .. } | Stmt::Yield(_) | Stmt::YieldInto { .. }
     );
-    if (protocol && stmt_awaits(ast, s))
-        || (owner == Owner::Function && matches!(s, Stmt::ForOf { is_await: true, .. }))
-    {
+    if protocol && stmt_awaits(ast, s) {
         return true;
     }
     walk::stmt_children_ref(s)
         .into_iter()
-        .any(|c| stmt_blocks(ast, c, owner))
+        .any(|c| stmt_blocks(ast, c))
 }
 
 /// The statement is a `for await`, whose steps await.

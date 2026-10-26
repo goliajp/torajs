@@ -41,8 +41,10 @@ use crate::ssa::{InstKind, Operand, SuspendKind, SuspendLane, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
 use crate::ssa_lower_member_promise_value as pv;
 
+mod any_frame;
 mod any_step;
 mod cancel;
+mod frame_step;
 mod held;
 mod in_place;
 mod object;
@@ -52,15 +54,11 @@ mod then_fused;
 
 pub(crate) use any_step::{any_await_step, any_close, close_rejected_step};
 pub(crate) use cancel::CANCELLED_PROBE;
+pub(crate) use frame_step::declare as declare_frame_steps;
 use held::held;
 pub(crate) use object::{cell_of, is_object_cell};
 use read::read_settled;
 pub(crate) use sync_step::{await_sync_step, close_sync_iter, sync_iter_exits};
-
-/// The lowering is the module body's, which awaits in place.
-pub(crate) fn in_module_body(ctx: &LowerCtx<'_>) -> bool {
-    in_place::in_module_body(ctx)
-}
 
 /// The suspension releases the cell it awaited, so an operand that does
 /// not hand over a reference of its own (a promise a binding, a field
@@ -180,9 +178,9 @@ fn await_any_in(ctx: &mut LowerCtx<'_>, op: Operand, lane: Type, fused: bool) ->
 /// there is one, then read its settled value in the `inner` lane (the
 /// read releases nothing; `src` is dropped after); `undef` names the
 /// slot whose undefined cell an undefined result is answered as
-/// (`pv::undef_cell_slot`). `fused` (the module body's alone): a
-/// rejection is raised one job after the continuation, behind the jobs
-/// queued meanwhile (`in_place::await_read`).
+/// (`pv::undef_cell_slot`). `fused`: a rejection is raised one job
+/// after the continuation, behind the jobs queued meanwhile
+/// (`in_place::await_read`, `frame_step::delay_rejection`).
 fn await_cell(
     ctx: &mut LowerCtx<'_>,
     src: Operand,
@@ -197,6 +195,9 @@ fn await_cell(
         (src, in_place::await_read(ctx, src, obj, want, fused))
     } else {
         let settled = suspend_on(ctx, src, inner.unwrap_or(Type::Any));
+        if fused {
+            frame_step::delay_rejection(ctx, settled);
+        }
         (settled, read_settled(ctx, settled, want))
     };
     let raw = match undef {

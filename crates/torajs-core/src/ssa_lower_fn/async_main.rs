@@ -49,7 +49,6 @@ pub(crate) struct ModuleCalls {
     pub(crate) exit_code: FuncId,
     pub(crate) cancelled: FuncId,
     pub(crate) any_next_defer: FuncId,
-    pub(crate) any_result_step: FuncId,
     pub(crate) any_close_defer: FuncId,
 }
 
@@ -68,7 +67,6 @@ impl ModuleCalls {
             exit_code: t[EXIT_CODE],
             cancelled: t[CANCELLED],
             any_next_defer: t[ANY_NEXT_DEFER],
-            any_result_step: t[ANY_RESULT_STEP],
             any_close_defer: t[ANY_CLOSE_DEFER],
         }
     }

@@ -1,4 +1,5 @@
-//! A `for await` over an `any` value in the module body: the step runs
+//! A `for await` over an `any` value in the module body (an async
+//! function's body suspends at the same points, `any_frame`): the step runs
 //! the runtime's iteration cascade with every await left to the body
 //! (`torajs-anyvalue` `__torajs_any_iter_next_defer`), which awaits in
 //! place what the step hands back:
@@ -19,7 +20,8 @@
 //! iterator's `return()` answer, or the Async-from-Sync wrapper's
 //! `return`.
 
-use super::{await_any_in, in_place};
+use super::frame_step::{ANY_RESULT_STEP, call, yield_one};
+use super::{any_frame, await_any_in, in_place};
 use crate::ssa::{BlockId, IPred, InstKind, Operand, Terminator, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
 use crate::ssa_lower_fn::async_main::ModuleCalls;
@@ -39,6 +41,9 @@ pub(crate) fn any_close(
     iter_slot: ValueId,
     abrupt: bool,
 ) {
+    if !in_place::in_module_body(ctx) {
+        return any_frame::close(ctx, src, idx_slot, iter_slot, abrupt);
+    }
     let calls = ModuleCalls::of(ctx);
     let args = vec![
         src,
@@ -77,24 +82,29 @@ pub(crate) fn any_await_step(
     iter_slot: ValueId,
     out_slot: ValueId,
 ) -> ValueId {
-    let calls = ModuleCalls::of(ctx);
     let args = vec![
         src,
         Operand::Value(idx_slot),
         Operand::Value(iter_slot),
         Operand::Value(out_slot),
     ];
-    let cb = ctx.cur_block;
-    let code = InstKind::Call(calls.any_next_defer, args);
-    let code = ctx.f.append_inst(cb, code, Type::I64, None);
-    ctx.emit_throw_check(None);
+    let code = if in_place::in_module_body(ctx) {
+        let calls = ModuleCalls::of(ctx);
+        let cb = ctx.cur_block;
+        let code = InstKind::Call(calls.any_next_defer, args);
+        let code = ctx.f.append_inst(cb, code, Type::I64, None);
+        ctx.emit_throw_check(None);
+        code
+    } else {
+        any_frame::next_step(ctx, args)
+    };
     let live = ctx.alloca_in_entry(Type::I64, Some("__forawait_live"));
     let join = ctx.f.add_block();
     let [exhausted, value, result, ready] = dispatch(ctx, code);
 
     ctx.cur_block = exhausted;
-    in_place::yield_direct(ctx);
-    in_place::yield_direct(ctx);
+    yield_one(ctx, None);
+    yield_one(ctx, None);
     store_and_join(ctx, Operand::ConstI64(0), live, join);
 
     ctx.cur_block = value;
@@ -124,17 +134,17 @@ fn await_value(ctx: &mut LowerCtx<'_>, src: Operand, iter_slot: ValueId, out_slo
     let cb = ctx.cur_block;
     ctx.f
         .append_void(cb, InstKind::Store(v, Operand::Value(out_slot), 0));
-    in_place::yield_direct(ctx);
+    yield_one(ctx, Some((v, Type::Any)));
 }
 
 /// An async iterator's `next()` answer in `out_slot`, awaited and read
 /// as the IteratorResult: 1 with its value in `out_slot`, else 0.
 fn await_result(ctx: &mut LowerCtx<'_>, out_slot: ValueId) -> Operand {
-    let calls = ModuleCalls::of(ctx);
+    let result_step = call(ctx, ANY_RESULT_STEP);
     let p = load_any(ctx, out_slot);
     let step = await_any_in(ctx, p, Type::Any, false);
     let cb = ctx.cur_block;
-    let read = InstKind::Call(calls.any_result_step, vec![step, Operand::Value(out_slot)]);
+    let read = InstKind::Call(result_step, vec![step, Operand::Value(out_slot)]);
     let got = ctx.f.append_inst(cb, read, Type::I64, None);
     ctx.emit_throw_check(None);
     Operand::Value(got)

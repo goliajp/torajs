@@ -39,13 +39,12 @@ pub(crate) enum ForOfTeardown {
         iter_slot: ValueId,
         iter_ret_ty: Type,
     },
-    /// The module body's `for await` over an array: the close is the
+    /// A suspending body's `for await` over an array: the close is the
     /// await of what the Async-from-Sync wrapper's `return` answers
     /// (`ssa_lower_fn::suspend::sync_step`).
     AsyncFromSync,
-    /// The module body's `for await` over an `any` value: the close
-    /// awaits in place (`ssa_lower_fn::suspend::any_step`), under a
-    /// throw too.
+    /// A suspending body's `for await` over an `any` value: the close
+    /// awaits (`ssa_lower_fn::suspend::any_step`), under a throw too.
     AnyAsync {
         src: Operand,
         idx_slot: ValueId,

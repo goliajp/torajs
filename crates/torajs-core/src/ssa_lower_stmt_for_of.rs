@@ -129,8 +129,8 @@ pub(crate) fn lower(
     let step_blk = ctx.f.add_block();
     let after = ctx.f.add_block();
     ctx.f.set_term(ctx.cur_block, Terminator::Br(header));
-    // the module body awaits each step in place
-    let steps_await = is_await && crate::ssa_lower_fn::suspend::in_module_body(ctx);
+    // a body that suspends awaits each step
+    let steps_await = is_await && ctx.suspend_body;
     let (exhausted, brk) = if steps_await {
         crate::ssa_lower_fn::suspend::sync_iter_exits(ctx, after)
     } else {
@@ -313,6 +313,14 @@ fn lower_non_array_source(
     is_await: bool,
 ) -> bool {
     let (var_name, i_ident) = names;
+    // a body that suspends steps `for await` over an array itself; every
+    // other source takes the any lane, whose GetIterator (hint async)
+    // and Async-from-Sync steps are the runtime's
+    if is_await && ctx.suspend_body && !matches!(src_ty, Type::Arr(_) | Type::Any) {
+        let boxed = ctx.box_to_any(src_ptr_op);
+        crate::ssa_lower_for_of_any_iter::lower(ctx, boxed, var_name, body, is_await);
+        return true;
+    }
     if matches!(
         src_ty,
         Type::Map | Type::Set | Type::MapIter | Type::ArrIter

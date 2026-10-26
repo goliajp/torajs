@@ -1,6 +1,6 @@
-//! A `for await` over an array in the module body, the one body whose
-//! `for await` the statement lowering steps (a function's goes to the
-//! state machine, `ast::desugar_async_ssa_gate`). The array's iterator
+//! A `for await` over an array in a body that suspends: the module
+//! body, which runs each job in place, or an async function's, which
+//! suspends its frame over it (`frame_step`). The array's iterator
 //! is a sync one, which the loop reaches through an Async-from-Sync
 //! iterator (§27.1.6.1), so every step is two jobs: the step's promise
 //! is fulfilled by a reaction on PromiseResolve of the element
@@ -16,11 +16,11 @@
 //! `return` of its own), and its await is one job, under a throw
 //! completion too.
 
-use super::{await_any_in, await_cell, in_place};
+use super::frame_step::{yield_one, yield_raise};
+use super::{await_any_in, await_cell};
 use crate::ast::ExprId;
-use crate::ssa::{BlockId, InstKind, Operand, Terminator, Type};
+use crate::ssa::{BlockId, Operand, Terminator, Type};
 use crate::ssa_lower::LowerCtx;
-use crate::ssa_lower_fn::async_main::ModuleCalls;
 use crate::ssa_lower_member_promise_value as pv;
 
 /// The step reading the element `obj` (an index read): its value, owned,
@@ -40,11 +40,12 @@ pub(crate) fn await_sync_step(ctx: &mut LowerCtx<'_>, obj: ExprId) -> Operand {
         } else {
             // PromiseResolve of a value that is no promise fulfills a
             // fresh cell, whose reaction is queued at once
-            in_place::yield_direct(ctx);
+            yield_one(ctx, Some((op, ty)));
             op
         }
     };
-    in_place::yield_direct(ctx);
+    let ty = ctx.operand_ty(&v);
+    yield_one(ctx, Some((v, ty)));
     v
 }
 
@@ -71,13 +72,15 @@ pub(crate) fn sync_iter_exits(ctx: &mut LowerCtx<'_>, after: BlockId) -> (BlockI
     let back = ctx.cur_block;
     let exhausted = ctx.f.add_block();
     ctx.cur_block = exhausted;
-    in_place::yield_direct(ctx);
-    in_place::yield_direct(ctx);
-    ctx.f.set_term(exhausted, Terminator::Br(after));
+    yield_one(ctx, None);
+    yield_one(ctx, None);
+    let end = ctx.cur_block;
+    ctx.f.set_term(end, Terminator::Br(after));
     let closing = ctx.f.add_block();
     ctx.cur_block = closing;
-    in_place::yield_direct(ctx);
-    ctx.f.set_term(closing, Terminator::Br(after));
+    yield_one(ctx, None);
+    let end = ctx.cur_block;
+    ctx.f.set_term(end, Terminator::Br(after));
     ctx.cur_block = back;
     (exhausted, closing)
 }
@@ -85,12 +88,9 @@ pub(crate) fn sync_iter_exits(ctx: &mut LowerCtx<'_>, after: BlockId) -> (BlockI
 /// AsyncIteratorClose of the loop on a jump past it (one job), or on a
 /// throw completion, which goes on after that job.
 pub(crate) fn close_sync_iter(ctx: &mut LowerCtx<'_>, under_throw: bool) {
-    let calls = ModuleCalls::of(ctx);
-    let call = if under_throw {
-        calls.yield_rethrow
+    if under_throw {
+        yield_raise(ctx, true);
     } else {
-        calls.yield_direct
-    };
-    let cb = ctx.cur_block;
-    ctx.f.append_void(cb, InstKind::Call(call, Vec::new()));
+        yield_one(ctx, None);
+    }
 }
