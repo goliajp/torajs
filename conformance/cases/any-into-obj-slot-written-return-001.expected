@@ -1,13 +1,13 @@
 1
 decl ok
 decl extra ok
-decl type true cannot return object from function returning `__inlobj(x:number)`
-decl number true cannot return number from function returning `__inlobj(x:number)`
+decl type ok
+decl number ok
 via let ok
 via let, named type ok
 2
 arrow ok
-arrow missing true cannot return object from function returning `__inlobj(x:number)`
+arrow missing ok
 3
 method ok
 method null true cannot return null from function returning `__inlobj(x:number)`
@@ -17,10 +17,10 @@ object method ok
 object method array true cannot return object from function returning `__inlobj(x:number)`
 6
 closure ok
-closure missing true cannot return object from function returning `__inlobj(x:number)`
-nested true cannot return object from function returning `__inlobj(x:number)`
+closure missing ok
+nested ok
 7
 nullable ok
 false
 nullable undefined ok
-nullable number true cannot return number from function returning `__inlobj(x:number) | undefined`
+nullable number ok

@@ -9,12 +9,11 @@
 // a cell returned to the wrong size class shows up as a clobbered
 // neighbour.
 //
-// A write of an `any` into a class-annotated slot now checks the value
-// is an instance of that class, so every channel here rejects the
-// mismatched cell with a TypeError at the write. What is left to check
-// is that the rejected value, and the frames unwound past it, are
-// released by their own layout: each rejection is counted, and the
-// wide and kept cells below must still come out intact.
+// A field or binding annotated with a class holds an `any` value as
+// it is, so the mismatched cell is held as a box and released by its
+// own layout, never by the declared class's. Each channel counts the
+// writes it refused (none), and the wide and kept cells below must
+// still come out intact.
 class Small {
   a: number
   constructor(a: number) {

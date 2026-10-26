@@ -9,12 +9,10 @@
 // beside it.
 //
 // The wider-class value comes from an `any` passed straight into the
-// call, since a class-annotated binding now rejects a mismatched cell
-// at its write. The calls still hand the cell to the closure's and
-// the override's parameters unchecked; the class-annotated binding
-// and field write inside them reject it with a TypeError, and the
-// parameters holding it are released as the frame unwinds. Each
-// rejection is counted, and the refill and kept cells must stay clean.
+// call. The class-annotated binding and the field write inside the
+// closure and the override hold it as it is, as a box released by its
+// own layout. Each write they refused is counted (none), and the
+// refill and kept cells must stay clean.
 class N {
   a: number
   b: number

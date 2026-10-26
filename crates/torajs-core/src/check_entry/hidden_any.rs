@@ -64,6 +64,7 @@ fn settle_with(
     let mut rets: HashSet<String> = HashSet::new();
     let mut fields: HashSet<ExprId> = HashSet::new();
     let mut promise_rets: HashSet<String> = HashSet::new();
+    let mut obj_fields: HashSet<obj_fields::Field> = HashSet::new();
     let mut executors: HashSet<ExprId> = HashSet::new();
     let mut retypable = None;
     let mut retyped: Option<Ast> = None;
@@ -71,12 +72,15 @@ fn settle_with(
         let cur = round.as_ref().unwrap_or(first);
         let hidden = &cur.0.5.widths.hidden_any;
         let before = rets.len();
-        if !hidden.rets.is_empty() {
+        let obj = obj_rets::found(ast, &cur.0.1);
+        if !(hidden.rets.is_empty() && obj.is_empty()) {
             let (ok, _) = retypable.get_or_insert_with(|| retypable_returns(ast, allow));
-            rets.extend((hidden.rets.iter()).filter(|f| ok.contains(*f)).cloned());
+            let found = hidden.rets.iter().chain(&obj);
+            rets.extend(found.filter(|f| ok.contains(*f)).cloned());
         }
         let grew = (rets.len() > before)
             | promise_rets::extend(ast, &cur.0.1, &mut promise_rets)
+            | extend_fields(&mut obj_fields, obj_fields::found(ast, &cur.0.1))
             | executor_any::extend(ast, &cur.0.1, &mut executors)
             | extend_own(ast, &mut inits, &hidden.inits)
             | extend_own(ast, &mut fields, &scalar_values(&cur.0.1, &hidden.fields))
@@ -94,11 +98,22 @@ fn settle_with(
         retype_any(&mut r.stmts, &inits);
         retype_returns_any(&mut r.stmts, &rets);
         promise_rets::retype(&mut r.stmts, &promise_rets);
+        obj_fields::retype(r, &obj_fields);
         executor_any::retype(r, &executors);
         spell_fields_any(r, &fields);
         reinfer::reinfer_returns(ast, r);
         round = Some(check_round(r, &args, &ShadowedNames::default(), false)?);
     }
+}
+
+/// Add `found` to `asked`; true when one was new.
+fn extend_fields(
+    asked: &mut HashSet<obj_fields::Field>,
+    found: HashSet<obj_fields::Field>,
+) -> bool {
+    let before = asked.len();
+    asked.extend(found);
+    asked.len() > before
 }
 
 /// Add the ids of `found` that belong to `ast` to `asked`; true when
@@ -237,6 +252,8 @@ fn retype_returns_any(stmts: &mut [Stmt], fns: &HashSet<String>) {
 
 mod executor_any;
 mod fn_slots;
+mod obj_fields;
+mod obj_rets;
 mod promise_rets;
 mod reinfer;
 mod retypable;

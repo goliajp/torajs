@@ -1,5 +1,7 @@
-return true cannot return object from function returning `W`
-field true cannot store object into `W`
+2
+return ok
+2
+field ok
 nested true cannot store object into `W`
 5
 other keys ok

@@ -6,8 +6,9 @@ use super::fn_slots::{Guarded, SlotFlow, fn_slot_values};
 use crate::ast::{Ast, Expr, ExprId, Stmt};
 
 /// The functions whose return a round may retype `any`: a declaration
-/// or a lifted closure declared to return a `number`, `string` or
-/// `boolean`, or with no annotation, and only ever called by name or
+/// or a lifted closure declared to return a `number`, `string`,
+/// `boolean` or an object type ([`retypable_ann`]), or with no
+/// annotation, and only ever called by name or
 /// handed to a fn-typed slot ([`called_by_name_only`]). A generator or
 /// an async function answers an object of its own and keeps its face.
 pub(super) fn retypable_returns(
@@ -24,10 +25,7 @@ pub(super) fn retypable_returns(
         } = s
             && (!name.starts_with("__") || name.starts_with("__closure_"))
             && !ast.async_fns.contains(name)
-            && matches!(
-                return_type.as_deref(),
-                None | Some("number" | "string" | "boolean")
-            )
+            && return_type.as_deref().is_none_or(retypable_ann)
         {
             out.insert(name.clone());
         }
@@ -36,6 +34,31 @@ pub(super) fn retypable_returns(
     let by_name = called_by_name_only(ast, &flow.values);
     out.retain(|f| by_name.contains(f));
     (out, flow)
+}
+
+/// Whether a return declared `ann` may be retyped `any`: a scalar, or
+/// an object type ([`object_ann`]).
+fn retypable_ann(ann: &str) -> bool {
+    matches!(ann, "number" | "string" | "boolean") || object_ann(ann)
+}
+
+/// Whether `ann` spells an object type: a class, an interface or an
+/// alias of one, or an object type literal, with or without
+/// `| undefined`; a slot of one reads the value at the layout's
+/// offsets. A promise, a function type, an array, a builtin class and a
+/// compiler-made type are not.
+pub(super) fn object_ann(ann: &str) -> bool {
+    let base = crate::check_type_ann::strip_nullable(ann).trim();
+    if base.starts_with("__inlobj(") {
+        return base != "__inlobj()";
+    }
+    let named = base.chars().next().is_some_and(|c| c.is_ascii_uppercase())
+        && base.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+    named
+        && !matches!(
+            base,
+            "Promise" | "Map" | "Set" | "Date" | "RegExp" | "Error"
+        )
 }
 
 /// The names the functions `fns` are read by: their own, and the

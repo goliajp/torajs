@@ -2,7 +2,7 @@ len 2
 1
 typed ok ok
 len 2
-typed bad true cannot return object from function returning `__inlobj(x:number)`
+typed bad ok
 len 3
 2
 any arr ok ok

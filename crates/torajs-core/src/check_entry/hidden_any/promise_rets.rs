@@ -97,7 +97,7 @@ fn settles_any(ast: &Ast, types: &HashMap<ExprId, Type>, e: ExprId) -> bool {
 }
 
 /// The values a function body returns; a nested function's are its own.
-fn own_returns(body: &[Stmt]) -> Vec<ExprId> {
+pub(super) fn own_returns(body: &[Stmt]) -> Vec<ExprId> {
     let mut out = Vec::new();
     let mut stack: Vec<&Stmt> = body.iter().collect();
     while let Some(s) = stack.pop() {

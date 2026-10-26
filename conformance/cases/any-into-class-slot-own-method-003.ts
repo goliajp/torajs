@@ -1,8 +1,7 @@
 // A slot whose object type has an optional member (`tag?`) besides a
-// class-typed field: the copy of the field refuses an object owning a
-// property under a method name of the class, as without the optional
-// member, and copies one that owns none. bun keeps the object as it
-// is; the refused line differs and is checked against the .expected.
+// class-typed field, handed an object through `any`: the slot holds the
+// object as it is, whether or not it owns a property under a method
+// name of the class, as without the optional member.
 class W {
   a = 1
   m(): number {

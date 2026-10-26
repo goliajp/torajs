@@ -1,5 +1,5 @@
-return true cannot return object from function returning `P`
-field true cannot store object into `P`
+return ok
+field ok
 local ok
 global ok
 push true cannot store object into `P`
@@ -19,44 +19,44 @@ global ok
 push ok
 decl ok
 object type ok
-return true cannot return number from function returning `P`
-field true cannot store number into `P`
+return ok
+field ok
 local ok
 global ok
 push true cannot store number into `P`
 decl ok
-object type true cannot return number from function returning `T`
-return true cannot return string from function returning `P`
-field true cannot store string into `P`
+object type ok
+return ok
+field ok
 local ok
 global ok
 push true cannot store string into `P`
 decl ok
-object type true cannot return string from function returning `T`
-return true cannot return object from function returning `P`
-field true cannot store object into `P`
+object type ok
+return ok
+field ok
 local ok
 global ok
 push true cannot store object into `P`
 decl ok
-object type true cannot return object from function returning `T`
-return true cannot return undefined from function returning `P`
-field true cannot store undefined into `P`
+object type ok
+return ok
+field ok
 local ok
 global ok
 push true cannot store undefined into `P`
 decl ok
-object type true cannot return undefined from function returning `T`
-return true cannot return null from function returning `P`
-field true cannot store null into `P`
+object type ok
+return ok
+field ok
 local ok
 global ok
 push true cannot store null into `P`
 decl ok
-object type true cannot return null from function returning `T`
+object type ok
 extra property ok
-missing property true cannot return object from function returning `T`
-property type true cannot return object from function returning `T`
+missing property ok
+property type ok
 9
 fresh ok
 fresh literal into class ok

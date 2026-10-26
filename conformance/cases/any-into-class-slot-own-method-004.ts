@@ -1,11 +1,8 @@
-// A class-typed field of an object type, reached while an object
-// through `any` is copied into that type: the field's value is copied
-// into the class like a value cast into the class directly, so one
-// owning a property under a method name of the class (an object
-// literal's method, a `JSON.parse` result's data property) is refused
-// with a TypeError, and one owning none is copied. bun keeps the
-// objects as they are; the refused lines differ and are checked
-// against the .expected.
+// A class-typed field of an object type, reached through an object
+// handed over through `any`: the object and its field's value are held
+// as they are, whether the value owns a property under a method name of
+// the class (an object literal's method, a `JSON.parse` result's data
+// property) or none.
 class W {
   a = 1
   m(): number {

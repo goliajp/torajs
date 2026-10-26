@@ -6,9 +6,9 @@ lit:1 false
 changed changed true
 literal ok
 db:5432 true
-true db:5432
+false db:5432
 field ok
-db:5432 true true db:5432
+db:5432 true false db:5432
 return ok
 db:5432 true | p:2 true
 push ok
@@ -37,6 +37,6 @@ wrong type true JSON.parse result does not have the annotated type `Cfg`
 nested wrong type true JSON.parse result does not have the annotated type `Outer`
 element wrong type true JSON.parse result does not have the annotated type `Bag`
 literal missing true cannot assign object to `Cfg`
-return missing true cannot return object from function returning `Cfg`
+return missing ok
 ctor param missing true cannot store object into `Cfg`
 not an object true cannot assign number to `Cfg`

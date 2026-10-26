@@ -1,12 +1,12 @@
 // A class reached through a value constructs through its factory's
-// boxed entry. A parameter the program annotated with a class is a
-// class slot like a `let` of that class: an instance of the class (or
-// of a subclass) crosses as it is, an object of the class's field types
-// that is no class instance becomes a fresh instance, and anything else
-// (an instance of another class, a number, undefined, an object owning
-// a property under one of the class's method names) throws a
-// TypeError before the constructor runs. bun binds the argument as it
-// is, so those lines differ from it (the .expected).
+// boxed entry. A parameter the program annotated with a class binds the
+// argument as it is (§10.2.1.3), like a `let` of that class: an instance
+// of the class, of a subclass or of another class, an object that is no
+// instance, a number, undefined. Its members are read off the value, so
+// a method the value lacks is a TypeError when it is called. A field of
+// the class that the constructor stores the parameter into still casts
+// it at the store, a TypeError for an instance of another class where
+// bun stores it (the `KKP` line, checked against the .expected).
 class P {
   x = 1;
   m() {

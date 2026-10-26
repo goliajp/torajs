@@ -9,12 +9,10 @@
 // allocated right after it would overrun the empty cells minted beside
 // it.
 //
-// A write of an `any` into a class-annotated binding now checks the
-// value is an instance of that class, so the mismatched cell is
-// rejected with a TypeError at the write and never reaches the base
-// slot. What is left to check is that the rejected value is released
-// by its own layout: each rejection is counted, and the refill and
-// kept cells must stay clean.
+// A class-annotated binding holds an `any` value as it is, so the
+// mismatched cell is held as a box and released by its own layout,
+// never by the base's. Each write the binding refused is counted
+// (none), and the refill and kept cells must stay clean.
 class Base {
   a: number
   b: number

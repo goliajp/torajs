@@ -1,6 +1,8 @@
 member true cannot store object into `T`
-store true cannot store object into `T`
-return true cannot return object from function returning `T`
+undefined
+store ok
+undefined
+return ok
 unread member true cannot store object into `T`
 member number true cannot store number into `T`
 member missing field true cannot store object into `T`
