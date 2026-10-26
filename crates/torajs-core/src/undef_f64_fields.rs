@@ -60,9 +60,46 @@ use crate::ast::PropKey;
 use crate::ssa_lower::LowerCtx;
 use std::collections::HashSet;
 
+/// The three name sets [`prime`] settles.
+pub(crate) struct SentinelSets {
+    f64_fields: HashSet<PropKey>,
+    str_fields: HashSet<PropKey>,
+    f64_lets: HashSet<String>,
+}
+
 /// Fill both sentinel sets on `ctx`, to a fixpoint. Run after the
 /// context exists and before its body is lowered.
+///
+/// The fixpoint is settled once per module and copied into every
+/// later body. What makes the answer the same for every body: the
+/// collectors walk the whole program's arena and statement list, not
+/// this body's, and at this point every per-body input they and the
+/// two predicates read is still in the state a fresh context starts
+/// in. The three sets themselves, `nullable_str_lets`,
+/// `nullable_arr_lets`, `locals` and `num_map_slots` are empty — the
+/// only priming that runs earlier, `prime_body_binding_sets`, fills
+/// none of them — and `proofs` holds nothing but the module's facts.
+/// Everything else they read (`ast`, `expr_types`, `globals`,
+/// `num_f64_slots`, the facts' live census) is one module-wide value
+/// that no body's lowering changes. Equal inputs, equal fixpoint; a
+/// new per-body input to either predicate breaks this.
 pub(crate) fn prime(ctx: &mut LowerCtx<'_>) {
+    let scans = ctx.scans;
+    if let Some(sets) = scans.sentinel_sets.get() {
+        ctx.undefable_f64_fields = sets.f64_fields.clone();
+        ctx.nullable_str_fields = sets.str_fields.clone();
+        ctx.undefable_f64_lets = sets.f64_lets.clone();
+        return;
+    }
+    settle(ctx);
+    let _ = scans.sentinel_sets.set(SentinelSets {
+        f64_fields: ctx.undefable_f64_fields.clone(),
+        str_fields: ctx.nullable_str_fields.clone(),
+        f64_lets: ctx.undefable_f64_lets.clone(),
+    });
+}
+
+fn settle(ctx: &mut LowerCtx<'_>) {
     // Seed from the analysis's own answer before walking. The walk
     // below can only see what THIS context's bindings hold, so a
     // field written from a tainted parameter (`this.v = v` in a

@@ -52,6 +52,9 @@ pub(crate) struct ModuleScans {
     /// callers call; known to the module body only, which lowers after
     /// them (`ssa_lower_fn::suspend::in_place`).
     pub(crate) frame_result_reprs: HashMap<crate::ssa::FuncId, i64>,
+    /// The sentinel name sets `undef_f64_fields::prime` settles, filled
+    /// by the first body that primes (the invariant is stated there).
+    pub(crate) sentinel_sets: std::cell::OnceCell<crate::undef_f64_fields::SentinelSets>,
 }
 
 impl ModuleScans {
@@ -72,6 +75,7 @@ impl ModuleScans {
                 })
                 .collect(),
             frame_result_reprs: HashMap::new(),
+            sentinel_sets: std::cell::OnceCell::new(),
         }
     }
 }
