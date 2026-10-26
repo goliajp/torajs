@@ -44,6 +44,7 @@ pub mod frem_guard;
 pub mod frem_int;
 pub mod frem_narrow;
 pub mod fresh_cell;
+pub mod guard_cmp_sink;
 pub mod heap_to_stack;
 pub mod iconst_hoist;
 pub mod inliner;

@@ -4,9 +4,9 @@ use torajs_core::ssa::{FuncId, Module, ValueId};
 
 use crate::{
     block_layout, concat_len, concat_licm, concat_num_fuse, const_copy_fwd, fdiv_pair, field_pin,
-    gated_pass, interval, iv_merge, loop_rotate, map_find_cse, offset_base, pass_gates, pass_timer,
-    rc_borrow, rc_dec_immediate, rc_peephole, scaled_addr, select_form, srem_fquot, str_append,
-    strip_assumes, unroll_jam, unroll_pair,
+    gated_pass, guard_cmp_sink, interval, iv_merge, loop_rotate, map_find_cse, offset_base,
+    pass_gates, pass_timer, rc_borrow, rc_dec_immediate, rc_peephole, scaled_addr, select_form,
+    srem_fquot, str_append, strip_assumes, unroll_jam, unroll_pair,
 };
 
 mod global_ref_share;
@@ -198,6 +198,10 @@ pub(crate) fn finish_pipeline(
     // ranges; no inst-level rewrites. `TORAJS_BLOCK_LAYOUT_OFF=1`
     // skips (bisect gate).
     gated_pass("BLOCK_LAYOUT", module, block_layout::layout_module);
+    // A branch's compare past the guard in front of it, so codegen
+    // fuses the pair. After block_layout, whose blocks codegen reads.
+    // `TORAJS_GUARD_CMP_SINK_OFF=1` skips.
+    gated_pass("GUARD_CMP_SINK", module, guard_cmp_sink::sink_guarded_cmps);
     // A constant set of a cell that only its own block reads, handed on
     // by a copy that tail_dup put next to it, goes straight into the
     // copy. After block_layout, whose tail_dup makes the shape.
