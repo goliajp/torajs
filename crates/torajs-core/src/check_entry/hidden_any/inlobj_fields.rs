@@ -57,7 +57,7 @@ pub(super) fn retype(r: &mut Ast, objects: &ObjectTypes, names: &HashSet<PropKey
 /// ones included, whose members `respell` gives new spellings for: it
 /// takes a literal's `(name, annotation)` members and answers each
 /// member's `name:annotation`, or `None` to keep the literal.
-pub(super) fn respell(r: &mut Ast, respell: &dyn Fn(&[(&str, &str)]) -> Option<Vec<String>>) {
+pub(super) fn respell(r: &mut Ast, respell: &Respeller) {
     apply(r, &Respell(respell));
 }
 
@@ -72,7 +72,10 @@ fn apply(r: &mut Ast, rw: &dyn AnnRewrite) {
     }
 }
 
-struct Respell<'a>(&'a dyn Fn(&[(&str, &str)]) -> Option<Vec<String>>);
+/// What [`respell`] asks of each literal.
+pub(super) type Respeller<'a> = dyn Fn(&[(&str, &str)]) -> Option<Vec<String>> + 'a;
+
+struct Respell<'a>(&'a Respeller<'a>);
 
 impl AnnRewrite for Respell<'_> {
     fn skips(&self, _: &[String]) -> bool {
