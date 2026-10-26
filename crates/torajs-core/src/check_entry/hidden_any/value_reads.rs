@@ -60,19 +60,63 @@ pub(super) fn value_reads(ast: &Ast, types: &HashMap<ExprId, Type>) -> HashSet<(
 /// `iface`: the same members, a method's return aside, which a round
 /// may have retyped on one side only.
 fn same_shape(t: &Type, iface: &Type) -> bool {
-    let t = match t {
-        Type::Nullable(t) => &**t,
-        t => t,
-    };
-    let (Type::Struct(a), Type::Struct(b)) = (t, iface) else {
+    let (Type::Struct(a), Type::Struct(b)) = (non_null(t), iface) else {
         return false;
     };
     a.len() == b.len()
         && a.iter().zip(b.iter()).all(|((ka, ta), (kb, tb))| {
             ka == kb
-                && match (ta, tb) {
-                    (Type::Function(pa, _), Type::Function(pb, _)) => pa == pb,
+                && match (non_null(ta), non_null(tb)) {
+                    (Type::Function(pa, _), Type::Function(pb, _)) => {
+                        pa == pb
+                            && matches!(ta, Type::Nullable(_)) == matches!(tb, Type::Nullable(_))
+                    }
                     _ => ta == tb,
                 }
         })
+}
+
+/// `t` without the `Nullable` an optional member or receiver wraps it in.
+fn non_null(t: &Type) -> &Type {
+    match t {
+        Type::Nullable(t) => t,
+        t => t,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::same_shape;
+    use crate::ast::PropKey;
+    use crate::check::Type;
+
+    fn iface(m: Type) -> Type {
+        Type::struct_of(vec![
+            (PropKey::from("m"), m),
+            (PropKey::from("n"), Type::Number),
+        ])
+    }
+
+    fn method(ret: Type) -> Type {
+        Type::Function(vec![], Box::new(ret))
+    }
+
+    #[test]
+    fn a_retyped_return_keeps_the_shape() {
+        let (was, now) = (method(Type::Number), method(Type::Any));
+        assert!(same_shape(&iface(now), &iface(was)));
+    }
+
+    #[test]
+    fn an_optional_method_keeps_the_shape_when_its_return_is_retyped() {
+        let was = Type::Nullable(Box::new(method(Type::Number)));
+        let now = Type::Nullable(Box::new(method(Type::Any)));
+        assert!(same_shape(&iface(now), &iface(was)));
+    }
+
+    #[test]
+    fn an_optional_method_is_not_a_required_one() {
+        let opt = Type::Nullable(Box::new(method(Type::Number)));
+        assert!(!same_shape(&iface(method(Type::Number)), &iface(opt)));
+    }
 }
