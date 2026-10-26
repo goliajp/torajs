@@ -151,23 +151,23 @@ fn round_up_to(value: u64, align: u64) -> u64 {
     (value + align - 1) & !(align - 1)
 }
 
+/// The load commands' total size, known up front so the `__text`
+/// payload's start is.
+const SIZEOFCMDS: u32 = (SEGMENT_COMMAND_64_SIZE * 3) // PAGEZERO + TEXT (with 1 section) + LINKEDIT
+    + SECTION_64_SIZE                          // __text section under __TEXT
+    + LOAD_DYLINKER_CMDSIZE
+    + BUILD_VERSION_CMDSIZE
+    + MAIN_CMDSIZE
+    + SYMTAB_COMMAND_SIZE
+    + DYSYMTAB_CMDSIZE
+    + LINKEDIT_DATA_CMDSIZE; // LC_CODE_SIGNATURE
+
 /// Compute the file + virtual layout for a `LinkConfig` ahead of
 /// any bytes being emitted. Pure function; trivial to unit-test
 /// against expected layout values.
 pub fn compute_layout(cfg: &LinkConfig) -> ExecLayout {
     let n_funcs = cfg.funcs.len() as u32;
-
-    // Sum the load-commands block size up front so we know where
-    // the page-aligned `__text` payload starts.
-    let sizeofcmds = (SEGMENT_COMMAND_64_SIZE * 3) // PAGEZERO + TEXT (with 1 section) + LINKEDIT
-        + SECTION_64_SIZE                          // __text section under __TEXT
-        + LOAD_DYLINKER_CMDSIZE
-        + BUILD_VERSION_CMDSIZE
-        + MAIN_CMDSIZE
-        + SYMTAB_COMMAND_SIZE
-        + DYSYMTAB_CMDSIZE
-        + LINKEDIT_DATA_CMDSIZE; // LC_CODE_SIGNATURE
-    let header_plus_lc = (MachHeader64::SIZE as u32) + sizeofcmds;
+    let header_plus_lc = (MachHeader64::SIZE as u32) + SIZEOFCMDS;
 
     // `__text` packs right after the load commands, fetch-line aligned —
     // the whole `__TEXT` segment maps r-x, header included, so a
@@ -278,14 +278,7 @@ pub fn link_to_exec(cfg: &LinkConfig) -> Vec<u8> {
         cpusubtype: CPU_SUBTYPE_ARM64_ALL,
         filetype: MH_EXECUTE,
         ncmds: 9,
-        sizeofcmds: SEGMENT_COMMAND_64_SIZE * 3
-            + SECTION_64_SIZE
-            + LOAD_DYLINKER_CMDSIZE
-            + BUILD_VERSION_CMDSIZE
-            + MAIN_CMDSIZE
-            + SYMTAB_COMMAND_SIZE
-            + DYSYMTAB_CMDSIZE
-            + LINKEDIT_DATA_CMDSIZE,
+        sizeofcmds: SIZEOFCMDS,
         flags: MH_NOUNDEFS | MH_DYLDLINK | MH_TWOLEVEL | MH_PIE,
         reserved: 0,
     };
