@@ -30,10 +30,15 @@
 //! boundary (0x9000, 0xa000, 0xb000, 0xd000), 1.125-1.142 at the 10
 //! across a page boundary (0x8000, 0xc000), and at most 1.071 at the
 //! 295 others, 2 KiB crossings and the 5 steps where only the loop's
-//! last 56 bytes crossed among them. Where the function lands within
-//! the region depended on the runtime members and the user functions
-//! in front of it, so an edit anywhere before a loop moved its
-//! reading. The loops come from codegen and are read only for a
+//! last 56 bytes crossed among them. The effect is not general: the
+//! same scan of collatz, whose hot loop is 132 bytes of four
+//! interleaved branchless chains (main_user+0x4dc), read 1.005-1.043
+//! at the 10 steps that put it across a 4 KiB boundary and 1.000-1.057
+//! at the 301 that put it across none; for a loop like that the rule
+//! costs only the pad, which sits in the `__TEXT` page slack. Where
+//! the function lands within the region depended on the runtime
+//! members and the user functions in front of it, so an edit anywhere
+//! before a loop moved its reading. The loops come from codegen and are read only for a
 //! function whose bytes would cross a region boundary, the one case a
 //! loop of it can straddle. Where no start keeps every loop whole, the
 //! one keeping the shortest whole is taken, then the next shortest,

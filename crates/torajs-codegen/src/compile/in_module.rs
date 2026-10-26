@@ -22,8 +22,8 @@ pub fn compile_function_at(func: &Function, id: FuncId, facts: &ModuleFacts) -> 
 /// function's loops, shortest first, for the linker to keep each one
 /// inside a 4 KiB region of the address space where it can (on
 /// mini, Apple Silicon, one loop (objlit-optional-field-1m) ran 12-14%
-/// slower straddling such a boundary; the readings are with the
-/// linker's `LOOP_REGION`).
+/// slower straddling such a boundary, one (collatz) did not; the
+/// readings are with the linker's `LOOP_REGION`).
 pub fn compile_function_at_with_loops(
     func: &Function,
     id: FuncId,
