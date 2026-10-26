@@ -48,7 +48,8 @@ pub(super) fn record_let_face(
     (init_ty, ann_ty): (&Type, &Type),
     widened: bool,
 ) -> bool {
-    if matches!(ann_ty, Type::Function(..)) && census_value(checker, ast, init) {
+    // `F | undefined` too: the slot's calls are the function's
+    if face_slots::is_fn_elem(ann_ty) && census_value(checker, ast, init) {
         checker.face_mismatch_lets.insert(init);
         return true;
     }

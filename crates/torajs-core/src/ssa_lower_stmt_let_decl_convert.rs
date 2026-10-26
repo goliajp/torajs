@@ -124,6 +124,12 @@ pub(crate) fn maybe_any_to_typed_scalar(
                 None => return (init_val, false),
             }
         }
+        // a function's box is its cell; the binding owns it as it
+        // would the box
+        Type::Closure(_) if admits == Admits::OrUndefined => {
+            let v = crate::ssa_lower_assign_slot_fit::any_into_undefable_closure(ctx, ty, init_val);
+            return (v, false);
+        }
         _ => return (init_val, false),
     };
     // The original reference, not the box: boxing above re-encoded it

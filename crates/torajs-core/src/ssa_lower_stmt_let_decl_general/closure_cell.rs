@@ -49,12 +49,14 @@ pub(super) fn init_yields_closure_cell(ctx: &LowerCtx, init: ExprId) -> bool {
         }
         // an element of a function array, whatever the array expression
         // (`hs[0]`, `this.fs[0]`, `mk()[0]`, `hs.at(-1)!`): its slots are
-        // Closure-repr (`ssa_lower_parse_type::parse_arr_suffix`)
+        // Closure-repr (`ssa_lower_parse_type::parse_arr_suffix`), or
+        // boxed when the element type admits `undefined`, a box that
+        // carries the cell
         Expr::Index { .. } | Expr::As { .. } | Expr::Call { .. }
             if crate::check::face_slots::elem_source(ctx.ast, init).is_some_and(|obj| {
                 matches!(ctx.expr_types.get(&obj),
                     Some(crate::check::Type::Array(elem))
-                        if matches!(**elem, crate::check::Type::Function(..)))
+                        if crate::check::face_slots::is_fn_elem(elem))
             }) =>
         {
             true

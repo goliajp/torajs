@@ -15,6 +15,7 @@ mod global;
 mod views;
 
 use closure_slot::{any_into_closure_slot, fn_pointer_into_closure_slot};
+pub(crate) use closure_slot::{any_into_undefable_closure, undefined_admitted};
 pub(super) use global::coerce_for_global;
 use views::coerce_arr_views_to_owned;
 pub(crate) use views::{copy_views_out, materialize_fresh_views, settle_escaping_views};
@@ -281,6 +282,8 @@ pub(super) fn coerce_for_local(
         ctx.box_owned_from_expr(value, v, false)
     } else if fn_pointer_into_closure_slot(snap_ty, v_ty) {
         crate::ssa_lower_call_fn_cell::fn_value_cell(ctx, snap_ty, value, v)
+    } else if any_into_closure_slot(snap_ty, v_ty) && undefined_admitted(ctx, value) {
+        any_into_undefable_closure(ctx, snap_ty, v)
     } else if snap_ty == Type::F64 && v_ty == Type::I64 {
         ctx.coerce_to_f64(v)
     } else if let Some(cast) = ctx.checked_cast(

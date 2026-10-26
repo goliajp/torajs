@@ -169,6 +169,14 @@ pub(crate) fn emit_arg_conv(
     // shapes, one per edge.
     let synthetic_edge = matches!(ctx.ast.get_expr(arg), Expr::Spread { .. })
         || ctx.ast.spread_filled_args.contains(&arg);
+    // the checker passed an argument that may be `undefined` (an element
+    // of `(F | undefined)[]`), so the parameter admits it
+    if matches!(expected, Type::Closure(_))
+        && actual == Type::Any
+        && crate::ssa_lower_assign_slot_fit::undefined_admitted(ctx, arg)
+    {
+        return crate::ssa_lower_assign_slot_fit::any_into_undefable_closure(ctx, expected, op);
+    }
     if !synthetic_edge
         && let Some(v) = ctx.checked_cast(
             op,
