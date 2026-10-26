@@ -89,8 +89,7 @@ use writes::{Query, stmt_writes};
 pub fn analyze_let_owned_elems(ast: &mut Ast) {
     let names = alias::collect_names(ast);
     let mut found = Found::default();
-    let stmts = ast.stmts.clone();
-    low_walk_stmts(ast, &stmts, true, &names, &mut found);
+    low_walk_stmts(ast, &ast.stmts, true, &names, &mut found);
     view_homes::mark_read_objects(ast, &mut found.homes);
     let (owned, view_slots) = alias::settle(ast, &names, &found.decls);
     ast.let_owned_elem_inits = owned;

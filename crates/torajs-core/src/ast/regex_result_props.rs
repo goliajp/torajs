@@ -58,8 +58,7 @@ use super::{Ast, BinOp, Expr, ExprId, Stmt, UnaryOp};
 /// rewrite that could introduce a new use of the binding.
 pub fn analyze_regex_result_props(ast: &mut Ast) {
     let mut found: std::collections::HashSet<ExprId> = std::collections::HashSet::new();
-    let stmts = ast.stmts.clone();
-    rrp_walk_stmts(ast, &stmts, &mut found);
+    rrp_walk_stmts(ast, &ast.stmts, &mut found);
     ast.regex_result_props_unread = found;
 }
 

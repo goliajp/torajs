@@ -54,8 +54,7 @@ pub fn escape_analyze_array_literals(ast: &mut Ast) {
     // (fn-local shadows count) is the safe direction.
     let named_fn_refs = crate::ast_refs::toplevel_binding_refs(ast).named_fn_refs;
     let mut found: std::collections::HashSet<ExprId> = std::collections::HashSet::new();
-    let stmts = ast.stmts.clone();
-    eal_walk_stmts(ast, &stmts, &mut found, &named_fn_refs, false);
+    eal_walk_stmts(ast, &ast.stmts, &mut found, &named_fn_refs, false);
     ast.stack_array_literals = found;
 }
 

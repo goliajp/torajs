@@ -236,11 +236,6 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
     // mutable-init axis moved such slots to Closure repr).
     crate::ast_collect_fn_closure::collect_fn_ann_bindings(&ast.stmts, &mut closure_bindings);
 
-    // Walk all top-level stmts (including FnDecl bodies recursively)
-    // collecting the store-sites where a bare top-FnDecl Ident needs
-    // the forwarder wrap (see ast_collect_fn_closure module doc for
-    // the axis list).
-    let stmts_snapshot = ast.stmts.clone();
     // V1b — un-annotated ctor-init receivers (see the collect's doc).
     let mut new_init_bindings: HashSet<String> = HashSet::new();
     crate::ast_collect_bindings::collect_untyped_new_init_bindings(
@@ -278,7 +273,11 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
         any_param_frames: Vec::new(),
         cls_param_frames: Vec::new(),
     };
-    for s in &stmts_snapshot {
+    // Walk all top-level stmts (including FnDecl bodies recursively)
+    // collecting the store-sites where a bare top-FnDecl Ident needs
+    // the forwarder wrap (see ast_collect_fn_closure module doc for
+    // the axis list).
+    for s in &ast.stmts {
         collector.walk_stmt(s, false);
     }
     collector.targets.extend(param_arg_targets);
@@ -332,7 +331,7 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
     let mut variadic_bindings: Vec<String> = Vec::new();
     super::forwarders_let_init_axis::collect_let_init_axis_rewrites(
         ast,
-        &stmts_snapshot,
+        &ast.stmts,
         &binding_refs,
         &fn_sigs,
         &mut targets,
