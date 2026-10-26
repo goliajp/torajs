@@ -53,12 +53,14 @@
 use std::collections::{HashMap, HashSet};
 
 mod guarded;
+mod keys;
 mod paren_callee;
 mod shape;
 
 use super::desugar_async_sm::{await_inner, expr_has_await};
 use super::{Ast, Expr, ExprId, Stmt};
 use guarded::guarded_to_statements;
+pub(super) use keys::convert_keys_ahead;
 pub(super) use shape::can_lift;
 use shape::{Shape, shape};
 
@@ -158,7 +160,16 @@ pub(super) fn lift(
     }
     let kids = match shape(ast, eid) {
         Shape::Leaf | Shape::Refuse(_) => return,
-        Shape::Ordered(kids) => kids,
+        Shape::Ordered(kids) => {
+            if let Expr::ObjectLit { fields } = ast.get_expr(eid) {
+                let keys: HashSet<ExprId> = fields
+                    .iter()
+                    .filter_map(|(_, v)| ast.objlit_computed_keys.get(v).copied())
+                    .collect();
+                convert_keys_ahead(ast, &kids, |k| keys.contains(&k), log);
+            }
+            kids
+        }
         Shape::Guarded(first, rest) => {
             lift_ordered(ast, &first, prefix, stable, log, mark);
             if !rest.iter().any(|r| expr_has_await(ast, *r)) {

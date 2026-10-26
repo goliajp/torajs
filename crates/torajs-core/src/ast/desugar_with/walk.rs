@@ -183,7 +183,21 @@ pub(crate) fn stmt_exprs(s: &Stmt) -> Vec<ExprId> {
 /// Every child ExprId of one node. An `ArrowFn`'s body is NOT a child
 /// here — it is a statement list, reached through [`arrow_nodes`].
 pub(crate) fn expr_children(ast: &Ast, eid: ExprId) -> Vec<ExprId> {
-    expr_node_children(ast.get_expr(eid))
+    match ast.get_expr(eid) {
+        // a computed key is evaluated just before its value
+        // (`objlit_computed_keys`)
+        Expr::ObjectLit { fields } => fields
+            .iter()
+            .flat_map(|(_, v)| {
+                ast.objlit_computed_keys
+                    .get(v)
+                    .copied()
+                    .into_iter()
+                    .chain([*v])
+            })
+            .collect(),
+        e => expr_node_children(e),
+    }
 }
 
 /// [`expr_children`] of a node already in hand (for walks over a bare

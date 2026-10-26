@@ -86,7 +86,19 @@ pub(super) fn shape(ast: &Ast, eid: ExprId) -> Shape {
         Expr::New { args, .. } | Expr::Super { args } | Expr::Array(args) => {
             Shape::Ordered(args.clone())
         }
-        Expr::ObjectLit { fields } => Shape::Ordered(fields.iter().map(|(_, v)| *v).collect()),
+        // a computed key just before its value (`objlit_computed_keys`)
+        Expr::ObjectLit { fields } => Shape::Ordered(
+            fields
+                .iter()
+                .flat_map(|(_, v)| {
+                    ast.objlit_computed_keys
+                        .get(v)
+                        .copied()
+                        .into_iter()
+                        .chain([*v])
+                })
+                .collect(),
+        ),
         // The target reference is evaluated before the value: a member
         // / index target's parts hoist like operands; a bare name
         // resolves to the same binding either way.

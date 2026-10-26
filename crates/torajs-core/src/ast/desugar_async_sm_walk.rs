@@ -61,8 +61,12 @@ pub(crate) fn visit_expr_children(ast: &Ast, eid: ExprId, f: &mut impl FnMut(Exp
             f(*target);
             f(*value);
         }
+        // a computed key is evaluated just before its value
         Expr::ObjectLit { fields } => {
             for (_, v) in fields {
+                if let Some(k) = ast.objlit_computed_keys.get(v) {
+                    f(*k);
+                }
                 f(*v);
             }
         }
