@@ -80,12 +80,17 @@ impl<'a> Analysis<'a> {
                 {
                     self.add_constraint(key, super::magnitude::f64_flow());
                 }
-                // a `for await` over anything but an array steps through
-                // the any lane (`ssa_lower_stmt_for_of`): the value is the
-                // runtime's, at no width the program's slots can vouch for
+                // a `for await` the any lane steps holds the runtime's
+                // value, at no width the program's slots can vouch for
                 if *is_await
                     && let Expr::Index { obj, .. } = self.ast.get_expr(*elem_expr)
-                    && !matches!(self.expr_types.get(obj), Some(crate::check::Type::Array(_)))
+                    && !crate::ssa_lower_stmt_for_of::for_await_steps_array(
+                        matches!(self.expr_types.get(obj), Some(crate::check::Type::Array(_))),
+                        || {
+                            crate::builtin_proto_shadow::collect_shadowed_builtin_methods(self.ast)
+                                .shadows_iteration("Array")
+                        },
+                    )
                 {
                     self.add_constraint(key, super::magnitude::f64_flow());
                 }

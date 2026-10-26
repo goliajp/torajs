@@ -5,6 +5,20 @@ use crate::ast::Stmt;
 use crate::ssa::Type;
 use crate::ssa_lower::LowerCtx;
 
+/// Whether a `for await` steps its source itself, as an index loop over
+/// an array, rather than through the any lane, whose GetIterator (hint
+/// async) and Async-from-Sync steps are the runtime's: the one
+/// criterion the lowering and the width analysis (`num_width::walk`)
+/// read. `is_array`: the source is an array; `iteration_shadowed`
+/// (asked of an array only): the module can replace array iteration
+/// (`builtin_proto_shadow`).
+pub(crate) fn for_await_steps_array(
+    is_array: bool,
+    iteration_shadowed: impl FnOnce() -> bool,
+) -> bool {
+    is_array && !iteration_shadowed()
+}
+
 /// The non-array sources of [`super::lower`], one lane each — map-likes,
 /// user-class iterables, strings, `any`, and every remaining shape
 /// boxed into the any lane. Answers `true` when the loop was lowered.
@@ -21,14 +35,6 @@ pub(super) fn lower_non_array_source(
     is_await: bool,
 ) -> bool {
     let (var_name, i_ident) = names;
-    // a body that suspends steps `for await` over an array itself; every
-    // other source takes the any lane, whose GetIterator (hint async)
-    // and Async-from-Sync steps are the runtime's
-    if is_await && ctx.suspend_body && !matches!(src_ty, Type::Arr(_) | Type::Any) {
-        let boxed = ctx.box_to_any(src_ptr_op);
-        crate::ssa_lower_for_of_any_iter::lower(ctx, boxed, var_name, body, is_await);
-        return true;
-    }
     if matches!(
         src_ty,
         Type::Map | Type::Set | Type::MapIter | Type::ArrIter

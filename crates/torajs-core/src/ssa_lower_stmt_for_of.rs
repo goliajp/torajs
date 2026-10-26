@@ -41,6 +41,7 @@ use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::{ARR_LEN_OFF, LocalInfo, LowerCtx};
 use forin_guard::emit_forin_guard;
 pub(crate) use forin_guard::forin_key_live;
+pub(crate) use lane::for_await_steps_array;
 
 mod element;
 mod forin_guard;
@@ -74,6 +75,19 @@ pub(crate) fn lower(
     let src_ty = ctx.operand_ty(&src_ptr_op);
     // §14.7.5.6 GetIterator throws on a nullish source
     crate::ssa_lower_nullable_guard::emit_slot_guard(ctx, src_ref_eid, &src_ptr_op);
+    let is_arr = matches!(src_ty, Type::Arr(_));
+    if is_await
+        && ctx.suspend_body
+        && !matches!(src_ty, Type::Any)
+        && !for_await_steps_array(is_arr, || ctx.scans.proto_shadow.shadows_iteration("Array"))
+    {
+        if is_arr {
+            ctx.emit_arr_mark_kind(&src_ptr_op);
+        }
+        let boxed = ctx.box_to_any(src_ptr_op);
+        crate::ssa_lower_for_of_any_iter::lower(ctx, boxed, var_name, body, is_await);
+        return;
+    }
     if lane::lower_non_array_source(
         ctx,
         src_ref_eid,
