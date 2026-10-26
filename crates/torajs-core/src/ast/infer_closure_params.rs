@@ -13,8 +13,8 @@
 
 use super::infer_closure_params_apply::{Seeds, apply_closure_ann_updates};
 use super::infer_closure_params_helpers::{
-    apply_stored_elem_arm, build_ann_table, collect_fn_decl_metadata, mapset_foreach_expected,
-    seed_container_arg_hints, seed_let_ann_hints,
+    apply_mapset_stored_arm, apply_stored_elem_arm, build_ann_table, collect_fn_decl_metadata,
+    mapset_foreach_expected, seed_container_arg_hints, seed_let_ann_hints,
 };
 use super::infer_closure_params_hof::apply_hof_param_only_arm;
 use super::infer_closure_typevars::apply_user_fn_callee_hint;
@@ -242,6 +242,9 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
             for (_arg_idx, fn_name) in &closure_args {
                 seeds.updates.insert(fn_name.clone(), expected.clone());
             }
+            continue;
+        }
+        if apply_mapset_stored_arm(ast, &ann, &name, &closure_args, &mut seeds.updates) {
             continue;
         }
         // `xs.concat([cb])` — §23.1.3.1 takes containers of elements,

@@ -55,6 +55,41 @@ pub(super) fn mapset_foreach_expected(ann: &str, method: &str) -> Option<(Vec<St
     None
 }
 
+/// A closure handed to `Map.prototype.set` (§24.1.3.9) or
+/// `Set.prototype.add` (§24.2.3.1) is stored, not called: the key /
+/// value / member type of the receiver is its type, as an element
+/// type is for `push`. Left without it, an arrow over an `any` read
+/// returned `any` while `forEach`'s typed callback called it through
+/// the declared signature and read the box bits as the number.
+/// Returns whether a closure argument was seeded.
+pub(super) fn apply_mapset_stored_arm(
+    ast: &Ast,
+    ann: &str,
+    method: &str,
+    closure_args: &[(usize, String)],
+    updates: &mut HashMap<String, (Vec<String>, String)>,
+) -> bool {
+    let anns: Vec<&str> = match method {
+        "set" => match ann.strip_prefix("Map<").and_then(|r| r.strip_suffix('>')) {
+            Some(inner) => crate::check_type_ann::split_top_pipe(inner),
+            None => return false,
+        },
+        "add" => match ann.strip_prefix("Set<").and_then(|r| r.strip_suffix('>')) {
+            Some(inner) => vec![inner],
+            None => return false,
+        },
+        _ => return false,
+    };
+    let mut seeded = false;
+    for (arg_idx, fn_name) in closure_args {
+        if let Some(projected) = anns.get(*arg_idx).and_then(|a| project_fn_type_ann(ast, a)) {
+            updates.insert(fn_name.clone(), projected);
+            seeded = true;
+        }
+    }
+    seeded
+}
+
 /// Per-name → type-annotation table feeding receiver resolution.
 /// Walk all top-level FnDecl bodies gathering param + let-decl
 /// annotations (the same name may appear in multiple fns; call-site
