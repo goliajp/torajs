@@ -51,8 +51,14 @@
 
 use std::collections::HashSet;
 
+mod guarded;
+mod shape;
+
 use super::desugar_async_sm::{await_inner, expr_has_await};
-use super::{Ast, BinOp, Expr, ExprId, Stmt, UnaryOp};
+use super::{Ast, Expr, ExprId, Stmt};
+use guarded::guarded_to_statements;
+pub(super) use shape::can_lift;
+use shape::{Shape, shape};
 
 /// Every arena and side-table change the lift made for one body, so a
 /// refused move can be undone (`rewrite_body`'s contract).
@@ -74,104 +80,6 @@ impl LiftLog {
         for v in self.yield_values {
             ast.await_yield_values.remove(&v);
         }
-    }
-}
-
-/// How one node's children are evaluated.
-enum Shape {
-    /// No children of ours (a nested function's awaits are its own).
-    Leaf,
-    /// Children in evaluation order, all unconditional.
-    Ordered(Vec<ExprId>),
-    /// `first` always evaluates; the rest only sometimes.
-    Guarded(ExprId, Vec<ExprId>),
-    /// A child position the lift never rewrites.
-    Refuse(Vec<ExprId>),
-}
-
-fn shape(ast: &Ast, eid: ExprId) -> Shape {
-    match ast.get_expr(eid) {
-        Expr::Ident(_)
-        | Expr::String(_)
-        | Expr::Number(_)
-        | Expr::BigInt { .. }
-        | Expr::Bool(_)
-        | Expr::Uninit
-        | Expr::Regex { .. }
-        | Expr::Null
-        | Expr::Closure { .. }
-        | Expr::This
-        | Expr::NewTarget
-        | Expr::Elision
-        | Expr::ArrowFn { .. } => Shape::Leaf,
-        Expr::BinOp {
-            op: BinOp::LAnd | BinOp::LOr,
-            left,
-            right,
-        } => Shape::Guarded(*left, vec![*right]),
-        Expr::Nullish { lhs, rhs } => Shape::Guarded(*lhs, vec![*rhs]),
-        Expr::Ternary {
-            cond,
-            then_branch,
-            else_branch,
-        } => Shape::Guarded(*cond, vec![*then_branch, *else_branch]),
-        Expr::BinOp { left, right, .. } | Expr::Sequence { left, right } => {
-            Shape::Ordered(vec![*left, *right])
-        }
-        Expr::Unary { expr, .. }
-        | Expr::As { expr, .. }
-        | Expr::TypeOf { expr }
-        | Expr::InstanceOf { expr, .. }
-        | Expr::Spread { expr } => Shape::Ordered(vec![*expr]),
-        Expr::Member { obj, .. } => Shape::Ordered(vec![*obj]),
-        Expr::Index { obj, index } => Shape::Ordered(vec![*obj, *index]),
-        // A member callee is the receiver's read — it stays with the
-        // call (module doc); only the arguments are children here.
-        Expr::Call { callee, args } | Expr::NewDynamic { callee, args } => {
-            let mut kids = Vec::with_capacity(args.len() + 1);
-            if !matches!(ast.get_expr(*callee), Expr::Member { .. }) {
-                kids.push(*callee);
-            }
-            kids.extend(args.iter().copied());
-            Shape::Ordered(kids)
-        }
-        Expr::New { args, .. } | Expr::Super { args } | Expr::Array(args) => {
-            Shape::Ordered(args.clone())
-        }
-        Expr::ObjectLit { fields } => Shape::Ordered(fields.iter().map(|(_, v)| *v).collect()),
-        // The target reference is evaluated before the value: a member
-        // / index target's parts hoist like operands; a bare name
-        // resolves to the same binding either way.
-        Expr::Assign { target, value } => match ast.get_expr(*target) {
-            Expr::Ident(_) => Shape::Ordered(vec![*value]),
-            Expr::Member { obj, .. } => Shape::Ordered(vec![*obj, *value]),
-            Expr::Index { obj, index } => Shape::Ordered(vec![*obj, *index, *value]),
-            _ => Shape::Refuse(vec![*target, *value]),
-        },
-        Expr::OptChain { obj, .. } => Shape::Refuse(vec![*obj]),
-        Expr::OptIndex { obj, index } => Shape::Refuse(vec![*obj, *index]),
-        Expr::OptCall { callee, args } => {
-            let mut kids = vec![*callee];
-            kids.extend(args.iter().copied());
-            Shape::Refuse(kids)
-        }
-        Expr::Delete { expr } => Shape::Refuse(vec![*expr]),
-        Expr::PostIncr { target, .. } => Shape::Refuse(vec![*target]),
-    }
-}
-
-/// Does every await under `eid` sit at a position the lift takes?
-pub(super) fn can_lift(ast: &Ast, eid: ExprId) -> bool {
-    if let Some(inner) = await_inner(ast, eid) {
-        return can_lift(ast, inner);
-    }
-    match shape(ast, eid) {
-        Shape::Leaf => true,
-        Shape::Ordered(kids) => kids.iter().all(|k| can_lift(ast, *k)),
-        Shape::Guarded(first, rest) => {
-            can_lift(ast, first) && rest.iter().all(|r| can_lift(ast, *r))
-        }
-        Shape::Refuse(kids) => kids.iter().all(|k| !expr_has_await(ast, *k)),
     }
 }
 
@@ -252,78 +160,6 @@ pub(super) fn lift(
             hoist(ast, *k, prefix, stable, log);
         }
     }
-}
-
-/// The statement form of a guarded node whose guarded side awaits
-/// (module doc): `let __awg: any = undefined; if (…) { __awg = … } else
-/// { __awg = … }` ahead of the statement, the node reading the temp.
-/// The branches still hold their awaits — the caller's rewrite of the
-/// prefix turns them into yields.
-fn guarded_to_statements(ast: &mut Ast, eid: ExprId, prefix: &mut Vec<Stmt>, log: &mut LiftLog) {
-    let tmp = format!("__awg_{}", eid.0);
-    let assign_tmp = |ast: &mut Ast, value: ExprId| -> Stmt {
-        let target = ast.add_expr(Expr::Ident(tmp.clone()));
-        Stmt::Expr(ast.add_expr(Expr::Assign { target, value }))
-    };
-    let (init, cond, then_v, else_v): (Option<ExprId>, ExprId, ExprId, Option<ExprId>) =
-        match ast.get_expr(eid).clone() {
-            Expr::Ternary {
-                cond,
-                then_branch,
-                else_branch,
-            } => (None, cond, then_branch, Some(else_branch)),
-            // `l && r`: g = l; if (g) g = r.   `l || r`: if (!g) g = r.
-            // `l ?? r`: if (g == null) g = r.
-            Expr::BinOp {
-                op: BinOp::LAnd,
-                left,
-                right,
-            } => (
-                Some(left),
-                ast.add_expr(Expr::Ident(tmp.clone())),
-                right,
-                None,
-            ),
-            Expr::BinOp {
-                op: BinOp::LOr,
-                left,
-                right,
-            } => {
-                let g = ast.add_expr(Expr::Ident(tmp.clone()));
-                let not = ast.add_expr(Expr::Unary {
-                    op: UnaryOp::Not,
-                    expr: g,
-                });
-                (Some(left), not, right, None)
-            }
-            Expr::Nullish { lhs, rhs } => {
-                let g = ast.add_expr(Expr::Ident(tmp.clone()));
-                let null = ast.add_expr(Expr::Null);
-                let is_nullish = ast.add_expr(Expr::BinOp {
-                    op: BinOp::LooseEq,
-                    left: g,
-                    right: null,
-                });
-                (Some(lhs), is_nullish, rhs, None)
-            }
-            other => panic!("guarded lift on a non-guarded node: {other:?}"),
-        };
-    let init = init.unwrap_or_else(|| ast.add_expr(Expr::Ident("undefined".into())));
-    prefix.push(Stmt::LetDecl {
-        mutable: true,
-        name: tmp.clone(),
-        type_ann: Some("any".into()),
-        init,
-        is_var: false,
-    });
-    let then_s = assign_tmp(ast, then_v);
-    let else_s = else_v.map(|v| Box::new(assign_tmp(ast, v)));
-    prefix.push(Stmt::If {
-        cond,
-        then_branch: Box::new(then_s),
-        else_branch: else_s,
-    });
-    replace(ast, eid, Expr::Ident(tmp), log);
 }
 
 /// Bind an operand evaluated ahead of a suspension to a temp, so the
