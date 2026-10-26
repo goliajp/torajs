@@ -40,7 +40,8 @@ pub(super) fn kept(
     };
     let held: HashSet<String> = owners.iter().flat_map(|o| tree(o)).collect();
     let places = places(ast);
-    let entered = entered_by_call(ast, &places, &held) || any_entered(ast, types, &places, &held);
+    let named = naming(ast, &held);
+    let entered = entered_by_call(ast, &places, &named) || any_entered(ast, types, &places, &named);
     let mut out = HashSet::new();
     for c in classes.iter().copied() {
         if held.contains(c) || out.contains(c) {
@@ -52,6 +53,34 @@ pub(super) fn kept(
         }
     }
     out
+}
+
+/// The classes of `tree`, and every type declaration (a class, an
+/// interface, an alias) a member of which names one of them, at any
+/// depth: an annotation naming one of these names a class of `tree`
+/// through it (`interface Box { h: H }` names `H` in `b: Box`).
+fn naming(ast: &Ast, tree: &HashSet<String>) -> HashSet<String> {
+    let mut decls: Vec<(String, Vec<String>)> = Vec::new();
+    crate::ast::walk_stmts(&ast.stmts, &mut |s| {
+        if let Stmt::TypeDecl { name, fields, .. } = s {
+            decls.push((
+                name.clone(),
+                fields.iter().map(|(_, a)| a.clone()).collect(),
+            ));
+        }
+    });
+    let mut out = tree.clone();
+    loop {
+        let before = out.len();
+        for (name, anns) in &decls {
+            if !out.contains(name) && anns.iter().any(|a| ann_mentions(a, &out)) {
+                out.insert(name.clone());
+            }
+        }
+        if out.len() == before {
+            return out;
+        }
+    }
 }
 
 /// The values of the members of the object literals a class kept for

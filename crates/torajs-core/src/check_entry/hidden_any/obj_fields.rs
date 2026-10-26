@@ -17,7 +17,7 @@ use std::collections::{HashMap, HashSet};
 use super::inlobj_fields;
 use super::retypable::ObjectTypes;
 use crate::ast::{Ast, Expr, ExprId, PropKey, Stmt};
-use crate::ast_throw_info::class_of;
+use crate::ast_throw_info::{class_of, unalias, written_ann};
 use crate::check::Type;
 
 /// A field: its class and its name.
@@ -107,12 +107,7 @@ impl FieldStores {
             }
             let owners: Vec<String> = match class_of(types, *obj) {
                 Some(c) => vec![c],
-                None => match ast.get_expr(*obj) {
-                    Expr::Ident(n) => (self.anns.get(n).into_iter().flatten())
-                        .map(|a| crate::check_type_ann::strip_nullable(a).trim().to_string())
-                        .collect(),
-                    _ => Vec::new(),
-                },
+                None => self.owner_anns(ast, types, *obj),
             };
             let owners: Vec<String> = (owners.into_iter())
                 .filter(|o| self.holds(o, name))
@@ -129,6 +124,27 @@ impl FieldStores {
             }
         }
         names
+    }
+
+    /// The types the receiver `obj` is written with, aliases followed:
+    /// every annotation of a binding's name, or the field's annotation
+    /// of a member read off a receiver whose type is one written.
+    fn owner_anns(&self, ast: &Ast, types: &HashMap<ExprId, Type>, obj: ExprId) -> Vec<String> {
+        let anns: Vec<String> = match ast.get_expr(obj) {
+            Expr::Ident(n) => self.anns.get(n).cloned().unwrap_or_default(),
+            Expr::Member { .. } => {
+                let binding = |n: &str| match self.anns.get(n).map(Vec::as_slice) {
+                    Some([a]) => Some(a.clone()),
+                    _ => None,
+                };
+                let class = |e: ExprId| class_of(types, e);
+                written_ann(ast, obj, &binding, &class)
+                    .into_iter()
+                    .collect()
+            }
+            _ => Vec::new(),
+        };
+        (anns.iter()).map(|a| unalias(ast, a).to_string()).collect()
     }
 
     /// Whether the type `owner` spells declares `name` held.

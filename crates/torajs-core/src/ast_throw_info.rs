@@ -60,6 +60,7 @@
 use crate::ast::{Ast, Expr, ExprId, Param, Stmt};
 use std::collections::HashMap;
 
+mod alias_ann;
 pub(crate) mod catch_types;
 mod keyed;
 mod nullish;
@@ -68,8 +69,9 @@ mod scan;
 mod shapes;
 
 pub(crate) use crate::ast_throw_info_fixpoint::compute_may_throw_fns;
+pub(crate) use alias_ann::{elem_ann, unalias};
 pub(crate) use nullish::ProgramNames;
-pub(crate) use obj_cast::{class_field_ann, class_of, elem_ann, returns_any_into_obj, written_ann};
+pub(crate) use obj_cast::{class_field_ann, class_of, returns_any_into_obj, written_ann};
 pub(crate) use scan::Scan;
 pub(crate) use shapes::ident_read_raises;
 use shapes::is_property_store;

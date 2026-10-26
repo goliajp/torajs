@@ -5,6 +5,7 @@
 //! one from the slot's annotation; this answers the same question
 //! from the source, erring towards "may raise".
 
+use super::alias_ann::elem_ann;
 use crate::ast::{Ast, Expr, ExprId, Stmt};
 use crate::check::Type;
 use crate::check_type_ann::strip_nullable;
@@ -362,46 +363,6 @@ fn field_ann(ast: &Ast, owner: &str, field: &str) -> Option<String> {
         } if name == owner && type_params.is_empty() => (fields.iter())
             .find(|(k, _)| *k == field)
             .map(|(_, a)| a.clone()),
-        _ => None,
-    })
-}
-
-/// The element annotation of the array annotation `ann` (`T[]`,
-/// `Array<T>` or `ReadonlyArray<T>`, either one `| undefined`, or a
-/// type alias of one).
-pub(crate) fn elem_ann(ast: &Ast, ann: &str) -> Option<String> {
-    let mut ann = strip_nullable(ann).trim();
-    let mut seen: Vec<&str> = Vec::new();
-    while let Some(target) = alias_target(ast, ann)
-        && !seen.contains(&ann)
-    {
-        seen.push(ann);
-        ann = strip_nullable(target).trim();
-    }
-    let elem = match ann.strip_suffix("[]") {
-        Some(e) => e,
-        None => (ann.strip_prefix("Array<"))
-            .or_else(|| ann.strip_prefix("ReadonlyArray<"))?
-            .strip_suffix('>')?,
-    };
-    Some(elem.trim().to_string())
-}
-
-/// The annotation the non-generic type alias `name` stands for
-/// (`type L = T[]`).
-fn alias_target<'a>(ast: &'a Ast, name: &str) -> Option<&'a str> {
-    if !(name.bytes()).all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'$') {
-        return None;
-    }
-    ast.stmts.iter().find_map(|s| match s {
-        Stmt::TypeDecl {
-            name: n,
-            type_params,
-            fields,
-        } if n == name && type_params.is_empty() => match fields.as_slice() {
-            [(k, target)] if *k == "__alias__" => Some(target.as_str()),
-            _ => None,
-        },
         _ => None,
     })
 }
