@@ -258,6 +258,9 @@ pub(super) struct Analysis<'a> {
     /// The expressions that never run (`idle_bodies`), settled at the
     /// first `any` cast that asks.
     idle: std::cell::OnceCell<idle_bodies::IdleBodies>,
+    /// Can the program replace array iteration? Asked by the first
+    /// `for await` over an array, kept for the rest (`walk.rs`).
+    array_iteration_shadowed: std::cell::OnceCell<bool>,
     /// The compilation's slot keys; every id above indexes it.
     pub(super) keys: SlotKeys,
 }
@@ -342,6 +345,7 @@ pub(crate) fn analyze(
         variadic_calls: Vec::new(),
         fn_flows: Vec::new(),
         idle: std::cell::OnceCell::new(),
+        array_iteration_shadowed: std::cell::OnceCell::new(),
         keys,
     };
 

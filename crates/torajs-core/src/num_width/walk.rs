@@ -87,8 +87,12 @@ impl<'a> Analysis<'a> {
                     && !crate::ssa_lower_stmt_for_of::for_await_steps_array(
                         matches!(self.expr_types.get(obj), Some(crate::check::Type::Array(_))),
                         || {
-                            crate::builtin_proto_shadow::collect_shadowed_builtin_methods(self.ast)
+                            *self.array_iteration_shadowed.get_or_init(|| {
+                                crate::builtin_proto_shadow::collect_shadowed_builtin_methods(
+                                    self.ast,
+                                )
                                 .shadows_iteration("Array")
+                            })
                         },
                     )
                 {
