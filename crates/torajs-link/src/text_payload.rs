@@ -30,16 +30,32 @@
 //! boundary (0x9000, 0xa000, 0xb000, 0xd000), 1.125-1.142 at the 10
 //! across a page boundary (0x8000, 0xc000), and at most 1.071 at the
 //! 295 others, 2 KiB crossings and the 5 steps where only the loop's
-//! last 56 bytes crossed among them. Where the function lands within the region
-//! depended on the runtime members and the user functions in front of
-//! it, so an edit anywhere before a loop moved its reading. The loops
-//! come from codegen and are read only for a function whose bytes
-//! would cross a region boundary, the one case a loop of it can
-//! straddle. Where no start keeps every loop whole, the one keeping
-//! the most, counted from the shortest, is taken; the pad stays under
-//! the longest straddling loop plus a fetch line ([`loop_pad`]).
-//! `TORAJS_LINK_LOOP_PLACE_STATS=1` prints the functions moved and the
-//! bytes left for it.
+//! last 56 bytes crossed among them. Where the function lands within
+//! the region depended on the runtime members and the user functions
+//! in front of it, so an edit anywhere before a loop moved its
+//! reading. The loops come from codegen and are read only for a
+//! function whose bytes would cross a region boundary, the one case a
+//! loop of it can straddle. Where no start keeps every loop whole, the
+//! one keeping the shortest whole is taken, then the next shortest,
+//! and so on; the pad is at most the longest straddling loop rounded
+//! up to a fetch line ([`loop_pad`]).
+//!
+//! Aligning a loop's head does not stand in for this: every step of
+//! the scan moved the loop by a whole fetch line, so its head kept one
+//! offset within a 64-byte line throughout, and the readings still
+//! split by whether the loop crossed a 4 KiB boundary. The rule is of
+//! the kind of the padding compilers emit for Intel's JCC erratum
+//! (`-mbranches-within-32B-boundaries`: no jump may cross or end on a
+//! 32-byte boundary), at the granularity this boundary was measured
+//! at. Aligning every function with a loop to a power of two at least
+//! the loop's length would also keep the loop whole, but it pads every
+//! such function, on average by half that alignment, where the rule
+//! pads only one that would straddle.
+//!
+//! `TORAJS_LINK_LOOP_PLACE_STATS=1` prints one line per archive
+//! layout (`archive_layout_text`), the functions moved and the bytes
+//! left in front of them; a `tr build` lays its text out once, after
+//! dead strip, so its one line is the artifact's.
 //! `TORAJS_LINK_LOOP_PLACE_OFF=1` packs as before (bisect gate).
 //!
 //! A loud-reject stub (a judged-away entry that only tail-branches
@@ -112,6 +128,21 @@ pub(crate) struct TextPlacement {
     pub(crate) members: Vec<u32>,
     /// End of the last placed byte (no trailing pad).
     pub(crate) size: u32,
+    /// The user functions [`loop_pad`] moved, and the bytes it left in
+    /// front of them.
+    pub(crate) loop_pads: (u32, u32),
+}
+
+impl TextPlacement {
+    /// `self`, its [`Self::loop_pads`] printed under
+    /// `TORAJS_LINK_LOOP_PLACE_STATS`.
+    pub(crate) fn reported(self) -> Self {
+        if std::env::var_os("TORAJS_LINK_LOOP_PLACE_STATS").is_some() {
+            let (n, bytes) = self.loop_pads;
+            eprintln!("torajs-link-loop-place-stats: funcs_padded={n} pad_bytes={bytes}");
+        }
+        self
+    }
 }
 
 /// `user_slots` are [`text_slot`]s, in function order. `user_gap` (a
@@ -134,6 +165,8 @@ pub(crate) fn place_text<'a>(
         // a function inside one region keeps every loop of it inside too
         let start = text_base + at;
         let crosses = slot.size > 0 && start / LOOP_REGION != (start + slot.size - 1) / LOOP_REGION;
+        // names are the link's symbols, one definition each; at most
+        // one function crosses each boundary, so this runs that often
         if keep_loops
             && crosses
             && let Some((_, l)) = loops.iter().find(|(name, _)| name == slot.name)
@@ -160,56 +193,43 @@ pub(crate) fn place_text<'a>(
         cursor = cursor.next_multiple_of(TEXT_FN_ALIGN) + user_gap;
     }
     let user = user_slots.map(|s| place(&mut cursor, s)).collect();
-    if std::env::var_os("TORAJS_LINK_LOOP_PLACE_STATS").is_some() {
-        let (n, bytes) = loop_pads;
-        eprintln!("torajs-link-loop-place-stats: funcs_padded={n} pad_bytes={bytes}");
-    }
     TextPlacement {
         user,
         members,
         size: cursor,
+        loop_pads,
     }
 }
 
 /// The fetch lines to leave in front of a function at address `at`
-/// so that as many of its `loops` as possible, counted shortest
-/// first, sit inside one [`LOOP_REGION`]: the smallest pad that
-/// leaves none straddling, else the smallest that leaves the fewest,
-/// the first of them counting most. The pad is at most the longest
-/// straddling loop rounded up to a fetch line: a loop straddling a
-/// boundary starts less than its length before it, so a pad that long
-/// moves any one of them past it, and a longer one only trades the
-/// loops among themselves.
+/// so that its `loops`, shortest first, sit inside one
+/// [`LOOP_REGION`]: the smallest pad that leaves none straddling, else
+/// the smallest that keeps the first loop whole if any pad does, then
+/// the second, and so on (the loops' straddling flags compared in
+/// order, a pad keeping a loop beating every pad that does not). Only
+/// pads up to the longest loop straddling at `at`, rounded up to a
+/// fetch line, are tried.
 fn loop_pad(at: u32, loops: &[(u32, u32)]) -> u32 {
     let straddles = |start: u32, &(lo, hi): &(u32, u32)| {
         hi > lo
             && hi - lo <= LOOP_REGION
             && (start + lo) / LOOP_REGION != (start + hi - 1) / LOOP_REGION
     };
-    // a loop's rank: the shortest counts more than all the longer ones together
-    let cost = |start: u32| {
-        loops
-            .iter()
-            .enumerate()
-            .filter(|(_, l)| straddles(start, l))
-            .map(|(i, _)| 1u64 << (63 - i.min(63)))
-            .sum::<u64>()
-    };
-    let mut best = (cost(at), 0);
+    let flags = |start: u32| loops.iter().map(move |l| straddles(start, l));
     let cap = (loops.iter())
         .filter(|l| straddles(at, l))
         .map(|&(lo, hi)| (hi - lo).next_multiple_of(TEXT_FN_ALIGN))
         .max()
         .unwrap_or(0);
+    let mut best = 0;
     let mut pad = TEXT_FN_ALIGN;
-    while best.0 > 0 && pad <= cap {
-        let c = cost(at + pad);
-        if c < best.0 {
-            best = (c, pad);
+    while flags(at + best).any(|s| s) && pad <= cap {
+        if flags(at + pad).lt(flags(at + best)) {
+            best = pad;
         }
         pad += TEXT_FN_ALIGN;
     }
-    best.1
+    best
 }
 
 pub(crate) fn write_text_payload(
@@ -365,6 +385,7 @@ mod tests {
             assert!(loop_pad(at, &loops) <= 0x100, "{at:#x}");
         }
         let loops = [("f".to_string(), vec![(0x100, 0x200)])];
+        // the stats count the one function moved and its pad
         let p = place_text(
             [TextSlot {
                 size: 0x300,
@@ -380,5 +401,22 @@ mod tests {
         // loop 0xfc0..0x10c0) and moves to 0x80 (address 0xf00, loop 0x1000..)
         assert_eq!(p.user, vec![0x80]);
         assert_eq!(p.size, 0x380);
+        assert_eq!(p.loop_pads, (1, 0x40));
+    }
+
+    /// Past 64 loops the order still decides: seventy all straddling
+    /// move together, and with 64 short loops in front the 65th wins
+    /// over the 66th.
+    #[test]
+    fn more_than_64_loops_keep_their_order() {
+        let same = vec![(0x80, 0x180); 70];
+        assert_eq!(loop_pad(0xf00, &same), 0x80);
+        // at 0xf00 the 65th straddles and the 66th does not; from 0x80
+        // on the other way round; the 64 in front never straddle
+        let mut loops = vec![(0, 4); 64];
+        loops.extend([(0x80, 0x140), (0, 0xd0)]);
+        assert_eq!(loop_pad(0xf00, &loops), 0x80);
+        loops.swap(64, 65);
+        assert_eq!(loop_pad(0xf00, &loops), 0);
     }
 }

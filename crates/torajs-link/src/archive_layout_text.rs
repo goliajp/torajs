@@ -254,7 +254,7 @@ fn place_shifted_text(
         user_gap,
         (offset, &cfg.user_loops),
     );
-    (offset, placement)
+    (offset, placement.reported())
 }
 
 /// The widest gap [`text_shift`] takes: far past the 2 KiB period it
@@ -268,7 +268,9 @@ const MAX_TEXT_GAP: u32 = 1 << 20;
 /// The shift moves every function together, so each lands on a
 /// different fetch-line phase. It cannot move user code against the
 /// runtime, and a timing can hang on that distance alone, with a
-/// period of 2 KiB: only the gap changes it. A value that does not
+/// period of 2 KiB: only the gap changes it. The loop pads are placed
+/// after the shift and gap, and change with them; a scan of the bare
+/// distance sets `TORAJS_LINK_LOOP_PLACE_OFF=1`. A value that does not
 /// parse stops the link rather than measure something else.
 fn text_shift() -> (u32, u32) {
     let Some(v) = std::env::var_os("TORAJS_LINK_TEXT_SHIFT") else {
