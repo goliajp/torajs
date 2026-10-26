@@ -1,6 +1,8 @@
 //! Every name the program binds anywhere — what
 //! [`super::hoist_gen_fn_exprs_wrapper`] asks before it calls a free
-//! variable of a generator expression a capture (rotation 635).
+//! variable of a generator expression a capture (rotation 635), and,
+//! with each `let` / `const` / `var` declaration, what the value-read
+//! census asks of a collection's binding.
 //!
 //! The free-variable walk is name-only: a name the body reads that
 //! neither its params nor the module's top-level bindings supply is
@@ -32,53 +34,57 @@ use super::{Ast, Expr, Param, StaticInit, Stmt};
 
 pub(super) fn bound_names_anywhere(ast: &Ast) -> HashSet<String> {
     let mut out: HashSet<String> = HashSet::new();
+    each_binding(ast, &mut |name, _| {
+        out.insert(name.to_string());
+    });
+    out
+}
+
+/// Every binding the program makes anywhere, by name, with its
+/// declaration where it is a `let` / `const` / `var` one: a name bound
+/// twice is handed twice.
+pub(crate) fn each_binding(ast: &Ast, out: &mut dyn FnMut(&str, Option<&Stmt>)) {
     for s in &ast.stmts {
-        collect_stmt(s, &mut out);
+        collect_stmt(s, out);
     }
     // Arrow bodies hang off arena slots the statement spine never
     // reaches; a flat scan covers every nesting depth.
     for e in &ast.exprs {
         if let Expr::ArrowFn { params, body, .. } = e {
-            push_params(params, &mut out);
-            for s in body {
-                collect_stmt(s, &mut out);
-            }
+            push_params(params, out);
+            collect_list(body, out);
         }
     }
-    out.extend(ast.fn_expr_self_names.values().cloned());
-    out
-}
-
-fn push_params(params: &[Param], out: &mut HashSet<String>) {
-    for p in params {
-        out.insert(p.name.clone());
+    for n in ast.fn_expr_self_names.values() {
+        out(n, None);
     }
 }
 
-fn collect_list(list: &[Stmt], out: &mut HashSet<String>) {
+fn push_params(params: &[Param], out: &mut dyn FnMut(&str, Option<&Stmt>)) {
+    for p in params {
+        out(&p.name, None);
+    }
+}
+
+fn collect_list(list: &[Stmt], out: &mut dyn FnMut(&str, Option<&Stmt>)) {
     for s in list {
         collect_stmt(s, out);
     }
 }
 
-fn collect_stmt(s: &Stmt, out: &mut HashSet<String>) {
+fn collect_stmt(s: &Stmt, out: &mut dyn FnMut(&str, Option<&Stmt>)) {
     match s {
-        Stmt::LetDecl { name, .. } | Stmt::UsingDecl { name, .. } => {
-            out.insert(name.clone());
-        }
-        Stmt::ForOf { var_name, .. } | Stmt::ForOfSplitIter { var_name, .. } => {
-            out.insert(var_name.clone());
-        }
+        Stmt::LetDecl { name, .. } => out(name, Some(s)),
+        Stmt::UsingDecl { name, .. } => out(name, None),
+        Stmt::ForOf { var_name, .. } | Stmt::ForOfSplitIter { var_name, .. } => out(var_name, None),
         Stmt::Try {
             catch_param: Some(c),
             ..
-        } => {
-            out.insert(c.clone());
-        }
+        } => out(c, None),
         Stmt::FnDecl {
             name, params, body, ..
         } => {
-            out.insert(name.clone());
+            out(name, None);
             push_params(params, out);
             collect_list(body, out);
         }
@@ -90,7 +96,7 @@ fn collect_stmt(s: &Stmt, out: &mut HashSet<String>) {
             static_init,
             ..
         } => {
-            out.insert(name.clone());
+            out(name, None);
             if let Some(c) = ctor {
                 push_params(&c.params, out);
                 collect_list(&c.body, out);
@@ -111,11 +117,14 @@ fn collect_stmt(s: &Stmt, out: &mut HashSet<String>) {
             named,
             ..
         } => {
-            out.extend(default.iter().cloned());
-            out.extend(namespace.iter().cloned());
+            for n in default.iter().chain(namespace) {
+                out(n, None);
+            }
             for (imported, local) in named {
-                out.insert(imported.clone());
-                out.extend(local.iter().cloned());
+                out(imported, None);
+                if let Some(l) = local {
+                    out(l, None);
+                }
             }
         }
         _ => {}

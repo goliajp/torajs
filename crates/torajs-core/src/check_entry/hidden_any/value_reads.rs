@@ -9,15 +9,16 @@
 //! own properties do not depend on the return its declaration spells.
 //! A store into a collection is one only where the collection never
 //! hands the function back: a weak one, or one the program only looks
-//! keys up in, never iterates nor hands elsewhere; or where it hands it
-//! back typed with a return of `any`. A `Map` key typed `() => number`
-//! is read back as that type and called, and so is a `Set` element or
-//! a key of a `Map` keyed `any` or `Function`, which come back as `any`
-//! values a slot typed `() => number` admits and calls through.
+//! keys up in, never iterates nor hands elsewhere. A `Map` key typed
+//! `() => number` is read back as that type and called, and so is a
+//! `Set` element or a key of a `Map` keyed `any`, `Function` or
+//! `() => any`, which a slot typed `() => number` admits and calls
+//! through.
 
 use std::collections::{HashMap, HashSet};
 
 use super::value_places::{Place, places};
+use crate::ast::hoist_gen_fn_exprs_names::each_binding;
 use crate::ast::{Ast, BinOp, Expr, ExprId, PropKey, Stmt};
 use crate::check::Type;
 
@@ -33,17 +34,18 @@ pub(super) fn value_reads(
     // a round's program is `ast` or a clone of it, and every pass
     // after (the retype, the mono pass) only appends to its arena: the
     // first `ast.exprs.len()` nodes of `mono` are `ast`'s own
-    let mut calls: HashSet<ExprId> = (ast.exprs.iter().chain(&mono.exprs[ast.exprs.len()..]))
+    let callees: HashSet<ExprId> = (ast.exprs.iter().chain(&mono.exprs[ast.exprs.len()..]))
         .filter_map(|e| match e {
             Expr::Call { callee, .. } => Some(*callee),
             _ => None,
         })
         .collect();
+    let mut thunk_rets = HashSet::new();
     for s in &ast.stmts {
         if let Stmt::FnDecl { name, body, .. } = s
             && (name.starts_with("__iw_") || name.starts_with("__ilit_"))
         {
-            calls.extend(super::promise_rets::own_returns(body));
+            thunk_rets.extend(super::promise_rets::own_returns(body));
         }
     }
     let mut out = HashSet::new();
@@ -54,11 +56,17 @@ pub(super) fn value_reads(
                 continue;
             };
             let read = ExprId(i as u32);
-            if calls.contains(&read) {
+            if callees.contains(&read) || thunk_rets.contains(&read) {
                 continue;
             }
             let owners = owners(ast, types.get(obj));
-            if owners.is_empty() || inspected(of, types, at.get_or_insert_with(|| places(of)), read)
+            if owners.is_empty()
+                || inspected(
+                    of,
+                    types,
+                    at.get_or_insert_with(|| Seen::of(of, &callees)),
+                    read,
+                )
             {
                 continue;
             }
@@ -91,18 +99,59 @@ fn owners(ast: &Ast, t: Option<&Type>) -> Vec<String> {
     }
 }
 
+/// What [`inspected`] reads off one program once.
+struct Seen<'a> {
+    places: HashMap<ExprId, Place>,
+    /// the callee of every call of the program
+    callees: &'a HashSet<ExprId>,
+    /// the names every binding of which, anywhere, is a `let` or a
+    /// `const` initialized with `new Set(..)` or `new Map(..)`, and
+    /// which no export hands to another module
+    fresh: HashSet<String>,
+}
+
+impl<'a> Seen<'a> {
+    fn of(ast: &Ast, callees: &'a HashSet<ExprId>) -> Self {
+        let mut fresh = HashSet::new();
+        let mut not = HashSet::new();
+        each_binding(ast, &mut |n, decl| match decl {
+            Some(Stmt::LetDecl {
+                is_var: false,
+                init,
+                ..
+            }) if matches!(ast.get_expr(*init),
+                Expr::New { class_name, .. } if class_name == "Set" || class_name == "Map") =>
+            {
+                fresh.insert(n.to_string());
+            }
+            _ => {
+                not.insert(n.to_string());
+            }
+        });
+        for s in &ast.stmts {
+            if let Stmt::ExportDecl { inner, named, .. } = s {
+                not.extend(named.iter().map(|(n, _)| n.clone()));
+                if let Some(Stmt::LetDecl { name, .. }) = inner.as_deref() {
+                    not.insert(name.clone());
+                }
+            }
+        }
+        fresh.retain(|n| !not.contains(n));
+        Seen {
+            places: places(ast),
+            callees,
+            fresh,
+        }
+    }
+}
+
 /// Whether the value `read` goes only into a comparison, an operator,
 /// `typeof`, a property read other than `call` / `apply` / `bind`, or
 /// the key argument of a `Map` / `Set` lookup, or of a store whose
 /// collection hands the key back to no slot but one typed with a
 /// return of `any` ([`only_looked_up`]).
-fn inspected(
-    ast: &Ast,
-    types: &HashMap<ExprId, Type>,
-    places: &HashMap<ExprId, Place>,
-    read: ExprId,
-) -> bool {
-    let Some(Place::Expr(p)) = places.get(&read) else {
+fn inspected(ast: &Ast, types: &HashMap<ExprId, Type>, seen: &Seen, read: ExprId) -> bool {
+    let Some(Place::Expr(p)) = seen.places.get(&read) else {
         return false;
     };
     match ast.get_expr(*p) {
@@ -121,21 +170,14 @@ fn inspected(
                     ) => true,
                     // a weak collection never hands its keys back
                     ("add", Some(Type::WeakSet)) | ("set", Some(Type::WeakMap)) => true,
-                    ("set", Some(Type::Map(key, _))) if returns_any(key) => true,
                     ("add", Some(Type::Set)) | ("set", Some(Type::Map(..))) => {
-                        !returns_typed(map_key(types.get(obj))) && only_looked_up(ast, *obj)
+                        !returns_typed(map_key(types.get(obj))) && only_looked_up(ast, seen, *obj)
                     }
                     _ => false,
                 }
         }
         _ => false,
     }
-}
-
-/// Whether a slot typed `t` calls the function it holds through a
-/// declared return of `any`.
-fn returns_any(t: &Type) -> bool {
-    matches!(non_null(t), Type::Function(_, ret) if **ret == Type::Any)
 }
 
 /// Whether a slot typed `t` calls the function it holds through a
@@ -153,35 +195,45 @@ fn map_key(t: Option<&Type>) -> Option<&Type> {
 }
 
 /// Whether the collection `obj` reads is a binding every read of
-/// which, by name anywhere in `ast`, looks a key up, stores one or
-/// reads `size`: nothing iterates it or takes it elsewhere, so no key
-/// stored into it comes back.
-fn only_looked_up(ast: &Ast, obj: ExprId) -> bool {
+/// which, by name anywhere in `ast`, only looks a key up, stores one or
+/// reads `size` ([`looks_only`]): nothing iterates it or takes it
+/// elsewhere, so no key stored into it comes back. The reads are matched
+/// by name, not by scope, which only errs towards a read that is not the
+/// binding's: a same-named binding elsewhere has to pass too. The
+/// binding has to be one [`Seen::fresh`] names, so no other name, no
+/// parameter and no other module holds the same collection.
+fn only_looked_up(ast: &Ast, seen: &Seen, obj: ExprId) -> bool {
     let Expr::Ident(n) = ast.get_expr(obj) else {
         return false;
     };
-    let callees: HashSet<ExprId> = (ast.exprs.iter())
-        .filter_map(|e| match e {
-            Expr::Call { callee, .. } => Some(*callee),
-            _ => None,
+    seen.fresh.contains(n)
+        && (ast.exprs.iter().enumerate()).all(|(i, e)| {
+            !matches!(e, Expr::Ident(m) if m == n) || looks_only(ast, seen, ExprId(i as u32))
         })
-        .collect();
-    let mut looked: HashSet<ExprId> = HashSet::new();
-    for (i, e) in ast.exprs.iter().enumerate() {
-        if let Expr::Member { obj, name } = e
-            && matches!(ast.get_expr(*obj), Expr::Ident(m) if m == n)
-            && match name.as_str() {
-                "add" | "set" | "get" | "has" | "delete" | "clear" => {
-                    callees.contains(&ExprId(i as u32))
-                }
-                name => name == "size",
+}
+
+/// Whether the collection value `e` goes only into a lookup, a `size`
+/// read, or a store whose answer, the collection again, is dropped or
+/// itself only looked up: `Set.prototype.add` and `Map.prototype.set`
+/// return their receiver (§24.2.4.1, §24.1.3.9).
+fn looks_only(ast: &Ast, seen: &Seen, e: ExprId) -> bool {
+    let Some(Place::Expr(p)) = seen.places.get(&e) else {
+        return false;
+    };
+    let Expr::Member { name, .. } = ast.get_expr(*p) else {
+        return false;
+    };
+    match name.as_str() {
+        "size" => true,
+        "get" | "has" | "delete" | "clear" => seen.callees.contains(p),
+        "add" | "set" if seen.callees.contains(p) => match seen.places.get(p) {
+            Some(Place::Expr(call)) => {
+                matches!(seen.places.get(call), Some(Place::Drop)) || looks_only(ast, seen, *call)
             }
-        {
-            looked.insert(*obj);
-        }
+            _ => false,
+        },
+        _ => false,
     }
-    (ast.exprs.iter().enumerate())
-        .all(|(i, e)| !matches!(e, Expr::Ident(m) if m == n) || looked.contains(&ExprId(i as u32)))
 }
 
 /// Whether a receiver typed `t` may be a value of the interface typed
