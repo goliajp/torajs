@@ -30,6 +30,9 @@ pub(super) fn declare_intrinsic_batches(
     // `init_a.<group>.<field>` references appear directly in the
     // `Intrinsics { ... }` literal below; no local *_id vars are
     // needed because nothing between here and the literal reads them.
+    // the batches declare about a thousand names: room for them up front
+    // rather than a rehash at every doubling on the way
+    fn_table.reserve(1 << 10);
     let init_a = crate::ssa_lower_intrinsics_init_a::declare(module, fn_table);
     // Pass 0 batch B — regex / date / fs / process / arr_any / object
     // (6 sub-systems, 121 FuncIds) declare via aggregator in

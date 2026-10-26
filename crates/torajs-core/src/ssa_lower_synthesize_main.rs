@@ -28,9 +28,17 @@ pub(crate) fn declare_intrinsic(
     param_tys: &[Type],
     ret_ty: Type,
 ) -> FuncId {
+    // a build declares about a thousand of these: the usual names are
+    // spelled once rather than formatted for every parameter
+    const NAMES: [&str; 12] = [
+        "a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8", "a9", "a10", "a11",
+    ];
     let mut f = ssa::Function::new(name, ret_ty);
     for (i, &t) in param_tys.iter().enumerate() {
-        f.add_param(t, &format!("a{i}"));
+        match NAMES.get(i) {
+            Some(n) => f.add_param(t, n),
+            None => f.add_param(t, &format!("a{i}")),
+        };
     }
     // No blocks → declaration only; backend supplies the body.
     let id = FuncId(module.funcs.len() as u32);
