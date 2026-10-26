@@ -25,8 +25,8 @@ pub(super) fn emitted(
 /// The byte ranges of the loops: each back edge ([`back_edges`])
 /// closes a range from its target's first byte to the end of the
 /// branching block (the next block's start, or `end` for the last
-/// block). Each edge back to one header keeps its own range: block
-/// layout puts a loop's cold arms after its hot latch, and one range
+/// block; for a latch the emitter left out, [`latch_ends`]). Each
+/// edge back to one header keeps its own range: block layout puts a loop's cold arms after its hot latch, and one range
 /// over every edge would take them in, past what a region holds, and
 /// leave the hot path unguarded. A branch that only jumps backwards in
 /// the emitted order (a cold block at the end returning to a join)
@@ -71,18 +71,75 @@ fn loop_ranges(
     // tuple sort keeps; two edges from one block close one range
     let mut by_len: Vec<(u32, u32)> = edges
         .into_iter()
-        .filter_map(|(from, to)| {
-            let (from_at, to) = (start(from)?, start(to)?);
+        .flat_map(|(from, to)| {
+            let (from, head) = (pos.of_block(from), pos.of_block(to));
             // block layout lays a loop out from its header and never
             // rotates it (egraph `block_layout`), so a back edge's
-            // target is emitted first; one that is not names no
+            // target is laid out first; one that is not names no
             // contiguous range
-            (to <= from_at).then(|| (block_end(pos.of_block(from)) - to, to))
+            let to_at = start(to).filter(|_| head <= from);
+            let ends = match to_at {
+                Some(_) => latch_ends(func, from, head, &start, &block_end),
+                None => Vec::new(),
+            };
+            (ends.into_iter()).flat_map(move |e| to_at.map(|at| (e - at, at)))
         })
         .collect();
     by_len.sort_unstable();
     by_len.dedup();
     by_len.into_iter().map(|(len, lo)| (lo, lo + len)).collect()
+}
+
+/// The ends of the code that branches back from the latch at
+/// position `p` to the header at position `head`. An emitted latch
+/// ends at `block_end(p)`. A latch the emitter left out is an empty
+/// forwarder whose predecessors branch to the header themselves
+/// (through any further forwarders): each emitted one laid out from
+/// the header on ends a range of its own, as a second edge back would,
+/// so a cold arm laid out past the loop's exit stretches only its own
+/// range. One laid out ahead of the header enters the loop and closes
+/// nothing.
+fn latch_ends(
+    func: &Function,
+    p: usize,
+    head: usize,
+    start: &impl Fn(BlockId) -> Option<u32>,
+    block_end: &impl Fn(usize) -> u32,
+) -> Vec<u32> {
+    let latch = func.blocks[p].id;
+    if start(latch).is_some() {
+        return vec![block_end(p)];
+    }
+    let mut ends = Vec::new();
+    // the forwarders still to read, and every one ever queued
+    let mut todo = vec![latch];
+    let mut seen = vec![latch];
+    while let Some(h) = todo.pop() {
+        for (i, b) in func.blocks.iter().enumerate() {
+            if !branches_to(&b.term, h) {
+                continue;
+            }
+            if start(b.id).is_some() {
+                if i >= head {
+                    ends.push(block_end(i));
+                }
+            } else if !seen.contains(&b.id) {
+                seen.push(b.id);
+                todo.push(b.id);
+            }
+        }
+    }
+    ends
+}
+
+fn branches_to(term: &Terminator, b: BlockId) -> bool {
+    match term {
+        Terminator::Br(t) => *t == b,
+        Terminator::CondBr {
+            then_blk, else_blk, ..
+        } => *then_blk == b || *else_blk == b,
+        Terminator::Ret(_) | Terminator::Unreachable => false,
+    }
 }
 
 /// Where each block sits in `blocks`, by id: no table when every
@@ -339,6 +396,77 @@ mod tests {
         ]);
         let starts = [(0, 0), (1, 16), (2, 32), (4, 48)].into_iter().collect();
         assert_eq!(loop_ranges(&f, &starts, 64), vec![(16, 48)]);
+    }
+
+    /// b0 → b1 (header) → b2 | b4; b2 → b3 (an empty latch, left
+    /// out) → b1; b4, laid out after the latch, → b3 | b5 (ret): each
+    /// block branching back through the latch closes its own range.
+    #[test]
+    fn a_left_out_latch_closes_a_range_per_predecessor() {
+        let f = func(vec![
+            blk(0, Terminator::Br(BlockId(1))),
+            blk(1, cond(2, 4)),
+            blk(2, Terminator::Br(BlockId(3))),
+            blk(3, Terminator::Br(BlockId(1))),
+            blk(4, cond(3, 5)),
+            blk(5, Terminator::Ret(None)),
+        ]);
+        assert_eq!(edges(&f), vec![(3, 1)]);
+        let starts = [(0, 0), (1, 16), (2, 32), (4, 48), (5, 80)]
+            .into_iter()
+            .collect();
+        assert_eq!(loop_ranges(&f, &starts, 96), vec![(16, 48), (16, 80)]);
+        // with b4 ahead of the latch's own end, the range stops there
+        let f = func(vec![
+            blk(0, Terminator::Br(BlockId(1))),
+            blk(1, cond(2, 5)),
+            blk(2, Terminator::Br(BlockId(3))),
+            blk(3, Terminator::Br(BlockId(1))),
+            blk(5, Terminator::Ret(None)),
+        ]);
+        let starts = [(0, 0), (1, 16), (2, 32), (5, 48)].into_iter().collect();
+        assert_eq!(loop_ranges(&f, &starts, 64), vec![(16, 48)]);
+    }
+
+    /// b0 → b1 (header) → b2 | b6 (exit); b2 → b3 | b5 (cold); b3 →
+    /// b4 (an empty latch, left out) → b1; b6 → b7 (ret); b5, laid out
+    /// after the exit code, → b4. The hot range ends with b3: the cold
+    /// arm closes its own range over what lies between, and does not
+    /// stretch the hot one.
+    #[test]
+    fn a_cold_arm_through_a_left_out_latch_keeps_the_hot_range() {
+        let f = func(vec![
+            blk(0, Terminator::Br(BlockId(1))),
+            blk(1, cond(2, 6)),
+            blk(2, cond(3, 5)),
+            blk(3, Terminator::Br(BlockId(4))),
+            blk(4, Terminator::Br(BlockId(1))),
+            blk(6, Terminator::Br(BlockId(7))),
+            blk(7, Terminator::Ret(None)),
+            blk(5, Terminator::Br(BlockId(4))),
+        ]);
+        assert_eq!(edges(&f), vec![(4, 1)]);
+        let starts = [(0, 0), (1, 16), (2, 32), (3, 48), (6, 64), (7, 80), (5, 96)]
+            .into_iter()
+            .collect();
+        assert_eq!(loop_ranges(&f, &starts, 112), vec![(16, 64), (16, 112)]);
+    }
+
+    /// b0 → b1 (header) | b2; b1 → b3 (an empty latch, left out) |
+    /// b4 (ret); b3 → b1; b2, laid out ahead of the header, → b3:
+    /// entering the loop through the latch closes nothing.
+    #[test]
+    fn a_predecessor_ahead_of_the_header_closes_nothing() {
+        let f = func(vec![
+            blk(0, cond(1, 2)),
+            blk(2, Terminator::Br(BlockId(3))),
+            blk(1, cond(3, 4)),
+            blk(3, Terminator::Br(BlockId(1))),
+            blk(4, Terminator::Ret(None)),
+        ]);
+        assert_eq!(edges(&f), vec![(3, 1)]);
+        let starts = [(0, 0), (2, 16), (1, 32), (4, 48)].into_iter().collect();
+        assert_eq!(loop_ranges(&f, &starts, 64), vec![(32, 48)]);
     }
 
     /// A latch emitted last ends at the function's end.
