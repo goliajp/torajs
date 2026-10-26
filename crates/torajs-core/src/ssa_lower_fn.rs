@@ -186,6 +186,7 @@ pub(crate) fn lower_fn(
         bigint_op_may_throw: false,
         globals,
         is_main_fn: false,
+        body_sloppy: ast.body_is_sloppy(body),
         suspend_body,
         drop_inline_stack: std::collections::HashSet::new(),
         deque_arrs: std::collections::HashSet::new(),

@@ -350,6 +350,8 @@ pub(crate) struct LowerCtx<'a> {
     /// declaration entirely (in named fns — they only ever read/write
     /// the slot via the ident-read / Assign-Ident fallbacks).
     pub(crate) is_main_fn: bool,
+    /// Whether the body being lowered is sloppy code (§11.2.2).
+    pub(crate) body_sloppy: bool,
     /// True while lowering the body of an async function that
     /// suspends over a frame (`ssa_lower_fn::suspend`).
     pub(crate) suspend_body: bool,

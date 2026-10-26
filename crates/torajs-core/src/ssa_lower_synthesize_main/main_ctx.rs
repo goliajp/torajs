@@ -123,6 +123,7 @@ impl<'a> MainEnv<'a> {
             bigint_op_may_throw: false,
             globals: self.globals,
             is_main_fn: true,
+            body_sloppy: self.ast.program_is_sloppy(),
             suspend_body: t.suspend_body,
             drop_inline_stack: HashSet::new(),
             deque_arrs: HashSet::new(),

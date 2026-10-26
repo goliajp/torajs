@@ -10,7 +10,6 @@
 //! (§13.15.2 step 1.b ToObject), a private-brand miss (§7.3.32 — a
 //! TypeError, not a refusal), and a setter's own throw.
 
-use crate::ast::Stmt;
 use crate::ssa::{FuncId, InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
@@ -19,25 +18,14 @@ use crate::ssa_lower::LowerCtx;
 /// directive makes a function strict inside a sloppy Script, and
 /// class code is always strict — the parser materializes a directive
 /// into every such body, so reading the body is enough
-/// (`Ast::body_is_sloppy`). The program's own goal answers for
-/// `main` and for a body this table does not know. Keying on the
-/// program alone (the delete lane's first cut) let `() => { "use
-/// strict"; o[0] = 1 }` and every class method's `super.x = v` take
-/// the soft kernel inside an unflagged test262 script — nine cases
-/// went from pass to bug in one sweep.
+/// (`Ast::body_is_sloppy`), read once off the body being lowered. The
+/// program's own goal answers for `main`. Keying on the program alone
+/// (the delete lane's first cut) let `() => { "use strict"; o[0] = 1
+/// }` and every class method's `super.x = v` take the soft kernel
+/// inside an unflagged test262 script — nine cases went from pass to
+/// bug in one sweep.
 pub(crate) fn cur_fn_is_sloppy(ctx: &LowerCtx<'_>) -> bool {
-    if !ctx.ast.program_is_sloppy() {
-        return false;
-    }
-    let name = ctx.f.name.as_str();
-    for s in &ctx.ast.stmts {
-        if let Stmt::FnDecl { name: n, body, .. } = s
-            && n == name
-        {
-            return ctx.ast.body_is_sloppy(body);
-        }
-    }
-    true
+    ctx.body_sloppy
 }
 
 /// Emit one [[Set]] call in the function's goal: `strict` (void, a
