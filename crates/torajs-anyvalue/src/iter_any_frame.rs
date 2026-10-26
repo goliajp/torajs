@@ -8,10 +8,11 @@
 
 use crate::iter_any::{OPEN_THREW_LANE, USER_ASYNC_ITERATOR_LANE};
 use crate::iter_any_await::AwaitMode;
-use crate::iter_any_close_value::{ReturnCall, is_helper, iter_return};
+use crate::iter_any_close_value::{
+    ReturnCall, WrapperReturn, is_helper, iter_return, wrapper_return,
+};
 use crate::iter_zip_shared::av_is_object;
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED};
-use crate::nanbox_ffi::__torajs_anyv_rc_dec;
 
 unsafe extern "C" {
     fn __torajs_throw_check() -> i64;
@@ -107,35 +108,14 @@ pub unsafe extern "C" fn __torajs_any_iter_close_frame(
 /// iterator `iter`, up to the await of its answer's `value`.
 unsafe fn wrapper_close(iter: AnyValue, out: *mut AnyValue) -> i64 {
     unsafe {
-        let result = match iter_return(iter) {
-            ReturnCall::Absent => return CLOSE_YIELD,
-            ReturnCall::Threw => return CLOSE_YIELD_RAISE,
-            ReturnCall::Answered(result) => result,
-        };
-        if !av_is_object(result) {
-            crate::iter_any_close::reject_non_object_close_result(result);
-            return CLOSE_YIELD_RAISE;
-        }
-        let value = result_value(result);
-        __torajs_anyv_rc_dec(result);
-        match value {
-            Some(value) => {
+        match wrapper_return(iter) {
+            WrapperReturn::Absent => CLOSE_YIELD,
+            WrapperReturn::Rejected => CLOSE_YIELD_RAISE,
+            WrapperReturn::Value(value) => {
                 *out = value;
                 CLOSE_AWAIT_VALUE
             }
-            None => CLOSE_YIELD_RAISE,
         }
-    }
-}
-
-/// §27.1.6.4 steps 1-4 over the object `result` (borrowed): its `done`,
-/// then its `value`, owned; `None` with a throw in flight.
-unsafe fn result_value(result: AnyValue) -> Option<AnyValue> {
-    use crate::iter_any_result::iter_result_get;
-    unsafe {
-        let ptr = crate::nanbox::as_void_ptr(result);
-        __torajs_anyv_rc_dec(iter_result_get(result, ptr, b"done")?);
-        iter_result_get(result, ptr, b"value")
     }
 }
 
@@ -150,5 +130,32 @@ pub unsafe extern "C" fn __torajs_any_iter_close_result_check(v: AnyValue) {
         if !av_is_object(v) {
             __torajs_throw_type_error(c"iterator.return() did not return an object".as_ptr());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::iter_any_await::{STEP_AWAIT_RESULT, STEP_AWAIT_VALUE};
+
+    /// torajs-core spells these codes in the branches it lowers
+    /// (`ssa_lower_fn::suspend::any_step` / `any_frame`); a change here
+    /// is a change there.
+    #[test]
+    fn step_and_close_codes() {
+        assert_eq!(
+            [STEP_AWAIT_VALUE, STEP_AWAIT_RESULT, STEP_RAISE_LATER],
+            [2, 3, 4]
+        );
+        assert_eq!(
+            [
+                CLOSE_DONE,
+                CLOSE_YIELD,
+                CLOSE_YIELD_RAISE,
+                CLOSE_AWAIT_RESULT,
+                CLOSE_AWAIT_VALUE
+            ],
+            [0, 1, 2, 3, 4]
+        );
     }
 }

@@ -56,6 +56,50 @@ pub(crate) enum ReturnCall {
     Threw,
 }
 
+/// What the Async-from-Sync wrapper's `return` (§27.1.6.2.2) over a
+/// sync iterator leaves its caller to await.
+pub(crate) enum WrapperReturn {
+    /// There was no `return` to call: the wrapper's promise is
+    /// fulfilled at once.
+    Absent,
+    /// The wrapper's promise is rejected with the throw in flight: a
+    /// `return()` that threw or answered no object, a throwing `done` /
+    /// `value` read.
+    Rejected,
+    /// The answer's `value` (§27.1.6.4 steps 1-4), owned.
+    Value(AnyValue),
+}
+
+/// The wrapper's `return` over the sync iterator `iter`, up to the
+/// await of its answer's `value`.
+///
+/// # Safety
+/// `iter` is a live AnyValue.
+pub(crate) unsafe fn wrapper_return(iter: AnyValue) -> WrapperReturn {
+    use crate::iter_any_result::iter_result_get;
+    unsafe {
+        let result = match iter_return(iter) {
+            ReturnCall::Absent => return WrapperReturn::Absent,
+            ReturnCall::Threw => return WrapperReturn::Rejected,
+            ReturnCall::Answered(result) => result,
+        };
+        if !crate::iter_zip_shared::av_is_object(result) {
+            reject_non_object_close_result(result);
+            return WrapperReturn::Rejected;
+        }
+        let ptr = as_void_ptr(result);
+        let value = match iter_result_get(result, ptr, b"done") {
+            Some(done) => {
+                __torajs_anyv_rc_dec(done);
+                iter_result_get(result, ptr, b"value")
+            }
+            None => None,
+        };
+        __torajs_anyv_rc_dec(result);
+        value.map_or(WrapperReturn::Rejected, WrapperReturn::Value)
+    }
+}
+
 /// [`__torajs_iter_close_value`] up to the `return()` call.
 ///
 /// # Safety

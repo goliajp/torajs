@@ -21,10 +21,11 @@
 use core::ffi::c_void;
 
 use crate::iter_any::USER_ASYNC_ITERATOR_LANE;
-use crate::iter_any_close::reject_non_object_close_result;
-use crate::iter_any_close_value::{ReturnCall, is_helper, iter_return};
+use crate::iter_any_close_value::{
+    ReturnCall, WrapperReturn, is_helper, iter_return, wrapper_return,
+};
 use crate::iter_zip_shared::av_is_object;
-use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr};
+use crate::nanbox::{AnyValue, VALUE_UNDEFINED};
 use crate::nanbox_ffi::__torajs_anyv_rc_dec;
 
 unsafe extern "C" {
@@ -88,27 +89,16 @@ unsafe fn async_close(iter: AnyValue) {
 /// The await of the Async-from-Sync wrapper's `return` over `iter`.
 unsafe fn wrapper_close(iter: AnyValue) {
     unsafe {
-        let result = match iter_return(iter) {
-            ReturnCall::Absent => {
+        let value = match wrapper_return(iter) {
+            WrapperReturn::Absent => {
                 __torajs_microtask_yield();
                 return;
             }
-            ReturnCall::Threw => {
+            WrapperReturn::Rejected => {
                 __torajs_module_yield_rethrow();
                 return;
             }
-            ReturnCall::Answered(result) => result,
-        };
-        if !av_is_object(result) {
-            reject_non_object_close_result(result);
-            __torajs_module_yield_rethrow();
-            return;
-        }
-        let value = result_value(result);
-        __torajs_anyv_rc_dec(result);
-        let Some(value) = value else {
-            __torajs_module_yield_rethrow();
-            return;
+            WrapperReturn::Value(value) => value,
         };
         if await_in_place(value).is_none() && __torajs_module_cancelled() != 0 {
             return;
@@ -118,17 +108,6 @@ unsafe fn wrapper_close(iter: AnyValue) {
         } else {
             __torajs_microtask_yield();
         }
-    }
-}
-
-/// §27.1.6.4 steps 1-4 over the object `result` (borrowed): its `done`,
-/// then its `value`, owned; `None` with a throw in flight.
-unsafe fn result_value(result: AnyValue) -> Option<AnyValue> {
-    use crate::iter_any_result::iter_result_get;
-    unsafe {
-        let ptr = as_void_ptr(result);
-        __torajs_anyv_rc_dec(iter_result_get(result, ptr, b"done")?);
-        iter_result_get(result, ptr, b"value")
     }
 }
 

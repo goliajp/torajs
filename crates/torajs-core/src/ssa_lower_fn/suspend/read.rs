@@ -10,8 +10,9 @@ pub(super) const PROMISE_STATE_WORD_OFF: u64 = 8;
 pub(super) const PROMISE_VALUE_OFF: u64 = 16;
 /// `state` and `value_repr` out of that word.
 const STATE_AND_REPR_MASK: u32 = 0xFF00_00FF;
-/// `torajs-promise` `STATE_FULFILLED`.
+/// `torajs-promise` `STATE_FULFILLED` / `STATE_REJECTED`.
 const STATE_FULFILLED: i32 = 1;
+pub(super) const STATE_REJECTED: i32 = 2;
 
 /// The state word of a cell fulfilled in the form `want_repr` names,
 /// and the bytes of it that tell (`torajs-promise`

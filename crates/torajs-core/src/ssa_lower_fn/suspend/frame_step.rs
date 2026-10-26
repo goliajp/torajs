@@ -123,9 +123,6 @@ pub(super) fn restore_throw(ctx: &mut LowerCtx<'_>, boxed: Operand) {
     ctx.f.append_void(cb, InstKind::Call(i.throw_set, set));
 }
 
-/// `torajs-promise` `STATE_REJECTED`.
-const STATE_REJECTED: i32 = 2;
-
 /// A frame body's await whose rejection is raised one job after the
 /// continuation (`sync_step`: the Async-from-Sync step's promise is
 /// rejected from a reaction): on the owned settled cell `settled`, a
@@ -143,7 +140,7 @@ pub(super) fn delay_rejection(ctx: &mut LowerCtx<'_>, settled: Operand) {
     let rejected = InstKind::ICmp(
         IPred::Eq,
         Operand::Value(state),
-        Operand::ConstI32(STATE_REJECTED),
+        Operand::ConstI32(super::read::STATE_REJECTED),
     );
     let rejected = ctx.f.append_inst(cb, rejected, Type::Bool, None);
     let delay = ctx.f.add_block();
