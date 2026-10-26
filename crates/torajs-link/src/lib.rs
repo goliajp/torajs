@@ -95,6 +95,7 @@ pub(crate) mod defined_extern_resolve;
 pub mod dyld_emit;
 pub mod dyld_syms;
 pub mod exec;
+mod exec_layout;
 pub mod exec_user_entries;
 pub mod fn_addr_syms;
 pub mod fn_name_table_layout;
