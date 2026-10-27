@@ -150,9 +150,8 @@ impl<'a> Parser<'a> {
         &mut self,
         tokens: &[lexer::Spanned],
     ) -> Result<ExprId, String> {
-        // The interpolation's tokens were lexed separately from the
-        // enclosing stream, so a `__` user name written inside `${…}`
-        // is only recorded here (doc on the pass).
+        // The interpolation was lexed apart from the enclosing stream,
+        // so a `__` user name inside `${…}` is recorded only here.
         crate::ast::record_source_dunder_idents(&mut self.ast, tokens);
         let mut sub = Parser {
             // The lexer rebased the interpolation's spans onto the
@@ -248,6 +247,7 @@ impl<'a> Parser<'a> {
             in_formal_params: self.in_formal_params,
             await_allowed: self.await_allowed,
             await_reserved: self.await_reserved,
+            script_goal: self.script_goal,
         };
         let result = sub.parse_expr()?;
         // Tokens vec ends with Token::Eof; anything before

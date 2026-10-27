@@ -16,6 +16,15 @@ pub fn parse(source: &str, tokens: &[Spanned]) -> Result<Ast, String> {
     Ok(ast)
 }
 
+/// [`parse`] for a whole program of a known goal. Under the Script goal
+/// the top level reads `await` as a name wherever that reading parses
+/// (§13.1.1); a program of the Module goal parses as [`parse`] does.
+pub fn parse_program(source: &str, tokens: &[Spanned], script_goal: bool) -> Result<Ast, String> {
+    let mut ast = Ast::default();
+    parse_goal(source, tokens, &mut ast, false, false, script_goal)?;
+    Ok(ast)
+}
+
 /// Phase K.2 — append-mode parse. Parses `tokens` into the existing
 /// `target` AST, sharing its `exprs` arena so any newly-minted ExprIds
 /// continue numbering from `target.exprs.len()`. Returns the index of
@@ -60,6 +69,17 @@ pub fn parse_into_eval(
     target: &mut Ast,
     super_prop_ok: bool,
     strict: bool,
+) -> Result<usize, String> {
+    parse_goal(source, tokens, target, super_prop_ok, strict, false)
+}
+
+fn parse_goal(
+    source: &str,
+    tokens: &[Spanned],
+    target: &mut Ast,
+    super_prop_ok: bool,
+    strict: bool,
+    script_goal: bool,
 ) -> Result<usize, String> {
     // Which `__`-prefixed names did the PROGRAM spell? Recorded from
     // the token stream, before the parser starts minting Ident nodes
@@ -152,6 +172,7 @@ pub fn parse_into_eval(
         // `await` in a BINDING position here is an ordinary Script-goal
         // name for `ast::triage_await_idents` to judge by goal.
         await_reserved: false,
+        script_goal,
     };
     let result = p.parse_program();
     // Private `#x` references parse to `__privu_<site>__<raw>`

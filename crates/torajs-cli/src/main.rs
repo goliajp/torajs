@@ -232,7 +232,7 @@ fn pipeline(
         return ExitCode::SUCCESS;
     }
 
-    let mut ast = match parser::parse(src, &tokens) {
+    let mut ast = match parser::parse_program(src, &tokens, sloppy_goal) {
         Ok(a) => a,
         Err(e) => {
             eprintln!("parse error: {e}");

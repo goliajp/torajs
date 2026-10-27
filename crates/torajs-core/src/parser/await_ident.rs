@@ -95,10 +95,12 @@ impl Parser<'_> {
 
     /// Whether an `await` at THIS expression position reads as a name.
     /// Off wherever the grammar's `[Await]` parameter is on; otherwise
-    /// true when no AwaitExpression could stand here at all, and at a
-    /// program's top level when the next token settles it.
+    /// true when no AwaitExpression could stand here at all, at a
+    /// Script's top level (where none can either), and at a program's
+    /// top level of unknown goal when the next token settles it.
     pub(super) fn await_reads_as_ref(&self) -> bool {
-        self.await_reads_as_ident() && (!self.await_allowed || self.await_next_token_ends_a_name())
+        self.await_reads_as_ident()
+            && (!self.await_allowed || self.script_goal || self.await_next_token_ends_a_name())
     }
 
     /// Record an `await` the parser is about to take as an operator

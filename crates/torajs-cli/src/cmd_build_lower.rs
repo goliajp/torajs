@@ -91,7 +91,7 @@ fn check_program(
     requests: &std::collections::HashSet<String>,
     t: &mut PhaseTimer,
 ) -> Result<(torajs_core::ast::Ast, check::CheckArtifacts, Vec<String>), ExitCode> {
-    let mut ast = parser::parse(src, tokens).map_err(|e| {
+    let mut ast = parser::parse_program(src, tokens, sloppy_goal).map_err(|e| {
         eprintln!("parse error: {e}");
         ExitCode::from(1)
     })?;
